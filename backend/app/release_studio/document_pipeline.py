@@ -8,6 +8,7 @@ Artwork subprocesses stay behind :func:`acquire_views`.
 
 from __future__ import annotations
 
+import csv
 import logging
 import time
 from pathlib import Path
@@ -21,6 +22,7 @@ from app.release_studio.documents.style import DEFAULT_SHEET_STYLE
 from app.release_studio.documents.inputs import DocumentInputs
 from app.release_studio.pipeline import PipelineTracker
 from app.release_studio.steps import DOCUMENT_STEP_SPEC, StepOutput
+from app.services import placement_service
 from app.services.kicad_tools import KicadTool
 
 logger = logging.getLogger(__name__)
@@ -371,31 +373,26 @@ def _documents_step(
 
 
 def _placements(positions_csv: Path) -> list[dict[str, Any]]:
-    """Read side information out of the position file, if one was produced."""
+    """The position file's parts, read as the fabrication viewer reads them.
+
+    ``placement_service`` finds the columns by meaning (KiCad's ``Ref``/``PosX``,
+    the JLCPCB plugin's ``Designator``/``Mid X``) and normalises the side. The
+    sheets use the side and the count; a file that cannot be read degrades them
+    to a zero count rather than failing the build.
+    """
 
     if not positions_csv.is_file():
         return []
-    import csv
-
-    rows: list[dict[str, Any]] = []
     try:
-        text = positions_csv.read_text(encoding="utf-8", errors="replace")
-        for row in csv.DictReader(text.splitlines()):
-            side = (row.get("Side") or row.get("side") or "").strip().lower()
-            rows.append(
-                {
-                    "side": side,
-                    "ref": (row.get("Ref") or row.get("ref") or "").strip(),
-                    # Carried for the testpoint schedule, which is a table of
-                    # where to put a probe and is useless without coordinates.
-                    "x": (row.get("PosX") or row.get("posx") or "").strip(),
-                    "y": (row.get("PosY") or row.get("posy") or "").strip(),
-                    "rotation": (row.get("Rot") or row.get("rot") or "").strip(),
-                }
-            )
-    except Exception:  # noqa: BLE001 - the sheet degrades to a zero count
+        parts, _warnings = placement_service.parse_positions(
+            positions_csv.read_text(encoding="utf-8", errors="replace")
+        )
+    except (placement_service.PlacementError, csv.Error, OSError):
         return []
-    return rows
+    return [
+        {"side": part.side, "ref": part.ref, "x": part.x, "y": part.y, "rotation": part.rotation}
+        for part in parts
+    ]
 
 
 def _commit_date(repo_root: Path, commit: str) -> str:

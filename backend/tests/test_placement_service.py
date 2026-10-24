@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from app.services.placement_service import (
     PlacementError,
@@ -166,10 +168,6 @@ class NaturalKeyTests(unittest.TestCase):
         self.assertEqual(sorted(refs, key=natural_key), ["C1", "R1", "R2", "R10"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ReferenceRangeTests(unittest.TestCase):
     def test_ranges_expand_in_a_bom_cell(self) -> None:
         for cell in ("R1-R4", "R1-4", "R1 - R4", "R1, R2-R3, R4"):
@@ -205,3 +203,30 @@ class PreambleTests(unittest.TestCase):
         with self.assertRaises(PlacementError) as caught:
             parse_positions("a,b\n1,2\n")
         self.assertIn("no ref", str(caught.exception))
+
+
+class DocumentPipelinePlacementsTests(unittest.TestCase):
+    """Release Studio's sheets read the position file with the same parser."""
+
+    def _placements(self, text: str | None):
+        from app.release_studio.document_pipeline import _placements
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "positions.csv"
+            if text is not None:
+                path.write_text(text, encoding="utf-8")
+            return _placements(path)
+
+    def test_kicad_and_jlcpcb_files_give_the_same_shape(self) -> None:
+        kicad = self._placements(KICAD_POS)
+        self.assertEqual([(item["ref"], item["side"]) for item in kicad][:2], [("C1", "top"), ("R10", "bottom")])
+        jlc = self._placements(JLC_CPL)
+        self.assertEqual([(item["ref"], item["side"]) for item in jlc], [("C1", "bottom"), ("C2", "top")])
+
+    def test_a_missing_or_unreadable_file_is_no_placements(self) -> None:
+        self.assertEqual(self._placements(None), [])
+        self.assertEqual(self._placements("a,b\n1,2\n"), [])
+
+
+if __name__ == "__main__":
+    unittest.main()
