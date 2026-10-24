@@ -69,6 +69,12 @@ import { LibraryComponentQuickView } from "./library-component-quick-view";
 
 const PAGE_SIZE = 100;
 const CATALOG_ROW_HEIGHT = 64;
+// Every column has a floor wide enough for its content and grows from there.
+// Text columns used to have none, so a narrow pane or the open quick view
+// squeezed them to nothing and their headers printed over each other. Below the
+// floors the header and rows scroll sideways together instead.
+const CATALOG_GRID_TEMPLATE =
+  "minmax(180px,2.4fr) minmax(120px,1.5fr) minmax(120px,1.5fr) minmax(124px,1fr) minmax(104px,0.9fr) minmax(104px,0.9fr) minmax(130px,1.6fr)";
 const CATALOG_OVERSCAN = 6;
 
 type SortKey = "name" | "manufacturer" | "category" | "package_name" | "availability_state" | "workflow_stage" | "updated_at";
@@ -405,14 +411,6 @@ export function LibraryCatalogWorkspace({
   const [pageInput, setPageInput] = useState("");
   const activeFilterCount = [workflow, availability, validation, category].filter((value) => value !== "all").length;
   const isFiltered = Boolean(urlQuery || activeFilterCount);
-  // Twelve equal columns gave the badge columns a single 1/12 slice, far narrower
-  // than "CAD complete" or "Not run", so they overflowed into their neighbour.
-  // Each column now has a floor wide enough for its content and grows from there.
-  // With the detail panel open the same columns stay present but narrow, so a row
-  // never changes shape under the reader while they are comparing components.
-  const catalogGridTemplate = selectedComponentId
-    ? "minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(112px,0.9fr) minmax(96px,0.8fr) minmax(96px,0.8fr) minmax(0,1.1fr)"
-    : "minmax(0,2.4fr) minmax(0,1.5fr) minmax(0,1.5fr) minmax(124px,1fr) minmax(104px,0.9fr) minmax(104px,0.9fr) minmax(0,1.6fr)";
   const firstItem = total ? (page - 1) * PAGE_SIZE + 1 : 0;
   const lastItem = Math.min(page * PAGE_SIZE, total);
   const firstVisibleRow = Math.max(0, Math.floor(catalogViewport.scrollTop / CATALOG_ROW_HEIGHT) - CATALOG_OVERSCAN);
@@ -490,7 +488,13 @@ export function LibraryCatalogWorkspace({
           <div className="flex min-h-64 flex-1 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading catalog page from the server…</div>
         ) : items.length === 0 ? <CatalogEmpty filtered={isFiltered} onClear={clearFilters} /> : (
           <div className={cn("flex min-h-0 flex-1 flex-col border transition-opacity", loading && "pointer-events-none opacity-60")} aria-busy={loading}>
-            <div className="hidden shrink-0 gap-3 border-b bg-muted/30 px-3 py-2 lg:grid" style={{ gridTemplateColumns: catalogGridTemplate }}>
+            <div
+              ref={catalogViewport.viewportRef}
+              className="min-h-0 flex-1 overflow-auto"
+              onScroll={catalogViewport.onScroll}
+            >
+            <div className="min-w-[980px]">
+            <div className="sticky top-0 z-10 grid gap-3 border-b bg-muted px-3 py-2" style={{ gridTemplateColumns: CATALOG_GRID_TEMPLATE }}>
               <span className="min-w-0"><SortControl label="Component / MPN" sortKey="name" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
               <span className="min-w-0"><SortControl label="Manufacturer" sortKey="manufacturer" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
               <span className="min-w-0"><SortControl label="Category / Package" sortKey="category" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
@@ -499,18 +503,13 @@ export function LibraryCatalogWorkspace({
               <span className="min-w-0 text-xs font-medium text-muted-foreground">Validation</span>
               <span className="min-w-0"><SortControl label="Revision / Updated" sortKey="updated_at" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
             </div>
-            <div
-              ref={catalogViewport.viewportRef}
-              className="min-h-0 flex-1 overflow-auto"
-              onScroll={catalogViewport.onScroll}
-            >
               <div className="relative" style={{ height: items.length * CATALOG_ROW_HEIGHT }}>
               {visibleItems.map((component, visibleIndex) => (
                 <button
                   key={component.id}
                   type="button"
                   className={cn("absolute inset-x-0 grid h-16 w-full items-center gap-3 border-b px-3 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", selectedComponentId === component.id && "bg-secondary")}
-                  style={{ transform: `translateY(${(firstVisibleRow + visibleIndex) * CATALOG_ROW_HEIGHT}px)`, gridTemplateColumns: catalogGridTemplate }}
+                  style={{ transform: `translateY(${(firstVisibleRow + visibleIndex) * CATALOG_ROW_HEIGHT}px)`, gridTemplateColumns: CATALOG_GRID_TEMPLATE }}
                   onClick={() => selectComponent(component)}
                   aria-pressed={selectedComponentId === component.id}
                 >
@@ -524,6 +523,7 @@ export function LibraryCatalogWorkspace({
                 </button>
               ))}
               </div>
+            </div>
             </div>
             <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t bg-muted/20 px-3 py-2">
               <span className="text-xs text-muted-foreground">Page {page.toLocaleString()} of {pages.toLocaleString()}</span>
