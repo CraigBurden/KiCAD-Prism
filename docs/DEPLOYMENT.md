@@ -233,6 +233,11 @@ For a private CA or custom certificate:
 3. distribute the issuing root CA to browsers and KiCad workstations;
 4. start the same `proxy` profile.
 
+If clients reach Prism by a bare LAN IP instead of a DNS name, use that IP as
+the site address, include it in the certificate's subject alternative names,
+and add a global `default_sni` block at the top of `Caddyfile`; see
+[Bare IP addresses](HTTPS_AND_TLS.md#bare-ip-addresses).
+
 If the host already uses port 80 or 443, set `PRISM_CADDY_HTTP_PORT` and
 `PRISM_CADDY_HTTPS_PORT` in `.env` and include the HTTPS port in the public
 origin. Public ACME issuance with `Caddyfile` needs 80 and 443 reachable, so use
