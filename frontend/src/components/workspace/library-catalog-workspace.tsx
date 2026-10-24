@@ -2,11 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   ArrowDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   ArrowUp,
   ChevronsUpDown,
   CircleAlert,
   CircleDashed,
-  Database,
   FilterX,
   Library,
   Loader2,
@@ -23,6 +26,7 @@ import {
 import { toast } from "sonner";
 
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -205,11 +209,10 @@ function ValidationBadge({ status }: { status: CatalogValidationStatus }) {
 
 function CatalogEmpty({ filtered, onClear }: { filtered: boolean; onClear: () => void }) {
   return (
-    <div className="flex min-h-64 flex-col items-center justify-center gap-2 border border-dashed p-8 text-center">
-      <Library className="h-8 w-8 text-muted-foreground" />
-      <p className="text-sm font-medium">{filtered ? "No components match this query" : "The component catalog is empty"}</p>
-      <p className="max-w-xl text-xs text-muted-foreground">{filtered ? "Search and filters run on the server. Clear them to return to the complete catalog." : "Create a metadata record or import components from existing KiCad projects to get started."}</p>
-      {filtered ? <Button size="sm" variant="outline" className="mt-2" onClick={onClear}><FilterX className="h-3.5 w-3.5" /> Clear search and filters</Button> : null}
+    <div className="flex min-h-64 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+      <Library className="size-6" aria-hidden />
+      {filtered ? "No matches" : "No components"}
+      {filtered ? <Button size="sm" variant="outline" onClick={onClear}><FilterX className="h-3.5 w-3.5" /> Clear filters</Button> : null}
     </div>
   );
 }
@@ -231,7 +234,7 @@ function CreateComponentDialog({
 
   const handleSubmit = async () => {
     if (!canSubmit) {
-      toast.error("Complete every required component field and the change summary.");
+      toast.error("Required fields missing");
       return;
     }
     setSubmitting(true);
@@ -246,7 +249,7 @@ function CreateComponentDialog({
         package_name: form.packageName.trim(),
         change_summary: form.changeSummary.trim(),
       });
-      toast.success(`${component.name} created as revision v${component.revision}.`);
+      toast.success(`${component.name} v${component.revision} created`);
       setForm(EMPTY_CREATE_FORM);
       onOpenChange(false);
       onCreated(component);
@@ -261,8 +264,8 @@ function CreateComponentDialog({
     <Dialog open={open} onOpenChange={(next) => { if (!submitting) onOpenChange(next); }}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Create component record</DialogTitle>
-          <DialogDescription>Create the first immutable metadata revision, then attach and validate CAD assets in the component workspace.</DialogDescription>
+          <DialogTitle>New component</DialogTitle>
+          <DialogDescription className="sr-only">First metadata revision of a new component</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2"><Label htmlFor="catalog-create-value">Value *</Label><Input id="catalog-create-value" autoFocus required value={form.value} onChange={(event) => setField("value", event.target.value)} placeholder="10 kΩ, TPS55289, USB-C…" /></div>
@@ -271,8 +274,8 @@ function CreateComponentDialog({
           <div className="space-y-2"><Label htmlFor="catalog-create-datasheet">Datasheet URL *</Label><Input id="catalog-create-datasheet" type="url" required value={form.datasheet} onChange={(event) => setField("datasheet", event.target.value)} placeholder="https://…" /></div>
           <div className="space-y-2"><Label htmlFor="catalog-create-category">Category</Label><Input id="catalog-create-category" value={form.category} onChange={(event) => setField("category", event.target.value)} placeholder="Power management" /></div>
           <div className="space-y-2"><Label htmlFor="catalog-create-package">Package</Label><Input id="catalog-create-package" value={form.packageName} onChange={(event) => setField("packageName", event.target.value)} placeholder="VQFN-24" /></div>
-          <div className="space-y-2 sm:col-span-2"><Label htmlFor="catalog-create-description">Description *</Label><Textarea id="catalog-create-description" required value={form.description} onChange={(event) => setField("description", event.target.value)} placeholder="Concise engineering description and key function…" rows={3} /></div>
-          <div className="space-y-2 sm:col-span-2"><Label htmlFor="catalog-create-summary">Change summary *</Label><Input id="catalog-create-summary" required value={form.changeSummary} onChange={(event) => setField("changeSummary", event.target.value)} placeholder="Why this component record is being introduced" /></div>
+          <div className="space-y-2 sm:col-span-2"><Label htmlFor="catalog-create-description">Description *</Label><Textarea id="catalog-create-description" required value={form.description} onChange={(event) => setField("description", event.target.value)} rows={3} /></div>
+          <div className="space-y-2 sm:col-span-2"><Label htmlFor="catalog-create-summary">Change summary *</Label><Input id="catalog-create-summary" required value={form.changeSummary} onChange={(event) => setField("changeSummary", event.target.value)} /></div>
         </div>
         <DialogFooter>
           <Button variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -443,49 +446,39 @@ export function LibraryCatalogWorkspace({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <header className="shrink-0 border-b bg-card">
-        <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
-          <div>
-            <div className="flex items-center gap-2"><Database className="h-5 w-5 text-primary" /><h2 className="text-lg font-semibold">Component Catalog</h2></div>
-          </div>
-          <div className="flex items-center gap-2">
-            {canAdministerCatalog(user?.role) ? <LibraryCatalogFileCheck /> : null}
-            <Button size="sm" variant="outline" aria-label="Refresh component catalog" disabled={loading} onClick={refreshCatalog}><RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh</Button>
-            {/* Shown disabled rather than hidden: a reader who cannot find the
-                button assumes the feature is missing, where a disabled one that
-                explains itself tells them exactly what to ask for. */}
-            <PermissionHint blocked={!canCreate} action="create catalog components" allowedRoles={["designer", "admin"]}>
-              <Button size="sm" disabled={!canCreate} onClick={() => setCreateOpen(true)}><Plus className="h-3.5 w-3.5" /> New component</Button>
-            </PermissionHint>
-          </div>
+      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b bg-card px-3 py-2">
+        <div className="relative min-w-48 flex-1 lg:max-w-sm">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input data-shortcut-search aria-label="Search component catalog" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" className="h-8 pl-8 pr-8 text-xs" />
+          {query ? <Button size="icon-sm" variant="ghost" aria-label="Clear catalog search" title="Clear" className="absolute right-0.5 top-1/2 -translate-y-1/2" onClick={() => setQuery("")}><X className="h-3.5 w-3.5" /></Button> : null}
         </div>
-        <div className="flex flex-wrap items-center gap-2 border-t px-4 py-2">
-          <div className="relative min-w-64 flex-1 lg:max-w-md">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input data-shortcut-search aria-label="Search component catalog" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search MPN, value, description, manufacturer…" className="h-8 pl-8 pr-8 text-xs" />
-            {query ? <button type="button" aria-label="Clear catalog search" className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => setQuery("")}><X className="h-3.5 w-3.5" /></button> : null}
-          </div>
-          <Select value={workflow} onValueChange={(value) => updateCatalogParams({ catalogWorkflow: value === "all" ? null : value, catalogPage: null })}><SelectTrigger size="sm" aria-label="Filter by workflow"><SelectValue placeholder="Workflow" /></SelectTrigger><SelectContent><SelectItem value="all">All workflow stages</SelectItem>{Object.entries(WORKFLOW_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
-          <Select value={availability} onValueChange={(value) => updateCatalogParams({ catalogAvailability: value === "all" ? null : value, catalogPage: null })}><SelectTrigger size="sm" aria-label="Filter by CAD availability"><SelectValue placeholder="CAD availability" /></SelectTrigger><SelectContent><SelectItem value="all">All CAD states</SelectItem>{Object.entries(AVAILABILITY_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
-          <Select value={validation} onValueChange={(value) => updateCatalogParams({ catalogValidation: value === "all" ? null : value, catalogPage: null })}><SelectTrigger size="sm" aria-label="Filter by validation"><SelectValue placeholder="Validation" /></SelectTrigger><SelectContent><SelectItem value="all">All validation states</SelectItem>{Object.entries(VALIDATION_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
-          <Select value={category} onValueChange={(value) => updateCatalogParams({ catalogCategory: value === "all" ? null : value, catalogPage: null })}><SelectTrigger size="sm" aria-label="Filter by category" className="max-w-48"><SelectValue placeholder="Category" /></SelectTrigger><SelectContent><SelectItem value="all">All categories</SelectItem><SelectItem value="uncategorized">Uncategorized</SelectItem>{categories.flatMap((item) => (item.name ? [<SelectItem key={item.name} value={item.name}>{item.name} ({item.count})</SelectItem>] : []))}</SelectContent></Select>
-          {isFiltered ? <Button size="sm" variant="ghost" className="h-7" onClick={clearFilters}><FilterX className="h-3.5 w-3.5" /> Clear {activeFilterCount ? `(${activeFilterCount})` : ""}</Button> : null}
+        <Select value={workflow} onValueChange={(value) => updateCatalogParams({ catalogWorkflow: value === "all" ? null : value, catalogPage: null })}><SelectTrigger size="sm" aria-label="Filter by workflow"><SelectValue placeholder="Workflow" /></SelectTrigger><SelectContent><SelectItem value="all">Any workflow</SelectItem>{Object.entries(WORKFLOW_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
+        <Select value={availability} onValueChange={(value) => updateCatalogParams({ catalogAvailability: value === "all" ? null : value, catalogPage: null })}><SelectTrigger size="sm" aria-label="Filter by CAD availability"><SelectValue placeholder="CAD" /></SelectTrigger><SelectContent><SelectItem value="all">Any CAD</SelectItem>{Object.entries(AVAILABILITY_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
+        <Select value={validation} onValueChange={(value) => updateCatalogParams({ catalogValidation: value === "all" ? null : value, catalogPage: null })}><SelectTrigger size="sm" aria-label="Filter by validation"><SelectValue placeholder="Validation" /></SelectTrigger><SelectContent><SelectItem value="all">Any validation</SelectItem>{Object.entries(VALIDATION_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
+        <Select value={category} onValueChange={(value) => updateCatalogParams({ catalogCategory: value === "all" ? null : value, catalogPage: null })}><SelectTrigger size="sm" aria-label="Filter by category" className="max-w-48"><SelectValue placeholder="Category" /></SelectTrigger><SelectContent><SelectItem value="all">Any category</SelectItem><SelectItem value="uncategorized">Uncategorized</SelectItem>{categories.flatMap((item) => (item.name ? [<SelectItem key={item.name} value={item.name}>{item.name} ({item.count})</SelectItem>] : []))}</SelectContent></Select>
+        {isFiltered ? <Button size="sm" variant="ghost" className="h-7" title="Clear filters" onClick={clearFilters}><FilterX className="h-3.5 w-3.5" />{activeFilterCount ? activeFilterCount : null}</Button> : null}
+        <div className="ml-auto flex items-center gap-1.5">
+          {canAdministerCatalog(user?.role) ? <LibraryCatalogFileCheck /> : null}
+          <Button size="icon-sm" variant="outline" aria-label="Refresh component catalog" title="Refresh" disabled={loading} onClick={refreshCatalog}><RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /></Button>
+          {/* Shown disabled rather than hidden: a reader who cannot find the
+              button assumes the feature is missing. */}
+          <PermissionHint blocked={!canCreate} action="create catalog components" allowedRoles={["designer", "admin"]}>
+            <Button size="sm" disabled={!canCreate} onClick={() => setCreateOpen(true)}><Plus className="h-3.5 w-3.5" /> New</Button>
+          </PermissionHint>
         </div>
       </header>
 
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col p-4">
-        <div className="mb-2 flex shrink-0 items-center justify-between gap-3 text-xs text-muted-foreground">
-          <span aria-live="polite">{loading ? "Querying catalog index…" : `${firstItem.toLocaleString()}–${lastItem.toLocaleString()} of ${total.toLocaleString()} components`}</span>
-          <span>100 rows per page · server-side search and sort</span>
-        </div>
 
         {error ? (
-          <div className="flex min-h-64 flex-1 items-center justify-center">
-            <div className="max-w-xl border border-destructive bg-destructive/10 p-5 text-center"><CircleAlert className="mx-auto h-6 w-6 text-destructive" /><p className="mt-2 text-sm font-medium">Catalog query failed</p><p className="mt-1 text-xs text-muted-foreground">{error}</p><Button className="mt-4" size="sm" variant="outline" onClick={refreshCatalog}><RefreshCw className="h-3.5 w-3.5" /> Retry</Button></div>
-          </div>
+          <Alert variant="destructive" className="max-w-xl self-center">
+            <CircleAlert />
+            <AlertTitle>Catalog not loaded</AlertTitle>
+            <AlertDescription className="flex items-center justify-between gap-3"><span className="truncate" title={error}>{error}</span><Button size="sm" variant="outline" onClick={refreshCatalog}><RefreshCw className="h-3.5 w-3.5" /> Retry</Button></AlertDescription>
+          </Alert>
         ) : loading && items.length === 0 ? (
-          <div className="flex min-h-64 flex-1 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading catalog page from the server…</div>
+          <div className="flex min-h-64 flex-1 items-center justify-center text-muted-foreground" aria-label="Loading"><Loader2 className="h-4 w-4 animate-spin" /></div>
         ) : items.length === 0 ? <CatalogEmpty filtered={isFiltered} onClear={clearFilters} /> : (
           <div className={cn("flex min-h-0 flex-1 flex-col border transition-opacity", loading && "pointer-events-none opacity-60")} aria-busy={loading}>
             <div
@@ -526,11 +519,12 @@ export function LibraryCatalogWorkspace({
             </div>
             </div>
             <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t bg-muted/20 px-3 py-2">
-              <span className="text-xs text-muted-foreground">Page {page.toLocaleString()} of {pages.toLocaleString()}</span>
+              <span className="text-xs text-muted-foreground" aria-live="polite">{firstItem.toLocaleString()}–{lastItem.toLocaleString()} of {total.toLocaleString()}</span>
               <nav className="flex items-center gap-1" aria-label="Catalog pagination">
-                <Button size="sm" variant="outline" className="h-7" disabled={loading || page <= 1} onClick={() => updateCatalogParams({ catalogPage: null })}>First</Button>
-                <Button size="sm" variant="outline" className="h-7" disabled={loading || page <= 1} onClick={() => updateCatalogParams({ catalogPage: page - 1 > 1 ? String(page - 1) : null })}>Previous</Button>
-                {/* Stepping to page 173 of 240 one click at a time is not a workflow. */}
+                <Button size="icon-sm" variant="outline" aria-label="First page" title="First page" disabled={loading || page <= 1} onClick={() => updateCatalogParams({ catalogPage: null })}><ChevronsLeft className="h-3.5 w-3.5" /></Button>
+                <Button size="icon-sm" variant="outline" aria-label="Previous page" title="Previous page" disabled={loading || page <= 1} onClick={() => updateCatalogParams({ catalogPage: page - 1 > 1 ? String(page - 1) : null })}><ChevronLeft className="h-3.5 w-3.5" /></Button>
+                {/* Stepping to page 173 of 240 one click at a time is not a workflow:
+                    type a page and press Enter. */}
                 <form
                   className="flex items-center gap-1 px-1"
                   onSubmit={(event) => {
@@ -553,10 +547,10 @@ export function LibraryCatalogWorkspace({
                     onChange={(event) => setPageInput(event.target.value.replace(/[^0-9]/g, ""))}
                     aria-label={`Go to page, ${pages} pages available`}
                   />
-                  <Button type="submit" size="sm" variant="outline" className="h-7" disabled={loading || !pageInput}>Go</Button>
+                  <span className="text-xs text-muted-foreground">/ {pages.toLocaleString()}</span>
                 </form>
-                <Button size="sm" variant="outline" className="h-7" disabled={loading || page >= pages} onClick={() => updateCatalogParams({ catalogPage: String(Math.min(pages, page + 1)) })}>Next</Button>
-                <Button size="sm" variant="outline" className="h-7" disabled={loading || page >= pages} onClick={() => updateCatalogParams({ catalogPage: String(pages) })}>Last</Button>
+                <Button size="icon-sm" variant="outline" aria-label="Next page" title="Next page" disabled={loading || page >= pages} onClick={() => updateCatalogParams({ catalogPage: String(Math.min(pages, page + 1)) })}><ChevronRight className="h-3.5 w-3.5" /></Button>
+                <Button size="icon-sm" variant="outline" aria-label="Last page" title="Last page" disabled={loading || page >= pages} onClick={() => updateCatalogParams({ catalogPage: String(pages) })}><ChevronsRight className="h-3.5 w-3.5" /></Button>
               </nav>
             </div>
           </div>
