@@ -37,7 +37,6 @@ from app.release_studio.documents.sheet_drawing import (
     _DNP_SWATCH,
     _HEADING_INSET,
     _board_size,
-    _dimension_rect,
     _draw_artwork,
     _draw_dnp_legend,
     _draw_view_direction,
@@ -45,7 +44,6 @@ from app.release_studio.documents.sheet_drawing import (
     _draw_board_render,
     _drawn_width,
     _view_caption,
-    draw_overall_dimensions,
 )
 from app.release_studio.documents.style import DEFAULT_SHEET_STYLE, MUTED, PRISM_STYLE
 from app.release_studio.documents.worksheet import default_worksheet_elements
@@ -642,7 +640,7 @@ def fabrication_sheet(
     notes_carried = False
     if column is None:
         noted = _noted_window(size, title_height, sheet_notes, typography)
-        if _art_fits(noted, art, scale):
+        if _art_fits(noted, art, scale, dimensioned=True, room_below=_TABLE_GAP):
             window = noted
         else:
             # No room for the notes under the drawing at the set's ratio:
@@ -657,15 +655,8 @@ def fabrication_sheet(
         label="board artwork",
         scale=scale,
         sheet_style=sheet_style,
+        overall=_board_size(stats),
     )
-    board_w, board_h, width_label, height_label = _board_size(stats)
-    if art is not None and used > 0 and board_w > 0 and board_h > 0:
-        draw_overall_dimensions(
-            builder,
-            _dimension_rect(art, window, used, board_w, board_h),
-            width_label=width_label,
-            height_label=height_label,
-        )
 
     if column is not None:
         cursor = _draw_column(builder, column[0], (area.x, area.y))
