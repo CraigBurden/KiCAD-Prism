@@ -61,7 +61,10 @@ export function SignOffCards({
                 {...shared}
             />
             {approvals?.published ? (
-                <p className="text-xs text-muted-foreground">
+                <p
+                    className="truncate text-xs text-muted-foreground"
+                    title={`Published ${approvals.published.tag} by ${approvals.published.published_by}`}
+                >
                     Published {approvals.published.tag} by {approvals.published.published_by}
                 </p>
             ) : null}

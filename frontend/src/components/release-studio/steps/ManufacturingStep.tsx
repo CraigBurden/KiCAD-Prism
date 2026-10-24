@@ -275,11 +275,6 @@ function IpcSelect({
                             onChange(event.target.value);
                         }}
                     />
-                    {!custom.trim() && (
-                        <p className="text-xs text-muted-foreground">
-                            Type the value to print, or this field is left off the drawing.
-                        </p>
-                    )}
                 </>
             )}
         </div>

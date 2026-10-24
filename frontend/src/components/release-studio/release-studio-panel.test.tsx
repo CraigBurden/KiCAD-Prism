@@ -534,7 +534,7 @@ describe("ReleaseStudioPanel", () => {
         render(<ReleaseStudioPanel projectId="p1" canMutate />);
         fireEvent.click(await screen.findByRole("tab", { name: /^history$/i }));
         fireEvent.click(await screen.findByRole("button", { name: /succeeded.*attempt 1/i }));
-        await waitFor(() => expect(screen.getByText("succeeded")).toBeTruthy());
+        await waitFor(() => expect(within(screen.getByLabelText("Release identity")).getByText("succeeded")).toBeTruthy());
 
         fireEvent.click(screen.getByRole("button", { name: /failed.*attempt 2/i }));
 
@@ -812,7 +812,8 @@ describe("ReleaseStudioPanel", () => {
         render(<ReleaseStudioPanel projectId="p1" canMutate />);
         fireEvent.click(await screen.findByRole("tab", { name: /^history$/i }));
         const run = await screen.findByRole("button", { name: /succeeded.*attempt 1/i });
-        expect(within(run).getByText("succeeded")).toBeTruthy();
+        // The status is the row's dot; its name and title carry the word.
+        expect(run).toHaveAccessibleName(/succeeded/);
         expect(within(run).getByText("published")).toBeTruthy();
     });
 

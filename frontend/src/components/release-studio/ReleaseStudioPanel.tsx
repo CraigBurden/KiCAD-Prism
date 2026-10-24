@@ -622,7 +622,7 @@ export function ReleaseStudioPanel({
 
                     {!selectedBuildId && !building && !drafting ? (
                         <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
-                            {canMutate ? "Select a run, or start a new release." : "Select a run from History."}
+                            No run selected
                         </div>
                     ) : (
                         <div className="flex min-h-0 min-w-0 flex-1">

@@ -8,7 +8,7 @@ export function PackRequirementTiles({ profile, readiness }: { profile?: VendorP
     const missing = new Set(readiness?.missing_requirements ?? []);
     const requirements = profile?.required_pack_artifacts ?? [];
     if (requirements.length === 0) {
-        return <p className="text-sm text-muted-foreground">Pack requirements are not available.</p>;
+        return <p className="text-sm text-muted-foreground">No pack requirements</p>;
     }
     return (
         <div className="flex flex-wrap gap-1">

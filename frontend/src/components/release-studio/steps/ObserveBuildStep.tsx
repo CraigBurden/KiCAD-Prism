@@ -90,7 +90,7 @@ export function ObserveBuildStep({
                 <div className="min-w-0 flex-1 space-y-2">
                     <h3 className="text-lg font-semibold">Build</h3>
                     <p className="text-sm text-muted-foreground">
-                        {jobStatus ? `Run ${jobStatus}` : "Waiting for the worker."}
+                        {jobStatus ? `Run ${jobStatus}` : "Queued"}
                         {message ? ` — ${message}` : ""}
                     </p>
                     <div

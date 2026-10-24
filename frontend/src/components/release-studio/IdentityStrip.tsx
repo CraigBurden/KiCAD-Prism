@@ -29,13 +29,14 @@ export function IdentityStrip({
     return (
         <div
             aria-label="Release identity"
-            className="ml-auto flex min-w-0 flex-wrap items-center gap-1.5 text-xs leading-none"
+            className="ml-auto flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs leading-none"
+            title={`${commit} · ${status} · ${resolvedVariant} · ${documentName} · Rev ${revision}`}
         >
-            <span className="font-mono text-muted-foreground">{commit.slice(0, 12) || "HEAD"}</span>
-            <Badge variant="outline" className="h-5 px-1.5">{status}</Badge>
-            <span className="text-muted-foreground">{resolvedVariant}</span>
-            <span className="truncate">{documentName}</span>
-            <span className="text-muted-foreground">Rev {revision}</span>
+            <span className="shrink-0 font-mono text-muted-foreground">{commit.slice(0, 12) || "HEAD"}</span>
+            <Badge variant="outline" className="h-5 shrink-0 px-1.5">{status}</Badge>
+            <span className="truncate text-muted-foreground">{resolvedVariant}</span>
+            <span className="min-w-0 truncate">{documentName}</span>
+            <span className="min-w-0 truncate text-muted-foreground">Rev {revision}</span>
             {behind && (
                 <Button size="xs" variant="outline" onClick={onJumpToLatest}>
                     Jump to latest

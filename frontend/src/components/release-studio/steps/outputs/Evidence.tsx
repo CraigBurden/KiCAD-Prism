@@ -24,7 +24,7 @@ export function EvidenceWarnings({
     const groups = groupedWarningLines(warnings ?? []);
     const electrical = evidence.filter((item) => Object.keys(item.counts).length > 0);
     if (electrical.length === 0 && groups.length === 0) {
-        return <p className="text-sm text-muted-foreground">No DRC/ERC evidence on this build.</p>;
+        return <p className="text-sm text-muted-foreground">No DRC or ERC evidence</p>;
     }
 
     return (
@@ -111,7 +111,7 @@ function ElectricalEvidenceCard({
                     )}
                     {loadError && <p className="text-sm text-destructive">{loadError}</p>}
                     {violations && grouped.length === 0 && !loadError && (
-                        <p className="text-sm text-muted-foreground">No listed violations in this report.</p>
+                        <p className="text-sm text-muted-foreground">No violations listed</p>
                     )}
                     {grouped.map((group) => (
                         <div key={`${group.severity}-${group.type}`}>

@@ -1,7 +1,14 @@
+import { Lock } from "lucide-react";
+
 import type { BuildDetail, ReleaseConfiguration } from "./types";
 
 export function LockedStage() {
-    return <div className="rounded border border-dashed p-4 text-sm text-muted-foreground">Locked until the build finishes.</div>;
+    return (
+        <div className="flex items-center gap-2 rounded border border-dashed p-4 text-sm text-muted-foreground" title="Opens when the build finishes">
+            <Lock className="h-4 w-4" aria-hidden />
+            Locked
+        </div>
+    );
 }
 
 export function SourceDetails({ detail }: { detail: BuildDetail }) {
@@ -61,9 +68,9 @@ function SnapshotDetails({ title, rows }: { title: string; rows: [string, string
             <h3 className="text-lg font-semibold">{title}</h3>
             <dl className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2">
                 {rows.map(([label, value]) => (
-                    <div key={label} className="space-y-1">
+                    <div key={label} className="min-w-0 space-y-1">
                         <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
-                        <dd className="break-all text-sm">{value}</dd>
+                        <dd className="truncate text-sm" title={value}>{value}</dd>
                     </div>
                 ))}
             </dl>

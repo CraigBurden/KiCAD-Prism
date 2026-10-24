@@ -194,7 +194,7 @@ export function InspectOutputsStep({
                             ) : null}
                         </Tabs>
                     ) : (
-                        <p className="p-3 text-sm text-muted-foreground">No composed documents for this build.</p>
+                        <p className="p-3 text-sm text-muted-foreground">No documents</p>
                     )
                 )}
                 {outputView === "fabrication" && hasFabrication && (
