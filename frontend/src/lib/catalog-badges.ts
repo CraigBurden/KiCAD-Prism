@@ -12,16 +12,19 @@ type BadgeVariant = "default" | "secondary" | "destructive" | "success" | "warni
  * The scheme is deliberately not "one colour per value": neutral means nothing is
  * owed, amber means someone is owed an action, red means something is wrong. That
  * way a long catalog page can be scanned for problems rather than read.
+ *
+ * Neutral is the filled "secondary" badge, never "outline": an outlined chip reads
+ * as a button.
  */
 
 export const AVAILABILITY_BADGE_VARIANT: Record<AvailabilityState, BadgeVariant> = {
   place_ready: "success",
   files_partial: "warning",
-  metadata_only: "outline",
+  metadata_only: "secondary",
 };
 
 export const WORKFLOW_BADGE_VARIANT: Record<WorkflowStage, BadgeVariant> = {
-  open: "outline",
+  open: "secondary",
   in_progress: "info",
   qa_review: "warning",
   done: "success",
@@ -34,7 +37,7 @@ export const VALIDATION_BADGE_VARIANT: Record<CatalogValidationStatus, BadgeVari
   warning: "warning",
   failed: "destructive",
   skipped: "secondary",
-  not_run: "outline",
+  not_run: "secondary",
 };
 
 export const WORKFLOW_BADGE_TITLE: Record<WorkflowStage, string> = {

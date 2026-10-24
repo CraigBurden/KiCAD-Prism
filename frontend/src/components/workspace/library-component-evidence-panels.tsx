@@ -267,7 +267,7 @@ function RevisionDiffView({ diff }: { diff: CatalogRevisionDiff }) {
         </Button>
       </div>
 
-      <PanelCard title="Metadata diff" description="Fields are compared from immutable revision snapshots.">
+      <PanelCard title="Metadata diff">
         {metadata.length ? (
           <div className="overflow-x-auto">
             <div className="min-w-2xl">
@@ -283,12 +283,11 @@ function RevisionDiffView({ diff }: { diff: CatalogRevisionDiff }) {
               ))}
             </div>
           </div>
-        ) : <EmptyState icon={CheckCircle2} title="No metadata changes" detail="These revisions contain identical metadata." />}
+        ) : <EmptyState icon={CheckCircle2} title="No metadata changes" />}
       </PanelCard>
 
       <PanelCard
         title="Symbol and footprint diff"
-        description="Pan, zoom, and swipe between revision-bound previews. 3D and SPICE assets remain versioned in the Assets tab."
         action={(
           <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Visual diff display mode">
             <Button size="sm" variant={visualMode === "side-by-side" ? "secondary" : "ghost"} aria-pressed={visualMode === "side-by-side"} onClick={() => setVisualMode("side-by-side")}><Columns2 className="h-3.5 w-3.5" /> Side by side</Button>
@@ -311,7 +310,7 @@ function RevisionDiffView({ diff }: { diff: CatalogRevisionDiff }) {
               </div>
             ))}
           </div>
-        ) : <EmptyState icon={CheckCircle2} title="No asset changes" detail="All attached files have the same content hashes." />}
+        ) : <EmptyState icon={CheckCircle2} title="No asset changes" />}
       </PanelCard>
     </div>
   );
@@ -341,7 +340,6 @@ export function RevisionsPanel({
       <PanelCard
         className="xl:col-span-1"
         title="Revision history"
-        description={`${revisions.length} immutable revision${revisions.length === 1 ? "" : "s"}.`}
         action={activeRevisionId !== currentRevisionId ? <Button size="sm" variant="outline" onClick={onCurrent}>Current</Button> : undefined}
       >
         <div className="space-y-2">
@@ -372,7 +370,7 @@ export function RevisionsPanel({
 
       <div className="xl:col-span-3">
         {diffLoading ? <LoadingState label="Calculating revision diff…" /> : diff ? <RevisionDiffView diff={diff} /> : (
-          <EmptyState icon={FileDiff} title="Choose a comparison" detail="Compare a historical revision with the current revision, or compare the current revision with its parent." />
+          <EmptyState icon={FileDiff} title="Choose a comparison" />
         )}
       </div>
     </div>
@@ -391,7 +389,7 @@ function ReleaseRecordsPanel({
   title?: string;
 }) {
   return (
-    <PanelCard title={title} description="Immutable publication records bind the released files to approval and policy evidence.">
+    <PanelCard title={title}>
       {releases.length ? (
         <div className="space-y-3">
           {releases.map((release) => {
@@ -460,7 +458,7 @@ function ReleaseRecordsPanel({
             );
           })}
         </div>
-      ) : <EmptyState icon={PackageCheck} title="No publication records" detail="A release record will be created when an approved revision is published." />}
+      ) : <EmptyState icon={PackageCheck} title="No publication records" />}
     </PanelCard>
   );
 }
@@ -607,7 +605,7 @@ export function ReleaseReviewPanel({
       ) : null}
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <PanelCard title="Release readiness" description="Evidence is evaluated against the exact revision under review.">
+        <PanelCard title="Release readiness">
           <div className="divide-y divide-border">
             {checks.map((check) => (
               check.label === "KLC validation" ? <KlcValidationEvidence key={check.label} component={component} historical={historical} /> : (
@@ -620,7 +618,7 @@ export function ReleaseReviewPanel({
           </div>
         </PanelCard>
 
-        <PanelCard title="Decision" description="Every approval, rejection, override, and release is recorded separately from the audit log.">
+        <PanelCard title="Decision">
           <div className="space-y-4">
             <DefinitionRows rows={[
               { label: "Current stage", value: WORKFLOW_LABELS[workflowStage(component)] },
@@ -642,11 +640,11 @@ export function ReleaseReviewPanel({
         </PanelCard>
       </div>
 
-      <PanelCard title="Changes under review" description={component.parent_revision_id ? `Diff from parent to v${component.revision}.` : "The initial revision has no parent comparison."}>
-        {diffLoading ? <LoadingState label="Loading review evidence…" /> : diff ? <RevisionDiffView diff={diff} /> : <EmptyState icon={FileDiff} title="No parent revision" detail="This is the first immutable revision for the component." />}
+      <PanelCard title="Changes under review">
+        {diffLoading ? <LoadingState label="Loading review evidence…" /> : diff ? <RevisionDiffView diff={diff} /> : <EmptyState icon={FileDiff} title="No parent revision" />}
       </PanelCard>
 
-      <PanelCard title="Structured review record" description="Review decisions remain queryable without parsing generic activity logs.">
+      <PanelCard title="Structured review record">
         {activeReviews.length ? (
           <div className="divide-y divide-border">
             {activeReviews.map((review) => (
@@ -660,7 +658,7 @@ export function ReleaseReviewPanel({
               </div>
             ))}
           </div>
-        ) : <EmptyState icon={UserRoundCheck} title="No decisions yet" detail="The first review action for this revision will appear here." />}
+        ) : <EmptyState icon={UserRoundCheck} title="No decisions yet" />}
       </PanelCard>
 
       <ReleaseRecordsPanel releases={releases} reviews={reviews} />
@@ -679,7 +677,7 @@ export function WhereUsedPanel({ usage, projects }: { usage: CatalogComponentUsa
         <MetricCard label="Pinned revisions" value={usage.length} detail="Commit-specific usage records" />
         <MetricCard label="References" value={referenceCount} detail="Resolved schematic instances" />
       </div>
-      <PanelCard title="Project usage" description="Every record is pinned to the source commit used during import.">
+      <PanelCard title="Project usage">
         {usage.length ? (
           <div className="divide-y divide-border">
             {usage.map((entry) => (
@@ -700,7 +698,7 @@ export function WhereUsedPanel({ usage, projects }: { usage: CatalogComponentUsa
               </div>
             ))}
           </div>
-        ) : <EmptyState icon={Link2} title="No known usage" detail="Project imports will add commit-pinned references here. Absence is not proof that the part is unused outside Prism." />}
+        ) : <EmptyState icon={Link2} title="No known usage" />}
       </PanelCard>
     </div>
   );
@@ -749,7 +747,7 @@ export function AuditPanel({
 
       <ReleaseRecordsPanel releases={releases} reviews={reviews} title="Immutable release ledger" />
 
-      <PanelCard title="Tamper-evident activity" description="Each event includes the previous event hash, actor, exact revision, and structured details.">
+      <PanelCard title="Tamper-evident activity">
         {events.length ? (
           <ol className="space-y-0">
             {events.map((event, index) => {
@@ -774,7 +772,7 @@ export function AuditPanel({
               );
             })}
           </ol>
-        ) : <EmptyState icon={History} title="No audit events" detail="Finalized revisions and workflow changes will appear here." />}
+        ) : <EmptyState icon={History} title="No audit events" />}
       </PanelCard>
     </div>
   );

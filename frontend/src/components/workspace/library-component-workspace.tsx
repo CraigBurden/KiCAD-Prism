@@ -3,7 +3,6 @@ import {
   Archive,
   ArrowLeft,
   Boxes,
-  ChevronRight,
   CircleAlert,
   CircleDashed,
   Clock3,
@@ -13,7 +12,6 @@ import {
   FileBox,
   FileCheck2,
   GitCompareArrows,
-  Library,
   Link2,
   Layers3,
   Loader2,
@@ -29,6 +27,13 @@ import {
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { inventoryWarnings } from "@/lib/inventory-presentation";
+import {
+  AVAILABILITY_BADGE_TITLE,
+  AVAILABILITY_BADGE_VARIANT,
+  VALIDATION_BADGE_VARIANT,
+  WORKFLOW_BADGE_TITLE,
+  WORKFLOW_BADGE_VARIANT,
+} from "@/lib/catalog-badges";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,6 +49,9 @@ import {
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { StudioTabsList, StudioTabsTrigger } from "@/components/ui/studio-tabs";
+import { Tabs } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -71,7 +79,6 @@ import {
   verifyComponentAudit,
 } from "./catalog-client";
 import { canAdministerCatalog, canReviewCatalogQa, canWriteCatalog, workflowStage } from "@/lib/roles";
-import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
 import type {
   AvailabilityState,
@@ -214,7 +221,7 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
           <strong>Provisional component.</strong> Add the real manufacturer part number before approval, release, inventory synchronization, or placement.
         </div>
       ) : null}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         <MetricCard label="Release state" value={WORKFLOW_LABELS[workflowStage(component)]} detail={`Revision v${component.revision}`} />
         <MetricCard label="Required assets" value={`${requiredAttached}/${requiredAttached + component.missing_assets.length}`} detail={component.missing_assets.length ? `Missing ${component.missing_assets.join(", ")}` : "All required assets attached"} />
         <MetricCard label="Validation" value={VALIDATION_LABELS[component.validation.status]} detail={`${component.validation.error_count} errors · ${component.validation.warning_count} warnings`} />
@@ -224,7 +231,6 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
       <div className="grid gap-4 xl:grid-cols-2">
         <PanelCard
           title="Component identity"
-          description="Canonical catalog metadata for this revision."
           action={canMutate ? <Button size="sm" variant="outline" onClick={onEdit}><Edit3 className="h-3.5 w-3.5" /> Edit metadata</Button> : undefined}
         >
           <DefinitionRows rows={[
@@ -239,7 +245,7 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
           ]} />
         </PanelCard>
 
-        <PanelCard title="Engineering data" description="Thermal, sourcing, and enterprise attributes.">
+        <PanelCard title="Engineering data">
           <DefinitionRows rows={[
             ...engineeringRows,
             { label: "Vendor", value: component.vendor },
@@ -251,7 +257,7 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <PanelCard title="Visual inspection" description={`${renderableAssets} renderable asset${renderableAssets === 1 ? "" : "s"} on this revision's representation.`}>
+        <PanelCard title="Visual inspection">
           {hasRenderableAssets ? (
             <LibraryPreviewPair
               label={component.name}
@@ -259,11 +265,11 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
               footprintAssetId={previewPair.footprintAssetId}
             />
           ) : (
-            <EmptyState icon={SearchCheck} title="No renderable assets" detail="Attach a symbol or footprint before visual review." />
+            <EmptyState icon={SearchCheck} title="No renderable assets" />
           )}
         </PanelCard>
 
-        <PanelCard title="Revision provenance" description="Immutable evidence used to reproduce and audit this revision.">
+        <PanelCard title="Revision provenance">
           <DefinitionRows rows={[
             { label: "Revision", value: `v${component.revision}` },
             { label: "Change kind", value: humanize(component.change_kind) },
@@ -276,7 +282,7 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
       </div>
 
       {Object.keys(component.extra_fields).length ? (
-        <PanelCard title="Extended symbol fields" description="Additional fields preserved from the source symbol or integration.">
+        <PanelCard title="Extended symbol fields">
           <DefinitionRows rows={Object.entries(component.extra_fields).map(([label, value]) => ({ label, value }))} />
         </PanelCard>
       ) : null}
@@ -402,13 +408,12 @@ function RepresentationsPanel({ component, canMutate, onChanged }: { component: 
   return (
     <PanelCard
       title="Symbol-footprint representations"
-      description="Pair any attached symbol with any attached footprint. Placement and previews follow the selected pair."
       action={canMutate ? <Button size="sm" variant="outline" disabled={creating} onClick={() => void add()}>{creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers3 className="h-3.5 w-3.5" />} Add representation</Button> : null}
     >
       {isProvisionalPart(component) ? <div className="mb-3 border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">This provisional component cannot be completed or released until it has a real manufacturer and MPN.</div> : null}
       <div className="space-y-2">
         {component.representations.map((representation) => <RepresentationRow key={representation.id} component={component} representation={representation} canMutate={canMutate} onChanged={onChanged} />)}
-        {!component.representations.length ? <EmptyState icon={Layers3} title="No representations" detail="Attach symbol and footprint assets, then pair them here." /> : null}
+        {!component.representations.length ? <EmptyState icon={Layers3} title="No representations" /> : null}
       </div>
     </PanelCard>
   );
@@ -466,7 +471,6 @@ function AssetsPanel({
           <PanelCard
             key={type}
             title={type === "3dmodel" ? "3D models" : type === "spice" ? "SPICE models" : `${humanize(type)} assets`}
-            description={`${assets.length} immutable file${assets.length === 1 ? "" : "s"} attached to v${component.revision}.`}
             action={(
               <div className="flex items-center gap-2">
                 <StatusBadge tone={assets.length ? "success" : type === "symbol" || type === "footprint" ? "danger" : "warning"}>{assets.length ? "Attached" : "Missing"}</StatusBadge>
@@ -498,14 +502,14 @@ function AssetsPanel({
                 ))}
               </div>
             ) : (
-              <EmptyState icon={CircleDashed} title={`No ${humanize(type)} asset`} detail={type === "symbol" || type === "footprint" ? "This required asset blocks place readiness." : "This optional asset has not been provided."} />
+              <EmptyState icon={CircleDashed} title={`No ${humanize(type)} asset`} />
             )}
           </PanelCard>
         ))}
       </div>
 
       {hasRenderableAssets ? (
-        <PanelCard title="Rendered previews" description="Drawn from this revision\u2019s own symbol and footprint, without opening KiCad.">
+        <PanelCard title="Rendered previews">
           <LibraryPreviewPair
             label={component.name}
             symbolAssetId={previewPair.symbolAssetId}
@@ -911,74 +915,59 @@ export function LibraryComponentWorkspace({
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <header className="shrink-0 border-b bg-card">
-        <div className="px-4 py-3">
-          <div className="mb-3 flex items-center gap-1 text-xs text-muted-foreground">
-            <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onBack}><ArrowLeft className="h-3 w-3" /> {returnLabel}</Button>
-            <ChevronRight className="h-3 w-3" />
-            <span className="truncate">{activeComponent.manufacturer || "Unspecified manufacturer"}</span>
-            <ChevronRight className="h-3 w-3" />
-            <span className="truncate text-foreground">{activeComponent.mpn || activeComponent.name}</span>
-          </div>
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <Library className="h-5 w-5 text-primary" />
-                <h2 className="text-xl font-semibold tracking-tight">{activeComponent.name}</h2>
-                <Badge>v{activeComponent.revision}</Badge>
-                {historical ? <Badge variant="secondary">Historical</Badge> : <Badge variant="outline">Current</Badge>}
-              </div>
-              <p className="mt-1 max-w-4xl text-sm text-muted-foreground">{activeComponent.description || `${activeComponent.manufacturer} ${activeComponent.mpn}` || "No description available."}</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge tone={workflowStage(activeComponent) === "released" ? "success" : "neutral"}>{WORKFLOW_LABELS[workflowStage(activeComponent)]}</StatusBadge>
-              <StatusBadge tone={activeComponent.validation.status === "failed" ? "danger" : activeComponent.validation.status === "warning" ? "warning" : activeComponent.validation.status === "passed" ? "success" : "neutral"}>{VALIDATION_LABELS[activeComponent.validation.status]}</StatusBadge>
-              <StatusBadge tone={activeComponent.place_enabled ? "success" : activeComponent.availability_state === "files_partial" ? "warning" : activeComponent.availability_state === "metadata_only" ? "danger" : "neutral"}>{activeComponent.place_enabled ? "Placeable" : AVAILABILITY_LABELS[activeComponent.availability_state]}</StatusBadge>
-              <Button size="sm" variant="outline" aria-label="Refresh component workspace" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw className="h-3 w-3" /> Refresh</Button>
-            </div>
+        <div className="flex min-h-11 flex-wrap items-center gap-2 px-2 py-1.5">
+          <Button size="sm" variant="ghost" className="h-7 px-2" title={returnLabel} onClick={onBack}><ArrowLeft className="h-3.5 w-3.5" />{returnLabel}</Button>
+          <Separator orientation="vertical" className="h-5" />
+          <h2 className="min-w-0 truncate text-sm font-semibold" title={activeComponent.description || undefined}>{activeComponent.name}</h2>
+          <span className="min-w-0 truncate text-xs text-muted-foreground" title={activeComponent.manufacturer || undefined}>{activeComponent.mpn}</span>
+          <Badge variant={historical ? "warning" : "default"} title={historical ? "Historical revision" : "Current revision"}>v{activeComponent.revision}</Badge>
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
+            <Badge variant={WORKFLOW_BADGE_VARIANT[workflowStage(activeComponent)]} title={WORKFLOW_BADGE_TITLE[workflowStage(activeComponent)]}>{WORKFLOW_LABELS[workflowStage(activeComponent)]}</Badge>
+            <Badge variant={VALIDATION_BADGE_VARIANT[activeComponent.validation.status]} title={`${activeComponent.validation.error_count} errors · ${activeComponent.validation.warning_count} warnings`}>{VALIDATION_LABELS[activeComponent.validation.status]}</Badge>
+            <Badge variant={activeComponent.place_enabled ? "success" : AVAILABILITY_BADGE_VARIANT[activeComponent.availability_state]} title={AVAILABILITY_BADGE_TITLE[activeComponent.availability_state]}>{activeComponent.place_enabled ? "Placeable" : AVAILABILITY_LABELS[activeComponent.availability_state]}</Badge>
+            {!historical && !canMutate ? (
+              <Badge variant="secondary" title={`Editing needs the Designer or Admin role${canReviewCatalogQa(user?.role) ? "; QA review stays available" : ""}`}><ShieldCheck className="h-3 w-3" />Read only</Badge>
+            ) : null}
+            <Button size="icon-sm" variant="ghost" aria-label="Refresh component workspace" title="Refresh" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw className="h-3.5 w-3.5" /></Button>
           </div>
         </div>
 
-        {!historical && !canMutate ? (
-          <div className="flex items-center gap-2 border-t bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
-            <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
-            You have read-only access to this component. Editing metadata and attaching
-            assets need the Designer or Admin role.
-            {canReviewCatalogQa(user?.role) ? " QA Review actions remain available on the workflow panel." : ""}
-          </div>
-        ) : null}
         {historical ? (
-          <div className="flex items-center justify-between gap-3 border-t bg-muted/30 px-4 py-2 text-xs">
-            <span className="flex items-center gap-2"><Clock3 className="h-3.5 w-3.5" /> Viewing immutable revision v{activeComponent.revision}. Editing and workflow actions are disabled.</span>
-            <Button size="sm" variant="outline" className="h-7" onClick={() => updateParams({ revision: null, compare: null })}>Return to current v{currentComponent.revision}</Button>
+          <div className="flex items-center justify-between gap-3 border-t bg-muted/30 px-3 py-1.5 text-xs">
+            <span className="flex items-center gap-2"><Clock3 className="h-3.5 w-3.5" />v{activeComponent.revision} · read only</span>
+            <Button size="sm" variant="outline" className="h-7" aria-label={`Return to current v${currentComponent.revision}`} title="Return to the current revision" onClick={() => updateParams({ revision: null, compare: null })}>Current v{currentComponent.revision}</Button>
           </div>
         ) : null}
         {historicalLoading ? (
-          <div className="flex items-center gap-2 border-t bg-muted/30 px-4 py-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading the requested immutable revision…</div>
+          <div className="flex items-center gap-2 border-t bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground" role="status" aria-label="Loading revision"><Loader2 className="h-3.5 w-3.5 animate-spin" /></div>
         ) : null}
         {historicalError ? (
-          <div className="flex items-center justify-between gap-3 border-t border-destructive bg-destructive/10 px-4 py-2 text-xs">
-            <span className="flex items-center gap-2"><CircleAlert className="h-3.5 w-3.5 text-destructive" /> {historicalError}</span>
-            <Button size="sm" variant="outline" className="h-7" onClick={() => updateParams({ revision: null, compare: null })}>Return to current revision</Button>
+          <div className="flex items-center justify-between gap-3 border-t border-destructive bg-destructive/10 px-3 py-1.5 text-xs">
+            <span className="flex min-w-0 items-center gap-2"><CircleAlert className="h-3.5 w-3.5 shrink-0 text-destructive" /><span className="truncate" title={historicalError}>{historicalError}</span></span>
+            <Button size="sm" variant="outline" className="h-7" aria-label="Return to current revision" title="Return to the current revision" onClick={() => updateParams({ revision: null, compare: null })}>Current revision</Button>
           </div>
         ) : null}
 
-        <nav className="flex overflow-x-auto border-t px-3" aria-label="Component workspace sections">
-          {COMPONENT_TABS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              className={cn("flex shrink-0 items-center gap-2 border-b-2 border-transparent px-3 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", activeTab === id && "border-primary text-foreground")}
-              aria-current={activeTab === id ? "page" : undefined}
-              onClick={() => updateParams({ componentTab: id, compare: id === "revisions" ? compareRevisionId : null })}
-            >
-              <Icon className="h-3.5 w-3.5" />{label}
-            </button>
-          ))}
-        </nav>
+        <div className="flex items-center overflow-x-auto border-t px-2 py-1.5">
+          <Tabs value={activeTab} activationMode="manual" className="shrink-0">
+            <StudioTabsList aria-label="Component workspace sections">
+              {COMPONENT_TABS.map(({ id, label, icon: Icon }) => (
+                <StudioTabsTrigger
+                  key={id}
+                  value={id}
+                  className="gap-1.5"
+                  onClick={() => updateParams({ componentTab: id, compare: id === "revisions" ? compareRevisionId : null })}
+                >
+                  <Icon className="size-3.5" aria-hidden />{label}
+                </StudioTabsTrigger>
+              ))}
+            </StudioTabsList>
+          </Tabs>
+        </div>
       </header>
 
       <ScrollArea className="min-h-0 flex-1">
-        <main className="mx-auto w-full max-w-screen-2xl p-4">
+        <main className="mx-auto w-full max-w-screen-2xl p-3">
           {activeTab === "overview" ? <OverviewPanel component={activeComponent} canMutate={canMutate} onEdit={openMetadataEditor} /> : null}
           {activeTab === "assets" ? (
             <AssetsPanel
