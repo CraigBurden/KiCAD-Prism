@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.services import kicad_board_stats_service, project_properties_service
+from app.services.project_history_scope import ProjectHistory, project_history
 from app.services.workspace_service import workspace
 
 
@@ -102,7 +103,9 @@ def repo_fingerprint(repo_path: Optional[str]) -> str:
         return ""
 
 
-def compute_repository_facts(repo_path: str, relative_path: Optional[str]) -> dict[str, Any]:
+def compute_repository_facts(
+    repo_path: str, relative_path: Optional[str], history: Optional[ProjectHistory] = None
+) -> dict[str, Any]:
     """The latest commit and tag the card shows.
 
     ``get_releases_filtered`` counts files under the subproject path for every
@@ -110,7 +113,6 @@ def compute_repository_facts(repo_path: str, relative_path: Optional[str]) -> di
     a job rather than in the request that opens a panel.
     """
     from app.services.git_service import (
-        get_commits_list,
         get_commits_list_filtered,
         get_releases,
         get_releases_filtered,
@@ -118,10 +120,9 @@ def compute_repository_facts(repo_path: str, relative_path: Optional[str]) -> di
 
     if relative_path:
         releases = get_releases_filtered(repo_path, relative_path)
-        latest_page = get_commits_list_filtered(repo_path, relative_path, 1)
     else:
         releases = get_releases(repo_path)
-        latest_page = get_commits_list(repo_path, 1)
+    latest_page = get_commits_list_filtered(repo_path, relative_path, 1, history=history)
 
     latest_commits = latest_page["commits"] if isinstance(latest_page, dict) else latest_page
     return {
@@ -260,7 +261,9 @@ def refresh_project_metadata(
     repository: Optional[dict[str, Any]] = None
     if repo_path:
         try:
-            repository = compute_repository_facts(repo_path, relative_path)
+            rows = workspace.get_projects_by_repo(str(row["repo_id"])) if (row := workspace.get_project_by_id(project_id)) else []
+            history = project_history(relative_path or "", anchor, project_id, rows)
+            repository = compute_repository_facts(repo_path, relative_path, history)
         except Exception as error:
             # A card without a commit line beats a job that fails and leaves
             # the whole row unwritten.

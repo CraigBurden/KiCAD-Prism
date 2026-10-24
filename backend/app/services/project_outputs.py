@@ -16,6 +16,8 @@ from typing import List, Optional
 from app.core import errors
 from app.services import file_service, project_revision, project_service
 from app.services.path_config_service import PathConfig
+from app.services.project_history_scope import ProjectHistory, project_history
+from app.services.workspace_service import workspace
 
 
 def project_location(project: project_service.Project) -> project_revision.ProjectLocation:
@@ -36,6 +38,14 @@ def repo_context(project: project_service.Project) -> tuple[str, Optional[str]]:
     """Repository root and subproject path for project-scoped git operations."""
     location = project_location(project)
     return str(location.repo_root), location.sub_path
+
+
+def history_context(project: project_service.Project) -> tuple[str, ProjectHistory]:
+    """Repository root and what decides the project's commit history (issue #681)."""
+    location = project_location(project)
+    row = workspace.get_project_by_id(project.id) or {}
+    rows = workspace.get_projects_by_repo(str(row["repo_id"])) if row.get("repo_id") else []
+    return str(location.repo_root), project_history(location.relative_path, location.anchor, project.id, rows)
 
 
 def output_dir(project: project_service.Project, output_type: str) -> str:

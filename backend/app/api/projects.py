@@ -41,7 +41,6 @@ from app.services.git_service import (
     get_branches,
     get_commit_distance,
     get_commit_file_summary,
-    get_commits_list,
     get_commits_list_filtered,
     get_head_commit,
     get_releases,
@@ -1011,28 +1010,11 @@ async def get_project_commits(
     """
     project = get_project_for_role_or_404(project_id, user.role)
     
-    repo_path, relative_path = project_outputs.repo_context(project)
+    repo_path, history = await asyncio.to_thread(project_outputs.history_context, project)
     head = await asyncio.to_thread(get_head_commit, repo_path)
-    if relative_path:
-        page = await asyncio.to_thread(
-            get_commits_list_filtered,
-            repo_path,
-            relative_path,
-            limit,
-            ref,
-            offset,
-            include_total,
-        )
-    else:
-        page = await asyncio.to_thread(
-            get_commits_list,
-            project.path,
-            limit,
-            ref,
-            offset,
-            include_total,
-        )
-    
+    page = await asyncio.to_thread(
+        get_commits_list_filtered, repo_path, None, limit, ref, offset, include_total, history
+    )
     return {**page, "head": head}
 
 
