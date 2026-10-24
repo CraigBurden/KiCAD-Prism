@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.errors import Conflict, NotFound  # noqa: E402
 from app.services.component_catalog_service_postgres import ComponentCatalogPostgresService  # noqa: E402
-from support.postgres import CATALOG_URL, requires_scratch_postgres  # noqa: E402
+from support.postgres import CATALOG_URL, connect, requires_scratch_postgres  # noqa: E402
 from test_import_bulk_remediation import FOOTPRINT_BODY, SYMBOL_BODY  # noqa: E402
 
 
@@ -136,7 +136,8 @@ class ImportSessionDeleteTests(unittest.TestCase):
 
     def test_a_session_with_a_proposal_being_accepted_cannot_be_deleted(self) -> None:
         session_id, proposals = self._staged_session()
-        with self.service._connect() as conn:
+        # An acceptance in flight, as the claim leaves it.
+        with connect("catalog") as conn:
             conn.execute(
                 "UPDATE project_component_import_proposals SET status = 'accepting' WHERE id = %s",
                 (str(proposals[0]["id"]),),
