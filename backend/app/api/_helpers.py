@@ -141,6 +141,17 @@ def preview_file_response(request: Request, path: Path, media_type: str, headers
     return Response(gzip.decompress(file.read_bytes()), media_type=media_type, headers=headers)
 
 
+#: Headers for bytes Prism serves but did not write -- released members, KiCad's
+#: SVG plots, Gerber layers drawn as SVG. SVG served inline from this origin is
+#: script; the sandbox and the sniffing block keep an inline view from becoming
+#: a way to run code against a logged-in session.
+SANDBOXED_CONTENT_HEADERS = {
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
+
+
 #: Larger commit files are served from the content-addressed blob cache, not read whole.
 COMMIT_FILE_STREAM_BYTES = 1 << 20
 

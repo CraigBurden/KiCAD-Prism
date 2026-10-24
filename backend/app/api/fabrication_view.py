@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 
 from app.api._helpers import (
+    SANDBOXED_CONTENT_HEADERS,
     get_project_for_role_or_404,
     require_output_type,
     resolve_path_within_root,
@@ -60,12 +61,6 @@ _FABRICATION_CACHE_SIZE = 4
 _cache = BoundedCache(_FABRICATION_CACHE_SIZE)
 _fabrication_cache = BoundedCache(_FABRICATION_CACHE_SIZE)
 _placement_cache = BoundedCache(_FABRICATION_CACHE_SIZE)
-
-_SVG_HEADERS = {
-    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
-    "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "no-referrer",
-}
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +147,7 @@ def get_fabrication_layer(
         headers={
             "Cache-Control": "private, max-age=31536000, immutable",
             "ETag": f'"{build_id}-{layer_id}-r{RENDER_VERSION}"',
-            **_SVG_HEADERS,
+            **SANDBOXED_CONTENT_HEADERS,
         },
     )
 
@@ -342,7 +337,7 @@ def get_output_fabrication_layer(
         headers={
             # Working-tree files can change, so only a pinned commit is immutable.
             "Cache-Control": "private, max-age=31536000, immutable" if pinned else "private, no-cache",
-            **_SVG_HEADERS,
+            **SANDBOXED_CONTENT_HEADERS,
         },
     )
 

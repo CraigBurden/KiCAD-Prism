@@ -16,7 +16,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from app.api._helpers import authorized_project, get_project_for_role_or_404
+from app.api._helpers import (
+    SANDBOXED_CONTENT_HEADERS,
+    authorized_project,
+    get_project_for_role_or_404,
+)
 from app.core.security import (
     AuthenticatedUser,
     require_designer,
@@ -383,24 +387,10 @@ async def download_member(
 
     get_project_for_role_or_404(project_id, user.role)
     build = ARCHIVES.build(project_id, build_id)
-
-    return _released_member_response(
-        build, member_path, disposition=disposition, build_id=build_id
-    )
-
-
-def _released_member_response(
-    build: dict[str, Any],
-    member_path: str,
-    *,
-    disposition: str = "inline",
-    public_share: bool = False,
-    build_id: str | None = None,
-) -> Response:
     member = next(
         (
             item
-            for item in store.build_members(build_id or build["id"])
+            for item in store.build_members(build_id)
             if item["path"] == member_path
         ),
         None,
@@ -422,19 +412,9 @@ def _released_member_response(
         headers={
             "Content-Disposition": f'{disposition}; filename="{filename}"',
             # The bytes are immutable and named by their digest.
-            "Cache-Control": (
-                "private, no-store"
-                if public_share
-                else "private, max-age=31536000, immutable"
-            ),
+            "Cache-Control": "private, max-age=31536000, immutable",
             "ETag": f'"{digest}"',
-            # Released members are third-party bytes -- KiCad's SVG plots most
-            # of all -- and SVG served inline from this origin is script.  The
-            # sandbox and the sniffing block keep an inline view from becoming
-            # a way to run code against a logged-in session.
-            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
-            "X-Content-Type-Options": "nosniff",
-            "Referrer-Policy": "no-referrer",
+            **SANDBOXED_CONTENT_HEADERS,
         },
     )
 
