@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { History, ListRestart, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { ResizablePanel } from "@/components/ui/resizable-panel";
 import { cancelPrismJob, jobPipeline, throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { usePoll } from "@/lib/server-state";
@@ -12,7 +10,9 @@ import { useCommittedRef } from "@/hooks/use-committed-ref";
 import type { UserRole } from "@/types/auth";
 
 import * as api from "./api";
+import { IdentityStrip } from "./IdentityStrip";
 import { RunList } from "./RunList";
+import { IdentityDetails, LockedStage, ManufacturingDetails, SourceDetails } from "./RunSnapshot";
 import { StageRail } from "./StageRail";
 import { InspectOutputsStep } from "./steps/InspectOutputsStep";
 import { ObserveBuildStep } from "./steps/ObserveBuildStep";
@@ -26,7 +26,6 @@ import type {
     PipelineState,
     ProjectCommit,
     ReleaseCandidate,
-    ReleaseConfiguration,
     ReleaseIdentity,
     ReleaseManufacturing,
     ReleaseSource,
@@ -770,116 +769,3 @@ export function ReleaseStudioPanel({
 }
 
 export default ReleaseStudioPanel;
-
-function IdentityStrip({
-    candidate,
-    configuration,
-    identity,
-    fallbackCommit,
-    variant,
-    status,
-    behind,
-    onJumpToLatest,
-}: {
-    candidate: ReleaseCandidate | null;
-    configuration: ReleaseConfiguration | null;
-    identity: ReleaseIdentity;
-    fallbackCommit: string;
-    variant: string;
-    status: string;
-    behind: boolean;
-    onJumpToLatest: () => void;
-}) {
-    const commit = candidate?.commit_sha || fallbackCommit;
-    const resolvedVariant = candidate?.variant || variant || configuration?.default_variant || "default";
-    const documentName = configuration?.document_number || identity.document_name || "—";
-    const revision = configuration?.revision || identity.tag || "—";
-    return (
-        <div
-            aria-label="Release identity"
-            className="ml-auto flex min-w-0 flex-wrap items-center gap-1.5 text-xs leading-none"
-        >
-            <span className="font-mono text-muted-foreground">{commit.slice(0, 12) || "HEAD"}</span>
-            <Badge variant="outline" className="h-5 px-1.5">{status}</Badge>
-            <span className="text-muted-foreground">{resolvedVariant}</span>
-            <span className="truncate">{documentName}</span>
-            <span className="text-muted-foreground">Rev {revision}</span>
-            {behind && (
-                <Button size="xs" variant="outline" onClick={onJumpToLatest}>
-                    Jump to latest
-                </Button>
-            )}
-        </div>
-    );
-}
-
-function LockedStage() {
-    return <div className="rounded border border-dashed p-4 text-sm text-muted-foreground">Locked until the build finishes.</div>;
-}
-
-function SourceDetails({ detail }: { detail: BuildDetail }) {
-    const source = detail.candidate;
-    const configuration = detail.configuration;
-    const rows: [string, string][] = [
-        ["Commit", source?.commit_sha || "—"],
-        ["Board", configuration?.board_rel || "—"],
-        ["Schematic", configuration?.schematic_rel || "—"],
-        ["Variant", source?.variant || configuration?.default_variant || "default"],
-    ];
-    return <SnapshotDetails title="Source" rows={rows} />;
-}
-
-function IdentityDetails({ configuration }: { configuration: ReleaseConfiguration | null }) {
-    return (
-        <SnapshotDetails
-            title="Release identity"
-            rows={[
-                ["Tag", configuration?.revision || "—"],
-                ["Document Name", configuration?.document_number || "—"],
-                ["Date", configuration?.release_date || "—"],
-                ["Release notes", configuration?.release_notes || "—"],
-            ]}
-        />
-    );
-}
-
-function snapshotSpec(configuration: ReleaseConfiguration | null, key: string): string {
-    // synthesize_configuration stores IPC/finish callouts under fields[]; identity
-    // stays at the document root. History must read the same shape the cover uses.
-    const nested = configuration?.fields?.[key];
-    const top = (configuration as Record<string, unknown> | null)?.[key];
-    const value = (typeof nested === "string" && nested) || (typeof top === "string" && top) || "";
-    return value.trim() || "—";
-}
-
-function ManufacturingDetails({ configuration }: { configuration: ReleaseConfiguration | null }) {
-    return (
-        <SnapshotDetails
-            title="Manufacturing and assembly"
-            rows={[
-                ["Manufacturing IPC class", snapshotSpec(configuration, "manufacturing_ipc_class")],
-                ["Assembly IPC class", snapshotSpec(configuration, "assembly_ipc_class")],
-                ["Solder mask colour", snapshotSpec(configuration, "solder_mask_colour")],
-                ["Silkscreen colour", snapshotSpec(configuration, "silkscreen_colour")],
-                ["Via treatment", snapshotSpec(configuration, "via_treatment")],
-                ["Vendors", (configuration?.vendors || []).join(", ") || "—"],
-            ]}
-        />
-    );
-}
-
-function SnapshotDetails({ title, rows }: { title: string; rows: [string, string][] }) {
-    return (
-        <div className="space-y-4">
-            <h3 className="text-lg font-semibold">{title}</h3>
-            <dl className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2">
-                {rows.map(([label, value]) => (
-                    <div key={label} className="space-y-1">
-                        <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
-                        <dd className="break-all text-sm">{value}</dd>
-                    </div>
-                ))}
-            </dl>
-        </div>
-    );
-}
