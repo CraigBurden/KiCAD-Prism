@@ -92,7 +92,6 @@
  "test_project_auto_sync": 0.0,
  "test_project_component_asset_extractor": 0.0,
  "test_project_component_import_service": 0.0,
- "test_project_create_service": 1.2,
  "test_project_discovery": 0.0,
  "test_project_identity_service": 0.0,
  "test_project_import_followup_api": 0.0,
