@@ -56,6 +56,10 @@ Use Import Center to discover candidates, review remediation findings, and
 accept selected proposals into drafts. Import limits in `.env` protect the
 server from unexpectedly large trees.
 
+An import session you no longer need can be deleted from its row in the
+session list once it has finished scanning. Deleting removes its open
+candidates and staged files; components already accepted stay in the catalog.
+
 ### Project harvest
 
 Components can be proposed from imported project data or a selected schematic or
