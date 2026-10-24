@@ -94,6 +94,13 @@ sets, the design-compare file list, the semantic-index cache key and its
 schematic field overlay all apply it; do not add another suffix or autosave
 filter next to a reader.
 
+A project's commit history is `project_history_scope.py` (issue #681): the
+commits that change its directory, less the files another project owns there
+(KiCad's stem rule) and registered projects nested inside it, from the commit
+that added its project file. `project_outputs.history_context` builds it for a
+project; the History list and the card's latest commit both use it. Do not
+filter history by directory alone.
+
 Project settings edited in Prism live in the workspace database
 (`project_settings_service.py`) and win over the committed .prism.json file;
 nothing writes into a checkout, because Sync fast-forwards only a clean tree.
