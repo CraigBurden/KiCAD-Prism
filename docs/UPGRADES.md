@@ -565,6 +565,46 @@ only after `CATALOG_DRAFT_MODEL_QUARANTINE_DAYS` (default 30). Until then
 directory with the rest of the store. Reads of a quarantined model answer 404
 `asset_quarantined` (`asset_purged` once it is deleted).
 
+## API clients
+
+Scripts and integrations that call the Prism API directly, as opposed to the
+browser and the KiCad panel, see these changes:
+
+- **Error bodies.** Every error is `{"detail": "<message>", "code": "<code>"}`,
+  sometimes with extra fields. `detail` is unchanged, so a reader of it keeps
+  working; match on `code` instead of parsing the message.
+- **Scopes.** A bearer token needs `api:read` for every read and `api:write`
+  for every write. A service client created without either can no longer read;
+  give it `api:read`. KiCad provider tokens work only on
+  `/api/remote-provider/*`. See [Authentication and access](AUTHENTICATION_AND_ACCESS.md).
+- **Guarded writes.** Comment, reply and catalog component edits take `If-Match`
+  with the ETag that was read. A stale one answers 412 with the current ETag;
+  where the precondition is required, a missing one answers 428.
+
+## System Builder data is dropped
+
+System Builder never shipped in a tagged release: v4.0.0-alpha has none of its
+tables or catalog kinds, so an upgrade from v4.0.0-alpha loses nothing here.
+An installation that ran `dev` between 2026-10-09 and 2026-10-23 did store
+System Builder data, and the first start of v5.0.0-alpha deletes it without a
+copy:
+
+| Ledger | Step | Drops |
+|---|---|---|
+| workspace | 123 `drop_system_builder_v1` | every `system_*` table (v1 systems, harnesses, reviews, snapshots, exports) |
+| workspace | 124 `drop_mesh_viewer_readiness` | `ws_webgpu_ready`; the 3D tab reads the design bundle instead |
+| workspace | 129 `drop_system_builder_v2` | `ws_systems` and the other `ws_system_*` / `ws_board_sub_port*` tables |
+| catalog | 13 `retire_module_and_assembly` | `module` and `assembly` components, `catalog_module_connectors` |
+| catalog | 16 `retire_system_entries` | `system` components and `system_entry` assets |
+
+The catalog deletes cascade to those components' revisions, asset links,
+audit records and mates. Parts are untouched.
+
+To keep that data, take the backup in step 2 before starting the new release;
+the code that reads it is kept at the tag `archive/system-builder-v2`. After
+the upgrade, `.kicad-prism/system-bundles/` and `.kicad-prism/system-steps/`
+under the projects root are no longer read and can be deleted.
+
 ## Why the catalog gate is gone
 
 Until [`catalog_schema_migrations.py`](../backend/app/services/catalog_schema_migrations.py)
