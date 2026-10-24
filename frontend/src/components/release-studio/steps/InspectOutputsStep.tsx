@@ -28,13 +28,11 @@ import { shortDigest } from "../flow";
 import {
     DocumentSheetPreview,
     MemberViewer,
-    VendorPackCard,
     orderedSheets,
     type RunFn,
 } from "../shared";
 import { EvidenceWarnings } from "./outputs/Evidence";
-import { PackRequirementTiles } from "./outputs/PackRequirements";
-import { SignOffCards } from "./outputs/SignOff";
+import { ReleaseChecksRail } from "./outputs/ReleaseChecksRail";
 import type {
     BuildDetail,
     DocumentSheet,
@@ -74,7 +72,6 @@ export function InspectOutputsStep({
     const [outputView, setOutputView] = useState("documents");
     const [member, setMember] = useState<ReleaseMember | null>(null);
     const [focusFile, setFocusFile] = useState("");
-    const [vendorId, setVendorId] = useState("");
 
     useEffect(() => {
         let cancelled = false;
@@ -105,17 +102,13 @@ export function InspectOutputsStep({
             setMember(item);
         }
     };
-    const selectedProfile = profiles.find((profile) => profile.id === vendorId) ?? profiles[0];
-    const selectedReadiness = detail.vendor_readiness?.find(
-        (item) => (item.vendor_id || item.profile_id) === selectedProfile?.id,
-    );
 
     return (
-        <div className="flex h-full min-h-0 flex-1 flex-col">
+        <div className="flex h-full min-h-0 flex-1">
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                <Tabs value={outputView} onValueChange={setOutputView} className="shrink-0 gap-0">
-                    <div className="flex items-center gap-2 border-b bg-card px-2">
-                        <TabsList variant="line" className="h-10 gap-2" aria-label="Output views">
+                <Tabs value={outputView} onValueChange={setOutputView} className="min-w-0 shrink-0 gap-0">
+                    <div className="flex min-w-0 items-center gap-2 border-b bg-card px-2">
+                        <TabsList variant="line" className="h-10 min-w-0 gap-2 overflow-x-auto" aria-label="Output views">
                             <TabsTrigger value="documents" className="gap-2 px-2 text-sm">
                                 <FileText className="h-4 w-4" />
                                 Documents{sheets.length ? ` (${sheets.length})` : ""}
@@ -271,32 +264,15 @@ export function InspectOutputsStep({
                 )}
             </div>
 
-            <div className="shrink-0 space-y-2 border-t pt-3">
-                <SignOffCards
-                    projectId={projectId}
-                    buildId={detail.build.id}
-                    approvals={detail.approvals}
-                    busy={busy}
-                    onRun={onRun}
-                    onRefresh={onRefresh}
-                />
-                <div className="flex flex-wrap items-end gap-2">
-                    <div className="min-w-0 flex-1">
-                        <VendorPackCard
-                            projectId={projectId}
-                            buildId={detail.build.id}
-                            profiles={profiles}
-                            busy={busy}
-                            readiness={detail.vendor_readiness}
-                            vendorId={selectedProfile?.id}
-                            onVendorChange={setVendorId}
-                        >
-                            <PackRequirementTiles profile={selectedProfile} readiness={selectedReadiness} />
-                        </VendorPackCard>
-                    </div>
-                    <Button size="sm" className="shrink-0" onClick={onContinue}>Continue</Button>
-                </div>
-            </div>
+            <ReleaseChecksRail
+                projectId={projectId}
+                detail={detail}
+                profiles={profiles}
+                busy={busy}
+                onContinue={onContinue}
+                onRun={onRun}
+                onRefresh={onRefresh}
+            />
         </div>
     );
 }

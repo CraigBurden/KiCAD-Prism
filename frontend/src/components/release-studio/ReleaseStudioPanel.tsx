@@ -581,7 +581,7 @@ export function ReleaseStudioPanel({
                 </div>
             )}
             {view === "settings" ? null : (
-                <div className="flex min-h-0 flex-1">
+                <div className="flex min-h-0 min-w-0 flex-1">
                     {view === "history" && (
                         <ResizablePanel
                             side="left"
@@ -607,7 +607,7 @@ export function ReleaseStudioPanel({
                             {canMutate ? "Select a run, or start a new release." : "Select a run from History."}
                         </div>
                     ) : (
-                        <div className="flex min-h-0 flex-1">
+                        <div className="flex min-h-0 min-w-0 flex-1">
                             <ResizablePanel
                                 side="left"
                                 storageKey="prism.releaseStudio.stageRailWidth"
@@ -630,9 +630,11 @@ export function ReleaseStudioPanel({
                             <div
                                 className={cn(
                                     "min-h-0 min-w-0 flex-1",
-                                    stage === "outputs" || stage === "publish"
-                                        ? "flex flex-col overflow-hidden p-2"
-                                        : "overflow-y-auto p-4",
+                                    stage === "outputs"
+                                        ? "flex flex-col overflow-hidden"
+                                        : stage === "publish"
+                                          ? "flex flex-col overflow-hidden p-2"
+                                          : "overflow-y-auto p-4",
                                 )}
                             >
                                     {stage === "source" && drafting && (

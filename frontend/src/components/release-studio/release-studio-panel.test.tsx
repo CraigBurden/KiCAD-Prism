@@ -187,6 +187,9 @@ describe("ReleaseStudioPanel", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         window.history.replaceState({}, "", "/");
+        // A desktop window: below 1280 px the release checks rail starts collapsed.
+        vi.stubGlobal("innerWidth", 1600);
+        window.localStorage.removeItem("prism.releaseStudio.checksRailCollapsed");
         vi.mocked(api.getSource).mockResolvedValue({
             source,
             ipc: {
@@ -812,6 +815,19 @@ describe("ReleaseStudioPanel", () => {
         expect(within(run).getByText("published")).toBeTruthy();
     });
 
+    it("starts the release checks rail collapsed in a narrow window", async () => {
+        vi.stubGlobal("innerWidth", 1100);
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+        await openOutputs();
+        expect(screen.queryByRole("button", { name: "Approve Designer" })).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: "Show release checks" }));
+        expect(await screen.findByRole("button", { name: "Approve Designer" })).toBeTruthy();
+        // The reviewer's choice outlives the window rule.
+        expect(window.localStorage.getItem("prism.releaseStudio.checksRailCollapsed")).toBe("false");
+        fireEvent.click(screen.getByRole("button", { name: "Hide release checks" }));
+        expect(screen.queryByRole("button", { name: "Approve Designer" })).toBeNull();
+    });
+
     it("renders designer and QA sign-off as separate pending cards", async () => {
         render(<ReleaseStudioPanel projectId="p1" canMutate />);
         await openOutputs();
@@ -889,7 +905,10 @@ describe("ReleaseStudioPanel", () => {
         });
         render(<ReleaseStudioPanel projectId="p1" canMutate />);
         await openOutputs();
-        expect(screen.getByText("${KICAD10_3DMODEL_DIR}/R_0603.step")).toBeTruthy();
+        // The list folds behind its count; the tick stays in view.
+        expect(screen.queryByText("${KICAD10_3DMODEL_DIR}/R_0603.step")).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: "Show unpinned models" }));
+        expect(await screen.findByText("${KICAD10_3DMODEL_DIR}/R_0603.step")).toBeTruthy();
         const approve = screen.getByRole("button", { name: "Approve Designer" });
         expect(approve).toBeDisabled();
         fireEvent.click(screen.getByRole("checkbox", { name: /Acknowledge 1 unpinned 3D model/i }));

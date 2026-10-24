@@ -7,14 +7,16 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 import * as api from "../../api";
-import { UnpinnedModelsAck, useModelAcknowledgement } from "../../UnpinnedModels";
+import type { useModelAcknowledgement } from "../../UnpinnedModels";
 import type { RunFn } from "../../shared";
 import type { ApprovalState, ReviewSlot } from "../../types";
 
+/** Designer and QA sign-off. The unpinned-model acknowledgement is the caller's. */
 export function SignOffCards({
     projectId,
     buildId,
     approvals,
+    acknowledgement,
     busy,
     onRun,
     onRefresh,
@@ -22,15 +24,13 @@ export function SignOffCards({
     projectId: string;
     buildId: string;
     approvals?: ApprovalState;
+    acknowledgement: ReturnType<typeof useModelAcknowledgement>;
     busy: string;
     onRun: RunFn;
     onRefresh?: () => Promise<unknown> | void;
 }) {
     const published = Boolean(approvals?.published);
     const electrical = approvals?.electrical_errors ?? [];
-    const unpinned = approvals?.unpinned_models ?? [];
-    const acknowledgement = useModelAcknowledgement(buildId, unpinned);
-    const canApprove = Boolean(approvals?.can_approve_designer || approvals?.can_approve_qa);
     const shared = {
         electrical,
         published,
@@ -44,22 +44,6 @@ export function SignOffCards({
     };
     return (
         <div className="space-y-2">
-            {!published && canApprove ? (
-                <UnpinnedModelsAck
-                    models={unpinned}
-                    checked={acknowledgement.acknowledged}
-                    onCheckedChange={acknowledgement.setAcknowledged}
-                    disabled={Boolean(busy)}
-                />
-            ) : null}
-            {electrical.length > 0 && !approvals?.both_approved ? (
-                <div className="flex flex-wrap gap-1">
-                    {electrical.map((kind) => (
-                        <Badge key={kind} variant="destructive">{kind.toUpperCase()}</Badge>
-                    ))}
-                </div>
-            ) : null}
-            <div className="grid gap-2 sm:grid-cols-2">
             <SignOffCard
                 label="Designer"
                 slot="designer"
@@ -76,7 +60,6 @@ export function SignOffCards({
                 canWithdraw={Boolean(approvals?.can_withdraw && approvals.qa && !published)}
                 {...shared}
             />
-            </div>
             {approvals?.published ? (
                 <p className="text-xs text-muted-foreground">
                     Published {approvals.published.tag} by {approvals.published.published_by}
