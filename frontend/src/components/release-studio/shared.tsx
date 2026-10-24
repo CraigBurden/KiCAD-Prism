@@ -3,6 +3,7 @@ import { Download } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import * as api from "./api";
 import { DOCUMENT_ORDER, shortDigest } from "./flow";
@@ -226,24 +227,24 @@ export function VendorPackCard({
     return (
         <div className="space-y-2 border p-3">
             <div className="flex flex-wrap items-end gap-2">
-                <label className="min-w-0 flex-1 space-y-1 text-xs">
-                    <span className="text-muted-foreground">Manufacturer</span>
-                    <select
-                        aria-label="Manufacturer"
-                        className="flex h-8 w-full border border-input bg-background px-2 py-1 text-xs leading-none"
-                        value={selected.id}
-                        onChange={(event) => {
-                            setUncontrolledVendorId(event.target.value);
-                            onVendorChange?.(event.target.value);
-                        }}
-                    >
+                <Select
+                    value={selected.id}
+                    onValueChange={(value) => {
+                        setUncontrolledVendorId(value);
+                        onVendorChange?.(value);
+                    }}
+                >
+                    <SelectTrigger aria-label="Manufacturer" size="sm" className="min-w-0 flex-1 text-xs">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
                         {profiles.map((profile) => (
-                            <option key={profile.id} value={profile.id}>
+                            <SelectItem key={profile.id} value={profile.id}>
                                 {profile.title}
-                            </option>
+                            </SelectItem>
                         ))}
-                    </select>
-                </label>
+                    </SelectContent>
+                </Select>
                 <Button
                     size="xs"
                     variant="outline"

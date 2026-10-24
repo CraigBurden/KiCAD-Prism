@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 
 import * as api from "../../api";
@@ -87,13 +88,10 @@ function ElectricalEvidenceCard({
     const grouped = groupedElectrical(violations ?? []);
 
     return (
-        <div className="border">
-            <button
-                type="button"
+        <Collapsible open={open} onOpenChange={setOpen} className="border">
+            <CollapsibleTrigger
                 className="flex w-full items-center gap-2 px-3 py-2 text-left"
-                aria-expanded={open}
                 aria-label={`${item.kind.toUpperCase()} details`}
-                onClick={() => setOpen((current) => !current)}
             >
                 <Badge variant="outline">{item.kind.toUpperCase()}</Badge>
                 {Object.entries(item.counts).map(([severity, count]) => (
@@ -105,8 +103,8 @@ function ElectricalEvidenceCard({
                     </Badge>
                 ))}
                 <ChevronDown className={cn("ml-auto h-4 w-4 shrink-0 text-muted-foreground", open && "rotate-180")} />
-            </button>
-            {open && (
+            </CollapsibleTrigger>
+            <CollapsibleContent>
                 <div className="max-h-80 space-y-3 overflow-y-auto border-t px-3 py-2">
                     {violations === null && (
                         <p className="text-sm text-muted-foreground">Loading violations…</p>
@@ -134,8 +132,8 @@ function ElectricalEvidenceCard({
                         </div>
                     ))}
                 </div>
-            )}
-        </div>
+            </CollapsibleContent>
+        </Collapsible>
     );
 }
 
@@ -143,21 +141,18 @@ function WarningGroupCard({ group }: { group: { label: string; items: string[] }
     const [open, setOpen] = useState(true);
     const title = humanizeType(group.label);
     return (
-        <div className="border">
-            <button
-                type="button"
+        <Collapsible open={open} onOpenChange={setOpen} className="border">
+            <CollapsibleTrigger
                 className="flex w-full items-center gap-2 px-3 py-2 text-left"
-                aria-expanded={open}
                 aria-label={`${title} details`}
-                onClick={() => setOpen((current) => !current)}
             >
                 <Badge variant="outline">{title}</Badge>
                 <Badge variant="secondary">
                     {group.items.length} warning{group.items.length === 1 ? "" : "s"}
                 </Badge>
                 <ChevronDown className={cn("ml-auto h-4 w-4 shrink-0 text-muted-foreground", open && "rotate-180")} />
-            </button>
-            {open && (
+            </CollapsibleTrigger>
+            <CollapsibleContent>
                 <ul className="max-h-80 space-y-1 overflow-y-auto border-t px-3 py-2 text-sm">
                     {group.items.map((item, index) => (
                         <li key={`${group.label}-${index}`} className="break-words text-muted-foreground">
@@ -165,8 +160,8 @@ function WarningGroupCard({ group }: { group: { label: string; items: string[] }
                         </li>
                     ))}
                 </ul>
-            )}
-        </div>
+            </CollapsibleContent>
+        </Collapsible>
     );
 }
 

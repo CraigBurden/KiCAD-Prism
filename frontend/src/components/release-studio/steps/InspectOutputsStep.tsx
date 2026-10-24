@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { StudioTabsList, StudioTabsTrigger } from "@/components/ui/studio-tabs";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FabricationViewer } from "@/components/fabrication-viewer/fabrication-viewer";
 import {
@@ -107,27 +108,27 @@ export function InspectOutputsStep({
         <div className="flex h-full min-h-0 flex-1">
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                 <Tabs value={outputView} onValueChange={setOutputView} className="min-w-0 shrink-0 gap-0">
-                    <div className="flex min-w-0 items-center gap-2 border-b bg-card px-2">
-                        <TabsList variant="line" className="h-10 min-w-0 gap-2 overflow-x-auto" aria-label="Output views">
-                            <TabsTrigger value="documents" className="gap-2 px-2 text-sm">
-                                <FileText className="h-4 w-4" />
+                    <div className="flex h-11 min-w-0 items-center gap-2 border-b bg-card px-2">
+                        <StudioTabsList className="min-w-0 overflow-x-auto" aria-label="Output views">
+                            <StudioTabsTrigger value="documents" className="gap-1.5">
+                                <FileText className="size-3.5" aria-hidden />
                                 Documents{sheets.length ? ` (${sheets.length})` : ""}
-                            </TabsTrigger>
+                            </StudioTabsTrigger>
                             {hasFabrication && (
-                                <TabsTrigger value="fabrication" className="gap-2 px-2 text-sm">
-                                    <CircuitBoard className="h-4 w-4" />
+                                <StudioTabsTrigger value="fabrication" className="gap-1.5">
+                                    <CircuitBoard className="size-3.5" aria-hidden />
                                     Gerber
-                                </TabsTrigger>
+                                </StudioTabsTrigger>
                             )}
-                            <TabsTrigger value="members" className="gap-2 px-2 text-sm">
-                                <Layers3 className="h-4 w-4" />
+                            <StudioTabsTrigger value="members" className="gap-1.5">
+                                <Layers3 className="size-3.5" aria-hidden />
                                 Members ({detail.members.length})
-                            </TabsTrigger>
-                            <TabsTrigger value="evidence" className="gap-2 px-2 text-sm">
-                                <ShieldAlert className="h-4 w-4" />
+                            </StudioTabsTrigger>
+                            <StudioTabsTrigger value="evidence" className="gap-1.5">
+                                <ShieldAlert className="size-3.5" aria-hidden />
                                 Evidence ({detail.evidence.length})
-                            </TabsTrigger>
-                        </TabsList>
+                            </StudioTabsTrigger>
+                        </StudioTabsList>
                         <div className="ml-auto flex shrink-0 flex-wrap gap-1">
                             <Button
                                 size="xs"

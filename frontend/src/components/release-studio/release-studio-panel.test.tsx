@@ -167,7 +167,7 @@ async function startRun() {
 }
 
 async function selectHistoryRun() {
-    fireEvent.click(await screen.findByRole("button", { name: /^history$/i }));
+    fireEvent.click(await screen.findByRole("tab", { name: /^history$/i }));
     fireEvent.click(await screen.findByRole("button", { name: /abcdef12/i }));
 }
 
@@ -206,25 +206,25 @@ describe("ReleaseStudioPanel", () => {
 
     it("keeps a viewer out of the New release wizard", async () => {
         render(<ReleaseStudioPanel projectId="p1" canMutate={false} userRole="viewer" />);
-        const current = await screen.findByRole("button", { name: /^Current$/i });
-        await waitFor(() => expect(current).toHaveAttribute("aria-current", "page"));
-        expect(screen.queryByRole("button", { name: /New release/i })).toBeNull();
+        const current = await screen.findByRole("tab", { name: /^Current$/i });
+        await waitFor(() => expect(current).toHaveAttribute("aria-selected", "true"));
+        expect(screen.queryByRole("tab", { name: /New release/i })).toBeNull();
         expect(screen.queryByRole("heading", { name: /^Source$/i })).toBeNull();
     });
 
     it("starts a viewer with no current release on History", async () => {
         vi.mocked(api.listCandidates).mockResolvedValue([]);
         render(<ReleaseStudioPanel projectId="p1" canMutate={false} userRole="viewer" />);
-        const history = await screen.findByRole("button", { name: /^History$/i });
-        await waitFor(() => expect(history).toHaveAttribute("aria-current", "page"));
-        expect(screen.queryByRole("button", { name: /New release/i })).toBeNull();
+        const history = await screen.findByRole("tab", { name: /^History$/i });
+        await waitFor(() => expect(history).toHaveAttribute("aria-selected", "true"));
+        expect(screen.queryByRole("tab", { name: /New release/i })).toBeNull();
         expect(screen.getByText("Run history")).toBeInTheDocument();
     });
 
     it("opens a designer on the New release wizard", async () => {
         render(<ReleaseStudioPanel projectId="p1" canMutate userRole="designer" />);
         expect(await screen.findByRole("heading", { name: /^Source$/i })).toBeTruthy();
-        expect(screen.getByRole("button", { name: /New release/i })).toHaveAttribute("aria-current", "page");
+        expect(screen.getByRole("tab", { name: /New release/i })).toHaveAttribute("aria-selected", "true");
     });
 
     it("opens a new release on Source and keeps the build action behind identity", async () => {
@@ -531,7 +531,7 @@ describe("ReleaseStudioPanel", () => {
             buildId === "build-1" ? Promise.resolve(detail) : new Promise<BuildDetail>(() => {}),
         );
         render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        fireEvent.click(await screen.findByRole("button", { name: /^history$/i }));
+        fireEvent.click(await screen.findByRole("tab", { name: /^history$/i }));
         fireEvent.click(await screen.findByRole("button", { name: /succeeded.*attempt 1/i }));
         await waitFor(() => expect(screen.getByText("succeeded")).toBeTruthy());
 
@@ -574,7 +574,7 @@ describe("ReleaseStudioPanel", () => {
         const rail = await screen.findByRole("navigation", { name: /run stages/i });
         await waitFor(() => expect(within(rail).getByRole("button", { name: /Build/i })).toHaveAttribute("data-state", "failed"));
         expect(within(rail).getByRole("button", { name: /Outputs/i })).toBeDisabled();
-        fireEvent.click(screen.getByRole("button", { name: /^history$/i }));
+        fireEvent.click(screen.getByRole("tab", { name: /^history$/i }));
         expect(await screen.findByRole("button", { name: /failed.*attempt 2/i })).toBeTruthy();
     });
 
@@ -809,7 +809,7 @@ describe("ReleaseStudioPanel", () => {
             builds: [publishedBuild],
         }]);
         render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        fireEvent.click(await screen.findByRole("button", { name: /^history$/i }));
+        fireEvent.click(await screen.findByRole("tab", { name: /^history$/i }));
         const run = await screen.findByRole("button", { name: /succeeded.*attempt 1/i });
         expect(within(run).getByText("succeeded")).toBeTruthy();
         expect(within(run).getByText("published")).toBeTruthy();

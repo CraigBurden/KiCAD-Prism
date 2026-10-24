@@ -3,6 +3,8 @@ import { History, ListRestart, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { ResizablePanel } from "@/components/ui/resizable-panel";
+import { StudioTabsList, StudioTabsTrigger } from "@/components/ui/studio-tabs";
+import { Tabs } from "@/components/ui/tabs";
 import { cancelPrismJob, jobPipeline, throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { usePoll } from "@/lib/server-state";
 import { cn } from "@/lib/utils";
@@ -43,6 +45,12 @@ type Props = {
 };
 
 const FULL_SHA = /^[a-f0-9]{40}$/i;
+
+const MODES = [
+    { id: "settings" as const, label: "New release", icon: Settings2 },
+    { id: "current" as const, label: "Current", icon: ListRestart },
+    { id: "history" as const, label: "History", icon: History },
+];
 
 /**
  * Kept below the 20 MB base64 ceiling `CandidateRequest.stackup_pdf_b64`
@@ -508,50 +516,44 @@ export function ReleaseStudioPanel({
         [building, drafting, selectedCandidate, selectedDetail],
     );
 
+    const activeMode: StudioView = drafting && !selectedBuildId ? "settings" : view;
+    const selectMode = (id: StudioView) => {
+        setView(id);
+        if (id === "settings") {
+            setDrafting(true);
+            setView("current");
+            setStage("source");
+            setSelectedBuildId(null);
+            setDetail(null);
+            return;
+        }
+        setDrafting(false);
+        if (id === "current") {
+            setSelectedBuildId(currentBuildIdRef.current);
+            setStage(activeJobId ? "build" : "outputs");
+        } else if (id === "history") {
+            pinnedRef.current = false;
+            setSelectedBuildId(null);
+            setDetail(null);
+            setStage("build");
+        }
+    };
+
     return (
         <div className="flex h-full min-h-0 flex-col">
-            <header className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-b px-3 py-1">
-                <div className="flex items-center gap-0.5">
-                    {([
-                        ...(canMutate ? [{ id: "settings" as const, label: "New release", icon: Settings2 }] : []),
-                        { id: "current" as const, label: "Current", icon: ListRestart },
-                        { id: "history" as const, label: "History", icon: History },
-                    ]).map(({ id, label, icon: Icon }) => (
-                        <button
-                            key={id}
-                            type="button"
-                            onClick={() => {
-                                setView(id);
-                                if (id === "settings") {
-                                    setDrafting(true);
-                                    setView("current");
-                                    setStage("source");
-                                    setSelectedBuildId(null);
-                                    setDetail(null);
-                                    return;
-                                }
-                                setDrafting(false);
-                                if (id === "current") {
-                                    setSelectedBuildId(currentBuildIdRef.current);
-                                    setStage(activeJobId ? "build" : "outputs");
-                                } else if (id === "history") {
-                                    pinnedRef.current = false;
-                                    setSelectedBuildId(null);
-                                    setDetail(null);
-                                    setStage("build");
-                                }
-                            }}
-                            aria-current={(view === id || (id === "settings" && drafting && !selectedBuildId)) ? "page" : undefined}
-                            className={cn(
-                                "flex items-center gap-1.5 rounded px-2.5 py-1 text-sm",
-                                view === id || (id === "settings" && drafting && !selectedBuildId) ? "bg-muted font-medium" : "text-muted-foreground",
-                            )}
-                        >
-                            <Icon className="h-3.5 w-3.5" />
-                            {label}
-                        </button>
-                    ))}
-                </div>
+            <header className="flex h-11 shrink-0 items-center gap-2 overflow-hidden border-b px-2">
+                {/* Manual activation: arrows move focus, a click or Enter selects,
+                    and selecting the open view re-runs it (a fresh New release). */}
+                <Tabs value={activeMode} activationMode="manual" className="shrink-0">
+                    <StudioTabsList aria-label="Release Studio views">
+                        {MODES.filter((mode) => canMutate || mode.id !== "settings").map(({ id, label, icon: Icon }) => (
+                            <StudioTabsTrigger key={id} value={id} className="gap-1.5" onClick={() => selectMode(id)}>
+                                <Icon className="size-3.5" aria-hidden />
+                                {label}
+                            </StudioTabsTrigger>
+                        ))}
+                    </StudioTabsList>
+                </Tabs>
                 {(selectedBuildId || building || drafting) && (
                     <IdentityStrip
                         candidate={selectedCandidate}

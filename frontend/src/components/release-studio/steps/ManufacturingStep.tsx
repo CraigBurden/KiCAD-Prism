@@ -147,9 +147,10 @@ export function ManufacturingStep({
                         {profiles.map((profile) => {
                             const active = activeVendors.has(profile.id);
                             return (
-                                <button
+                                <Button
                                     key={profile.id}
-                                    type="button"
+                                    size="xs"
+                                    variant={active ? "secondary" : "outline"}
                                     aria-pressed={active}
                                     disabled={!canMutate}
                                     onClick={() => onChange({
@@ -158,10 +159,10 @@ export function ManufacturingStep({
                                             ? manufacturing.vendors.filter((item) => item !== profile.id)
                                             : [...manufacturing.vendors, profile.id],
                                     })}
-                                    className={cn("rounded-md border px-3 py-1.5 text-xs", active ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted")}
+                                    className={cn(active && "text-primary")}
                                 >
                                     {profile.id}
-                                </button>
+                                </Button>
                             );
                         })}
                     </div>

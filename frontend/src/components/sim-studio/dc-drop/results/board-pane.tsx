@@ -19,7 +19,7 @@ import type { SimRun } from "../../types";
 import { CursorProbe } from "./cursor-probe";
 import { displayUnit, formatValue } from "./format";
 import { ProfileTool } from "./profile-tool";
-import { StudioTabsList, StudioTabsTrigger } from "../../studio-tabs";
+import { StudioTabsList, StudioTabsTrigger } from "@/components/ui/studio-tabs";
 
 interface WebGpuStatus {
     available: boolean;
