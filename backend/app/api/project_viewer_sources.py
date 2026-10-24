@@ -7,18 +7,15 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse
 
 from app.api._blocking import run_bounded_io
-from app.api._helpers import get_project_for_role_or_404
-from app.api.projects import (
+from app.api._helpers import (
     COMMIT_FILE_STREAM_BYTES,
-    _commit_file_response,
-    _files_from_commit,
-    _output_dir_from_config,
-    _path_config_from_commit,
-    _read_commit_file,
+    commit_file_response,
+    get_project_for_role_or_404,
 )
 from app.core.security import AuthenticatedUser, require_viewer
 from app.services import (
     file_service,
+    project_outputs,
     project_service,
     project_viewer_sources_bundle as viewer_sources_bundle,
 )
@@ -50,9 +47,9 @@ def _project_metadata_bundle(
 
 
 class _BundleCommitFile:
-    """A ``sources/`` member in the shape ``_commit_file_response`` reads from a commit.
+    """A ``sources/`` member in the shape ``commit_file_response`` reads from a commit.
 
-    ``_commit_file_response`` streams a member over ``COMMIT_FILE_STREAM_BYTES``
+    ``commit_file_response`` streams a member over ``COMMIT_FILE_STREAM_BYTES``
     from ``cached_path()``. The bundle reader has already verified a member's
     bytes, so a large one is handed over as its extracted copy; nothing here
     re-reads Git.
@@ -90,7 +87,7 @@ def _bundle_commit_response(
     if source.size > COMMIT_FILE_STREAM_BYTES:
         member = f"sources/{source.repo_path}"
         cached = read.extract([member]) / member
-    return _commit_file_response(_BundleCommitFile(source, cached), inline=inline, headers=merged or None)
+    return commit_file_response(_BundleCommitFile(source, cached), inline=inline, headers=merged or None)
 
 
 def _not_found(detail: str) -> HTTPException:
@@ -102,8 +99,8 @@ def _find_commit_3d_model(
     commit: str,
     config: PathConfig,
 ) -> file_service.CommitFile:
-    design_dir = _output_dir_from_config(config, "design")
-    files = _files_from_commit(project, commit, design_dir)
+    design_dir = project_outputs.output_dir_in(config, "design")
+    files = project_outputs.list_commit_files(project, commit, design_dir)
 
     model_files = [
         item for item in files
@@ -115,7 +112,7 @@ def _find_commit_3d_model(
     if selected is None:
         raise HTTPException(status_code=404, detail="3D model not found")
 
-    return _read_commit_file(
+    return project_outputs.read_commit_file(
         project,
         commit,
         selected.path,
@@ -246,9 +243,9 @@ def _3d_model_response(project_id: str, commit: Optional[str], user: Authenticat
     project = get_project_for_role_or_404(project_id, user.role)
 
     if commit:
-        config = _path_config_from_commit(project, commit)
+        config = project_outputs.path_config_at(project, commit)
         commit_file = _find_commit_3d_model(project, commit, config)
-        return _commit_file_response(
+        return commit_file_response(
             commit_file,
             inline=True,
             headers={"Cache-Control": "public, max-age=300"},

@@ -17,7 +17,6 @@ from typing import Any, Callable, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 
-from app.api import projects as projects_api
 from app.api._helpers import (
     get_project_for_role_or_404,
     require_output_type,
@@ -25,6 +24,7 @@ from app.api._helpers import (
 )
 from app.api.release_studio import ARCHIVES
 from app.core.security import AuthenticatedUser, require_viewer
+from app.services import project_outputs
 from app.services import release_studio_service as release_store
 from app.services.fabrication_view_service import (
     BoundedCache,
@@ -216,7 +216,7 @@ def _candidates(names_sizes: list[tuple[str, int]], kind) -> list[tuple[str, int
 
 
 def _working_tree(project, output_type: str, folder: str, kind=_LAYERS):
-    output_dir = projects_api._resolve_output_dir(project, output_type)
+    output_dir = project_outputs.output_dir(project, output_type)
     directory = resolve_path_within_root(output_dir, folder, invalid_detail="Invalid folder path")
     if not directory.is_dir():
         raise HTTPException(status_code=404, detail="Folder not found")
@@ -235,13 +235,13 @@ def _working_tree(project, output_type: str, folder: str, kind=_LAYERS):
 
 
 def _at_commit(project, output_type: str, folder: str, commit: str, kind=_LAYERS):
-    config = projects_api._path_config_from_commit(project, commit)
-    base = projects_api._join_relative_paths(
-        projects_api._output_dir_from_config(config, output_type), folder
+    config = project_outputs.path_config_at(project, commit)
+    base = project_outputs.join_relative_paths(
+        project_outputs.output_dir_in(config, output_type), folder
     )
     items = [
         item
-        for item in projects_api._files_from_commit(project, commit, base)
+        for item in project_outputs.list_commit_files(project, commit, base)
         if not item.is_dir and "/" not in item.path
     ]
     found = _candidates([(item.name, item.size) for item in items], kind)
@@ -249,7 +249,7 @@ def _at_commit(project, output_type: str, folder: str, commit: str, kind=_LAYERS
 
     def read() -> dict[str, bytes]:
         return {
-            name: projects_api._read_commit_file(
+            name: project_outputs.read_commit_file(
                 project, commit, name, relative_prefix=base, not_found_detail="File not found"
             ).content
             for name, _ in found

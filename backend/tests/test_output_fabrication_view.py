@@ -66,7 +66,7 @@ class OutputFabricationViewTests(unittest.TestCase):
     def _patches(self):
         return (
             patch.object(self.api, "get_project_for_role_or_404", lambda *_a: object()),
-            patch.object(self.api.projects_api, "_resolve_output_dir", lambda *_a: str(self.root)),
+            patch.object(self.api.project_outputs, "output_dir", lambda *_a: str(self.root)),
         )
 
     def _view(self, folder="gerbers", commit=None, type="manufacturing"):
@@ -168,9 +168,9 @@ class CommitFabricationViewTests(unittest.TestCase):
 
         with (
             patch.object(self.api, "get_project_for_role_or_404", lambda *_a: object()),
-            patch.object(self.api.projects_api, "_path_config_from_commit", lambda *_a: _Config()),
-            patch.object(self.api.projects_api, "_files_from_commit", lambda *_a: listing),
-            patch.object(self.api.projects_api, "_read_commit_file", read),
+            patch.object(self.api.project_outputs, "path_config_at", lambda *_a: _Config()),
+            patch.object(self.api.project_outputs, "list_commit_files", lambda *_a: listing),
+            patch.object(self.api.project_outputs, "read_commit_file", read),
         ):
             return self.api.get_output_fabrication_view("p1", "manufacturing", folder, commit, _User())
 
@@ -229,7 +229,7 @@ class OutputPlacementTests(unittest.TestCase):
     def _view(self, folder: str):
         with (
             patch.object(self.api, "get_project_for_role_or_404", lambda *_a: object()),
-            patch.object(self.api.projects_api, "_resolve_output_dir", lambda *_a: str(self.root)),
+            patch.object(self.api.project_outputs, "output_dir", lambda *_a: str(self.root)),
         ):
             return self.api.get_output_placement("p1", "manufacturing", folder, None, _User())
 

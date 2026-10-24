@@ -518,7 +518,7 @@ class CommitFileReadsDoNotBlockTheLoopTests(unittest.TestCase):
 
         with patch.object(
             projects_api, "get_project_for_role_or_404", return_value=project
-        ), patch.object(projects_api, "_repo_context", return_value=("/repo", None)), patch.object(
+        ), patch.object(projects_api.project_outputs, "repo_context", return_value=("/repo", None)), patch.object(
             projects_api.file_service, "read_file_from_commit", blocked
         ):
             self.assertTrue(

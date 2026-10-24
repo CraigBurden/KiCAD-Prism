@@ -264,7 +264,9 @@ both refuse with typed errors (`FabricationViewError` is a 404,
 folder of committed outputs. A build's members are read through
 `BuildArchives.released_members` (`release_studio_publish_service.py`), the
 same digest-checked read as Release Studio's member download; never open the
-dossier tarball yourself.
+dossier tarball yourself. A folder's files come through `project_outputs.py`,
+which the project routes and the viewer sources share: where a project's output
+folders are, and a file or listing out of one at a commit.
 
 The parsing and drawing belong to `fabrication_compare_service.py`, which is
 grandfathered at its current length and must not grow. New behavior goes in the
