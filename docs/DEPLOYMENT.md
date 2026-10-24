@@ -105,6 +105,13 @@ frontend and backend to loopback, a redacted record of the run, and a
 `NEXT_STEPS.md` listing what remains manual. For DNS-01 it also builds the
 Caddy image with the provider module.
 
+The committed templates (`deploy/Caddyfile*`, `deploy/release/Caddyfile*`) are
+rendered from the installer's site block by
+`python3 -m scripts.prism_deploy.static_caddyfiles --write`, so a proxy started
+from a template sends the same upstream headers (including `X-Forwarded-Proto`)
+as an installed one. Edit the site block in `scripts/prism_deploy/render.py`,
+not the files; `scripts/test_prism_deploy.py` fails when they drift.
+
 Before starting anything it verifies the Compose version, container egress to
 the ACME and DNS provider endpoints, whether container DNS answers match the
 host's, the OIDC discovery document, and the generated Caddy and Compose
@@ -225,6 +232,16 @@ For a private CA or custom certificate:
 2. place `prism.crt` and `prism.key` in `certs/`;
 3. distribute the issuing root CA to browsers and KiCad workstations;
 4. start the same `proxy` profile.
+
+If clients reach Prism by a bare LAN IP instead of a DNS name, use that IP as
+the site address, include it in the certificate's subject alternative names,
+and add a global `default_sni` block at the top of `Caddyfile`; see
+[Bare IP addresses](HTTPS_AND_TLS.md#bare-ip-addresses).
+
+If the host already uses port 80 or 443, set `PRISM_CADDY_HTTP_PORT` and
+`PRISM_CADDY_HTTPS_PORT` in `.env` and include the HTTPS port in the public
+origin. Public ACME issuance with `Caddyfile` needs 80 and 443 reachable, so use
+`Caddyfile.internal` or `Caddyfile.dns-01` with other ports.
 
 ### Tailscale
 
@@ -499,6 +516,22 @@ The CPU and memory settings in `.env.example` are service ceilings. They are not
 reservations and their sum should not exceed what the host can sustain alongside
 PostgreSQL and filesystem cache.
 
+The prism worker admits memory-heavy jobs against `PRISM_WORKER_MEMORY_BUDGET_MIB`
+(default: half the container's memory, clamped to 4–8 GiB). Each kind reserves
+its measured peak: a Release Studio build 3.25 GiB, a design comparison 3 GiB, a
+design bundle build 2.25 GiB, a jobset 1.25 GiB and a simulation 1 GiB. Jobs
+that would exceed the budget wait instead of being killed. Give the
+`prism-worker` container memory for at least the heaviest job plus its own
+overhead; on an 8 GB container the default 4 GiB budget runs one heavy job at a
+time. Raise the budget only together with the container's memory limit.
+
+A cold design bundle for a large board (about 55 MB of `.kicad_pcb`) takes 2–2.5
+minutes and peaks at about 2.2 GB; prebuilding does that before anyone opens the
+revision. After a first deployment or a bulk import, the backfill builds every
+project's newest revisions one at a time, so expect the general worker to stay
+busy for a while. Plan disk for about 50 MB per prebuilt revision of a large
+design (see [Operations](OPERATIONS.md)).
+
 Increase one concurrency class at a time. Monitor worker memory, job duration,
 queue depth, PostgreSQL connections, and disk growth before raising it again.
 
@@ -516,6 +549,18 @@ docker compose up --build -d
 
 Record the tag, commit SHA, and rendered Compose configuration. This is also the
 development path, but it is not preferred when a release bundle exists.
+
+Images built this way report `development` / `unknown` in **Help → About** and
+in bug reports unless the build is told which commit it came from. The
+installer (`deploy.sh --start`) does this for you; for a manual build, pass the
+identity yourself:
+
+```bash
+PRISM_RELEASE="$(git describe --tags --always --dirty)" \
+PRISM_REVISION="$(git rev-parse HEAD)" \
+PRISM_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+docker compose up --build -d
+```
 
 ## Production readiness
 

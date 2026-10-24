@@ -157,8 +157,8 @@ See [Release process](docs/RELEASES.md).
 
 ## Project status
 
-`main` contains stable release history. `dev` is heading toward the V3.0.0
-alpha and may change between releases.
+`main` contains stable release history; the latest prerelease is
+`v4.0.0-alpha`. `dev` holds unreleased work and may change between releases.
 
 Current boundaries include:
 
@@ -178,8 +178,8 @@ See [Platform overview](docs/OVERVIEW.md) before planning a team rollout.
 - [Security policy](SECURITY.md)
 
 Changes target protected `dev` through pull requests. The required quality gate
-validates frontend, backend, semantic viewer, source Compose, and release
-deployment configuration.
+validates frontend, backend, semantic viewer, the native Rust workspace and its
+projection parity, source Compose, and release deployment configuration.
 
 ## Acknowledgements
 

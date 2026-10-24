@@ -1,0 +1,996 @@
+{
+ "schema": "prism.occurrences.a0",
+ "sheets": [
+  {
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": []
+  },
+  {
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": [
+    {
+     "name": "Lite",
+     "dnp": true,
+     "fields": {}
+    },
+    {
+     "name": "Pro",
+     "excludeFromBom": true,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/e466f341-d6de-5757-99d7-3cab7d8daea1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": []
+  },
+  {
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/2b37a7b5-50d3-5e47-8b5a-0eb89cbfd3a1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": []
+  },
+  {
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/a3f95ab9-d212-5d48-93ad-8aff8aef4abf",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": [
+    {
+     "name": "Lite",
+     "dnp": true,
+     "fields": {}
+    }
+   ]
+  }
+ ],
+ "symbols": [
+  {
+   "kiidPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/caa639b3-c965-5f5f-8579-1b1030520a32",
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3",
+   "symbolUuid": "caa639b3-c965-5f5f-8579-1b1030520a32",
+   "documentPath": "variants_oracle.kicad_sch",
+   "libId": "Device:R",
+   "reference": "R1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "MPN": "R1-BASE",
+    "Reference": "R1",
+    "Value": "10k"
+   },
+   "bomFields": {
+    "value": "10k",
+    "manufacturerPartNumber": "R1-BASE",
+    "footprint": "Resistor_SMD:R_0603_1608Metric"
+   },
+   "variants": [
+    {
+     "name": "Lite",
+     "dnp": true,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "kiidPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/bdaa41e8-4b3e-516d-b481-b6b06f958325",
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3",
+   "symbolUuid": "bdaa41e8-4b3e-516d-b481-b6b06f958325",
+   "documentPath": "variants_oracle.kicad_sch",
+   "libId": "Device:R",
+   "reference": "R2",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": true,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "Reference": "R2",
+    "Value": "22k"
+   },
+   "bomFields": {
+    "value": "22k",
+    "footprint": "Resistor_SMD:R_0603_1608Metric"
+   },
+   "variants": [
+    {
+     "name": "Lite",
+     "dnp": false,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "kiidPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/4ef94c69-7653-5842-9ae5-ff8865862183",
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3",
+   "symbolUuid": "4ef94c69-7653-5842-9ae5-ff8865862183",
+   "documentPath": "variants_oracle.kicad_sch",
+   "libId": "Device:R",
+   "reference": "R3",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "Reference": "R3",
+    "Value": "33k"
+   },
+   "bomFields": {
+    "value": "33k",
+    "footprint": "Resistor_SMD:R_0603_1608Metric"
+   },
+   "variants": [
+    {
+     "name": "Lite",
+     "excludeFromBom": true,
+     "excludeFromPosFiles": true,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "kiidPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/23f0e81a-7865-5d18-bd0e-1d11af24fc3d",
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3",
+   "symbolUuid": "23f0e81a-7865-5d18-bd0e-1d11af24fc3d",
+   "documentPath": "variants_oracle.kicad_sch",
+   "libId": "Device:R",
+   "reference": "R4",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "MPN": "R4-BASE",
+    "Reference": "R4",
+    "Value": "47k"
+   },
+   "bomFields": {
+    "value": "47k",
+    "manufacturerPartNumber": "R4-BASE",
+    "footprint": "Resistor_SMD:R_0603_1608Metric"
+   },
+   "variants": [
+    {
+     "name": "Lite",
+     "fields": {
+      "MPN": "R4-LITE"
+     }
+    },
+    {
+     "name": "Pro",
+     "dnp": false,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "kiidPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c34fa430-f6b0-55a2-a210-f21b13a3d089",
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3",
+   "symbolUuid": "c34fa430-f6b0-55a2-a210-f21b13a3d089",
+   "documentPath": "variants_oracle.kicad_sch",
+   "libId": "Device:C",
+   "reference": "C1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Capacitor_SMD:C_0603_1608Metric",
+    "MPN": "X-1",
+    "Note": "He said \"hi\"",
+    "Reference": "C1",
+    "Value": "1uF"
+   },
+   "bomFields": {
+    "value": "1uF",
+    "manufacturerPartNumber": "X-1",
+    "footprint": "Capacitor_SMD:C_0603_1608Metric"
+   },
+   "variants": [
+    {
+     "name": "Lite",
+     "fields": {
+      "MPN": "X-LITE",
+      "Value": "100nF"
+     }
+    },
+    {
+     "name": "Pro",
+     "fields": {
+      "MPN": ""
+     }
+    },
+    {
+     "name": "Édition-µ",
+     "fields": {
+      "Note": "She said \"bye\"",
+      "Value": "4.7µF"
+     }
+    }
+   ]
+  },
+  {
+   "kiidPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/3e98b5e2-e4d0-5512-91f4-b35191971034",
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3",
+   "symbolUuid": "3e98b5e2-e4d0-5512-91f4-b35191971034",
+   "documentPath": "variants_oracle.kicad_sch",
+   "libId": "Oracle:DualAmp",
+   "reference": "U1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+    "Reference": "U1",
+    "Value": "DualAmp"
+   },
+   "bomFields": {
+    "value": "DualAmp",
+    "footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
+   },
+   "variants": [
+    {
+     "name": "Lite",
+     "dnp": true,
+     "fields": {}
+    },
+    {
+     "name": "Pro",
+     "dnp": true,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "kiidPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/1be1d8dc-a710-5986-ba18-62d6bc021e6b",
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3",
+   "symbolUuid": "1be1d8dc-a710-5986-ba18-62d6bc021e6b",
+   "documentPath": "variants_oracle.kicad_sch",
+   "libId": "Oracle:DualAmp",
+   "reference": "U1",
+   "instanceMatched": true,
+   "unit": 2,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+    "Reference": "U1",
+    "Value": "DualAmp"
+   },
+   "bomFields": {
+    "value": "DualAmp",
+    "footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
+   },
+   "variants": [
+    {
+     "name": "Lite",
+     "dnp": true,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "kiidPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/7d201bda-eaa8-50cb-a4b8-98b6f582e55e",
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3",
+   "symbolUuid": "7d201bda-eaa8-50cb-a4b8-98b6f582e55e",
+   "documentPath": "variants_oracle.kicad_sch",
+   "libId": "Device:Q_NPN_BEC",
+   "reference": "Q1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Package_TO_SOT_SMD:SOT-23",
+    "Reference": "Q1",
+    "Value": "BC847"
+   },
+   "bomFields": {
+    "value": "BC847",
+    "footprint": "Package_TO_SOT_SMD:SOT-23"
+   },
+   "variants": [
+    {
+     "name": "Lite",
+     "fields": {
+      "Footprint": "Package_TO_SOT_SMD:SOT-89-3",
+      "Value": "BCX56"
+     }
+    }
+   ]
+  },
+  {
+   "kiidPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/a902666b-3af7-54fc-b81f-3efbe0ea2470",
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3",
+   "symbolUuid": "a902666b-3af7-54fc-b81f-3efbe0ea2470",
+   "documentPath": "variants_oracle.kicad_sch",
+   "libId": "Device:R",
+   "reference": "R9",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "Reference": "R9",
+    "Value": "1k"
+   },
+   "bomFields": {
+    "value": "1k",
+    "footprint": "Resistor_SMD:R_0603_1608Metric"
+   },
+   "variants": [
+    {
+     "name": "Lite",
+     "excludeFromSim": true,
+     "fields": {}
+    },
+    {
+     "name": "Pro",
+     "excludeFromBoard": true,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "kiidPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/896ca249-e76b-518e-840f-dcb7cbbd7750",
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3",
+   "symbolUuid": "896ca249-e76b-518e-840f-dcb7cbbd7750",
+   "documentPath": "variants_oracle.kicad_sch",
+   "libId": "power:GND",
+   "reference": "#PWR01",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "",
+    "Reference": "#PWR01",
+    "Value": "GND"
+   },
+   "bomFields": {
+    "value": "GND"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/a5cfa1a3-dfa6-506d-9fc0-fdb3dcd9a7e5",
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476",
+   "symbolUuid": "a5cfa1a3-dfa6-506d-9fc0-fdb3dcd9a7e5",
+   "documentPath": "wireless.kicad_sch",
+   "libId": "Oracle:DualAmp",
+   "reference": "U2",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+    "Reference": "U2",
+    "Value": "DualAmp"
+   },
+   "bomFields": {
+    "value": "DualAmp",
+    "footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/a9a5553f-6467-5f4c-99ec-239d47111690",
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476",
+   "symbolUuid": "a9a5553f-6467-5f4c-99ec-239d47111690",
+   "documentPath": "wireless.kicad_sch",
+   "libId": "Device:R",
+   "reference": "R12",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "Reference": "R12",
+    "Value": "4k7"
+   },
+   "bomFields": {
+    "value": "4k7",
+    "footprint": "Resistor_SMD:R_0603_1608Metric"
+   },
+   "variants": [
+    {
+     "name": "Lite",
+     "dnp": false,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "kiidPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/e466f341-d6de-5757-99d7-3cab7d8daea1/1c78f846-3def-57ae-ac80-247ce4b3b496",
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/e466f341-d6de-5757-99d7-3cab7d8daea1",
+   "symbolUuid": "1c78f846-3def-57ae-ac80-247ce4b3b496",
+   "documentPath": "antenna.kicad_sch",
+   "libId": "Device:R",
+   "reference": "R6",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "Reference": "R6",
+    "Value": "0R"
+   },
+   "bomFields": {
+    "value": "0R",
+    "footprint": "Resistor_SMD:R_0603_1608Metric"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/2b37a7b5-50d3-5e47-8b5a-0eb89cbfd3a1/900d8d20-7de0-547f-a978-fd9a5c67007c",
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/2b37a7b5-50d3-5e47-8b5a-0eb89cbfd3a1",
+   "symbolUuid": "900d8d20-7de0-547f-a978-fd9a5c67007c",
+   "documentPath": "channel.kicad_sch",
+   "libId": "Device:R",
+   "reference": "R7",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "MPN": "CH-BASE",
+    "Reference": "R7",
+    "Value": "100R"
+   },
+   "bomFields": {
+    "value": "100R",
+    "manufacturerPartNumber": "CH-BASE",
+    "footprint": "Resistor_SMD:R_0603_1608Metric"
+   },
+   "variants": [
+    {
+     "name": "Lite",
+     "fields": {
+      "MPN": "A-LITE"
+     }
+    }
+   ]
+  },
+  {
+   "kiidPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/a3f95ab9-d212-5d48-93ad-8aff8aef4abf/900d8d20-7de0-547f-a978-fd9a5c67007c",
+   "sheetPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/a3f95ab9-d212-5d48-93ad-8aff8aef4abf",
+   "symbolUuid": "900d8d20-7de0-547f-a978-fd9a5c67007c",
+   "documentPath": "channel.kicad_sch",
+   "libId": "Device:R",
+   "reference": "R8",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "MPN": "CH-BASE",
+    "Reference": "R7",
+    "Value": "100R"
+   },
+   "bomFields": {
+    "value": "100R",
+    "manufacturerPartNumber": "CH-BASE",
+    "footprint": "Resistor_SMD:R_0603_1608Metric"
+   },
+   "variants": []
+  }
+ ],
+ "footprints": [
+  {
+   "uuid": "ec3880bf-62c2-5c41-a50f-6381596c30ef",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "reference": "R1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": [
+    {
+     "name": "Lite",
+     "dnp": true,
+     "fields": {}
+    },
+    {
+     "name": "Pro",
+     "dnp": false,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "uuid": "4b298f09-2eff-5fd1-982c-b1eb072ccbe8",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "reference": "R2",
+   "dnp": true,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": [
+    {
+     "name": "Lite",
+     "dnp": false,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "uuid": "2073849d-13a1-5c6f-b6f4-5f6b0e7f001f",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "reference": "R3",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": [
+    {
+     "name": "Lite",
+     "excludeFromBom": true,
+     "excludeFromPosFiles": true,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "uuid": "3557800a-6a99-56d7-bd1f-6b1cf8abec66",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "reference": "R4",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": [
+    {
+     "name": "Lite",
+     "fields": {
+      "MPN": "R4-LITE"
+     }
+    }
+   ]
+  },
+  {
+   "uuid": "78868d5e-e525-51b9-adcc-94b26de45321",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "reference": "C1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": [
+    {
+     "name": "Lite",
+     "fields": {
+      "MPN": "X-LITE",
+      "Value": "100nF"
+     }
+    },
+    {
+     "name": "Pro",
+     "fields": {
+      "MPN": ""
+     }
+    },
+    {
+     "name": "Édition-µ",
+     "fields": {
+      "Note": "She said \"bye\"",
+      "Value": "4.7µF"
+     }
+    }
+   ]
+  },
+  {
+   "uuid": "f137ce95-5350-58e0-8833-623a61e2ba70",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "reference": "U1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": [
+    {
+     "name": "Lite",
+     "dnp": true,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "uuid": "5a220ef8-f143-59ec-941e-de3da0b7105e",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "reference": "Q1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": [
+    {
+     "name": "Lite",
+     "dnp": true,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "uuid": "8bdd2fcb-5aff-5a3a-a6e2-96f479a3fb83",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "reference": "Q1",
+   "dnp": true,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": [
+    {
+     "name": "Lite",
+     "dnp": false,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "uuid": "b6537e7e-dfe7-5c02-8e83-0f273a34b98b",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "reference": "U2",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": [
+    {
+     "name": "Lite",
+     "dnp": true,
+     "fields": {}
+    },
+    {
+     "name": "Pro",
+     "excludeFromBom": true,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "uuid": "5296bb19-4455-52ba-9eab-2f8aff8fe095",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "reference": "R12",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": [
+    {
+     "name": "Lite",
+     "dnp": true,
+     "fields": {}
+    },
+    {
+     "name": "Pro",
+     "excludeFromBom": true,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "uuid": "79e10a17-6c02-57db-aeca-8858a552f276",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "reference": "R6",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": [
+    {
+     "name": "Lite",
+     "dnp": true,
+     "fields": {}
+    },
+    {
+     "name": "Pro",
+     "excludeFromBom": true,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "uuid": "5332fc15-1d56-5263-98d2-33033b43605e",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "reference": "R7",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": [
+    {
+     "name": "Lite",
+     "fields": {
+      "MPN": "A-LITE"
+     }
+    }
+   ]
+  },
+  {
+   "uuid": "705904d1-297c-5955-ae0e-d36895ea5be4",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "reference": "R8",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": [
+    {
+     "name": "Lite",
+     "dnp": true,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "uuid": "72e28d8a-fadf-5e02-8a20-c37d1e474754",
+   "documentPath": "variants_oracle.kicad_pcb",
+   "reference": "J9",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": [
+    {
+     "name": "PcbOnly",
+     "dnp": true,
+     "fields": {}
+    }
+   ]
+  }
+ ],
+ "references": [
+  {
+   "reference": "#PWR01",
+   "symbols": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/896ca249-e76b-518e-840f-dcb7cbbd7750"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "C1",
+   "symbols": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c34fa430-f6b0-55a2-a210-f21b13a3d089"
+   ],
+   "footprints": [
+    "78868d5e-e525-51b9-adcc-94b26de45321"
+   ]
+  },
+  {
+   "reference": "J9",
+   "symbols": [],
+   "footprints": [
+    "72e28d8a-fadf-5e02-8a20-c37d1e474754"
+   ]
+  },
+  {
+   "reference": "Q1",
+   "symbols": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/7d201bda-eaa8-50cb-a4b8-98b6f582e55e"
+   ],
+   "footprints": [
+    "5a220ef8-f143-59ec-941e-de3da0b7105e",
+    "8bdd2fcb-5aff-5a3a-a6e2-96f479a3fb83"
+   ]
+  },
+  {
+   "reference": "R1",
+   "symbols": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/caa639b3-c965-5f5f-8579-1b1030520a32"
+   ],
+   "footprints": [
+    "ec3880bf-62c2-5c41-a50f-6381596c30ef"
+   ]
+  },
+  {
+   "reference": "R12",
+   "symbols": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/a9a5553f-6467-5f4c-99ec-239d47111690"
+   ],
+   "footprints": [
+    "5296bb19-4455-52ba-9eab-2f8aff8fe095"
+   ]
+  },
+  {
+   "reference": "R2",
+   "symbols": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/bdaa41e8-4b3e-516d-b481-b6b06f958325"
+   ],
+   "footprints": [
+    "4b298f09-2eff-5fd1-982c-b1eb072ccbe8"
+   ]
+  },
+  {
+   "reference": "R3",
+   "symbols": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/4ef94c69-7653-5842-9ae5-ff8865862183"
+   ],
+   "footprints": [
+    "2073849d-13a1-5c6f-b6f4-5f6b0e7f001f"
+   ]
+  },
+  {
+   "reference": "R4",
+   "symbols": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/23f0e81a-7865-5d18-bd0e-1d11af24fc3d"
+   ],
+   "footprints": [
+    "3557800a-6a99-56d7-bd1f-6b1cf8abec66"
+   ]
+  },
+  {
+   "reference": "R6",
+   "symbols": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/e466f341-d6de-5757-99d7-3cab7d8daea1/1c78f846-3def-57ae-ac80-247ce4b3b496"
+   ],
+   "footprints": [
+    "79e10a17-6c02-57db-aeca-8858a552f276"
+   ]
+  },
+  {
+   "reference": "R7",
+   "symbols": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/2b37a7b5-50d3-5e47-8b5a-0eb89cbfd3a1/900d8d20-7de0-547f-a978-fd9a5c67007c"
+   ],
+   "footprints": [
+    "5332fc15-1d56-5263-98d2-33033b43605e"
+   ]
+  },
+  {
+   "reference": "R8",
+   "symbols": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/a3f95ab9-d212-5d48-93ad-8aff8aef4abf/900d8d20-7de0-547f-a978-fd9a5c67007c"
+   ],
+   "footprints": [
+    "705904d1-297c-5955-ae0e-d36895ea5be4"
+   ]
+  },
+  {
+   "reference": "R9",
+   "symbols": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/a902666b-3af7-54fc-b81f-3efbe0ea2470"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "U1",
+   "symbols": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/3e98b5e2-e4d0-5512-91f4-b35191971034",
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/1be1d8dc-a710-5986-ba18-62d6bc021e6b"
+   ],
+   "footprints": [
+    "f137ce95-5350-58e0-8833-623a61e2ba70"
+   ]
+  },
+  {
+   "reference": "U2",
+   "symbols": [
+    "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/a5cfa1a3-dfa6-506d-9fc0-fdb3dcd9a7e5"
+   ],
+   "footprints": [
+    "b6537e7e-dfe7-5c02-8e83-0f273a34b98b"
+   ]
+  }
+ ],
+ "variantDeclarations": [
+  {
+   "source": "project",
+   "name": "Lite",
+   "description": "Cost-reduced build"
+  },
+  {
+   "source": "project",
+   "name": "Pro"
+  },
+  {
+   "source": "project",
+   "name": "Unused"
+  },
+  {
+   "source": "project",
+   "name": "Édition-µ",
+   "description": "Ünïcode ✓"
+  },
+  {
+   "source": "pcb",
+   "name": "Lite",
+   "description": "Cost-reduced build"
+  },
+  {
+   "source": "pcb",
+   "name": "Pro"
+  },
+  {
+   "source": "pcb",
+   "name": "BoardOnly"
+  }
+ ]
+}

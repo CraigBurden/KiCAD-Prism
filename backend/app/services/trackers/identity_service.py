@@ -21,6 +21,7 @@ from uuid import uuid4
 from app.core.config import Settings, settings as default_settings
 from app.services.trackers.connector_service import ConnectorNotFound, ConnectorService
 from app.services.trackers.errors import ProviderError
+from app.services.trackers.providers import host_kit
 from app.services.trackers.gitea_identity import GiteaIdentityAdapter, GiteaOAuthApp
 from app.services.trackers.github_identity import GitHubIdentityAdapter, GitHubOAuthApp
 from app.services.trackers.gitlab_identity import GitLabIdentityAdapter, GitLabOAuthApp
@@ -29,12 +30,6 @@ OAuthApp = GitHubOAuthApp | GitLabOAuthApp | GiteaOAuthApp
 IdentityAdapter = GitHubIdentityAdapter | GitLabIdentityAdapter | GiteaIdentityAdapter
 
 
-def _provider_of(app: OAuthApp) -> str:
-    if isinstance(app, GitLabOAuthApp):
-        return "gitlab"
-    if isinstance(app, GiteaOAuthApp):
-        return "gitea"
-    return "github"
 from app.services.trackers.credential_sidecars import load_oauth_client, store_oauth_client
 from app.services.trackers.secrets import SecretStoreLocked, decrypt_secret, encrypt_secret
 
@@ -252,7 +247,7 @@ class IdentityService:
                 conn,
                 user_id=actor_user_id,
                 connector_id=connector_id,
-                provider=_provider_of(oauth_app),
+                provider=oauth_app.provider,
                 forge_user_id=str(forge_user.id),
                 forge_login=str(forge_user.login),
                 token=token,
@@ -511,28 +506,12 @@ class IdentityService:
         if not connector:
             raise OAuthStateError("connector_not_found")
         callback = redirect_uri or self._callback_url(connector_id)
-        provider = str(connector.get("provider") or "github")
-        if provider == "gitlab":
-            return GitLabOAuthApp(
-                client_id=client_id,
-                client_secret=secret,
-                instance_kind=str(connector["instance_kind"]),
-                base_url=str(connector.get("base_url") or ""),
-                redirect_uri=callback,
-            )
-        if provider == "gitea":
-            return GiteaOAuthApp(
-                client_id=client_id,
-                client_secret=secret,
-                base_url=str(connector.get("base_url") or ""),
-                redirect_uri=callback,
-            )
-        return GitHubOAuthApp(
-            client_id=client_id,
-            client_secret=secret,
-            instance_kind=str(connector["instance_kind"]),
-            base_url=str(connector.get("base_url") or ""),
-            redirect_uri=callback,
+        return host_kit(str(connector.get("provider") or "github")).oauth_app(
+            str(connector["instance_kind"]),
+            str(connector.get("base_url") or ""),
+            client_id,
+            secret,
+            callback,
         )
 
     def _callback_url(self, connector_id: str) -> str:
@@ -545,11 +524,7 @@ class IdentityService:
         if self._adapter_factory is not None:
             return self._adapter_factory(app)
         hosts = str(getattr(self.settings, "PRISM_FORGE_HOSTS", "") or "")
-        if isinstance(app, GitLabOAuthApp):
-            return GitLabIdentityAdapter(app, forge_hosts_raw=hosts)
-        if isinstance(app, GiteaOAuthApp):
-            return GiteaIdentityAdapter(app, forge_hosts_raw=hosts)
-        return GitHubIdentityAdapter(app, forge_hosts_raw=hosts)
+        return host_kit(app.provider).identity_adapter(app, hosts)
 
     def _encode_state(self, state_id: str, connector_id: str, user_id: str) -> str:
         payload = {
@@ -635,23 +610,12 @@ def _decode_payload(token: str, settings: Settings) -> dict[str, Any]:
     return payload
 
 
-def initialize_tracker_identity_service() -> None:
-    from app.services.postgres_database import database
-    from app.services.workspace_schema_migrations import apply_workspace_migrations
-
-    with database.connection() as conn:
-        conn.execute("SET search_path TO workspace, public")
-        apply_workspace_migrations(conn)
-        conn.commit()
-
-
 __all__ = [
     "IdentityNotFound",
     "IdentityService",
     "OAuthStateError",
     "build_oauth_return_url",
     "bump_user_cache",
-    "initialize_tracker_identity_service",
     "user_cache_version",
     "validate_relative_return_to",
 ]

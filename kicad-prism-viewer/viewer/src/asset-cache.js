@@ -1,0 +1,254 @@
+// Browser cache for 3D bundle assets (System Builder SB2-26).
+//
+// Bundle files live under /api/projects/{project}/webgpu-3d/assets/{source}/{build}/…,
+// where source and build are content fingerprints: a file at that path never
+// changes once the bundle is final. The cache stores those files in the origin
+// private file system (OPFS) so a warm reload, or a second copy of a board in a
+// system scene, makes no network calls. A manifest records each file's size and
+// last use; entries unused for 30 days are pruned, and a size cap evicts the
+// least recently used. Without OPFS writes (Safari before createWritable) every
+// call falls through to the network, as before.
+
+const ASSET_PATH = /\/api\/projects\/([^/]+)\/webgpu-3d\/assets\/([^/]+)\/([^/]+)\/(.+)$/;
+const DIRECTORY = "prism-bundle-cache-a0";
+/** The OPFS directory the cache keeps its files in (workers write into it too; see `adopt`). */
+export const ASSET_CACHE_DIRECTORY = DIRECTORY;
+const MANIFEST = "manifest.json";
+export const CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+export const CACHE_MAX_BYTES = 2 * 1024 * 1024 * 1024;
+
+/**
+ * The cache key of a bundle asset URL, or null for anything else. The key names
+ * the bundle (project, source and build fingerprints) and the file; the
+ * `viewer` query parameter, the host's cache-busting key, is part of it.
+ */
+export function assetCacheKey(url) {
+  let parsed;
+  try {
+    parsed = new URL(url, "http://cache.invalid/");
+  } catch {
+    return null;
+  }
+  const match = ASSET_PATH.exec(parsed.pathname);
+  if (!match) return null;
+  const [, project, source, build, path] = match.map(decodeURIComponent);
+  if (path.split("/").some((part) => !part || part === "." || part === "..")) return null;
+  const viewer = parsed.searchParams.get("viewer") || "";
+  return `${project}/${source}/${build}/${path}${viewer ? `?viewer=${viewer}` : ""}`;
+}
+
+/** An OPFS file name for a key: no separators, never "." or "..". */
+export function fileNameFor(key) {
+  return `a_${encodeURIComponent(key)}`;
+}
+
+/**
+ * Which entries to delete: those unused for `maxAgeMs`, then the least recently
+ * used until the rest fit in `maxBytes`. `entries` maps key → { bytes, lastUsed }.
+ */
+export function planPrune(entries, now, { maxAgeMs = CACHE_MAX_AGE_MS, maxBytes = CACHE_MAX_BYTES } = {}) {
+  const drop = new Set();
+  const live = [];
+  for (const [key, entry] of Object.entries(entries)) {
+    if (!(now - Number(entry.lastUsed || 0) <= maxAgeMs)) drop.add(key);
+    else live.push([key, entry]);
+  }
+  live.sort((a, b) => Number(b[1].lastUsed) - Number(a[1].lastUsed));
+  let total = 0;
+  for (const [key, entry] of live) {
+    total += Number(entry.bytes || 0);
+    if (total > maxBytes) drop.add(key);
+  }
+  return [...drop];
+}
+
+export class AssetCache {
+  /** The page's cache, or a pass-through when OPFS writes are unavailable. */
+  static open(options = {}) {
+    if (!AssetCache.shared) AssetCache.shared = new AssetCache(options);
+    return AssetCache.shared;
+  }
+
+  constructor({ maxAgeMs = CACHE_MAX_AGE_MS, maxBytes = CACHE_MAX_BYTES } = {}) {
+    this.maxAgeMs = maxAgeMs;
+    this.maxBytes = maxBytes;
+    this.stats = { hits: 0, misses: 0, bypassed: 0, cachedBytes: 0, networkBytes: 0, writeErrors: 0 };
+    this.ready = this.init();
+    this.flushTimer = null;
+  }
+
+  async init() {
+    try {
+      const storage = globalThis.navigator?.storage;
+      if (!storage?.getDirectory) return null;
+      const root = await storage.getDirectory();
+      const directory = await root.getDirectoryHandle(DIRECTORY, { create: true });
+      const probe = await directory.getFileHandle(MANIFEST, { create: true });
+      if (typeof probe.createWritable !== "function") return null;
+      let entries = {};
+      try {
+        const text = await (await probe.getFile()).text();
+        entries = text ? JSON.parse(text).entries || {} : {};
+      } catch {
+        entries = {};
+      }
+      this.directory = directory;
+      this.entries = entries;
+      await this.prune();
+      globalThis.addEventListener?.("pagehide", () => void this.flush());
+      return directory;
+    } catch {
+      return null;
+    }
+  }
+
+  get enabled() {
+    return Boolean(this.directory);
+  }
+
+  /** Bytes of a bundle asset: from the cache, else the network (then cached when `store`). */
+  async fetchBytes(url, { store = true, signal } = {}) {
+    const key = assetCacheKey(url);
+    await this.ready;
+    if (key && this.directory) {
+      const cached = await this.read(key);
+      if (cached) {
+        this.stats.hits += 1;
+        this.stats.cachedBytes += cached.byteLength;
+        return cached;
+      }
+      this.stats.misses += 1;
+    } else {
+      this.stats.bypassed += 1;
+    }
+    const response = await fetch(url, { cache: "no-store", signal });
+    if (!response.ok) throw new Error(`Failed to load ${url}: ${response.status}`);
+    const bytes = await response.arrayBuffer();
+    const expected = Number(response.headers.get("content-length") || 0);
+    this.stats.networkBytes += bytes.byteLength;
+    // Only a complete, successful download is stored (content-length checked when sent).
+    if (store && key && this.directory && (!expected || expected === bytes.byteLength)) {
+      void this.write(key, bytes);
+    }
+    return bytes;
+  }
+
+  async fetchJson(url, options = {}) {
+    const bytes = await this.fetchBytes(url, options);
+    return JSON.parse(new TextDecoder().decode(bytes));
+  }
+
+  /** A cached value without touching the network, or null. */
+  async peekJson(url) {
+    const key = assetCacheKey(url);
+    await this.ready;
+    if (!key || !this.directory) return null;
+    const bytes = await this.read(key);
+    if (!bytes) return null;
+    this.stats.hits += 1;
+    this.stats.cachedBytes += bytes.byteLength;
+    return JSON.parse(new TextDecoder().decode(bytes));
+  }
+
+  /** Store bytes already fetched (e.g. a bundle.json once it is known to be final). */
+  async store(url, bytes) {
+    const key = assetCacheKey(url);
+    await this.ready;
+    if (key && this.directory) await this.write(key, bytes);
+  }
+
+  async read(key) {
+    const entry = this.entries[key];
+    if (!entry) return null;
+    try {
+      const file = await (await this.directory.getFileHandle(fileNameFor(key))).getFile();
+      if (file.size !== entry.bytes) return null;
+      entry.lastUsed = Date.now();
+      this.scheduleFlush();
+      return await file.arrayBuffer();
+    } catch {
+      delete this.entries[key];
+      return null;
+    }
+  }
+
+  async write(key, bytes) {
+    try {
+      const handle = await this.directory.getFileHandle(fileNameFor(key), { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(bytes);
+      await writable.close();
+      // Listed only once the file is complete; a torn write is never read.
+      this.entries[key] = { bytes: bytes.byteLength, lastUsed: Date.now() };
+      this.scheduleFlush();
+    } catch {
+      this.stats.writeErrors += 1;
+    }
+  }
+
+  /**
+   * List `key` as cached: a worker wrote its file (`fileNameFor(key)` in
+   * `ASSET_CACHE_DIRECTORY`, `bytes` long) and closed it. A file never
+   * adopted is unlisted, and the next prune removes it.
+   */
+  adopt(key, bytes) {
+    if (!this.directory) return;
+    this.entries[key] = { bytes, lastUsed: Date.now() };
+    this.scheduleFlush();
+  }
+
+  async prune(now = Date.now()) {
+    if (!this.directory) return [];
+    const drop = planPrune(this.entries, now, { maxAgeMs: this.maxAgeMs, maxBytes: this.maxBytes });
+    for (const key of drop) {
+      delete this.entries[key];
+      await this.directory.removeEntry(fileNameFor(key)).catch(() => {});
+    }
+    // Files no manifest lists (another tab's torn write, an older manifest) go too.
+    const listed = new Set(Object.keys(this.entries).map(fileNameFor));
+    for await (const name of this.directory.keys()) {
+      if (name !== MANIFEST && !listed.has(name)) await this.directory.removeEntry(name).catch(() => {});
+    }
+    if (drop.length) await this.flush();
+    return drop;
+  }
+
+  /** Remove everything (tests and a "clear cache" control). */
+  async clear() {
+    await this.ready;
+    if (!this.directory) return;
+    this.entries = {};
+    await this.prune();
+    await this.flush();
+  }
+
+  summary() {
+    const entries = Object.values(this.entries || {});
+    return {
+      enabled: this.enabled,
+      files: entries.length,
+      bytes: entries.reduce((sum, entry) => sum + Number(entry.bytes || 0), 0),
+      ...this.stats,
+    };
+  }
+
+  scheduleFlush() {
+    if (this.flushTimer) return;
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      void this.flush();
+    }, 1000);
+  }
+
+  async flush() {
+    if (!this.directory) return;
+    try {
+      const handle = await this.directory.getFileHandle(MANIFEST, { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(JSON.stringify({ schema: "prism.bundle_cache_manifest.a0", entries: this.entries }));
+      await writable.close();
+    } catch {
+      this.stats.writeErrors += 1;
+    }
+  }
+}

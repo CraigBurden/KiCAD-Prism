@@ -38,7 +38,7 @@ function Harness({
     onPick,
     loading,
 }: {
-    onPick: (title: string) => void;
+    onPick: (title: string, additive?: boolean) => void;
     loading?: boolean;
 }) {
     const [picked, setPicked] = useState("");
@@ -48,9 +48,9 @@ function Harness({
             <DesignSearchField
                 semanticIndex={index}
                 loading={loading}
-                onPick={(hit) => {
+                onPick={(hit, options) => {
                     setPicked(hit.title);
-                    onPick(hit.title);
+                    onPick(hit.title, options?.additive);
                 }}
             />
         </>
@@ -81,6 +81,19 @@ describe("DesignSearchField", () => {
         expect(picked).toEqual(["R12"]);
         expect(screen.queryByRole("listbox")).toBeNull();
         expect((field as HTMLInputElement).value).toBe("r12");
+    });
+
+    it("tells a Shift pick apart, by click or Enter", () => {
+        const picked: [string, boolean | undefined][] = [];
+        render(<Harness onPick={(title, additive) => picked.push([title, additive])} />);
+        const field = screen.getByRole("combobox", { name: "Find component or net" });
+        fireEvent.change(field, { target: { value: "gnd" } });
+        fireEvent.click(screen.getByRole("option", { name: /GND/ }), { shiftKey: true });
+        fireEvent.change(field, { target: { value: "gnd" } });
+        fireEvent.keyDown(field, { key: "Enter", shiftKey: true });
+        fireEvent.change(field, { target: { value: "gnd" } });
+        fireEvent.keyDown(field, { key: "Enter" });
+        expect(picked).toEqual([["GND", true], ["GND", true], ["GND", false]]);
     });
 
     it("clears the query on a second Escape", () => {

@@ -1,0 +1,58 @@
+{
+ "schema": "prism.stackup.a0",
+ "present": false,
+ "boardThicknessNm": 1600000,
+ "layers": [],
+ "copperLayers": [
+  "F.Cu",
+  "B.Cu"
+ ],
+ "maskColors": {},
+ "viaSpans": [],
+ "boardLayers": [
+  {
+   "ordinal": 0,
+   "name": "F.Cu",
+   "type": "signal"
+  },
+  {
+   "ordinal": 2,
+   "name": "B.Cu",
+   "type": "signal"
+  },
+  {
+   "ordinal": 5,
+   "name": "F.SilkS",
+   "type": "user",
+   "userName": "f.silkscreen"
+  },
+  {
+   "ordinal": 7,
+   "name": "B.SilkS",
+   "type": "user",
+   "userName": "b.silkscreen"
+  },
+  {
+   "ordinal": 25,
+   "name": "Edge.Cuts",
+   "type": "user"
+  },
+  {
+   "ordinal": 27,
+   "name": "Margin",
+   "type": "user"
+  },
+  {
+   "ordinal": 31,
+   "name": "F.CrtYd",
+   "type": "user",
+   "userName": "F.Courtyard"
+  },
+  {
+   "ordinal": 29,
+   "name": "B.CrtYd",
+   "type": "user",
+   "userName": "B.Courtyard"
+  }
+ ]
+}

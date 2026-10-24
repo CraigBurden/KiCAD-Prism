@@ -4,13 +4,20 @@ import hashlib
 import json
 import logging
 import re
+from pathlib import Path
 from typing import Any
 
 from app.services import project_service, semantic_index_service
+from app.services.catalog.field_rules import missing_metadata_findings
+from app.services.catalog.metadata_normalization import is_reserved_stamp_key
 from app.services.component_catalog_service import catalog_service
 from app.services.project_component_asset_extractor import (
     ContentAddressedAssetStager,
-    build_project_asset_index,
+    footprint_land_pattern,
+)
+from app.services.project_component_bundle_assets import (
+    BUNDLE_MEMBER_PATHS,
+    ProjectBundleAssetIndex,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,9 +41,12 @@ def _is_instance_context_field(name: object) -> bool:
     A project import deliberately groups many placed symbols into one catalog
     candidate.  UUIDs, sheet paths, and sheet names must therefore never become
     catalog metadata or generate a provenance conflict merely because two
-    placements are different.
+    placements are different.  The catalog placement stamp names the revision
+    one placement came from, so it is instance context as well.
     """
 
+    if is_reserved_stamp_key(name):
+        return True
     normalized = re.sub(r"[^a-z0-9]", "", str(name).casefold())
     return normalized in {
         "uuid",
@@ -129,15 +139,7 @@ def _proposal(
         "manufacturer": _field(fields, "Manufacturer", "MFR"),
         "manufacturer_part_number": _field(fields, "Manufacturer Part Number", "MPN", "Part Number"),
     }
-    for key, value in required_metadata.items():
-        if not value.strip():
-            findings.append(
-                {
-                    "code": f"missing_metadata_{key}",
-                    "severity": "error",
-                    "message": f"Required component metadata is missing: {key.replace('_', ' ')}.",
-                }
-            )
+    findings.extend(missing_metadata_findings(required_metadata))
     findings.extend(extraction_findings or [])
     return {
         "dedupe_key": _dedupe_key(component, project_id=project_id),
@@ -294,6 +296,33 @@ def _merge_metadata(target: dict[str, Any], incoming: dict[str, Any]) -> list[di
     return findings
 
 
+def _conflict_subjects(*provenances: list[dict[str, Any]]) -> str:
+    """The source projects and references behind a conflict, for its message."""
+
+    subjects: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for provenance in provenances:
+        for source in _alternative_sources(provenance):
+            key = (source.get("projectId", ""), source.get("reference", ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            subjects.append(" ".join(part for part in key if part))
+    return ", ".join(subjects)
+
+
+def _asset_land_pattern(asset: dict[str, Any]) -> tuple[tuple[object, ...], ...] | None:
+    """The staged footprint's copper land pattern, or ``None`` when it cannot be read."""
+
+    path = str(asset.get("staged_path") or "")
+    if not path:
+        return None
+    try:
+        return footprint_land_pattern(Path(path).read_bytes())
+    except OSError:
+        return None
+
+
 def _merge_proposal(target: dict[str, Any], incoming: dict[str, Any]) -> None:
     target["findings"].extend(_merge_metadata(target, incoming))
     target["provenance"].extend(incoming["provenance"])
@@ -301,28 +330,64 @@ def _merge_proposal(target: dict[str, Any], incoming: dict[str, Any]) -> None:
     references.update(incoming["metadata"].get("references") or [])
     target["metadata"]["references"] = sorted(references)
     existing_assets = {(item["asset_type"], item["sha256"]) for item in target["assets"]}
-    types_by_hash = {item["asset_type"]: item["sha256"] for item in target["assets"]}
+    first_by_type = {item["asset_type"]: item for item in target["assets"]}
     for asset in incoming["assets"]:
         identity = (asset["asset_type"], asset["sha256"])
         if identity in existing_assets:
             continue
-        existing_hash = types_by_hash.get(asset["asset_type"])
-        if (
-            existing_hash
-            and existing_hash != asset["sha256"]
-            and asset["asset_type"] in {"symbol", "footprint"}
-        ):
+        existing = first_by_type.get(asset["asset_type"])
+        if existing is None:
+            target["assets"].append(asset)
+            first_by_type[asset["asset_type"]] = asset
+            existing_assets.add(identity)
+            continue
+        if existing["sha256"] == asset["sha256"]:
+            existing_assets.add(identity)
+            continue
+        subjects = _conflict_subjects(list(target["provenance"]), list(incoming["provenance"]))
+        if asset["asset_type"] == "symbol":
             target["findings"].append(
                 {
-                    "code": f"conflicting_{asset['asset_type']}_assets",
+                    "code": "conflicting_symbol_assets",
                     "severity": "error",
                     "message": (
-                        f"Projects contain different {asset['asset_type']} content "
-                        "for the same component identity."
+                        "Projects contain different symbol content for the same component "
+                        f"identity ({subjects})."
                     ),
                 }
             )
-        target["assets"].append(asset)
+            target["assets"].append(asset)
+        elif asset["asset_type"] == "footprint":
+            # Two footprints for one identity conflict only when their copper
+            # land pattern differs. A difference outside the pads (silk,
+            # courtyard, fab, text, 3D model) is a reviewable variant, and the
+            # first copy is kept either way.
+            first_pattern = _asset_land_pattern(existing)
+            incoming_pattern = _asset_land_pattern(asset)
+            if first_pattern is None or incoming_pattern is None or first_pattern != incoming_pattern:
+                target["findings"].append(
+                    {
+                        "code": "conflicting_footprint_land_pattern",
+                        "severity": "error",
+                        "message": (
+                            "Projects contain different copper land patterns for the same "
+                            f"component identity ({subjects})."
+                        ),
+                    }
+                )
+            else:
+                target["findings"].append(
+                    {
+                        "code": "footprint_variants_cosmetic",
+                        "severity": "warning",
+                        "message": (
+                            "Projects contain footprints that differ only outside the copper "
+                            f"land pattern ({subjects})."
+                        ),
+                    }
+                )
+        else:
+            target["assets"].append(asset)
         existing_assets.add(identity)
     existing_findings = {(item["code"], item["message"]) for item in target["findings"]}
     for finding in incoming["findings"]:
@@ -330,10 +395,33 @@ def _merge_proposal(target: dict[str, Any], incoming: dict[str, Any]) -> None:
             target["findings"].append(finding)
 
 
+def _bundle_asset_index(
+    project_id: str,
+    commit: str | None,
+    stager: ContentAddressedAssetStager,
+    *,
+    requested_by: str = "",
+) -> ProjectBundleAssetIndex:
+    """The bundle's asset index for a revision (``commit=None`` is the checkout's HEAD).
+
+    ``bundle_read`` raises ``DesignDataPending`` while a member builds (it
+    queues the job) or ``DesignDataFailed`` when it cannot be built; the import
+    session lets the former retry. The legacy directory scanner is gone (R1).
+    """
+    from app.services.design_bundle import consumer
+
+    read = consumer.bundle_read(
+        "CATALOG_IMPORT", project_id, commit, BUNDLE_MEMBER_PATHS, requested_by=requested_by
+    )
+    return ProjectBundleAssetIndex(read, stager=stager)
+
+
 def run_project_import_session(session_id: str) -> None:
     session = catalog_service.get_project_import_session(session_id)
     if not session:
         return
+    from app.services.design_bundle.errors import DesignDataPending
+
     try:
         catalog_service.update_project_import_session(session_id, status="scanning")
         grouped: dict[str, dict[str, Any]] = {}
@@ -346,7 +434,7 @@ def run_project_import_session(session_id: str) -> None:
             if not project:
                 raise ValueError(f"Project not found while scanning: {project_id}")
             source_revision = str((session.get("project_revisions") or {}).get(project_id) or "")
-            semantic_index = semantic_index_service.get_or_build(project, source_revision or None)
+            semantic_index = semantic_index_service.get_index(project, source_revision or None)
             components = list(semantic_index.get("components") or [])
             if session["scope"] == "component":
                 components = [
@@ -358,32 +446,38 @@ def run_project_import_session(session_id: str) -> None:
                     )
             if not components:
                 continue
-            with semantic_index_service._project_file_for_revision(
-                project, source_revision or None
-            ) as (project_file, _):
-                project_root = project_file.parent
-                asset_index = build_project_asset_index(project_root, stager=stager)
-                for component in components:
-                    assets, findings, resolved = asset_index.extract_component_assets(component)
-                    candidate = _proposal(
-                        component,
-                        project_id=str(project_id),
-                        source_revision=source_revision,
-                        assets=assets,
-                        extraction_findings=findings,
-                        resolved=resolved,
-                    )
-                    existing = grouped.get(candidate["dedupe_key"])
-                    if existing:
-                        _merge_proposal(existing, candidate)
-                    else:
-                        grouped[candidate["dedupe_key"]] = candidate
+            asset_index = _bundle_asset_index(
+                str(project_id),
+                source_revision or None,
+                stager,
+                requested_by=str(session.get("created_by") or ""),
+            )
+            for component in components:
+                assets, findings, resolved = asset_index.extract_component_assets(component)
+                candidate = _proposal(
+                    component,
+                    project_id=str(project_id),
+                    source_revision=source_revision,
+                    assets=assets,
+                    extraction_findings=findings,
+                    resolved=resolved,
+                )
+                existing = grouped.get(candidate["dedupe_key"])
+                if existing:
+                    _merge_proposal(existing, candidate)
+                else:
+                    grouped[candidate["dedupe_key"]] = candidate
         proposals = list(grouped.values())
         # Where-used is a semantic observation, not a side effect of admitting an
         # asset into the managed library. Update known component usage on every scan
         # so release reviewers see project impact even when proposals remain pending.
         catalog_service.index_project_component_usage(proposals)
         catalog_service.stage_project_import_proposals(session_id, proposals)
+    except DesignDataPending:
+        # The bundle is building and was queued by the read. The catalog job
+        # retries; the session stays in scanning rather than failing.
+        catalog_service.update_project_import_session(session_id, status="scanning")
+        raise
     except Exception as exc:
         logger.exception("Project component import session %s failed", session_id)
         catalog_service.update_project_import_session(session_id, status="failed", error_message=str(exc))

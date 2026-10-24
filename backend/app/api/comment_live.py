@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from app.api._helpers import get_project_for_role_or_404
+from app.core import policy
 from app.core.config import settings
 from app.core.security import AuthenticatedUser, get_current_user, require_viewer
 from app.services import comment_live_events
@@ -41,12 +42,7 @@ def _read_batch(project_id: str, after: int, limit: int = _BATCH_SIZE) -> dict:
 
 
 def _can_read_live(user: AuthenticatedUser) -> bool:
-    # Remote-symbol provider credentials are not project API credentials.
-    if user.auth_type == "kicad_provider":
-        return False
-    if user.auth_type == "session":
-        return True
-    return bool({"api:read", "*"}.intersection(user.scopes))
+    return policy.allows(user, "read")
 
 
 def _origin_allowed(websocket: WebSocket, user: AuthenticatedUser) -> bool:

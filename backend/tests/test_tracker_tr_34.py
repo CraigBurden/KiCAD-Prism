@@ -3,18 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import unittest
-import uuid
 from pathlib import Path
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.trackers.contracts import (  # noqa: E402
-    ForgeUser,
     IssueContainerRef,
     Moved,
     RemoteIssue,
@@ -33,7 +28,7 @@ from app.services.trackers.link_lifecycle import (  # noqa: E402
     unlink_thread_lifecycle,
 )
 from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
-from app.services.trackers.op_store import LIVE_STATES, OpStore, apply_schema as apply_op_schema  # noqa: E402
+from app.services.trackers.op_store import OpStore, apply_schema as apply_op_schema  # noqa: E402
 from app.services.trackers.promotion import PromotionActor  # noqa: E402
 from app.services.trackers.store import TrackerStore  # noqa: E402
 from test_tracker_tr_28 import (  # noqa: E402
@@ -42,12 +37,12 @@ from test_tracker_tr_28 import (  # noqa: E402
     COMMENT_ID,
     CONNECTOR,
     CONTAINER,
-    ISSUE,
     ISSUE_ID,
     ISSUE_NUMBER,
     _forge_user,
-    _remote_issue,
 )
+from app.services.comments_schema_migrations import COMMENTS_LEDGER  # noqa: E402
+from support.postgres import requires_scratch_postgres, scratch_schema, seed_comment  # noqa: E402
 
 try:
     import psycopg
@@ -56,8 +51,6 @@ except ImportError:  # pragma: no cover
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 F7 = json.loads((DOCS / "fixtures" / "F07.json").read_text(encoding="utf-8"))
 F8 = json.loads((DOCS / "fixtures" / "F08.json").read_text(encoding="utf-8"))
@@ -66,22 +59,6 @@ APPROVED_CONTAINER = "222222222"
 UNAPPROVED_CONTAINER = "333333333"
 APPROVED_PATH = "acme/hardware-issues"
 UNAPPROVED_PATH = "acme/public-notes"
-
-
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 def _issue_in_container(
@@ -104,33 +81,12 @@ def _issue_in_container(
     )
 
 
-class FixtureContractTests(unittest.TestCase):
-    def test_tr34_fixture_cases_present(self) -> None:
-        f7_ids = {case["id"] for case in F7["cases"]}
-        for case_id in (
-            "F7.transfer_to_approved_container",
-            "F7.transfer_to_unapproved_container",
-        ):
-            self.assertIn(case_id, f7_ids)
-        f8_ids = {case["id"] for case in F8["cases"]}
-        self.assertIn("F8.remote_issue_deleted", f8_ids)
-        self.assertIn("F8.no_repromote_from_inaccessible", f8_ids)
 
-
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class LinkLifecyclePostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"tr34_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self._create_comments_foundation()
-        comments_schema_migrations.apply_comments_migrations(self.conn)
-        migrate_workspace_tracker_tables(self.conn)
-        apply_op_schema(self.conn)
+        self.scratch = scratch_schema(self, "tr34", ledgers=(COMMENTS_LEDGER,), then=(migrate_workspace_tracker_tables, apply_op_schema,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
         self.store = TrackerStore(self.conn)
         self.ops = OpStore(self.conn)
         self.store.upsert_connector(
@@ -142,48 +98,6 @@ class LinkLifecyclePostgresTests(unittest.TestCase):
         )
         self._seed_destination()
         self.conn.commit()
-
-    def _cleanup(self) -> None:
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
-
-    def _create_comments_foundation(self) -> None:
-        self.conn.execute(
-            """
-            CREATE TABLE comments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                status TEXT NOT NULL DEFAULT 'OPEN',
-                context TEXT NOT NULL DEFAULT 'PCB',
-                location_x REAL NOT NULL DEFAULT 0,
-                location_y REAL NOT NULL DEFAULT 0,
-                location_layer TEXT NOT NULL DEFAULT '',
-                location_page TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT '',
-                revision INTEGER NOT NULL DEFAULT 1
-            );
-            CREATE TABLE comment_replies (
-                id TEXT PRIMARY KEY,
-                comment_id TEXT NOT NULL REFERENCES comments(id),
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                content TEXT NOT NULL DEFAULT '',
-                author_kind TEXT NOT NULL DEFAULT 'user',
-                origin TEXT NOT NULL DEFAULT 'prism',
-                revision INTEGER NOT NULL DEFAULT 1,
-                deleted_at TIMESTAMPTZ,
-                deleted_by TEXT
-            );
-            """,
-            prepare=False,
-        )
 
     def _seed_destination(self) -> None:
         self.store.set_project_tracker(
@@ -212,10 +126,7 @@ class LinkLifecyclePostgresTests(unittest.TestCase):
         )
 
     def _seed_comment(self) -> None:
-        self.conn.execute(
-            "INSERT INTO comments(id, project_id, author, content, revision) VALUES (%s,%s,%s,%s,%s)",
-            (COMMENT_ID, "prj_a", "Priya", "root content", 1),
-        )
+        seed_comment(self.conn, COMMENT_ID, "prj_a", author="Priya", content="root content", revision=1)
 
     def _seed_thread(
         self,

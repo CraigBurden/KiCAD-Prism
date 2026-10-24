@@ -1,59 +1,63 @@
 import { useCallback, useReducer } from "react";
 
-import type { RowEdits } from "./library-import-remediation-grid";
-
 /**
- * Edit history for the import remediation grid: the pending edits plus the
- * undo/redo stacks, moved through one pure reducer so a single dispatch
- * transitions all three coherently. The previous implementation nested
- * setState calls inside updater callbacks, which React may invoke more than
- * once — duplicating history entries under StrictMode.
+ * Edit history for the library grids: the pending edits plus the undo/redo
+ * stacks, moved through one pure reducer so a single dispatch transitions all
+ * three coherently. Nesting setState calls inside updater callbacks instead
+ * (as the remediation grid once did) duplicates history entries under
+ * StrictMode, because React may invoke an updater more than once. Reading
+ * ref-held stacks during render (as bulk edit once did) leaves buttons stale.
  *
- * Behavior contract (preserved from the original implementation):
- * - commit pushes the prior edits onto the undo stack (capped at 50) and
- *   clears the redo stack; a no-op commit changes nothing.
+ * Behavior contract:
+ * - commit pushes the prior edits onto the undo stack (capped at
+ *   `EDIT_HISTORY_DEPTH`, shared by both grids) and clears the redo stack; a
+ *   no-op commit changes nothing.
  * - undo/redo swap the top of one stack with the current edits and are
  *   no-ops on empty stacks.
- * - replaceEdits rewrites the edits WITHOUT touching history (used when
- *   accepted rows drop out of the pending set).
- * - reset wipes edits and both stacks (used after saving drafts).
+ * - replace rewrites the edits WITHOUT touching history (used when accepted
+ *   rows drop out of the pending set).
+ * - reset wipes both stacks and either empties the edits or keeps what its
+ *   update returns (used after saving or applying).
+ *
+ * Edits are an immutable map; an update must return a new object to count as
+ * a change.
  */
 
-export interface EditHistoryState {
-    edits: RowEdits;
-    undoStack: RowEdits[];
-    redoStack: RowEdits[];
+export type EditMap = Record<string, unknown>;
+
+export interface EditHistoryState<E extends EditMap> {
+    edits: E;
+    undoStack: E[];
+    redoStack: E[];
 }
 
-export type EditHistoryAction =
-    | { type: "commit"; update: (current: RowEdits) => RowEdits }
-    | { type: "replace"; update: (current: RowEdits) => RowEdits }
-    | { type: "reset" }
+export type EditHistoryAction<E extends EditMap> =
+    | { type: "commit"; update: (current: E) => E }
+    | { type: "replace"; update: (current: E) => E }
+    | { type: "reset"; update?: (current: E) => E }
     | { type: "undo" }
     | { type: "redo" };
 
-const EDIT_HISTORY_LIMIT = 50;
+/** Undo depth of every library grid (decision D33: one depth for both). */
+const EDIT_HISTORY_DEPTH = 100;
 
-export const emptyEditHistory: EditHistoryState = {
+export const emptyEditHistory: EditHistoryState<EditMap> = {
     edits: {},
     undoStack: [],
     redoStack: [],
 };
 
-export function editHistoryReducer(
-    state: EditHistoryState,
-    action: EditHistoryAction,
-): EditHistoryState {
+export function editHistoryReducer<E extends EditMap>(
+    state: EditHistoryState<E>,
+    action: EditHistoryAction<E>,
+): EditHistoryState<E> {
     switch (action.type) {
         case "commit": {
             const next = action.update(state.edits);
             if (next === state.edits) return state;
             return {
                 edits: next,
-                undoStack: [
-                    ...state.undoStack.slice(-(EDIT_HISTORY_LIMIT - 1)),
-                    state.edits,
-                ],
+                undoStack: [...state.undoStack.slice(-(EDIT_HISTORY_DEPTH - 1)), state.edits],
                 redoStack: [],
             };
         }
@@ -61,8 +65,12 @@ export function editHistoryReducer(
             const next = action.update(state.edits);
             return next === state.edits ? state : { ...state, edits: next };
         }
-        case "reset":
-            return state === emptyEditHistory ? state : emptyEditHistory;
+        case "reset": {
+            if (!action.update) {
+                return state === emptyEditHistory ? state : (emptyEditHistory as EditHistoryState<E>);
+            }
+            return { edits: action.update(state.edits), undoStack: [], redoStack: [] };
+        }
         case "undo": {
             const previous = state.undoStack[state.undoStack.length - 1];
             if (!previous) return state;
@@ -84,20 +92,24 @@ export function editHistoryReducer(
     }
 }
 
-export function useEditHistory() {
-    const [state, dispatch] = useReducer(editHistoryReducer, emptyEditHistory);
+export function useEditHistory<E extends EditMap>() {
+    const [state, dispatch] = useReducer(
+        editHistoryReducer<E>,
+        emptyEditHistory as EditHistoryState<E>,
+    );
 
     const commitEdits = useCallback(
-        (update: (current: RowEdits) => RowEdits) =>
-            dispatch({ type: "commit", update }),
+        (update: (current: E) => E) => dispatch({ type: "commit", update }),
         [],
     );
     const replaceEdits = useCallback(
-        (update: (current: RowEdits) => RowEdits) =>
-            dispatch({ type: "replace", update }),
+        (update: (current: E) => E) => dispatch({ type: "replace", update }),
         [],
     );
-    const resetHistory = useCallback(() => dispatch({ type: "reset" }), []);
+    const resetHistory = useCallback(
+        (update?: (current: E) => E) => dispatch({ type: "reset", update }),
+        [],
+    );
     const undo = useCallback(() => dispatch({ type: "undo" }), []);
     const redo = useCallback(() => dispatch({ type: "redo" }), []);
 

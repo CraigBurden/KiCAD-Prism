@@ -1,0 +1,1558 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.semantic_index:a2",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.semantic_index.a2",
+            "description": "Schema id. a0 was `prism.semantic_index_a0`; a1 carried `sourceRevisionKey`; a2 carries `designKey`."
+        },
+        "designKey": {
+            "$ref": "#/$defs/Sha256Hex",
+            "description": "The design key (ADR amendment K2 §3.6): lowercase hex SHA-256 over\n`\"prism.design_key.a0\" NUL config_digest NUL R`, where `R` is the bundle's\ncanonical read set (bundle-format.md §2.3). It is the same for every\nrevision whose tree gives the same configuration and leaves the read set\nunchanged, and for every build of it, so readers use it as the identity of\nthe design content: the cross-probe guard, comment anchors and the ETag.\nIt is not a revision key, and no member carries one: the revision a user\nasked for comes from the request. Replaces a1's `sourceRevisionKey`."
+        },
+        "components": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SemanticIndexComponent"
+            },
+            "description": "Every component, in design-netlist component order (`design.json` `components[]`), skipping entries with no reference."
+        },
+        "nets": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SemanticIndexNet"
+            },
+            "description": "Every net: schematic nets in design-netlist net order (`design.json`\n`nets[]`, skipping unnamed ones), then nets only the board names, in the\norder the board pass meets them (footprint pads in file order, then\nsegments, arcs, vias, zones); nets absorbed by the split-net\nreconciliation are removed and the rest keep their relative order."
+        },
+        "terminals": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SemanticIndexTerminal"
+            },
+            "description": "Every terminal: per schematic net in netlist order, the terminals\n`design.json` lists for it (sorted by designator, then pin, in code point\norder; a repeated (designator, pin) keeps its first position), then pins\nonly the net's graphical pin list has, in that list's order; then\nboard-only terminals in board pad order (footprints in file order, each\nfootprint's pads in file order)."
+        },
+        "sheetInstances": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SemanticIndexSheetInstance"
+            },
+            "description": "Every sheet instance, in hierarchy walk order: the root first, then depth-first pre-order, a sheet's child sheets in the order its file places them."
+        },
+        "buses": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/SemanticIndexBus"
+            },
+            "description": "Bus objects, per sheet instance in `sheetInstances` order: that\ninstance's bus wires, then bus entries, then bus aliases, each in file\norder."
+        },
+        "indexes": {
+            "$ref": "#/$defs/SemanticIndexIndexes",
+            "description": "Lookup maps into the arrays above."
+        },
+        "assembly": {
+            "$ref": "#/$defs/SemanticIndexAssembly",
+            "description": "Effective default and per-variant assembly state."
+        }
+    },
+    "required": [
+        "schema",
+        "designKey",
+        "components",
+        "nets",
+        "terminals",
+        "sheetInstances",
+        "buses",
+        "indexes",
+        "assembly"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "`projections/semantic-index.json`, written at stage `parse`. Read by the\nidentity endpoint (streamed as is), the inspector, search, BOM table,\nvariants UI and API, component import, Release Studio, Design Comparison\nand Simulation Studio board facts.",
+    "title": "Semantic index a2",
+    "$defs": {
+        "Sha256Hex": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Lowercase hexadecimal SHA-256 digest: exactly 64 characters, no prefix such as `sha256:`."
+        },
+        "SemanticIndexComponent": {
+            "type": "object",
+            "properties": {
+                "componentUid": {
+                    "$ref": "#/$defs/SemanticIndexComponentUid",
+                    "description": "Stable component id, from the reference and `symbolUuid`."
+                },
+                "reference": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "Reference designator as the design netlist resolves it (never empty,\nnever a `#` power symbol; may be unannotated, `R?`)."
+                },
+                "value": {
+                    "type": "string",
+                    "description": "The symbol's `Value` as the netlist resolves it (text variables expanded); empty when it has none."
+                },
+                "footprint": {
+                    "type": "string",
+                    "description": "The symbol's `Footprint` field as written (a LibId or empty)."
+                },
+                "libraryRef": {
+                    "type": "string",
+                    "description": "Added in a1 (ADR §6). The symbol's library identifier as the netlist's\n`libsource` names it: `<lib>:<part>` when both are known, else whichever\none is, else empty (kicad_monkey `_library_ref`; ref:\n`backend/app/services/semantic_index_service.py:887`)."
+                },
+                "fields": {
+                    "$ref": "#/$defs/RecordString",
+                    "description": "The component's fields. Keys: the 17 canonical names (`Value`, `DNP`,\n`In BOM`, `Description`, `Datasheet`, `Manufacturer`,\n`Manufacturer Part Number`, `Vendor`, `Vendor Part Number`, `Footprint`,\n`Mass (g)`, `RQjC (C/W)`, `RQjC_top (C/W)`, `Temp_max (C)`,\n`Temp_min (C)`, `Power Dissipation (W)`, `Rate`), always present, plus\nevery other netlist parameter and placed-symbol property by its KiCad\nname, including kicad_monkey's `_source_cad` and `kicad_*` parameters\n(`_canonical_fields`, `semantic_index_service.py:467-513`). `DNP` and\n`In BOM` are `Yes` or `No`: from the default assembly state when the\ncomponent has a true default flag (`semantic_index_variants.py:997-1003`),\nelse as `_canonical_fields` resolves them\n(`semantic_index_service.py:441-464`, `:488-492`).\nValues are strings, possibly empty. Serialized with keys in code point\norder."
+                },
+                "schematicRefs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SemanticIndexComponentSchematicRef"
+                    },
+                    "description": "Where the component's symbol is: one entry, or none when the netlist\ngives the component no symbol UUID. In netlist order (at most one)."
+                },
+                "pcbRefs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SemanticIndexComponentPcbRef"
+                    },
+                    "description": "Footprints whose `Reference` property equals this reference, in board\nfile order. Empty without a board or a matching footprint."
+                },
+                "webgpuRefs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SemanticIndexWebGpuRef"
+                    },
+                    "maxItems": 0,
+                    "description": "Always empty (reserved); array order is moot."
+                }
+            },
+            "required": [
+                "componentUid",
+                "reference",
+                "value",
+                "footprint",
+                "libraryRef",
+                "fields",
+                "schematicRefs",
+                "pcbRefs",
+                "webgpuRefs"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One component: one netlist reference (`semantic_index_service.py:879-910`),\nwith the board footprints that carry the reference."
+        },
+        "SemanticIndexNet": {
+            "type": "object",
+            "properties": {
+                "netUid": {
+                    "$ref": "#/$defs/SemanticIndexNetUid",
+                    "description": "Stable net id, from `name`."
+                },
+                "name": {
+                    "$ref": "#/$defs/NetName",
+                    "description": "KiCad full net name: the design netlist's name for a schematic net; the\nboard's name for a net only the board has, including one that absorbed\nschematic nets in the split-net reconciliation."
+                },
+                "netClass": {
+                    "type": "string",
+                    "description": "Net class name from the netlist (`Default` when unassigned); empty for a board-only net with no absorbed schematic net."
+                },
+                "aliases": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/NetName"
+                    },
+                    "description": "Other names of this net. On a schematic net: the netlist's aliases,\nsorted in code point order. On a board net that absorbed schematic nets:\neach absorbed name followed by its own aliases, in the order the board\npass met them, without repeats. Absent on a board-only net that absorbed\nnothing."
+                },
+                "sourceSheets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SemanticIndexNetlistSheetPath"
+                    },
+                    "description": "Netlist sheet paths of the net's terminals. On a schematic net: sorted\nin code point order, without repeats. On a board net that absorbed\nschematic nets: their sheet paths in absorption order, without repeats.\nAbsent on a board-only net that absorbed nothing."
+                },
+                "schematicRefs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SemanticIndexNetSchematicRef"
+                    },
+                    "description": "The net's schematic items grouped by sheet instance, in first-seen order\n(walking wires, then labels, then junctions); the unplaced entry, if any,\ncomes last. A schematic net always has at least one entry (an empty\nunplaced entry when it has no item); a board-only net has none, unless it\nabsorbed schematic nets, whose entries it then lists in absorption order."
+                },
+                "pcbRefs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SemanticIndexNetPcbRef"
+                    },
+                    "minItems": 1,
+                    "maxItems": 1,
+                    "description": "Exactly one entry holding the net's board items, empty lists without a board; array order is moot."
+                },
+                "webgpuRefs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SemanticIndexWebGpuRef"
+                    },
+                    "maxItems": 0,
+                    "description": "Always empty (reserved); array order is moot."
+                },
+                "netCode": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/SemanticIndexNetCode"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The board's net number, from the last board item on this net that\ncarries one. Absent when no board item on the net carries a number (a\nschematic-only net, a KiCad 10 board, which names nets without numbers,\nor no board). `null` on a net only the board has (created by the board\npass) whose items carry no number."
+                }
+            },
+            "required": [
+                "netUid",
+                "name",
+                "netClass",
+                "schematicRefs",
+                "pcbRefs",
+                "webgpuRefs"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One net (`semantic_index_service.py:929-961`, `:1043-1066`,\n`semantic_index_nets.py`). The board names the net when the board and the\nschematic netlist disagree; see the field map."
+        },
+        "SemanticIndexTerminal": {
+            "type": "object",
+            "properties": {
+                "terminalUid": {
+                    "$ref": "#/$defs/SemanticIndexTerminalUid",
+                    "description": "Stable terminal id, from the reference and pin."
+                },
+                "componentUid": {
+                    "$ref": "#/$defs/SemanticIndexComponentUid",
+                    "description": "The component this pin belongs to: its `componentUid`, or the reference-only uid when no component has this reference."
+                },
+                "reference": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "Reference designator."
+                },
+                "pin": {
+                    "$ref": "#/$defs/SemanticIndexPinNumber",
+                    "description": "Pin (pad) number as written, never empty."
+                },
+                "pinName": {
+                    "type": "string",
+                    "description": "Added in a1 (ADR §6). The schematic pin's name (KiCad `pinfunction`) as\nthe library symbol writes it, possibly empty or `~`; for stacked pins\n`<name>_<number>`. Absent on a terminal the netlist did not list with its\npin record (board-only or graphical-pin-only terminals)."
+                },
+                "pinType": {
+                    "$ref": "#/$defs/SemanticIndexPinType",
+                    "description": "Added in a1 (ADR §6). The schematic pin's electrical type. Absent where\n`pinName` is."
+                },
+                "netUid": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/SemanticIndexNetUid"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "`netUid` of the net named by `netName`; `null` on a board-only terminal whose pad has no net."
+                },
+                "netName": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/NetName"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The terminal's net, pad-resolved: the board net of the terminal's pad when\nthe pad has one; otherwise the schematic netlist's net (or the board net\nthat absorbed it in the split-net reconciliation). `null` on a\nboard-only terminal whose pad has no net."
+                },
+                "schematicNetName": {
+                    "$ref": "#/$defs/NetName",
+                    "description": "Added in a1 (ADR §6). The name of the schematic netlist net that lists\nthis terminal, before the board pass and the reconciliation rewrite\n`netName`. Absent on a board-only terminal."
+                },
+                "schematicPinUuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "UUID of the placed symbol's pin (`(pin \"<n>\" (uuid …))`), or of the\nsymbol when the pin has no drawable element. Absent on a board-only\nterminal."
+                },
+                "pcbPadUuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "UUID of the board pad with this reference and number. Absent when no pad matches."
+                }
+            },
+            "required": [
+                "terminalUid",
+                "componentUid",
+                "reference",
+                "pin",
+                "netUid",
+                "netName"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One (reference, pin) on one net (`semantic_index_service.py:963-1023`,\n`:1087-1111`). Terminals the schematic netlist lists carry `pinName`,\n`pinType`, `schematicNetName` and `schematicPinUuid`; terminals only the\nboard has (a pad with no schematic pin) carry none of them."
+        },
+        "SemanticIndexSheetInstance": {
+            "type": "object",
+            "properties": {
+                "sheetInstanceUid": {
+                    "$ref": "#/$defs/SemanticIndexSheetInstanceUid",
+                    "description": "Stable sheet instance id, from `sheetInstancePath` and `page`."
+                },
+                "sheetInstancePath": {
+                    "$ref": "#/$defs/KiidPath",
+                    "description": "The instance's KIID path, schematic form (starts at the root sheet's UUID)."
+                },
+                "sheetPath": {
+                    "$ref": "#/$defs/SemanticIndexSheetNamePath",
+                    "description": "The instance's human sheet path."
+                },
+                "page": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "The sheet's `.kicad_sch`, repository-relative."
+                },
+                "parentSheetInstancePath": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/KiidPath"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The parent instance's `sheetInstancePath`; `null` for the root sheet."
+                },
+                "sheetSymbolUuid": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/KiCadUuid"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "UUID of the sheet symbol that places this instance; `null` for the root sheet."
+                },
+                "sheetName": {
+                    "type": "string",
+                    "description": "The sheet's name (the root sheet's is the schematic file's stem)."
+                },
+                "isTopLevel": {
+                    "type": "boolean",
+                    "description": "True for the root sheet only."
+                },
+                "parentPage": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/RepoPath"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The parent instance's `page`; `null` for the root sheet."
+                }
+            },
+            "required": [
+                "sheetInstanceUid",
+                "sheetInstancePath",
+                "sheetPath",
+                "page",
+                "parentSheetInstancePath",
+                "sheetSymbolUuid",
+                "sheetName",
+                "isTopLevel",
+                "parentPage"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One placement of a schematic sheet in the hierarchy\n(`semantic_index_service.py:591-629`, `:710-716`). A reused sheet file has\none entry per instance."
+        },
+        "SemanticIndexBus": {
+            "oneOf": [
+                {
+                    "$ref": "#/$defs/SemanticIndexBusWire"
+                },
+                {
+                    "$ref": "#/$defs/SemanticIndexBusEntry"
+                },
+                {
+                    "$ref": "#/$defs/SemanticIndexBusAlias"
+                }
+            ],
+            "description": "A bus object: a wire, an entry or an alias."
+        },
+        "SemanticIndexIndexes": {
+            "type": "object",
+            "properties": {
+                "componentByReference": {
+                    "$ref": "#/$defs/RecordSemanticIndexPosition",
+                    "description": "Keys: component reference. Value: position in `components`."
+                },
+                "componentBySchematicUuid": {
+                    "$ref": "#/$defs/RecordSemanticIndexPosition",
+                    "description": "Keys: a component's `schematicRefs[0].symbolUuid`. Value: position in `components`."
+                },
+                "componentByPcbFootprintUuid": {
+                    "$ref": "#/$defs/RecordSemanticIndexPosition",
+                    "description": "Keys: a footprint UUID in some component's `pcbRefs`. Value: position in `components`."
+                },
+                "terminalBySchematicPinUuid": {
+                    "$ref": "#/$defs/RecordSemanticIndexPosition",
+                    "description": "Keys: a terminal's `schematicPinUuid`. Value: position in `terminals`."
+                },
+                "terminalByPcbPadUuid": {
+                    "$ref": "#/$defs/RecordSemanticIndexPosition",
+                    "description": "Keys: a terminal's `pcbPadUuid`. Value: position in `terminals`."
+                },
+                "terminalByReferencePin": {
+                    "$ref": "#/$defs/RecordSemanticIndexPosition",
+                    "description": "Keys: `<reference>:<pin>` of every terminal. Value: position in `terminals`."
+                },
+                "netByName": {
+                    "$ref": "#/$defs/RecordSemanticIndexPosition",
+                    "description": "Keys: every net `name`, and the `aliases` of a board net that absorbed schematic nets. Value: position in `nets`."
+                },
+                "netByNetCode": {
+                    "$ref": "#/$defs/RecordSemanticIndexPosition",
+                    "description": "Keys: a `netCode` in decimal. Value: position in `nets`."
+                },
+                "netBySchematicUuid": {
+                    "$ref": "#/$defs/RecordSemanticIndexPosition",
+                    "description": "Keys: every UUID in a net's `schematicRefs` (wires, labels, junctions, pins). Value: position in `nets`."
+                },
+                "netByPcbUuid": {
+                    "$ref": "#/$defs/RecordSemanticIndexPosition",
+                    "description": "Keys: every UUID in a net's `pcbRefs` (pads, tracks, arcs, vias, zones). Value: position in `nets`."
+                },
+                "sheetInstanceByPath": {
+                    "$ref": "#/$defs/RecordSemanticIndexPosition",
+                    "description": "Keys: a sheet instance's `sheetInstancePath`. Value: position in `sheetInstances`."
+                },
+                "busByUid": {
+                    "$ref": "#/$defs/RecordSemanticIndexPosition",
+                    "description": "Keys: a bus object's `busUid`. Value: position in `buses`."
+                }
+            },
+            "required": [
+                "componentByReference",
+                "componentBySchematicUuid",
+                "componentByPcbFootprintUuid",
+                "terminalBySchematicPinUuid",
+                "terminalByPcbPadUuid",
+                "terminalByReferencePin",
+                "netByName",
+                "netByNetCode",
+                "netBySchematicUuid",
+                "netByPcbUuid",
+                "sheetInstanceByPath",
+                "busByUid"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The twelve lookup maps (`semantic_index_service.py:853-875`). Every value\nis a zero-based position in `components`, `terminals`, `nets`,\n`sheetInstances` or `buses`. Where two elements share a key, the later\nelement wins (the map is filled in array order), except `netByName`\naliases, which never displace a name."
+        },
+        "SemanticIndexAssembly": {
+            "type": "object",
+            "properties": {
+                "schema": {
+                    "type": "string",
+                    "const": "prism.assembly_state_a0",
+                    "description": "The block's own schema id, unchanged from a0."
+                },
+                "catalog": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SemanticIndexVariantCatalogEntry"
+                    },
+                    "description": "Every variant name in the design, in catalog order: project registry\nnames, then board-header-only, schematic-only and footprint-only names,\neach in first-seen order (packet §2.1). Empty when the design has none."
+                },
+                "footprintInventory": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SemanticIndexFootprintInventoryEntry"
+                    },
+                    "description": "Every board footprint, in board file order (empty without a board)."
+                },
+                "default": {
+                    "$ref": "#/$defs/SemanticIndexAssemblyDefault",
+                    "description": "The effective default state."
+                },
+                "variants": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SemanticIndexAssemblyVariant"
+                    },
+                    "description": "One entry per catalog name, in catalog order."
+                },
+                "diagnostics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SemanticIndexAssemblyDiagnostic"
+                    },
+                    "description": "Findings, in emission order: catalog diagnostics; then source-file\ndiagnostics (schematic files in hierarchy order, then the board); then\noccurrence and component-projection diagnostics (default, then each\nvariant in catalog order); then `duplicate-reference-footprints`,\n`alternate-footprints-both-populated` and `source-state-mismatch`\n(variants, then default); then index-join `reference-collision`s sorted\nby reference in code point order."
+                }
+            },
+            "required": [
+                "schema",
+                "catalog",
+                "footprintInventory",
+                "default",
+                "variants",
+                "diagnostics"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Effective default and per-variant assembly state (contract packet v1.0\n§3.2; `semantic_index_variants.py:752-903`, `:948-1071`)."
+        },
+        "SemanticIndexComponentUid": {
+            "type": "string",
+            "pattern": "^cmp:[0-9a-f]{20}$",
+            "description": "Component id: `cmp:` followed by the first 20 hex digits of the SHA-256 of\n`<reference>\\u001f<symbolUuid>` (UTF-8), as\n`_stable_uid(\"cmp\", reference, symbol_uuid)` computes it\n(`semantic_index_service.py:358-361`, `:890`).\nA terminal or assembly entry whose reference has no component uses\n`_stable_uid(\"cmp\", reference)`: the hash of `<reference>` alone."
+        },
+        "Refdes": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Reference designator as KiCad resolves it for one symbol instance or\nfootprint, for example `R1`, `U3`, `#PWR01` or `R?`. Always a string. A\ncontract states whether it includes virtual (`#`) and unannotated (`?`)\nreferences."
+        },
+        "RecordString": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "type": "string"
+            }
+        },
+        "SemanticIndexComponentSchematicRef": {
+            "type": "object",
+            "properties": {
+                "sheetInstancePath": {
+                    "$ref": "#/$defs/SemanticIndexSheetNamePath",
+                    "description": "The component's human sheet path, kicad_monkey's `sheet_path_names`\n(for example `/` or `/Power/`). Despite its name this is not a KIID path;\nthe KIID form is in `occurrenceId`."
+                },
+                "page": {
+                    "type": "string",
+                    "description": "The same human sheet path again (`hierarchy.sheet`, which kicad_monkey\nsets to `sheet_path_names` too); the empty string when kicad_monkey\nreports no sheet path. Not a file name, unlike a net's `page`."
+                },
+                "symbolUuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "UUID of the symbol the design netlist names for this component (the\nnetlist component's instance UUID; for a multi-unit part, the unit the\nnetlist picks)."
+                },
+                "occurrenceId": {
+                    "$ref": "#/$defs/KiidPath",
+                    "description": "Occurrence id of that unit, schematic-form KiidPath\n`<sheetInstancePath>/<symbolUuid>` (contract packet v1.0 §2.2), set by the\nassembly join (`semantic_index_variants.py:997-1009`). Absent when the\njoin found no placement of the symbol on that human sheet path."
+                }
+            },
+            "required": [
+                "sheetInstancePath",
+                "page",
+                "symbolUuid"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Where a component's symbol is in the schematic hierarchy\n(`semantic_index_service.py:895-901`). Unlike a net's schematic ref, both\npath fields hold the human sheet path."
+        },
+        "SemanticIndexComponentPcbRef": {
+            "type": "object",
+            "properties": {
+                "footprintUuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The footprint's UUID, its `(uuid …)`."
+                }
+            },
+            "required": [
+                "footprintUuid"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A footprint on the board that carries this component's reference."
+        },
+        "SemanticIndexWebGpuRef": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Reserved for WebGPU scene references. No producer writes one: every\n`webgpuRefs` array is empty today (`semantic_index_service.py:903`, `:951`,\n`:1056`) and in a1."
+        },
+        "SemanticIndexNetUid": {
+            "type": "string",
+            "pattern": "^net:[0-9a-f]{20}$",
+            "description": "Net id: `net:` followed by the first 20 hex digits of the SHA-256 of the\nnet's full name (UTF-8), `_stable_uid(\"net\", name)`\n(`semantic_index_service.py:936`, `:1050`)."
+        },
+        "NetName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "KiCad full net name as KiCad resolves it, including the sheet path prefix\nof a local net (`/Power/VBUS`), a global name (`GND`) or a generated name\n(`Net-(R1-Pad2)`, `unconnected-(U1-PA0-Pad3)`). \"No net\" is expressed by\nomitting the field, never by an empty name."
+        },
+        "SemanticIndexNetlistSheetPath": {
+            "type": "string",
+            "pattern": "^/(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)*$",
+            "description": "Sheet path in the netlist's UUID form: `/` for the root sheet, else the\nsheet symbols' UUIDs from below the root down, each followed by `/`, for\nexample `/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/`. It omits the root sheet's\nown UUID and ends in `/`, unlike Common.KiidPath."
+        },
+        "SemanticIndexNetSchematicRef": {
+            "type": "object",
+            "properties": {
+                "sheetInstancePath": {
+                    "$ref": "#/$defs/KiidPath",
+                    "description": "The sheet instance, schematic-form KiidPath (starts at the root sheet's UUID). Absent on the unplaced entry."
+                },
+                "sheetPath": {
+                    "$ref": "#/$defs/SemanticIndexSheetNamePath",
+                    "description": "The sheet instance's human sheet path. Absent on the unplaced entry."
+                },
+                "page": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "The sheet's `.kicad_sch`, repository-relative. Absent on the unplaced entry."
+                },
+                "wireUuids": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiCadUuid"
+                    },
+                    "description": "UUIDs of the net's wires on this sheet instance, in the order the net lists them (sorted by kicad_monkey), without repeats."
+                },
+                "labelUuids": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiCadUuid"
+                    },
+                    "description": "UUIDs of the net's local labels, then global and hierarchical labels\n(`ports`), then power symbols (`power_ports`) on this sheet instance; each\ngroup in the order the net lists it, without repeats."
+                },
+                "junctionUuids": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiCadUuid"
+                    },
+                    "description": "UUIDs of the net's junctions, then sheet entries, on this sheet instance; each group in the order the net lists it, without repeats."
+                },
+                "pinUuids": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiCadUuid"
+                    },
+                    "description": "`schematicPinUuid`s of the net's terminals on this sheet instance (the\nfirst entry when the pin's sheet instance is unknown), in terminal\norder, without repeats."
+                },
+                "labelInstanceCount": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Number of local labels (not global, hierarchical or power) counted on\nthis sheet instance; on the unplaced entry, the net's total local-label\ncount when any item is unplaced, else 0."
+                }
+            },
+            "required": [
+                "wireUuids",
+                "labelUuids",
+                "junctionUuids",
+                "pinUuids",
+                "labelInstanceCount"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A net's schematic items on one sheet instance (`_group_schematic_refs`,\n`semantic_index_service.py:721-781`). The three location fields are\npresent together, or all absent on the one \"unplaced\" entry that collects\nitems with no known sheet instance."
+        },
+        "SemanticIndexNetPcbRef": {
+            "type": "object",
+            "properties": {
+                "trackUuids": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiCadUuid"
+                    },
+                    "description": "UUIDs of the net's track segments, in board file order."
+                },
+                "arcUuids": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiCadUuid"
+                    },
+                    "description": "UUIDs of the net's arc tracks, in board file order."
+                },
+                "viaUuids": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiCadUuid"
+                    },
+                    "description": "UUIDs of the net's vias, in board file order."
+                },
+                "zoneUuids": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiCadUuid"
+                    },
+                    "description": "UUIDs of the net's zones, in board file order."
+                },
+                "padUuids": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiCadUuid"
+                    },
+                    "description": "UUIDs of the net's pads, in board file order (footprints in file order, each footprint's pads in file order)."
+                }
+            },
+            "required": [
+                "trackUuids",
+                "arcUuids",
+                "viaUuids",
+                "zoneUuids",
+                "padUuids"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A net's board items, by kind (`semantic_index_service.py:950`,\n`:1084-1086`, `:1113-1127`). Board items with no net or no UUID are not\nlisted."
+        },
+        "SemanticIndexNetCode": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647,
+            "description": "KiCad net number (`(net <n> \"<name>\")`) from a board that has a net table,\nKiCad 9 format and earlier; 0 is KiCad's \"no net\" and never appears."
+        },
+        "SemanticIndexTerminalUid": {
+            "type": "string",
+            "pattern": "^term:[0-9a-f]{20}$",
+            "description": "Terminal id: `term:` followed by the first 20 hex digits of the SHA-256 of\n`<reference>\\u001f<pin>` (UTF-8), `_stable_uid(\"term\", reference, pin)`\n(`semantic_index_service.py:995`, `:1092`)."
+        },
+        "SemanticIndexPinNumber": {
+            "type": "string",
+            "description": "A pin or pad number as written (Common.PadNumber), never empty.",
+            "minLength": 1
+        },
+        "SemanticIndexPinType": {
+            "type": "string",
+            "enum": [
+                "INPUT",
+                "OUTPUT",
+                "BIDIRECTIONAL",
+                "TRI_STATE",
+                "PASSIVE",
+                "FREE",
+                "UNSPECIFIED",
+                "POWER_IN",
+                "POWER_OUT",
+                "OPEN_COLLECTOR",
+                "OPEN_EMITTER",
+                "NO_CONNECT"
+            ],
+            "description": "Electrical type of a schematic pin, as kicad_monkey's design JSON writes\nit: KiCad's pin type token in upper case (`_pin_type_json`,\nkicad_monkey 2026.9.7 `kicad_design_json.py:708-710`). A pin with no type\nis `PASSIVE`; the pre-2021 token `unconnected` reads as `NO_CONNECT`."
+        },
+        "KiCadUuid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "KiCad object UUID in the canonical form KiCad writes (`KIID::AsString`):\nlowercase hexadecimal, 8-4-4-4-12. Copied from the file, never generated\nor re-cased."
+        },
+        "SemanticIndexSheetInstanceUid": {
+            "type": "string",
+            "pattern": "^sheet-instance:[0-9a-f]{20}$",
+            "description": "Sheet instance id: `sheet-instance:` followed by the first 20 hex digits of\nthe SHA-256 of `<sheetInstancePath>\\u001f<page>` (UTF-8)\n(`semantic_index_service.py:616-620`)."
+        },
+        "KiidPath": {
+            "type": "string",
+            "pattern": "^(?:/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})+$",
+            "description": "KiCad KIID path: one or more `/<uuid>` steps, no trailing `/`. Two forms\nexist and every field of this type states which one it holds: the\nschematic form, which starts at the root sheet's UUID (a symbol's\n`(instances (project … (path …)))` entry, plus the symbol UUID for an\noccurrence); and the board form, which omits the root sheet (a footprint's\n`(path …)`)."
+        },
+        "SemanticIndexSheetNamePath": {
+            "type": "string",
+            "pattern": "^/(?:.*/)?$",
+            "description": "Human (name) sheet path as kicad_monkey spells it: `/` for the root sheet,\nelse each sheet name from the root down, each followed by `/`, for example\n`/Power/` or `/Wireless/Antenna/`. Not a KIID path."
+        },
+        "RepoPath": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*$",
+            "description": "Repository-relative POSIX path, exactly as `git ls-tree` names the entry:\n`/`-separated, case preserved, no leading `/`, no empty, `.` or `..`\nsegment, no backslash and no `:`. The same character rule as ArchivePath.\nIt is the only path type in bundle documents: a file has one spelling\nwhichever project in the repository refers to it, and a file outside the\nproject directory needs no `..`."
+        },
+        "SemanticIndexBusWire": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "bus",
+                    "description": "Discriminator."
+                },
+                "busUid": {
+                    "$ref": "#/$defs/SemanticIndexBusUid",
+                    "description": "Stable bus id, from the kind, sheet instance and `sourceUuid`."
+                },
+                "sourceUuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The bus wire's UUID in the schematic."
+                },
+                "sheetInstancePath": {
+                    "$ref": "#/$defs/KiidPath",
+                    "description": "The sheet instance it is drawn on, schematic-form KiidPath."
+                },
+                "sheetPath": {
+                    "$ref": "#/$defs/SemanticIndexSheetNamePath",
+                    "description": "That instance's human sheet path."
+                },
+                "page": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "The sheet's `.kicad_sch`, repository-relative."
+                },
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SemanticIndexMmPair"
+                    },
+                    "description": "The wire's `(pts …)` in file order, schematic millimetres (KiCad writes two)."
+                },
+                "at": {
+                    "type": "null",
+                    "description": "Always `null` on a bus wire (a bus wire has no `at`)."
+                },
+                "size": {
+                    "type": "null",
+                    "description": "Always `null` on a bus wire (a bus wire has no `size`)."
+                }
+            },
+            "required": [
+                "kind",
+                "busUid",
+                "sourceUuid",
+                "sheetInstancePath",
+                "sheetPath",
+                "page",
+                "points",
+                "at",
+                "size"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A bus wire on one sheet instance (`semantic_index_service.py:647-690`)."
+        },
+        "SemanticIndexBusEntry": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "bus_entry",
+                    "description": "Discriminator."
+                },
+                "busUid": {
+                    "$ref": "#/$defs/SemanticIndexBusUid",
+                    "description": "Stable bus id, from the kind, sheet instance and `sourceUuid`."
+                },
+                "sourceUuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The bus entry's UUID in the schematic."
+                },
+                "sheetInstancePath": {
+                    "$ref": "#/$defs/KiidPath",
+                    "description": "The sheet instance it is drawn on, schematic-form KiidPath."
+                },
+                "sheetPath": {
+                    "$ref": "#/$defs/SemanticIndexSheetNamePath",
+                    "description": "That instance's human sheet path."
+                },
+                "page": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "The sheet's `.kicad_sch`, repository-relative."
+                },
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SemanticIndexMmPair"
+                    },
+                    "maxItems": 0,
+                    "description": "Always empty on a bus entry (it has no `pts`); array order is moot."
+                },
+                "at": {
+                    "$ref": "#/$defs/SemanticIndexMmPair",
+                    "description": "The entry's `(at x y)`, schematic millimetres, in the order `[x, y]`."
+                },
+                "size": {
+                    "$ref": "#/$defs/SemanticIndexMmPair",
+                    "description": "The entry's `(size w h)`, schematic millimetres, in the order `[width, height]`."
+                }
+            },
+            "required": [
+                "kind",
+                "busUid",
+                "sourceUuid",
+                "sheetInstancePath",
+                "sheetPath",
+                "page",
+                "points",
+                "at",
+                "size"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A bus entry on one sheet instance (`semantic_index_service.py:647-690`)."
+        },
+        "SemanticIndexBusAlias": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "const": "bus_alias",
+                    "description": "Discriminator."
+                },
+                "busUid": {
+                    "$ref": "#/$defs/SemanticIndexBusAliasUid",
+                    "description": "Stable alias id, from the sheet instance and `name`."
+                },
+                "name": {
+                    "type": "string",
+                    "description": "The alias name, for example `JTAG`."
+                },
+                "members": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "The alias members as written, sorted in code point order (repeats kept, empty ones dropped)."
+                },
+                "sheetInstancePath": {
+                    "$ref": "#/$defs/KiidPath",
+                    "description": "The sheet instance that defines it, schematic-form KiidPath."
+                },
+                "sheetPath": {
+                    "$ref": "#/$defs/SemanticIndexSheetNamePath",
+                    "description": "That instance's human sheet path."
+                },
+                "page": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "The sheet's `.kicad_sch`, repository-relative."
+                }
+            },
+            "required": [
+                "kind",
+                "busUid",
+                "name",
+                "members",
+                "sheetInstancePath",
+                "sheetPath",
+                "page"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A bus alias defined on one sheet instance (`semantic_index_service.py:692-708`)."
+        },
+        "RecordSemanticIndexPosition": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/SemanticIndexPosition"
+            }
+        },
+        "SemanticIndexVariantCatalogEntry": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The variant name, exact (never empty, never `< Default >`)."
+                },
+                "description": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The project registry's description, else the board header's; `null` when neither has one."
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SemanticIndexVariantSource"
+                    },
+                    "minItems": 1,
+                    "description": "Every source that names this variant, in the order they were met (project, pcb, schematic, footprint scans), without repeats."
+                }
+            },
+            "required": [
+                "name",
+                "description",
+                "sources"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One design variant name and where it was found (contract packet v1.0 §2.1, §3.2)."
+        },
+        "SemanticIndexFootprintInventoryEntry": {
+            "type": "object",
+            "properties": {
+                "uuid": {
+                    "$ref": "#/$defs/SemanticIndexFootprintId",
+                    "description": "The footprint's identity: its UUID, or empty (see the scalar)."
+                },
+                "reference": {
+                    "type": "string",
+                    "description": "The footprint's `Reference` property as the variant resolver reads it; empty when the board has none."
+                }
+            },
+            "required": [
+                "uuid",
+                "reference"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One board footprint's identity, including footprints with no variant state."
+        },
+        "SemanticIndexAssemblyDefault": {
+            "type": "object",
+            "properties": {
+                "occurrences": {
+                    "$ref": "#/$defs/RecordSemanticIndexOccurrenceDefault",
+                    "description": "Keys: occurrence id, schematic-form KiidPath `<sheetInstancePath>/<symbolUuid>`. Only occurrences with a true flag."
+                },
+                "components": {
+                    "$ref": "#/$defs/RecordSemanticIndexComponentDefault",
+                    "description": "Keys: `componentUid`, or the reference when no single index component has it. Only components with a true flag."
+                },
+                "footprints": {
+                    "$ref": "#/$defs/RecordSemanticIndexFootprintDefault",
+                    "description": "Keys: footprint identity (SemanticIndexFootprintId; may be empty). Only footprints with a true flag."
+                }
+            },
+            "required": [
+                "occurrences",
+                "components",
+                "footprints"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The effective default assembly, differential against the all-false neutral state."
+        },
+        "SemanticIndexAssemblyVariant": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The variant name, as in the catalog."
+                },
+                "occurrences": {
+                    "$ref": "#/$defs/RecordSemanticIndexAssemblyOverride",
+                    "description": "Keys: occurrence id (schematic-form KiidPath). Only occurrences that differ from the default."
+                },
+                "components": {
+                    "$ref": "#/$defs/RecordSemanticIndexAssemblyOverride",
+                    "description": "Keys: `componentUid`, or the reference when no single index component has it. Only components that differ."
+                },
+                "footprints": {
+                    "$ref": "#/$defs/RecordSemanticIndexFootprintOverride",
+                    "description": "Keys: footprint identity (SemanticIndexFootprintId; may be empty). Only footprints that differ."
+                }
+            },
+            "required": [
+                "name",
+                "occurrences",
+                "components",
+                "footprints"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One named variant, differential against the effective default."
+        },
+        "SemanticIndexAssemblyDiagnostic": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/$defs/SemanticIndexDiagnosticCode",
+                    "description": "Stable code."
+                },
+                "severity": {
+                    "$ref": "#/$defs/SemanticIndexDiagnosticSeverity",
+                    "description": "Severity, fixed per code."
+                },
+                "source": {
+                    "$ref": "#/$defs/SemanticIndexDiagnosticSource",
+                    "description": "The source file kind (catalog diagnostics only)."
+                },
+                "path": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "The source file, repository-relative (file-level diagnostics)."
+                },
+                "variant": {
+                    "type": "string",
+                    "description": "The variant the finding is about; absent for the default design."
+                },
+                "reference": {
+                    "type": "string",
+                    "description": "The reference the finding is about; empty for footprints with no `Reference` property."
+                },
+                "occurrenceId": {
+                    "$ref": "#/$defs/KiidPath",
+                    "description": "The occurrence the finding is about, schematic-form KiidPath."
+                },
+                "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "One-sentence explanation; its wording may change."
+                },
+                "detail": {
+                    "$ref": "#/$defs/SemanticIndexDiagnosticDetail",
+                    "description": "Code-specific detail; for the two map-shaped variants the keys are listed on SemanticIndexDiagnosticDetail."
+                },
+                "footprintUuids": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SemanticIndexFootprintId"
+                    },
+                    "minItems": 1,
+                    "description": "Footprints the finding is about, in board file order."
+                },
+                "componentUid": {
+                    "$ref": "#/$defs/SemanticIndexComponentUid",
+                    "description": "The index component with `reference`, when exactly one has it (set by the join)."
+                }
+            },
+            "required": [
+                "code",
+                "severity",
+                "message"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A finding of the variant catalog or resolver (contract packet v1.0 §3.2).\nWhich optional fields are present depends on `code` (see\nSemanticIndexDiagnosticCode)."
+        },
+        "Count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A count of things: a non-negative safe integer."
+        },
+        "SemanticIndexBusUid": {
+            "type": "string",
+            "pattern": "^bus:[0-9a-f]{20}$",
+            "description": "Bus wire or bus entry id: `bus:` followed by the first 20 hex digits of\nthe SHA-256 of `<kind>\\u001f<sheetInstancePath>\\u001f<sourceUuid>` (UTF-8),\nwhere kind is `bus` or `bus_entry` (`semantic_index_service.py:656-661`)."
+        },
+        "SemanticIndexMmPair": {
+            "type": "array",
+            "items": {
+                "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "A point or size in schematic millimetres, `[x, y]` (or `[width, height]`),\nas the schematic file writes it and kicad_monkey parses it (a double), +y\ndown. Today's unit, kept because this is a parity document."
+        },
+        "SemanticIndexBusAliasUid": {
+            "type": "string",
+            "pattern": "^bus-alias:[0-9a-f]{20}$",
+            "description": "Bus alias id: `bus-alias:` followed by the first 20 hex digits of the\nSHA-256 of `<sheetInstancePath>\\u001f<name>` (UTF-8)\n(`semantic_index_service.py:696`)."
+        },
+        "SemanticIndexPosition": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Zero-based position of an element in the array an index map names."
+        },
+        "SemanticIndexVariantSource": {
+            "type": "string",
+            "enum": [
+                "project",
+                "pcb",
+                "schematic",
+                "footprint"
+            ],
+            "description": "Source file kind that named a design variant (contract packet v1.0 §2.1)."
+        },
+        "SemanticIndexFootprintId": {
+            "type": "string",
+            "pattern": "^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$",
+            "description": "Footprint identity in the assembly block: the footprint's KiCadUuid, or the\nempty string for a footprint the parser read no UUID for. Today's Python\nparser reads only `(uuid …)`, so every footprint of a KiCad 7 board is\n`\"\"`. The bundle parses only the current format (sources older than the worker KiCad's format are upgraded by KiCad before parse, bundle-format.md §2.2), so every footprint has its\n`(uuid …)` (field map, \"Expected divergences\")."
+        },
+        "RecordSemanticIndexOccurrenceDefault": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/SemanticIndexOccurrenceDefault"
+            }
+        },
+        "RecordSemanticIndexComponentDefault": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/SemanticIndexComponentDefault"
+            }
+        },
+        "RecordSemanticIndexFootprintDefault": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/SemanticIndexFootprintDefault"
+            }
+        },
+        "RecordSemanticIndexAssemblyOverride": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/SemanticIndexAssemblyOverride"
+            }
+        },
+        "RecordSemanticIndexFootprintOverride": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/SemanticIndexFootprintOverride"
+            }
+        },
+        "SemanticIndexDiagnosticCode": {
+            "type": "string",
+            "enum": [
+                "catalog-name-case-mismatch",
+                "source-unparseable",
+                "occurrence-instance-missing",
+                "multi-unit-conflict",
+                "reference-collision",
+                "source-state-mismatch",
+                "duplicate-reference-footprints",
+                "alternate-footprints-both-populated",
+                "rule-area-flags-unsupported",
+                "legacy-in-bom-semantics",
+                "unsupported-variant-token"
+            ],
+            "description": "Stable code of an assembly diagnostic (contract packet v1.0 §3.2; emitted\nby `variant_catalog_service.py:50-51` and `semantic_index_variants.py`)."
+        },
+        "SemanticIndexDiagnosticSeverity": {
+            "type": "string",
+            "enum": [
+                "info",
+                "warning",
+                "error"
+            ],
+            "description": "How serious an assembly diagnostic is."
+        },
+        "SemanticIndexDiagnosticSource": {
+            "type": "string",
+            "enum": [
+                "project",
+                "schematic",
+                "pcb"
+            ],
+            "description": "Source file kind a catalog diagnostic is about."
+        },
+        "SemanticIndexDiagnosticDetail": {
+            "oneOf": [
+                {
+                    "$ref": "#/$defs/SemanticIndexVersionDetail",
+                    "description": "`legacy-in-bom-semantics`."
+                },
+                {
+                    "$ref": "#/$defs/SemanticIndexTokensDetail",
+                    "description": "`unsupported-variant-token`."
+                },
+                {
+                    "$ref": "#/$defs/SemanticIndexOccurrenceIdsDetail",
+                    "description": "`reference-collision` (occurrence projection)."
+                },
+                {
+                    "$ref": "#/$defs/SemanticIndexComponentUidsDetail",
+                    "description": "`reference-collision` (component join)."
+                },
+                {
+                    "$ref": "#/$defs/RecordString",
+                    "description": "`catalog-name-case-mismatch`: keys exactly `found` (the board-side name)\nand `folded_into` (the catalog name it folded into)."
+                },
+                {
+                    "$ref": "#/$defs/RecordBoolean",
+                    "description": "`rule-area-flags-unsupported`: keys are the rule area's KiCad tokens\nthat were set, each with the constant value it implies: `dnp` true,\n`in_bom` false, `on_board` false, `exclude_from_sim` true."
+                },
+                {
+                    "type": "object",
+                    "properties": {},
+                    "unevaluatedProperties": {
+                        "type": "object",
+                        "properties": {},
+                        "unevaluatedProperties": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "description": "`multi-unit-conflict`: keys are the flag names (`dnp`,\n`excludeFromBom`, …) and raw field names that disagree; each value maps\noccurrence ids to that unit's value, a boolean for a flag and a string\nfor a field."
+                }
+            ],
+            "description": "`detail` of an assembly diagnostic. Its shape depends on `code`; the shapes\nare mutually exclusive, so exactly one matches. Two are maps because their\nkeys are not camelCase field names (conventions.md §5; field map, open\nquestions)."
+        },
+        "SemanticIndexOccurrenceDefault": {
+            "type": "object",
+            "properties": {
+                "reference": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The occurrence's resolved reference."
+                },
+                "dnp": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "DNP in the default design, after the sheet fold. Present only when true."
+                },
+                "excludeFromBom": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "Excluded from the BOM, after the sheet fold. Present only when true."
+                },
+                "excludeFromBoard": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "Excluded from the board, after the sheet fold. Present only when true."
+                },
+                "excludeFromSim": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "Excluded from simulation, after the sheet fold. Present only when true."
+                },
+                "excludeFromPosFiles": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "Excluded from position files (never folded from sheets). Present only when true."
+                },
+                "componentUid": {
+                    "$ref": "#/$defs/SemanticIndexComponentUid",
+                    "description": "The index component with this reference; absent when no single component has it."
+                }
+            },
+            "required": [
+                "reference"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Default state of one schematic occurrence: present only when at least one\nflag is true, and only true flags are present (contract packet v1.0 §2.7)."
+        },
+        "SemanticIndexComponentDefault": {
+            "type": "object",
+            "properties": {
+                "dnp": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "DNP. Present only when true."
+                },
+                "excludeFromBom": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "Excluded from the BOM. Present only when true."
+                },
+                "excludeFromBoard": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "Excluded from the board. Present only when true."
+                },
+                "excludeFromSim": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "Excluded from simulation. Present only when true."
+                },
+                "excludeFromPosFiles": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "Excluded from position files. Present only when true."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Default state of one component (multi-unit projection); present only when a flag is true, and only true flags are present."
+        },
+        "SemanticIndexFootprintDefault": {
+            "type": "object",
+            "properties": {
+                "reference": {
+                    "type": "string",
+                    "description": "The footprint's resolved reference; empty when the board has no `Reference` property for it."
+                },
+                "dnp": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "`attr dnp`. Present only when true."
+                },
+                "excludeFromBom": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "`attr exclude_from_bom`. Present only when true."
+                },
+                "excludeFromPosFiles": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "`attr exclude_from_pos_files`. Present only when true."
+                },
+                "componentUid": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/SemanticIndexComponentUid"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The index component with this reference; `null` when no single component has it (a board-only part or an ambiguous reference)."
+                }
+            },
+            "required": [
+                "reference",
+                "componentUid"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Default state of one footprint from its `attr` flags; present only when a flag is true, and only true flags are present."
+        },
+        "SemanticIndexAssemblyOverride": {
+            "type": "object",
+            "properties": {
+                "dnp": {
+                    "type": "boolean",
+                    "description": "DNP in this variant, when it differs from the default."
+                },
+                "excludeFromBom": {
+                    "type": "boolean",
+                    "description": "Excluded from the BOM in this variant, when it differs."
+                },
+                "excludeFromBoard": {
+                    "type": "boolean",
+                    "description": "Excluded from the board in this variant, when it differs."
+                },
+                "excludeFromSim": {
+                    "type": "boolean",
+                    "description": "Excluded from simulation in this variant, when it differs."
+                },
+                "excludeFromPosFiles": {
+                    "type": "boolean",
+                    "description": "Excluded from position files in this variant, when it differs."
+                },
+                "fields": {
+                    "$ref": "#/$defs/RecordString",
+                    "description": "Keys: raw KiCad field names whose effective text differs from the default (for example `Value`, `Footprint`, `MPN`); values are the variant's text, possibly empty. Absent when no field differs."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A variant's difference from the default state of one occurrence or\ncomponent: only what differs is present; booleans are explicit\n(contract packet v1.0 §2.7)."
+        },
+        "SemanticIndexFootprintOverride": {
+            "type": "object",
+            "properties": {
+                "dnp": {
+                    "type": "boolean",
+                    "description": "DNP in this variant, when it differs from the default."
+                },
+                "excludeFromBom": {
+                    "type": "boolean",
+                    "description": "Excluded from the BOM in this variant, when it differs."
+                },
+                "excludeFromPosFiles": {
+                    "type": "boolean",
+                    "description": "Excluded from position files in this variant, when it differs."
+                },
+                "fields": {
+                    "$ref": "#/$defs/RecordString",
+                    "description": "Keys: footprint property names whose effective text differs from the default; values are the variant's text. Absent when no property differs."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A variant's difference from the default state of one footprint; only what differs is present."
+        },
+        "SemanticIndexVersionDetail": {
+            "type": "object",
+            "properties": {
+                "version": {
+                    "type": "integer",
+                    "minimum": -2147483648,
+                    "maximum": 2147483647,
+                    "description": "The root schematic's `(version N)`, a KiCad file-format date such as 20260101."
+                }
+            },
+            "required": [
+                "version"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "`detail` of `legacy-in-bom-semantics`."
+        },
+        "SemanticIndexTokensDetail": {
+            "type": "object",
+            "properties": {
+                "tokens": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "minItems": 1,
+                    "description": "The KiCad 11 tokens found, in first-seen order, without repeats."
+                }
+            },
+            "required": [
+                "tokens"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "`detail` of `unsupported-variant-token`."
+        },
+        "SemanticIndexOccurrenceIdsDetail": {
+            "type": "object",
+            "properties": {
+                "occurrenceIds": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiidPath"
+                    },
+                    "minItems": 2,
+                    "description": "The colliding occurrences' ids (schematic-form KiidPath), sorted in code point order."
+                }
+            },
+            "required": [
+                "occurrenceIds"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "`detail` of `reference-collision` from the occurrence projection."
+        },
+        "SemanticIndexComponentUidsDetail": {
+            "type": "object",
+            "properties": {
+                "componentUids": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/SemanticIndexComponentUid"
+                    },
+                    "minItems": 2,
+                    "description": "The index components sharing the reference, in `components` order."
+                }
+            },
+            "required": [
+                "componentUids"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "`detail` of `reference-collision` from the join onto index components."
+        },
+        "RecordBoolean": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "type": "boolean"
+            }
+        }
+    }
+}

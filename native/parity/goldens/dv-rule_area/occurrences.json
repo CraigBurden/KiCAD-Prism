@@ -1,0 +1,92 @@
+{
+ "schema": "prism.occurrences.a0",
+ "sheets": [
+  {
+   "sheetPath": "/8b3ed35c-c23c-5fbf-9d71-a2f5f98022d0",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": []
+  }
+ ],
+ "symbols": [
+  {
+   "kiidPath": "/8b3ed35c-c23c-5fbf-9d71-a2f5f98022d0/0c5b067b-fa0e-5b53-bdef-a8313254278f",
+   "sheetPath": "/8b3ed35c-c23c-5fbf-9d71-a2f5f98022d0",
+   "symbolUuid": "0c5b067b-fa0e-5b53-bdef-a8313254278f",
+   "documentPath": "rule_area.kicad_sch",
+   "libId": "Device:R",
+   "reference": "R11",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "Reference": "R11",
+    "Value": "10k"
+   },
+   "bomFields": {
+    "value": "10k",
+    "footprint": "Resistor_SMD:R_0603_1608Metric"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/8b3ed35c-c23c-5fbf-9d71-a2f5f98022d0/d35d922d-5289-5038-b957-d08d95fa48ac",
+   "sheetPath": "/8b3ed35c-c23c-5fbf-9d71-a2f5f98022d0",
+   "symbolUuid": "d35d922d-5289-5038-b957-d08d95fa48ac",
+   "documentPath": "rule_area.kicad_sch",
+   "libId": "Device:R",
+   "reference": "R13",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "Reference": "R13",
+    "Value": "22k"
+   },
+   "bomFields": {
+    "value": "22k",
+    "footprint": "Resistor_SMD:R_0603_1608Metric"
+   },
+   "variants": []
+  }
+ ],
+ "footprints": [],
+ "references": [
+  {
+   "reference": "R11",
+   "symbols": [
+    "/8b3ed35c-c23c-5fbf-9d71-a2f5f98022d0/0c5b067b-fa0e-5b53-bdef-a8313254278f"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "R13",
+   "symbols": [
+    "/8b3ed35c-c23c-5fbf-9d71-a2f5f98022d0/d35d922d-5289-5038-b957-d08d95fa48ac"
+   ],
+   "footprints": []
+  }
+ ],
+ "variantDeclarations": [
+  {
+   "source": "project",
+   "name": "Lite"
+  }
+ ]
+}

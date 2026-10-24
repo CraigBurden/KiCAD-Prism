@@ -15,16 +15,15 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterator, Optional
 
-from app.core.config import settings
+from app.services.job_kinds import TRACKER_RESOURCE, resource_capacities
 from app.services.job_service import jobs as default_jobs
 from app.services.trackers.op_store import LIVE_STATES
 
 DISPATCH_KIND = "tracker_dispatch"
 POLL_KIND = "tracker_poll"
 SWEEP_KIND = "tracker_sweep"
-TRACKER_RESOURCE = "tracker_sync"
 TRACKER_PRIORITY = 200
-TRACKER_RESOURCE_CAPACITY = min(2, max(1, settings.PRISM_WORKER_CONCURRENCY - 1))
+TRACKER_RESOURCE_CAPACITY = resource_capacities()[TRACKER_RESOURCE]
 OUTBOX_POLL_SECONDS = 30
 SCHEDULER_SCAN_SECONDS = 30
 POLL_WEBHOOK_WINDOW_SECONDS = 30 * 60
@@ -223,19 +222,17 @@ def _enqueue(
     if key in seen:
         return None
     seen.add(key)
-    return service.enqueue(
-        kind,
+    from app.services.trackers.jobs import TRACKER_JOB_KINDS_BY_NAME
+
+    return TRACKER_JOB_KINDS_BY_NAME[kind].enqueue(
         {
             "connectorId": connector_id,
             "remoteContainerId": container_id,
             "kind": kind,
         },
-        worker_pool="prism",
         artifact_key=artifact_key(kind, connector_id, container_id),
-        priority=TRACKER_PRIORITY,
-        resources={TRACKER_RESOURCE: 1},
         requested_by="system:tracker-scheduler",
-        max_attempts=8,
+        service=service,
     )
 
 

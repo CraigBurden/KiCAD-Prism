@@ -1,5 +1,7 @@
 # Phase 0B: identity and bounds resolution, measured
 
+> **Superseded (2026-10-23).** This milestone record describes the Node `ecad-parse`/`ecad-diff` and Python comparison pipeline. Design Comparison is now computed by `prism-kicad compare` ([ADR amendment C2r](../architecture/adr-native-design-bundle-amendment-c2r.md)), and the services named here were removed. Kept as a historical record.
+
 Phase 0B of [the revamp plan](../DESIGN_COMPARISON_REVAMP.md). The plan said
 measure before deleting anything. This is the measurement.
 

@@ -1,0 +1,26 @@
+{
+  "schema": "prism.cli.vendor_run_result.a0",
+  "vendor": "jlcpcb",
+  "files": [
+    {
+      "path": "bom.csv",
+      "sha256": "eb70600c27679b06bf228206ba696b203d104fe6fd8b6a18bad02d10ff2ea2a1"
+    },
+    {
+      "path": "cpl.csv",
+      "sha256": "eb70600c27679b06bf228206ba696b203d104fe6fd8b6a18bad02d10ff2ea2a1"
+    }
+  ],
+  "rows": {
+    "bom": 12,
+    "cpl": 34
+  },
+  "excluded": [
+    {
+      "key": "fixtures/release-studio/usb-pd/USB-PD-Trigger-Board.kicad_pcb#0fe3d08e-86fc-4dd5-bd2f-bcbc5d801a5d",
+      "reference": "R6",
+      "code": "excluded-from-bom",
+      "message": "Do-not-populate component excluded from the BOM."
+    }
+  ]
+}

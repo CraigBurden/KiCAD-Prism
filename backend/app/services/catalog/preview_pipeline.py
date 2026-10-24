@@ -20,7 +20,6 @@ from app.services.catalog.asset_types import (
     preview_kind_for_asset_type,
 )
 from app.services.catalog.component_read_models import CatalogComponentReadModels
-from app.services.catalog.kicad_cli import KicadCliRunner
 from app.services.catalog.locking import CatalogLockOperations
 from app.services.catalog.normalization import (
     canonical_json,
@@ -34,15 +33,34 @@ from app.services.catalog.preview_renderer import (
     PREVIEW_STATUS_READY,
     CatalogPreviewRenderer,
 )
+from app.services.catalog.preview_files import stored_file
 from app.services.catalog.preview_store import CatalogPreviewStore
 from app.services.catalog.revision_kernel import CatalogRevisionKernel
 from app.services.catalog.runtime import CatalogRuntime
+from app.services.kicad_tools import KicadTool, ToolError, ToolTimeout, kicad_cli
 
 
 logger = logging.getLogger(__name__)
 
 PREVIEW_PIPELINE_VERSION = "prism-preview-a2-multi-unit"
 PREVIEW_GENERATOR_NAME = "kicad-cli"
+KICAD_CLI_TIMEOUT_SECONDS = 60
+
+
+def run_kicad_for_catalog(kicad: KicadTool, args: list[str]) -> tuple[bool, str]:
+    """Run kicad-cli for a catalog render or upgrade; ``(ok, error)``, never raises."""
+
+    try:
+        result = kicad.run(args, timeout=KICAD_CLI_TIMEOUT_SECONDS)
+    except ToolTimeout:
+        return False, f"kicad-cli timed out after {KICAD_CLI_TIMEOUT_SECONDS} seconds"
+    except ToolError:
+        return False, "kicad-cli is not available in the backend runtime"
+    if not result.ok:
+        return False, (
+            result.stderr or result.stdout or f"kicad-cli exited with code {result.returncode}"
+        ).strip()
+    return True, ""
 
 
 @dataclass
@@ -75,7 +93,9 @@ class CatalogPreviewPipeline:
         read_models: CatalogComponentReadModels,
         renderer: CatalogPreviewRenderer | None = None,
         store: CatalogPreviewStore | None = None,
+        kicad: KicadTool | None = None,
     ) -> None:
+        self._kicad = kicad or kicad_cli()
         self._catalog_locks = catalog_locks
         self._revision_kernel = revision_kernel
         self._read_models = read_models
@@ -94,9 +114,8 @@ class CatalogPreviewPipeline:
         bucket = "symbols" if preview_base_kind(kind) == PREVIEW_KIND_SYMBOL else "footprints"
         return runtime.store_root / "previews" / "versions" / bucket / asset_id / f"{sha256}.svg"
 
-    @staticmethod
-    def generator_identity(runtime: CatalogRuntime, kind: str) -> dict[str, str]:
-        version = KicadCliRunner.version(runtime)
+    def generator_identity(self, kind: str) -> dict[str, str]:
+        version = self._kicad.version()
         canonical = canonical_json(
             {
                 "generator_name": PREVIEW_GENERATOR_NAME,
@@ -114,23 +133,14 @@ class CatalogPreviewPipeline:
 
     # -- rendering ----------------------------------------------------------
 
-    def render_symbol_units(
-        self,
-        runtime: CatalogRuntime,
-        asset: dict[str, Any],
-    ) -> tuple[str, list[tuple[int, bytes]] | str]:
-        return self._renderer.generate_symbol_preview_units(
-            asset, lambda args: KicadCliRunner.run(runtime, args)
-        )
+    def render_symbol_units(self, asset: dict[str, Any]) -> tuple[str, list[tuple[int, bytes]] | str]:
+        return self._renderer.generate_symbol_preview_units(asset, self._run_kicad)
 
-    def render_footprint(
-        self,
-        runtime: CatalogRuntime,
-        asset: dict[str, Any],
-    ) -> tuple[str, bytes | str]:
-        return self._renderer.generate_footprint_preview(
-            asset, lambda args: KicadCliRunner.run(runtime, args)
-        )
+    def render_footprint(self, asset: dict[str, Any]) -> tuple[str, bytes | str]:
+        return self._renderer.generate_footprint_preview(asset, self._run_kicad)
+
+    def _run_kicad(self, args: list[str]) -> tuple[bool, str]:
+        return run_kicad_for_catalog(self._kicad, args)
 
     # -- persistence --------------------------------------------------------
 
@@ -143,7 +153,7 @@ class CatalogPreviewPipeline:
         kind: str,
         payload: bytes,
     ) -> dict[str, Any]:
-        identity = self.generator_identity(runtime, kind)
+        identity = self.generator_identity(kind)
         sha256 = sha256_bytes(payload)
         destination = self.preview_version_path(runtime, str(asset["id"]), kind, sha256).resolve()
         return self._store.store_preview_version(
@@ -156,7 +166,7 @@ class CatalogPreviewPipeline:
         )
 
     def has_ready_preview(self, conn: Any, runtime: CatalogRuntime, asset_id: str, kind: str) -> bool:
-        fingerprint = self.generator_identity(runtime, kind)["generator_fingerprint"]
+        fingerprint = self.generator_identity(kind)["generator_fingerprint"]
         return self._store.has_ready_preview(conn, asset_id, kind, fingerprint)
 
     def ensure_asset_previews(
@@ -172,7 +182,7 @@ class CatalogPreviewPipeline:
         """
         asset_type = str(asset["asset_type"])
         if asset_type == "symbol":
-            status, result = self.render_symbol_units(runtime, asset)
+            status, result = self.render_symbol_units(asset)
             if status != PREVIEW_STATUS_READY or not isinstance(result, list):
                 return [_failed_preview(asset, PREVIEW_KIND_SYMBOL, result)]
             return [
@@ -186,7 +196,7 @@ class CatalogPreviewPipeline:
                 for unit, payload in result
             ]
         if asset_type == "footprint":
-            status, result = self.render_footprint(runtime, asset)
+            status, result = self.render_footprint(asset)
             if status != PREVIEW_STATUS_READY or not isinstance(result, bytes):
                 return [_failed_preview(asset, PREVIEW_KIND_FOOTPRINT, result)]
             return [
@@ -363,7 +373,7 @@ class CatalogPreviewPipeline:
             path.relative_to((runtime.store_root / "previews").resolve())
         except ValueError:
             return None
-        return (path, str(row["content_type"] or "image/svg+xml")) if path.is_file() else None
+        return (path, str(row["content_type"] or "image/svg+xml")) if stored_file(path) else None
 
     @staticmethod
     def preview_record(conn: Any, preview_id: str) -> CatalogPreview | None:

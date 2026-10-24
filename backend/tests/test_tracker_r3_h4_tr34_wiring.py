@@ -2,22 +2,19 @@
 
 from __future__ import annotations
 
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 from pydantic import SecretStr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import tracker_sync as sync_api  # noqa: E402
 from app.core.config import Settings  # noqa: E402
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.comment_permissions import ActorIdentity  # noqa: E402
 from app.services.trackers.connector_service import ConnectorService  # noqa: E402
 from app.services.trackers.contracts import Moved  # noqa: E402
@@ -46,6 +43,8 @@ from test_tracker_tr_28 import (  # noqa: E402
     ISSUE_ID,
     ISSUE_NUMBER,
 )
+from app.services.comments_schema_migrations import COMMENTS_LEDGER  # noqa: E402
+from support.postgres import requires_scratch_postgres, scratch_schema, seed_comment  # noqa: E402
 
 try:
     import psycopg
@@ -54,29 +53,11 @@ except ImportError:  # pragma: no cover
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 UNAPPROVED_CONTAINER = "333333333"
 UNAPPROVED_PATH = "acme/public-notes"
 THREAD_ID = "tt_r3h4"
 PROJECT = "prj_a"
 ROOT_KEY = "aa" * 32
-
-
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 def _settings(**overrides) -> Settings:
@@ -99,25 +80,18 @@ def _settings(**overrides) -> Settings:
 class RoutingContractTests(unittest.TestCase):
     def test_unlink_and_repromote_routes_registered(self) -> None:
         app = FastAPI()
+        install_error_handlers(app)
         app.include_router(sync_api.router)
         paths = set(app.openapi()["paths"])
         self.assertIn("/api/projects/{project_id}/comments/{comment_id}/tracker/unlink", paths)
         self.assertIn("/api/projects/{project_id}/comments/{comment_id}/tracker/repromote", paths)
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class Tr34WiringPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"r3h4_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self._create_comments_foundation()
-        comments_schema_migrations.apply_comments_migrations(self.conn)
-        migrate_workspace_tracker_tables(self.conn)
+        self.scratch = scratch_schema(self, "r3h4", ledgers=(COMMENTS_LEDGER,), then=(migrate_workspace_tracker_tables,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
         migrate_tracker_webhook_oauth_tables(self.conn)
         apply_op_schema(self.conn)
         apply_inbox_schema(self.conn)
@@ -134,51 +108,6 @@ class Tr34WiringPostgresTests(unittest.TestCase):
         self.conn.commit()
         self.settings = _settings()
         self._observed_visibility: dict[str, str] = {"222222222": "private", CONTAINER: "private"}
-
-    def _cleanup(self) -> None:
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
-
-    def _create_comments_foundation(self) -> None:
-        self.conn.execute(
-            """
-            CREATE TABLE comments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                status TEXT NOT NULL DEFAULT 'OPEN',
-                context TEXT NOT NULL DEFAULT 'PCB',
-                location_x REAL NOT NULL DEFAULT 0,
-                location_y REAL NOT NULL DEFAULT 0,
-                location_layer TEXT NOT NULL DEFAULT '',
-                location_page TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT '',
-                revision INTEGER NOT NULL DEFAULT 1,
-                deleted_at TIMESTAMPTZ,
-                anchor_state TEXT DEFAULT 'pinned',
-                anchor_commit TEXT DEFAULT '3f2c9a1b7e4d5c6a8b9f0e1d2c3b4a5968778695'
-            );
-            CREATE TABLE comment_replies (
-                id TEXT PRIMARY KEY,
-                comment_id TEXT NOT NULL REFERENCES comments(id),
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                content TEXT NOT NULL DEFAULT '',
-                author_kind TEXT NOT NULL DEFAULT 'user',
-                origin TEXT NOT NULL DEFAULT 'prism',
-                revision INTEGER NOT NULL DEFAULT 1,
-                deleted_at TIMESTAMPTZ,
-                deleted_by TEXT
-            );
-            """,
-            prepare=False,
-        )
 
     def _seed_destination(self) -> None:
         self.store.set_project_tracker(
@@ -200,12 +129,15 @@ class Tr34WiringPostgresTests(unittest.TestCase):
         )
 
     def _seed_comment(self) -> None:
-        self.conn.execute(
-            """
-            INSERT INTO comments(id, project_id, author, content, revision, anchor_state, anchor_commit)
-            VALUES (%s,%s,%s,%s,%s,'pinned','3f2c9a1b7e4d5c6a8b9f0e1d2c3b4a5968778695')
-            """,
-            (COMMENT_ID, PROJECT, "Priya", "root content", 1),
+        seed_comment(
+            self.conn,
+            COMMENT_ID,
+            PROJECT,
+            author="Priya",
+            content="root content",
+            revision=1,
+            anchor_state="pinned",
+            anchor_commit="3f2c9a1b7e4d5c6a8b9f0e1d2c3b4a5968778695",
         )
 
     def _seed_thread(self, *, link_state: str = "linked", external_id: str = ISSUE_ID) -> None:
@@ -247,8 +179,7 @@ class Tr34WiringPostgresTests(unittest.TestCase):
 
     @contextmanager
     def _factory(self):
-        conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        conn.execute(f'SET search_path TO "{self.schema}", public')
+        conn = self.scratch.connect()
         try:
             yield conn
         finally:

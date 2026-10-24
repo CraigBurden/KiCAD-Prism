@@ -23,13 +23,11 @@ import {
     parentSymbolKey,
     stringFieldPair,
 } from "./comparison-change-facts";
+import { kindsWith } from "./comparison-change-kinds";
+import type { PointNm } from "./design-compare-result";
 import type { ChangeItem } from "./types";
 
-const SCHEMATIC_LABEL_KINDS = new Set([
-    "label",
-    "global_label",
-    "hierarchical_label",
-]);
+const SCHEMATIC_LABEL_KINDS = kindsWith("schematic-label");
 
 export interface PreparedReviewChanges {
     changes: ChangeItem[];
@@ -227,5 +225,37 @@ export function prepareChangesForReview(
         }
     }
 
-    return { changes: prepared, suppressedCount };
+    return { changes: prepared.sort(reviewOrder), suppressedCount };
+}
+
+const KIND_ORDER: Record<ChangeItem["kind"], number> = { removed: 0, changed: 1, added: 2 };
+
+/** Where the change sits on its page: its object's position, or its first target's. */
+function changePosition(change: ChangeItem): PointNm | undefined {
+    return change.head?.at
+        ?? change.base?.at
+        ?? change.details.targets?.find((target) => target.at)?.at;
+}
+
+/**
+ * The order the review list reads changes in. `compare` sorts each tab by id,
+ * a content hash, which is not an order to show; grouping takes a group's
+ * representative and its ordinal from this order. Page first, then what
+ * happened (the old object before the new one), then top to bottom and left to
+ * right, then id, so every result reads the same way.
+ */
+export function reviewOrder(left: ChangeItem, right: ChangeItem): number {
+    const leftAt = changePosition(left);
+    const rightAt = changePosition(right);
+    return compareText(pageFor(left), pageFor(right))
+        || KIND_ORDER[left.kind] - KIND_ORDER[right.kind]
+        || (leftAt && rightAt
+            ? leftAt.yNm - rightAt.yNm || leftAt.xNm - rightAt.xNm
+            : Number(!leftAt) - Number(!rightAt))
+        || compareText(left.id, right.id);
+}
+
+/** Code point order, independent of locale. */
+function compareText(left: string, right: string): number {
+    return left < right ? -1 : left > right ? 1 : 0;
 }

@@ -419,7 +419,7 @@ input {
 
 #axis-gizmo {
   position: absolute;
-  left: 14px;
+  left: calc(var(--prism-viewport-inset-left, 0px) + 14px);
   bottom: 14px;
   width: 104px;
   height: 104px;
@@ -1054,10 +1054,6 @@ h2 {
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.camera-toolbar {
-  margin-bottom: 14px;
 }
 
 .toggle-list {

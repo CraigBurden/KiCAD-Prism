@@ -52,12 +52,16 @@ class AssetSourceResolution(unittest.TestCase):
         )
 
         class _Cursor:
+            def __init__(self_inner, result):
+                self_inner.result = result
+
             def fetchone(self_inner):
-                return row
+                return self_inner.result
 
         class _Conn:
-            def execute(self_inner, *_args, **_kwargs):
-                return _Cursor()
+            def execute(self_inner, sql, *_args, **_kwargs):
+                # Only the `assets` row exists; nothing was purged.
+                return _Cursor(None if "catalog_asset_file_purges" in sql else row)
 
             def __enter__(self_inner):
                 return self_inner
@@ -65,10 +69,14 @@ class AssetSourceResolution(unittest.TestCase):
             def __exit__(self_inner, *_exc):
                 return False
 
-        service = ComponentCatalogDomainService(store_root=self.store)
-        service.initialize = lambda: None
-        service._connect = lambda: _Conn()
-        return service
+        class _OneRowCatalog(ComponentCatalogDomainService):
+            def initialize(self_inner) -> None:
+                return None
+
+            def _connect(self_inner):  # the facade's connection seam
+                return _Conn()
+
+        return _OneRowCatalog(store_root=self.store)
 
     def test_returns_the_stored_file_not_a_placement_payload(self) -> None:
         service = self._service(

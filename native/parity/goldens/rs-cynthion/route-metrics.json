@@ -1,0 +1,4096 @@
+{
+ "schema": "prism.route_metrics.a0",
+ "nets": [
+  {
+   "netName": "+1V1",
+   "routeLengthNm": 17781866,
+   "viaCount": 11,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 11
+    }
+   ]
+  },
+  {
+   "netName": "+2V5",
+   "routeLengthNm": 10431016,
+   "viaCount": 6,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 6
+    }
+   ]
+  },
+  {
+   "netName": "+3V3",
+   "routeLengthNm": 201909037,
+   "viaCount": 72,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 72
+    }
+   ]
+  },
+  {
+   "netName": "+5V",
+   "routeLengthNm": 2786102,
+   "viaCount": 26,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 26
+    }
+   ]
+  },
+  {
+   "netName": "/AUX Port/AUX PHY/CLK",
+   "routeLengthNm": 2153921,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX PHY/DATA0",
+   "routeLengthNm": 5698551,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX PHY/DATA1",
+   "routeLengthNm": 6124825,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX PHY/DATA2",
+   "routeLengthNm": 6551100,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX PHY/DATA3",
+   "routeLengthNm": 8410582,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX PHY/DATA4",
+   "routeLengthNm": 9771781,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX PHY/DATA5",
+   "routeLengthNm": 11668177,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX PHY/DATA6",
+   "routeLengthNm": 12734192,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX PHY/DATA7",
+   "routeLengthNm": 13794350,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX PHY/DIR",
+   "routeLengthNm": 3775658,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX PHY/NXT",
+   "routeLengthNm": 5607201,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX PHY/PHY_D+",
+   "routeLengthNm": 3284876,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX PHY/PHY_D-",
+   "routeLengthNm": 3286664,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX PHY/RBIAS",
+   "routeLengthNm": 1694338,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/AUX Port/AUX PHY/STP",
+   "routeLengthNm": 2485292,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX PHY/VBUS_CLAMPED",
+   "routeLengthNm": 10480334,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/AUX Port/AUX PHY/VBUS_SENSE",
+   "routeLengthNm": 3787719,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/AUX Port/AUX PHY/VDD18",
+   "routeLengthNm": 3307769,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/AUX Port/AUX Type C Controller/CC1",
+   "routeLengthNm": 5691726,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/AUX Port/AUX Type C Controller/CC1S",
+   "routeLengthNm": 3553698,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX Type C Controller/CC2",
+   "routeLengthNm": 7736798,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/AUX Port/AUX Type C Controller/CC2S",
+   "routeLengthNm": 3192622,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX Type C Controller/VCONN",
+   "routeLengthNm": 6132666,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/AUX Port/AUX_D+",
+   "routeLengthNm": 10093271,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX_D-",
+   "routeLengthNm": 10966917,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX_PHY.CLK",
+   "routeLengthNm": 6254996,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX_PHY.DATA0",
+   "routeLengthNm": 4811270,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX_PHY.DATA1",
+   "routeLengthNm": 5735534,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX_PHY.DATA2",
+   "routeLengthNm": 4728427,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX_PHY.DATA3",
+   "routeLengthNm": 5652691,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX_PHY.DATA4",
+   "routeLengthNm": 5631981,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX_PHY.DATA5",
+   "routeLengthNm": 4542031,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX_PHY.DATA6",
+   "routeLengthNm": 5466295,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX_PHY.DATA7",
+   "routeLengthNm": 4459188,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX_PHY.DIR",
+   "routeLengthNm": 5896833,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX_PHY.NXT",
+   "routeLengthNm": 6610214,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX_PHY.STP",
+   "routeLengthNm": 7097250,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX_PHY.~{RESET}",
+   "routeLengthNm": 16962685,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/AUX Port/AUX_SBU1",
+   "routeLengthNm": 5913980,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/AUX Port/AUX_SBU2",
+   "routeLengthNm": 7712975,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/AUX Port/AUX_TYPE_C.SBU1S",
+   "routeLengthNm": 23978353,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/AUX Port/AUX_TYPE_C.SBU2S",
+   "routeLengthNm": 23276465,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/AUX Port/AUX_TYPE_C.SCL",
+   "routeLengthNm": 21697025,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/AUX Port/AUX_TYPE_C.SDA",
+   "routeLengthNm": 20334354,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/AUX Port/AUX_TYPE_C.~{FAULT}",
+   "routeLengthNm": 27533500,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/AUX Port/AUX_TYPE_C.~{INT}",
+   "routeLengthNm": 22405258,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL PHY/CLK",
+   "routeLengthNm": 6104947,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL PHY/DATA0",
+   "routeLengthNm": 2461028,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL PHY/DATA1",
+   "routeLengthNm": 2461028,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL PHY/DATA2",
+   "routeLengthNm": 2461028,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL PHY/DATA3",
+   "routeLengthNm": 3259779,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL PHY/DATA4",
+   "routeLengthNm": 3268135,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL PHY/DATA5",
+   "routeLengthNm": 4844287,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL PHY/DATA6",
+   "routeLengthNm": 5469384,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL PHY/DATA7",
+   "routeLengthNm": 6094481,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL PHY/DIR",
+   "routeLengthNm": 2253921,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL PHY/NXT",
+   "routeLengthNm": 2461028,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL PHY/PHY_D+",
+   "routeLengthNm": 1850145,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL PHY/PHY_D-",
+   "routeLengthNm": 1706889,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL PHY/RBIAS",
+   "routeLengthNm": 1844632,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL PHY/STP",
+   "routeLengthNm": 3502449,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL PHY/VBUS_CLAMPED",
+   "routeLengthNm": 2500488,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL PHY/VBUS_SENSE",
+   "routeLengthNm": 4892178,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL PHY/VDD18",
+   "routeLengthNm": 3607769,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_CC1",
+   "routeLengthNm": 3116421,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_CC2",
+   "routeLengthNm": 3489214,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_D+",
+   "routeLengthNm": 6196763,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_D-",
+   "routeLengthNm": 7171053,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_MCU_D+",
+   "routeLengthNm": 14401024,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_MCU_D-",
+   "routeLengthNm": 14401024,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_PHY.CLK",
+   "routeLengthNm": 4586396,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_PHY.DATA0",
+   "routeLengthNm": 3317767,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_PHY.DATA1",
+   "routeLengthNm": 5124874,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_PHY.DATA2",
+   "routeLengthNm": 3400610,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_PHY.DATA3",
+   "routeLengthNm": 4407716,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_PHY.DATA4",
+   "routeLengthNm": 5654163,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_PHY.DATA5",
+   "routeLengthNm": 6831148,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_PHY.DATA6",
+   "routeLengthNm": 6484285,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_PHY.DATA7",
+   "routeLengthNm": 8868793,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_PHY.DIR",
+   "routeLengthNm": 2862132,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_PHY.NXT",
+   "routeLengthNm": 3786396,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_PHY.STP",
+   "routeLengthNm": 3869239,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_PHY.~{RESET}",
+   "routeLengthNm": 10515902,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_RESET_DETECT",
+   "routeLengthNm": 26098007,
+   "viaCount": 3,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 3
+    }
+   ]
+  },
+  {
+   "netName": "/CONTROL Port/CONTROL_SWITCH",
+   "routeLengthNm": 20193230,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/Clock and Miscellaneous/CLOCK_60MHZ",
+   "routeLengthNm": 9298915,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Debugger/FPGA_ADV",
+   "routeLengthNm": 13266297,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/Debugger/FPGA_CONFIG.DONE",
+   "routeLengthNm": 12257222,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/Debugger/FPGA_CONFIG.~{INIT}",
+   "routeLengthNm": 9066610,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Debugger/FPGA_CONFIG.~{PROGRAM}",
+   "routeLengthNm": 14832976,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/Debugger/FPGA_JTAG.TCK",
+   "routeLengthNm": 15496318,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Debugger/FPGA_JTAG.TDI",
+   "routeLengthNm": 18865506,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Debugger/FPGA_JTAG.TDO",
+   "routeLengthNm": 17889182,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/Debugger/FPGA_JTAG.TMS",
+   "routeLengthNm": 17524014,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Debugger/LED10",
+   "routeLengthNm": 23363644,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Debugger/LED11",
+   "routeLengthNm": 19647365,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Debugger/LED12",
+   "routeLengthNm": 15942803,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Debugger/LED13",
+   "routeLengthNm": 12232382,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Debugger/LED14",
+   "routeLengthNm": 8510246,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Debugger/MCU_SWCLK",
+   "routeLengthNm": 31682435,
+   "viaCount": 3,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu",
+    "In2.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 3
+    }
+   ]
+  },
+  {
+   "netName": "/Debugger/MCU_SWDIO",
+   "routeLengthNm": 35888408,
+   "viaCount": 3,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu",
+    "In2.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 3
+    }
+   ]
+  },
+  {
+   "netName": "/Debugger/~{BTN_PROGRAM}",
+   "routeLengthNm": 10182326,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Debugger/~{BTN_RESET}",
+   "routeLengthNm": 37600048,
+   "viaCount": 3,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 3
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/A1",
+   "routeLengthNm": 3710122,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/A10",
+   "routeLengthNm": 13358986,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/A2",
+   "routeLengthNm": 7604234,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/A3",
+   "routeLengthNm": 9276905,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/A4",
+   "routeLengthNm": 10828620,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/A7",
+   "routeLengthNm": 6033768,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/A8",
+   "routeLengthNm": 8149920,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/A9",
+   "routeLengthNm": 11701829,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/B1",
+   "routeLengthNm": 8453717,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/B10",
+   "routeLengthNm": 8814600,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/B2",
+   "routeLengthNm": 7044356,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/B3",
+   "routeLengthNm": 7203301,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/B4",
+   "routeLengthNm": 6067494,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/B7",
+   "routeLengthNm": 11079575,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/B8",
+   "routeLengthNm": 9545433,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/B9",
+   "routeLengthNm": 9739525,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE10",
+   "routeLengthNm": 18375921,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE11",
+   "routeLengthNm": 18413954,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE12",
+   "routeLengthNm": 19749302,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE13",
+   "routeLengthNm": 19814818,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE18",
+   "routeLengthNm": 10141969,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE19",
+   "routeLengthNm": 10078549,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE20",
+   "routeLengthNm": 8989453,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE21",
+   "routeLengthNm": 8969848,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE22",
+   "routeLengthNm": 6231371,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE23",
+   "routeLengthNm": 7155635,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE24",
+   "routeLengthNm": 6148528,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE25",
+   "routeLengthNm": 8672792,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE26",
+   "routeLengthNm": 6065685,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE27",
+   "routeLengthNm": 6993677,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE28",
+   "routeLengthNm": 5982843,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE3",
+   "routeLengthNm": 17485003,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE4",
+   "routeLengthNm": 12192799,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE5",
+   "routeLengthNm": 13160815,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE6",
+   "routeLengthNm": 12237794,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE7",
+   "routeLengthNm": 13254062,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE8",
+   "routeLengthNm": 16153423,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/MEZZANINE9",
+   "routeLengthNm": 16191297,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/PMOD_A1",
+   "routeLengthNm": 18702986,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/PMOD_A10",
+   "routeLengthNm": 15149138,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/PMOD_A2",
+   "routeLengthNm": 17911270,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/PMOD_A3",
+   "routeLengthNm": 16889970,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/PMOD_A4",
+   "routeLengthNm": 15024874,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/PMOD_A7",
+   "routeLengthNm": 18809331,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/PMOD_A8",
+   "routeLengthNm": 19636610,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/PMOD_A9",
+   "routeLengthNm": 17581097,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/PMOD_B1",
+   "routeLengthNm": 18913099,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/PMOD_B10",
+   "routeLengthNm": 13936753,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/PMOD_B2",
+   "routeLengthNm": 17282977,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/PMOD_B3",
+   "routeLengthNm": 15026703,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/PMOD_B4",
+   "routeLengthNm": 14943860,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/PMOD_B7",
+   "routeLengthNm": 19830579,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/PMOD_B8",
+   "routeLengthNm": 16275870,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/Expansion Interfaces/PMOD_B9",
+   "routeLengthNm": 14019596,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Bank 8 and Configuration Flash/FPGA_CFG0",
+   "routeLengthNm": 1651493,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Bank 8 and Configuration Flash/FPGA_CFG1",
+   "routeLengthNm": 1851493,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Bank 8 and Configuration Flash/FPGA_CFG2",
+   "routeLengthNm": 2051493,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Bank 8 and Configuration Flash/FPGA_FLASH_CLK",
+   "routeLengthNm": 24775494,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Bank 8 and Configuration Flash/IO0",
+   "routeLengthNm": 14674001,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Bank 8 and Configuration Flash/IO1",
+   "routeLengthNm": 18897189,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Bank 8 and Configuration Flash/IO2",
+   "routeLengthNm": 25119148,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Bank 8 and Configuration Flash/IO3",
+   "routeLengthNm": 14949909,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Bank 8 and Configuration Flash/~{CS}",
+   "routeLengthNm": 21366820,
+   "viaCount": 3,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 3
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Bank 8 and Configuration Flash/~{FPGA_SELF_PROGRAM}",
+   "routeLengthNm": 3562792,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 0 and 1/LED0",
+   "routeLengthNm": 19306581,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 0 and 1/LED1",
+   "routeLengthNm": 16520824,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 0 and 1/LED2",
+   "routeLengthNm": 18537636,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 0 and 1/LED3",
+   "routeLengthNm": 20146252,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 0 and 1/LED4",
+   "routeLengthNm": 31494449,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 0 and 1/LED5",
+   "routeLengthNm": 34120723,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 0 and 1/MON.GPIO",
+   "routeLengthNm": 18617517,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 0 and 1/MON.SCL",
+   "routeLengthNm": 16560044,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 0 and 1/MON.SDA",
+   "routeLengthNm": 16599057,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 0 and 1/MON.SLOW",
+   "routeLengthNm": 14799628,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 0 and 1/MON.~{PWRDN}",
+   "routeLengthNm": 18328278,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 0 and 1/TARGET_C.SBU1S",
+   "routeLengthNm": 21572100,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 0 and 1/TARGET_C.SBU2S",
+   "routeLengthNm": 25520649,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 0 and 1/TARGET_C.SCL",
+   "routeLengthNm": 17936944,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 0 and 1/TARGET_C.SDA",
+   "routeLengthNm": 20856499,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 0 and 1/TARGET_C.~{FAULT}",
+   "routeLengthNm": 21917634,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 0 and 1/TARGET_C.~{INT}",
+   "routeLengthNm": 16880082,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 2 and 3/~{AUX_VBUS_IN_EN}",
+   "routeLengthNm": 11829697,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 2 and 3/~{BTN_USER}",
+   "routeLengthNm": 13522590,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 2 and 3/~{CONTROL_VBUS_IN_EN}",
+   "routeLengthNm": 15012489,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/AUX_VBUS_EN",
+   "routeLengthNm": 4359064,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/CONTROL_VBUS_EN",
+   "routeLengthNm": 8522203,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/RAM.CK",
+   "routeLengthNm": 18870588,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/RAM.DQ0",
+   "routeLengthNm": 15185792,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/RAM.DQ1",
+   "routeLengthNm": 15088502,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/RAM.DQ2",
+   "routeLengthNm": 15089058,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/RAM.DQ3",
+   "routeLengthNm": 15034993,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/RAM.DQ4",
+   "routeLengthNm": 15057375,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/RAM.DQ5",
+   "routeLengthNm": 15102100,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/RAM.DQ6",
+   "routeLengthNm": 15100026,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/RAM.DQ7",
+   "routeLengthNm": 15089058,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/RAM.RWDS",
+   "routeLengthNm": 15104199,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/RAM.~{CK}",
+   "routeLengthNm": 18870556,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/RAM.~{CS}",
+   "routeLengthNm": 12036700,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/RAM.~{RESET}",
+   "routeLengthNm": 10387372,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/TARGET_A_DISCHARGE",
+   "routeLengthNm": 22895281,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/TARGET_C_VBUS_EN",
+   "routeLengthNm": 15549768,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/TARGET_FS_MONITOR_D+",
+   "routeLengthNm": 22062486,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/TARGET_FS_MONITOR_D-",
+   "routeLengthNm": 22051602,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/TARGET_PHY.CLK",
+   "routeLengthNm": 8835311,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/TARGET_PHY.DATA0",
+   "routeLengthNm": 5724457,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/TARGET_PHY.DATA1",
+   "routeLengthNm": 4298513,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/TARGET_PHY.DATA2",
+   "routeLengthNm": 5161270,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/TARGET_PHY.DATA3",
+   "routeLengthNm": 3855412,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/TARGET_PHY.DATA4",
+   "routeLengthNm": 5007716,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/TARGET_PHY.DATA5",
+   "routeLengthNm": 3200610,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/TARGET_PHY.DATA6",
+   "routeLengthNm": 4124874,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/TARGET_PHY.DATA7",
+   "routeLengthNm": 3117767,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/TARGET_PHY.DIR",
+   "routeLengthNm": 7546194,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/TARGET_PHY.NXT",
+   "routeLengthNm": 5996833,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/TARGET_PHY.STP",
+   "routeLengthNm": 7164184,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/FPGA Banks 6 and 7/TARGET_PHY.~{RESET}",
+   "routeLengthNm": 15250065,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/Power Distribution and Monitoring/~{POWER_GOOD}",
+   "routeLengthNm": 133246798,
+   "viaCount": 6,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu",
+    "In2.Cu",
+    "In3.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 6
+    }
+   ]
+  },
+  {
+   "netName": "/TARGET Port/TARGET PHY/CLK",
+   "routeLengthNm": 5663770,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET PHY/DATA0",
+   "routeLengthNm": 2036764,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET PHY/DATA1",
+   "routeLengthNm": 2036764,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET PHY/DATA2",
+   "routeLengthNm": 2036764,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET PHY/DATA3",
+   "routeLengthNm": 3096175,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET PHY/DATA4",
+   "routeLengthNm": 4073576,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET PHY/DATA5",
+   "routeLengthNm": 5403698,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET PHY/DATA6",
+   "routeLengthNm": 6058084,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET PHY/DATA7",
+   "routeLengthNm": 6700755,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET PHY/DIR",
+   "routeLengthNm": 1595343,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET PHY/NXT",
+   "routeLengthNm": 1636764,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET PHY/PHY_D+",
+   "routeLengthNm": 2833219,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET PHY/PHY_D-",
+   "routeLengthNm": 2215288,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET PHY/RBIAS",
+   "routeLengthNm": 1844632,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/TARGET Port/TARGET PHY/STP",
+   "routeLengthNm": 3334409,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET PHY/VBUS_CLAMPED",
+   "routeLengthNm": 45160254,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu",
+    "In2.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/TARGET Port/TARGET PHY/VBUS_SENSE",
+   "routeLengthNm": 3408087,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/TARGET Port/TARGET PHY/VDD18",
+   "routeLengthNm": 3546470,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/TARGET Port/TARGET Type C Controller/CC1",
+   "routeLengthNm": 5064767,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "/TARGET Port/TARGET Type C Controller/CC1S",
+   "routeLengthNm": 3559556,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET Type C Controller/CC2",
+   "routeLengthNm": 9694956,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu",
+    "In2.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/TARGET Port/TARGET Type C Controller/CC2S",
+   "routeLengthNm": 3198480,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET Type C Controller/SBU1",
+   "routeLengthNm": 7738072,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu",
+    "In2.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/TARGET Port/TARGET Type C Controller/SBU2",
+   "routeLengthNm": 3073198,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET Type C Controller/VCONN",
+   "routeLengthNm": 6442214,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "/TARGET Port/TARGET_A_D+",
+   "routeLengthNm": 3818665,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET_A_D-",
+   "routeLengthNm": 3818665,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET_C_D+",
+   "routeLengthNm": 28143133,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/TARGET Port/TARGET_C_D-",
+   "routeLengthNm": 27591476,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "AUX_SENSE+",
+   "routeLengthNm": 28679866,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu",
+    "In2.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "AUX_SENSE-",
+   "routeLengthNm": 29144405,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu",
+    "In2.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "AUX_VBUS",
+   "routeLengthNm": 10760042,
+   "viaCount": 6,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 6
+    }
+   ]
+  },
+  {
+   "netName": "AUX_VBUS_IN",
+   "routeLengthNm": 11538884,
+   "viaCount": 24,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 24
+    }
+   ]
+  },
+  {
+   "netName": "CONTROL_SENSE+",
+   "routeLengthNm": 59879973,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu",
+    "In2.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "CONTROL_SENSE-",
+   "routeLengthNm": 60667041,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu",
+    "In2.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "CONTROL_VBUS",
+   "routeLengthNm": 10783473,
+   "viaCount": 6,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 6
+    }
+   ]
+  },
+  {
+   "netName": "CONTROL_VBUS_IN",
+   "routeLengthNm": 17815969,
+   "viaCount": 18,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 18
+    }
+   ]
+  },
+  {
+   "netName": "GND",
+   "routeLengthNm": 193870304,
+   "viaCount": 210,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 210
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D1-A)",
+   "routeLengthNm": 0,
+   "viaCount": 4,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 4
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D10-A)",
+   "routeLengthNm": 4015158,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D11-A)",
+   "routeLengthNm": 3162487,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D12-A)",
+   "routeLengthNm": 3162487,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D13-A)",
+   "routeLengthNm": 3162487,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D14-A)",
+   "routeLengthNm": 3162487,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D16-A)",
+   "routeLengthNm": 8356803,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D17-A)",
+   "routeLengthNm": 840000,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(D17-K)",
+   "routeLengthNm": 5482082,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(D2-K)",
+   "routeLengthNm": 4141584,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D20-A)",
+   "routeLengthNm": 9088620,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D21-A)",
+   "routeLengthNm": 1124853,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(D21-K)",
+   "routeLengthNm": 5160904,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(D27-A)",
+   "routeLengthNm": 7824651,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D27-K)",
+   "routeLengthNm": 6658869,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D28-A)",
+   "routeLengthNm": 8339346,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D28-K)",
+   "routeLengthNm": 4958061,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D29-A)",
+   "routeLengthNm": 12175189,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D29-K)",
+   "routeLengthNm": 4538894,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D3-K)",
+   "routeLengthNm": 6650927,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D30-A)",
+   "routeLengthNm": 2170416,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(D30-K)",
+   "routeLengthNm": 1203553,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(D4-K)",
+   "routeLengthNm": 5383006,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D5-K)",
+   "routeLengthNm": 5388863,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D6-K)",
+   "routeLengthNm": 5383006,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D7-K)",
+   "routeLengthNm": 7476326,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D8-A)",
+   "routeLengthNm": 0,
+   "viaCount": 4,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 4
+    }
+   ]
+  },
+  {
+   "netName": "Net-(D9-A)",
+   "routeLengthNm": 44115332,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(Q10A-B1)",
+   "routeLengthNm": 3517473,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q10B-B2)",
+   "routeLengthNm": 2651198,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q11A-B1)",
+   "routeLengthNm": 4401981,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q11A-C1)",
+   "routeLengthNm": 2912254,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q11A-E1)",
+   "routeLengthNm": 1299117,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q11B-B2)",
+   "routeLengthNm": 5127006,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q11B-C2)",
+   "routeLengthNm": 5710904,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q11B-E2)",
+   "routeLengthNm": 1579949,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q13A-B1)",
+   "routeLengthNm": 3385513,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q13B-B2)",
+   "routeLengthNm": 1264264,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q14A-B1)",
+   "routeLengthNm": 2577523,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q14B-B2)",
+   "routeLengthNm": 1264264,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q15A-B1)",
+   "routeLengthNm": 4382376,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q15B-B2)",
+   "routeLengthNm": 1718650,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q16A-B1)",
+   "routeLengthNm": 1232843,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q3A-B1)",
+   "routeLengthNm": 4308082,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q3A-C1)",
+   "routeLengthNm": 2407990,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q3A-E1)",
+   "routeLengthNm": 1249411,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q3B-B2)",
+   "routeLengthNm": 4393797,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q3B-C2)",
+   "routeLengthNm": 8109239,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q3B-E2)",
+   "routeLengthNm": 5274579,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q8A-B1)",
+   "routeLengthNm": 3644996,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q8A-C1)",
+   "routeLengthNm": 4284874,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q8A-E1)",
+   "routeLengthNm": 4204163,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q8B-B2)",
+   "routeLengthNm": 5861320,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q8B-C2)",
+   "routeLengthNm": 2477767,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(Q8B-E2)",
+   "routeLengthNm": 1633503,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(R101-Pad2)",
+   "routeLengthNm": 24540866,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(R106-Pad2)",
+   "routeLengthNm": 11421758,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(U13-CB)",
+   "routeLengthNm": 1180624,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(U14-CB)",
+   "routeLengthNm": 1180624,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(U16-1D+)",
+   "routeLengthNm": 1811396,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(U16-1D-)",
+   "routeLengthNm": 1852817,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "Net-(U3-ADJ{slash}NC)",
+   "routeLengthNm": 2769178,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(U6-PA03)",
+   "routeLengthNm": 1499779,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(U6-PA07)",
+   "routeLengthNm": 2810196,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(U6-PA28{slash}~{RST})",
+   "routeLengthNm": 6993282,
+   "viaCount": 1,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 1
+    }
+   ]
+  },
+  {
+   "netName": "Net-(Y1-OUT)",
+   "routeLengthNm": 2255046,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "TARGET_A_SENSE+",
+   "routeLengthNm": 51251885,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu",
+    "In2.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "TARGET_A_SENSE-",
+   "routeLengthNm": 51282963,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu",
+    "In2.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "TARGET_A_VBUS_IN",
+   "routeLengthNm": 656569,
+   "viaCount": 28,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 28
+    }
+   ]
+  },
+  {
+   "netName": "TARGET_C_SENSE+",
+   "routeLengthNm": 23905437,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu",
+    "In2.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "TARGET_C_SENSE-",
+   "routeLengthNm": 24254784,
+   "viaCount": 2,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu",
+    "In2.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 2
+    }
+   ]
+  },
+  {
+   "netName": "TARGET_C_VBUS",
+   "routeLengthNm": 10789331,
+   "viaCount": 6,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 6
+    }
+   ]
+  },
+  {
+   "netName": "TARGET_C_VBUS_IN",
+   "routeLengthNm": 7075341,
+   "viaCount": 16,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 16
+    }
+   ]
+  },
+  {
+   "netName": "VCCRAM",
+   "routeLengthNm": 34766128,
+   "viaCount": 13,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": [
+    {
+     "startLayer": "F.Cu",
+     "stopLayer": "B.Cu",
+     "viaCount": 13
+    }
+   ]
+  }
+ ]
+}

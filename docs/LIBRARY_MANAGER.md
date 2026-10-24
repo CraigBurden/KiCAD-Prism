@@ -56,11 +56,37 @@ Use Import Center to discover candidates, review remediation findings, and
 accept selected proposals into drafts. Import limits in `.env` protect the
 server from unexpectedly large trees.
 
+An import session you no longer need can be deleted from its row in the
+session list once it has finished scanning. Deleting removes its open
+candidates and staged files; components already accepted stay in the catalog.
+
 ### Project harvest
 
 Components can be proposed from imported project data or a selected schematic or
 PCB identity. Review every proposal before acceptance; project-local symbols and
 footprints are not automatically approved library assets.
+
+### What an import needs before acceptance
+
+Folder and project imports follow the same rules, and the server applies them
+when a proposal is accepted, including through the API:
+
+- value, manufacturer, manufacturer part number, description and datasheet are
+  present, and the datasheet is an `http://` or `https://` URL;
+- one symbol and one footprint, either from the import or linked from an
+  existing catalog asset (a link answers a `footprint_not_resolved` finding);
+- no other blocking error findings.
+
+A manufacturer part number held by a retired component cannot be imported
+again. Folder discovery marks such parts as retired rather than new.
+
+### Editing metadata
+
+The single-component editor checks only that required fields are present, so
+legacy values you did not touch never block a save. Bulk edit and metadata
+batches also check value shape: numbers, HTTP(S) URLs, booleans and configured
+enum options. Provisional parts never require a manufacturer part number;
+supplying one in either editor promotes the part to an orderable identity.
 
 ### Existing packed symbol libraries
 
@@ -153,6 +179,32 @@ Symbol Provider when users need to choose a non-default representation.
 Generate through the catalog administration API or supported Library Manager
 action, then distribute the complete export directory. Do not copy only the
 database file because symbol and footprint trees are also required.
+
+Symbols and footprints are a latest-released view: "Update symbols/footprints
+from library" in KiCad moves a design to the newest released revision, as with
+any KiCad library. 3D models are exported under
+`3DModels/<first 16 hex of SHA-256>/<file name>` and footprints reference them
+as `${PRISM_LIB_DIR}/3DModels/...`. Models of every released revision of a
+library part are kept, so a board placed from an earlier release keeps the model
+it was placed with; modules and assemblies are not library parts and their
+models are never exported. The export response lists each stored model whose
+file is missing or no longer matches its recorded hash once in
+`missing_models`; those are left out of the bundle.
+Replace the export directory as a unit.
+
+Each export is built in a hidden sibling directory and renamed into place, so a
+failed export leaves the previous bundle untouched. The export directory's parent
+must therefore be writable, and the export directory itself must not be a mount
+point. Exports to the same directory run one at a time (a PostgreSQL advisory lock
+held for the whole export), and each one first removes any build directory an
+interrupted export left behind. `sym-lib-table` and `fp-lib-table` list only the libraries in the bundle.
+
+The DBL key (`Part Number Nocolon`) is the manufacturer part number, or the value
+when there is none, with colons and whitespace replaced by `_`. When several
+exported components share a key, the oldest component keeps it and each other
+one gets `_` plus the first eight characters of its component id (the whole id
+if that still collides). Keys do not depend on export order, and adding a newer
+part with the same key never renames an existing one.
 
 ## Governance checklist
 

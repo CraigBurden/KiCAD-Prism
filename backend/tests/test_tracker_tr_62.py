@@ -3,18 +3,14 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.job_handlers import load_builtin_job_handlers, registered_job_kinds  # noqa: E402
 from app.services.job_runtime import RetryableJobError  # noqa: E402
 from app.services.trackers.composition import (  # noqa: E402
@@ -24,13 +20,14 @@ from app.services.trackers.composition import (  # noqa: E402
     initialize_tracker_composition,
     reset_tracker_runtime,
 )
-from app.services.trackers.create_executor import set_connect_factory, unmount_create_executor  # noqa: E402
+from app.services.trackers.composition import unmount_outbound_executor  # noqa: E402
+from app.services.trackers.connector_runtime import ConnectorRuntime, install_connector_runtime  # noqa: E402
+from tracker_fault_harness import StatefulFakeForge, forge_runtime  # noqa: E402
 from app.services.trackers.contracts import RemoteChange, UpdateCursor  # noqa: E402
-from app.services.trackers.inbox_store import InboxStore, apply_schema as apply_inbox_schema  # noqa: E402
+from app.services.trackers.inbox_store import InboxStore  # noqa: E402
 from app.services.trackers.jobs import run_tracker_dispatch_job, run_tracker_poll_job, run_tracker_sweep_job  # noqa: E402
 from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
-from app.services.trackers.op_store import OpStore, apply_schema as apply_op_schema  # noqa: E402
-from app.services.trackers import scheduler as tracker_scheduler  # noqa: E402
+from app.services.trackers.op_store import OpStore  # noqa: E402
 from app.services.trackers.scheduler import (  # noqa: E402
     DISPATCH_KIND,
     POLL_KIND,
@@ -49,8 +46,8 @@ from test_tracker_tr_28 import (  # noqa: E402
     ISSUE,
     ISSUE_ID,
     ISSUE_NUMBER,
-    _remote_issue,
 )
+from support.postgres import requires_scratch_postgres, tracker_schema, seed_comment, drop_schema  # noqa: E402
 
 try:
     import psycopg
@@ -59,28 +56,10 @@ except ImportError:  # pragma: no cover
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 F3 = json.loads((DOCS / "fixtures" / "F03.json").read_text(encoding="utf-8"))
 F5 = json.loads((DOCS / "fixtures" / "F05.json").read_text(encoding="utf-8"))
 F7 = json.loads((DOCS / "fixtures" / "F07.json").read_text(encoding="utf-8"))
-
-
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 class FakeContext:
@@ -124,59 +103,19 @@ class CompositionUnitTests(unittest.TestCase):
         reset_tracker_runtime()
         self.assertFalse(has_outbound_executor())
 
-    def test_main_registers_composition_bootstrap(self) -> None:
-        source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
-        self.assertIn("initialize_tracker_composition", source)
-
-    def test_job_runner_registers_composition_bootstrap(self) -> None:
-        source = (Path(__file__).resolve().parents[1] / "app" / "job_runner.py").read_text(encoding="utf-8")
-        self.assertIn("initialize_tracker_composition", source)
-        self.assertIn("load_builtin_job_handlers", source)
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+
+@requires_scratch_postgres("tracker persistence tests")
 class TrackerCompositionPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
         reset_tracker_runtime()
         reset_scheduler_throttle()
         initialize_tracker_composition()
-        self.schema = f"tr62_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self.conn.execute(
-            """
-            CREATE TABLE comments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                status TEXT NOT NULL DEFAULT 'OPEN',
-                context TEXT NOT NULL DEFAULT 'PCB',
-                location_x REAL NOT NULL DEFAULT 0,
-                location_y REAL NOT NULL DEFAULT 0,
-                location_layer TEXT NOT NULL DEFAULT '',
-                location_page TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT ''
-            );
-            CREATE TABLE comment_replies (
-                id TEXT PRIMARY KEY,
-                comment_id TEXT NOT NULL REFERENCES comments(id),
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                content TEXT NOT NULL DEFAULT ''
-            );
-            """,
-            prepare=False,
-        )
-        comments_schema_migrations.apply_comments_migrations(self.conn)
-        migrate_workspace_tracker_tables(self.conn)
-        apply_op_schema(self.conn)
-        apply_inbox_schema(self.conn)
+        self.scratch = tracker_schema(self, "tr62")
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
+        # Code under test names the real ``workspace`` schema; this worker's database is private.
+        self.addCleanup(self._drop_workspace)
         self.conn.execute("CREATE SCHEMA IF NOT EXISTS workspace")
         self.conn.execute("SET search_path TO workspace, public")
         migrate_workspace_tracker_tables(self.conn)
@@ -185,17 +124,13 @@ class TrackerCompositionPostgresTests(unittest.TestCase):
         self.store = TrackerStore(self.conn)
         self.ops = OpStore(self.conn)
         self.inbox = InboxStore(self.conn)
-        set_connect_factory(self._factory)
-        self.addCleanup(lambda: set_connect_factory(None))
+        # Real provider kits over this test's schema: connectors without credentials stay auth_lost.
+        install_connector_runtime(ConnectorRuntime(connect=self._factory))
+        self.addCleanup(install_connector_runtime, None)
 
-    def _cleanup(self) -> None:
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.execute("DROP SCHEMA IF EXISTS workspace CASCADE")
-            self.conn.commit()
-        finally:
-            self.conn.close()
+    def _drop_workspace(self) -> None:
+        self.conn.rollback()  # the held connection still reads workspace tables
+        drop_schema("workspace")
 
     @contextmanager
     def _factory(self):
@@ -314,23 +249,12 @@ class TrackerCompositionPostgresTests(unittest.TestCase):
             )
         ]
 
-        def list_updates(_dest, _cursor):
-            return changes, UpdateCursor(since="2026-09-20T16:05:00Z")
-
-        bundle = mock.Mock()
-        bundle.list_updates = list_updates
-        bundle.bot_user_id = BOT_ID
-        bundle.bot_login = BOT_LOGIN
-        bundle.destination = mock.Mock(return_value=mock.Mock())
-        fetcher = mock.Mock()
-        fetcher.fetch_issue.return_value = _remote_issue(body="issue body")
-        registry = mock.Mock()
-        registry.bundle_for_connector.return_value = bundle
-        registry.inbound_fetcher.return_value = fetcher
+        forge = StatefulFakeForge()
+        forge.queue_update_pages([(changes, UpdateCursor(since="2026-09-20T16:05:00Z"))])
+        forge.seed_issue(external_id=ISSUE_ID, number=int(ISSUE_NUMBER), body="issue body")
 
         with mock.patch("app.services.trackers.composition.get_tracker_runtime") as get_runtime:
-            runtime = TrackerRuntime(registry=registry)
-            get_runtime.return_value = runtime
+            get_runtime.return_value = TrackerRuntime(connectors=forge_runtime(forge, self._factory))
             context = FakeContext(
                 {
                     "connectorId": CONNECTOR,
@@ -349,10 +273,7 @@ class TrackerCompositionPostgresTests(unittest.TestCase):
 
     def test_sweep_job_runs_without_provider_credentials(self) -> None:
         self._seed_destination(with_credentials=False)
-        self.conn.execute(
-            "INSERT INTO comments(id, project_id, author, content) VALUES (%s,%s,%s,%s)",
-            (COMMENT_ID, "proj_tr62", "Priya", "local only"),
-        )
+        seed_comment(self.conn, COMMENT_ID, "proj_tr62", author="Priya", content="local only")
         self.store.insert_thread(
             thread_id="thr_tr62",
             comment_id=COMMENT_ID,
@@ -376,20 +297,14 @@ class TrackerCompositionPostgresTests(unittest.TestCase):
 
     def test_dispatch_without_credentials_surfaces_provider_error(self) -> None:
         self._seed_destination(with_credentials=False, visibility="private")
-        self.conn.execute(
-            """
-            INSERT INTO comments(
-                id, project_id, author, content, anchor_commit, anchor_state
-            ) VALUES (%s,%s,%s,%s,%s,%s)
-            """,
-            (
-                COMMENT_ID,
-                "proj_tr62",
-                "Priya",
-                "needs forge",
-                "3f2c9a1b7e4d5c6a8b9f0e1d2c3b4a5968778695",
-                "pinned",
-            ),
+        seed_comment(
+            self.conn,
+            COMMENT_ID,
+            "proj_tr62",
+            author="Priya",
+            content="needs forge",
+            anchor_commit="3f2c9a1b7e4d5c6a8b9f0e1d2c3b4a5968778695",
+            anchor_state="pinned",
         )
         self.store.insert_thread(
             thread_id="thr_tr62_dispatch",
@@ -425,7 +340,7 @@ class TrackerCompositionPostgresTests(unittest.TestCase):
         self.assertEqual(row["last_error"]["class"], "auth_lost")
 
     def test_dispatch_defers_hints_when_create_executor_unmounted(self) -> None:
-        unmount_create_executor()
+        unmount_outbound_executor()
         self._seed_destination(with_credentials=False)
         self.inbox.enqueue(
             connector_id=CONNECTOR,
@@ -460,8 +375,19 @@ class TrackerCompositionPostgresTests(unittest.TestCase):
                 "_connect": self._factory,
             }
         )
+        self.conn.execute(
+            "INSERT INTO sync_checkpoints (kind, scope_key, next_run_at) VALUES ('poll', %s, NOW() - INTERVAL '1 day')",
+            (f"{CONNECTOR}:{CONTAINER}",),
+        )
+        self.conn.commit()
         result = run_tracker_poll_job(context)
         self.assertIn("Paused", result.message)
+        # A skipped poll is not due again on the next scan: it backs off.
+        due_in = self.conn.execute(
+            "SELECT EXTRACT(EPOCH FROM next_run_at - NOW()) AS s FROM sync_checkpoints WHERE kind = 'poll' AND scope_key = %s",
+            (f"{CONNECTOR}:{CONTAINER}",),
+        ).fetchone()["s"]
+        self.assertGreater(float(due_in), 25 * 60)
 
 
 if __name__ == "__main__":

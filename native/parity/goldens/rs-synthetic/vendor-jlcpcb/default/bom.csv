@@ -1,0 +1,4 @@
+﻿Comment,Designator,Footprint,JLCPCB Part #
+Status LED,D1,LED_SMD:LED_0603_1608Metric,
+POWER_IN,J1,Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical,
+Status resistor,R1,Resistor_SMD:R_0603_1608Metric,

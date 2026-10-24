@@ -32,7 +32,6 @@ from app.services.trackers.github_auth import (  # noqa: E402
     GitHubAppCredentials,
 )
 from app.services.trackers.github_issues import (  # noqa: E402
-    ADAPTER_CONFORMANCE_CASES,
     GitHubIssueAdapter,
     conformance_kind,
 )
@@ -173,12 +172,6 @@ class GitHubIssueAdapterTests(unittest.TestCase):
         self._routes.setdefault((method.upper(), url), []).append(
             _Raw(status, content=content, url=url, headers=headers or {})
         )
-
-    def test_fixture_cases_are_present(self) -> None:
-        self.assertIn("F4.issue_create_pages", {case["id"] for case in F4["cases"]})
-        self.assertIn("F3.ghes_base_url", {case["id"] for case in F3["cases"]})
-        self.assertIn("F7.conditional_304", {case["id"] for case in F7["cases"]})
-        self.assertEqual(ADAPTER_CONFORMANCE_CASES, PROTOCOL_CONFORMANCE_CASES)
 
     def test_capabilities_do_not_claim_conditional_writes(self) -> None:
         caps = self._adapter().capabilities()

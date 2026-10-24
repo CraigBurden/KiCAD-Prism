@@ -8,9 +8,10 @@ import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from app.api._helpers import get_project_for_role_or_404
-from app.core.roles import CATALOG_READ_ROLES, CATALOG_WRITE_ROLES, role_meets_minimum
-from app.core.security import AuthenticatedUser, require_viewer
+from app.api._helpers import authorize_job_read
+from app.core import policy
+from app.core.security import AuthenticatedUser, require_admin, require_viewer
+from app.services.job_artifact_service import job_artifacts
 from app.services.job_runtime import job_state_root
 from app.services.job_service import jobs
 from app.services.postgres_database import database
@@ -20,27 +21,9 @@ from app.services.comment_live_broker import broker as comment_live_broker
 router = APIRouter(dependencies=[Depends(require_viewer)])
 
 
-def _authorize_read(job: dict, user: AuthenticatedUser) -> None:
-    project_id = job.get("project_id")
-    if project_id:
-        get_project_for_role_or_404(str(project_id), user.role)
-        return
-    if job.get("worker_pool") == "catalog":
-        if user.role not in CATALOG_READ_ROLES:
-            raise HTTPException(status_code=403, detail="Catalog read access required")
-        return
-    if user.role != "admin" and job.get("requested_by") not in {"", user.email}:
-        raise HTTPException(status_code=403, detail="Job access denied")
-
-
 def _authorize_cancel(job: dict, user: AuthenticatedUser) -> None:
-    _authorize_read(job, user)
-    if job.get("worker_pool") == "catalog":
-        if user.role not in CATALOG_WRITE_ROLES:
-            raise HTTPException(status_code=403, detail="Catalog write access required")
-        return
-    if not role_meets_minimum(user.role, "designer"):
-        raise HTTPException(status_code=403, detail="Designer role required")
+    authorize_job_read(job, user)
+    policy.authorize(user, "catalog_write" if job.get("worker_pool") == "catalog" else "design")
 
 
 def _slim_status(job: dict) -> dict:
@@ -88,17 +71,15 @@ def _get_authorized_job(job_id: str, user: AuthenticatedUser) -> dict:
     job = jobs.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    _authorize_read(job, user)
+    authorize_job_read(job, user)
     return job
 
 
 @router.get("/benchmark-metrics")
 async def benchmark_metrics(
     since: str = Query(default=""),
-    user: AuthenticatedUser = Depends(require_viewer),
+    user: AuthenticatedUser = Depends(require_admin),
 ):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin role required")
     try:
         since_at = (
             datetime.fromisoformat(since.replace("Z", "+00:00"))
@@ -130,7 +111,7 @@ async def get_job(
     job = await asyncio.to_thread(jobs.get, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    _authorize_read(job, user)
+    authorize_job_read(job, user)
     return _slim_status(job)
 
 
@@ -161,7 +142,7 @@ async def get_job_events(
     job = await asyncio.to_thread(jobs.get, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    _authorize_read(job, user)
+    authorize_job_read(job, user)
     events = await asyncio.to_thread(jobs.events, job_id, after=after, limit=limit)
     return {"job_id": job_id, "events": events}
 
@@ -174,16 +155,13 @@ async def get_job_artifact(
     job = await asyncio.to_thread(jobs.get, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    _authorize_read(job, user)
+    authorize_job_read(job, user)
     artifact = await asyncio.to_thread(jobs.get_artifact_for_job, job_id)
     if not artifact:
         raise HTTPException(status_code=404, detail="Job artifact not found")
-    root = (job_state_root() / "artifacts" / "objects" / "sha256").resolve()
-    path = Path(str(artifact.get("object_path") or "")).resolve()
-    try:
-        path.relative_to(root)
-    except ValueError as error:
-        raise HTTPException(status_code=404, detail="Job artifact not found") from error
+    path = job_artifacts.store.contains(str(artifact.get("object_path") or ""))
+    if path is None:
+        raise HTTPException(status_code=404, detail="Job artifact not found")
     if not path.is_file():
         await asyncio.to_thread(
             jobs.invalidate_artifact,
@@ -227,7 +205,7 @@ async def get_job_logs(
     job = await asyncio.to_thread(jobs.get, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    _authorize_read(job, user)
+    authorize_job_read(job, user)
     log_path = str(job.get("log_path") or "")
     if not log_path:
         return {"job_id": job_id, "lines": []}

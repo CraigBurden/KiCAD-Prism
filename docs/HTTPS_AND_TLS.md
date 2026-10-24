@@ -69,6 +69,32 @@ curl -fsS https://prism.example.com/oauth/.well-known/oauth-authorization-server
 
 Every advertised URL must start with `https://prism.example.com`.
 
+## Bare IP addresses
+
+Browsers and Windows Schannel (`curl.exe`, PowerShell) send no SNI when the URL host is an IP
+address. Caddy then has no name to pick a certificate by and aborts the handshake:
+`ERR_SSL_PROTOCOL_ERROR` in Chrome, `SEC_E_ILLEGAL_MESSAGE` from Schannel, while
+`openssl s_client -servername <ip>` still works.
+
+Name the IP in a global `default_sni` option at the top of `Caddyfile`, and use it as the site
+address:
+
+```caddyfile
+{
+	default_sni 192.168.1.20
+}
+
+192.168.1.20 {
+	tls /certs/prism.crt /certs/prism.key
+	# ...rest of the site block from deploy/Caddyfile.internal
+}
+```
+
+The certificate must list the address as an IP subject alternative name, and
+`PUBLIC_BASE_URL` must be `https://192.168.1.20`. Public ACME (`Caddyfile`, `Caddyfile.dns-01`)
+cannot issue for a private IP; use `Caddyfile.internal`. A DNS name, even one that exists only in
+internal DNS, avoids all of this.
+
 ## Common failure: metadata shows `http://`
 
 Cause: outer proxy missing `X-Forwarded-Proto: https`, overwriting `Host`, or an older frontend

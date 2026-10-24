@@ -25,6 +25,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
+from app.core import errors
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -210,8 +211,8 @@ MAX_UPLOAD_PIXELS = 64_000_000
 THUMBNAIL_BOX = (640, 480)
 
 
-class ThumbnailImageError(ValueError):
-    """An uploaded file could not be used as a thumbnail."""
+class ThumbnailImageError(errors.BadRequest, ValueError):
+    """An uploaded file could not be used as a thumbnail (400)."""
 
 
 def store_uploaded_thumbnail(

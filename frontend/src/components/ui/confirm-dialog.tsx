@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -28,6 +29,11 @@ export interface ConfirmDialogProps {
   requireHold?: boolean;
   busy?: boolean;
   busyLabel?: string;
+  /**
+   * Stacking classes for the dialog and its backdrop, for a confirm opened
+   * from a floating layer above the default dialog level (e.g. `z-[130]`).
+   */
+  layerClassName?: string;
   onConfirm: () => void;
 }
 
@@ -50,13 +56,14 @@ export function ConfirmDialog({
   requireHold = false,
   busy = false,
   busyLabel,
+  layerClassName,
   onConfirm,
 }: ConfirmDialogProps) {
   const label = busy ? busyLabel ?? `${confirmLabel}…` : confirmLabel;
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next); }}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className={cn("sm:max-w-md", layerClassName)} overlayClassName={layerClassName}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>

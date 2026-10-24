@@ -1,0 +1,4804 @@
+{
+ "schema": "prism.board_objects.a0",
+ "documents": [
+  {
+   "path": "antenna.kicad_sch",
+   "objects": [
+    {
+     "kind": "symbol",
+     "uuid": "1c78f846-3def-57ae-ac80-247ce4b3b496",
+     "contentDigest": "4184af4200e233b9",
+     "libId": "Device:R",
+     "at": {
+      "xNm": 20000000,
+      "yNm": 20000000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "R6",
+     "kiidPaths": [
+      "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/e466f341-d6de-5757-99d7-3cab7d8daea1/1c78f846-3def-57ae-ac80-247ce4b3b496"
+     ],
+     "instances": [
+      {
+       "reference": "R6",
+       "path": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/e466f341-d6de-5757-99d7-3cab7d8daea1/1c78f846-3def-57ae-ac80-247ce4b3b496"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "R6",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 18730000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "0R",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 21270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Resistor_SMD:R_0603_1608Metric",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 23810000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 26350000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 28890000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "e1437935-4d96-57be-9d22-ddcf80c49d21",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "1c78f846-3def-57ae-ac80-247ce4b3b496",
+     "number": "1",
+     "refdes": "R6",
+     "at": {
+      "xNm": 20000000,
+      "yNm": 20000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "586ac582-ec41-5803-a7ed-d4aa44fd3e45",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "1c78f846-3def-57ae-ac80-247ce4b3b496",
+     "number": "2",
+     "refdes": "R6",
+     "at": {
+      "xNm": 20000000,
+      "yNm": 20000000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    }
+   ],
+   "reviewOnlyObjects": []
+  },
+  {
+   "path": "channel.kicad_sch",
+   "objects": [
+    {
+     "kind": "symbol",
+     "uuid": "900d8d20-7de0-547f-a978-fd9a5c67007c",
+     "contentDigest": "64fe16f4302436d7",
+     "libId": "Device:R",
+     "at": {
+      "xNm": 20000000,
+      "yNm": 20000000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "R7",
+     "kiidPaths": [
+      "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/2b37a7b5-50d3-5e47-8b5a-0eb89cbfd3a1/900d8d20-7de0-547f-a978-fd9a5c67007c",
+      "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/a3f95ab9-d212-5d48-93ad-8aff8aef4abf/900d8d20-7de0-547f-a978-fd9a5c67007c"
+     ],
+     "instances": [
+      {
+       "reference": "R7",
+       "path": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/2b37a7b5-50d3-5e47-8b5a-0eb89cbfd3a1/900d8d20-7de0-547f-a978-fd9a5c67007c"
+      },
+      {
+       "reference": "R8",
+       "path": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/a3f95ab9-d212-5d48-93ad-8aff8aef4abf/900d8d20-7de0-547f-a978-fd9a5c67007c"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "R7",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 18730000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "100R",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 21270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Resistor_SMD:R_0603_1608Metric",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 23810000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 26350000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 28890000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "MPN",
+       "value": "CH-BASE",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 31430000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "0c53a3ca-34a5-5459-a960-92befae232d3",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "900d8d20-7de0-547f-a978-fd9a5c67007c",
+     "number": "1",
+     "refdes": "R7",
+     "at": {
+      "xNm": 20000000,
+      "yNm": 20000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "45b3a7ff-56c3-51ca-94f6-02fc531860a3",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "900d8d20-7de0-547f-a978-fd9a5c67007c",
+     "number": "2",
+     "refdes": "R7",
+     "at": {
+      "xNm": 20000000,
+      "yNm": 20000000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    }
+   ],
+   "reviewOnlyObjects": []
+  },
+  {
+   "path": "variants_oracle.kicad_pcb",
+   "objects": [
+    {
+     "kind": "footprint",
+     "uuid": "ec3880bf-62c2-5c41-a50f-6381596c30ef",
+     "contentDigest": "428857f2d13d3905",
+     "libId": "Resistor_SMD:R_0603_1608Metric",
+     "at": {
+      "xNm": 5000000,
+      "yNm": 5000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "footprintPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/caa639b3-c965-5f5f-8579-1b1030520a32",
+     "refdes": "R1",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "R1",
+       "at": {
+        "xNm": 0,
+        "yNm": -1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "10k",
+       "at": {
+        "xNm": 0,
+        "yNm": 1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "MPN",
+       "value": "R1-BASE",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Attributes": "{\"smd\":true}",
+      "Board only": false,
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "footprint-text",
+     "uuid": "506f8548-814b-56cc-8648-1cf5d5cc9af0",
+     "contentDigest": "d5904d5fa17e50e4",
+     "parentUuid": "ec3880bf-62c2-5c41-a50f-6381596c30ef",
+     "refdes": "R1",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Fab",
+     "text": "${REFERENCE}",
+     "reviewFields": {
+      "Text": "${REFERENCE}",
+      "Text kind": "user"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "8e872380-5e11-5b2e-a2da-5b10daaf0064",
+     "contentDigest": "e8edefce0bfcd933",
+     "parentUuid": "ec3880bf-62c2-5c41-a50f-6381596c30ef",
+     "refdes": "R1",
+     "at": {
+      "xNm": 0,
+      "yNm": -1000000
+     },
+     "layer": "F.CrtYd",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "645f61a3-6887-54fa-9ee8-ab508476ee30",
+     "contentDigest": "5b35d9dc0d88f179",
+     "parentUuid": "ec3880bf-62c2-5c41-a50f-6381596c30ef",
+     "number": "1",
+     "refdes": "R1",
+     "at": {
+      "xNm": -1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "1",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "3f2932e3-d5f4-5942-be0f-ad472605445e",
+     "contentDigest": "b98c5d28dec7e7b0",
+     "parentUuid": "ec3880bf-62c2-5c41-a50f-6381596c30ef",
+     "number": "2",
+     "refdes": "R1",
+     "at": {
+      "xNm": 1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "2",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "footprint",
+     "uuid": "4b298f09-2eff-5fd1-982c-b1eb072ccbe8",
+     "contentDigest": "bbae6eaf53785c94",
+     "libId": "Resistor_SMD:R_0603_1608Metric",
+     "at": {
+      "xNm": 10000000,
+      "yNm": 5000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "footprintPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/bdaa41e8-4b3e-516d-b481-b6b06f958325",
+     "refdes": "R2",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "R2",
+       "at": {
+        "xNm": 0,
+        "yNm": -1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "22k",
+       "at": {
+        "xNm": 0,
+        "yNm": 1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Attributes": "{\"dnp\":true,\"smd\":true}",
+      "Board only": false,
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "footprint-text",
+     "uuid": "c1cda8c9-f948-52dd-a1ef-da5f0a5d8cc3",
+     "contentDigest": "d5904d5fa17e50e4",
+     "parentUuid": "4b298f09-2eff-5fd1-982c-b1eb072ccbe8",
+     "refdes": "R2",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Fab",
+     "text": "${REFERENCE}",
+     "reviewFields": {
+      "Text": "${REFERENCE}",
+      "Text kind": "user"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "e9175452-f0aa-5b24-8eca-3c795cc11adb",
+     "contentDigest": "e8edefce0bfcd933",
+     "parentUuid": "4b298f09-2eff-5fd1-982c-b1eb072ccbe8",
+     "refdes": "R2",
+     "at": {
+      "xNm": 0,
+      "yNm": -1000000
+     },
+     "layer": "F.CrtYd",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "ee55cf63-3629-59ab-b5ea-0d8358dcc9c7",
+     "contentDigest": "5b35d9dc0d88f179",
+     "parentUuid": "4b298f09-2eff-5fd1-982c-b1eb072ccbe8",
+     "number": "1",
+     "refdes": "R2",
+     "at": {
+      "xNm": -1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "1",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "fe3ede2f-dc7b-558e-995e-b644b2295ae8",
+     "contentDigest": "b98c5d28dec7e7b0",
+     "parentUuid": "4b298f09-2eff-5fd1-982c-b1eb072ccbe8",
+     "number": "2",
+     "refdes": "R2",
+     "at": {
+      "xNm": 1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "2",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "footprint",
+     "uuid": "2073849d-13a1-5c6f-b6f4-5f6b0e7f001f",
+     "contentDigest": "749cb22612af9697",
+     "libId": "Resistor_SMD:R_0603_1608Metric",
+     "at": {
+      "xNm": 15000000,
+      "yNm": 5000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "footprintPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/4ef94c69-7653-5842-9ae5-ff8865862183",
+     "refdes": "R3",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "R3",
+       "at": {
+        "xNm": 0,
+        "yNm": -1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "33k",
+       "at": {
+        "xNm": 0,
+        "yNm": 1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Attributes": "{\"smd\":true}",
+      "Board only": false,
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "footprint-text",
+     "uuid": "36a407fb-82f8-5ad7-99a2-fd018f8c7e7a",
+     "contentDigest": "d5904d5fa17e50e4",
+     "parentUuid": "2073849d-13a1-5c6f-b6f4-5f6b0e7f001f",
+     "refdes": "R3",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Fab",
+     "text": "${REFERENCE}",
+     "reviewFields": {
+      "Text": "${REFERENCE}",
+      "Text kind": "user"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "259df4f0-ceb9-5761-be1b-13545de5508c",
+     "contentDigest": "e8edefce0bfcd933",
+     "parentUuid": "2073849d-13a1-5c6f-b6f4-5f6b0e7f001f",
+     "refdes": "R3",
+     "at": {
+      "xNm": 0,
+      "yNm": -1000000
+     },
+     "layer": "F.CrtYd",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "09381154-7298-5817-a689-f579e7b1ef13",
+     "contentDigest": "5b35d9dc0d88f179",
+     "parentUuid": "2073849d-13a1-5c6f-b6f4-5f6b0e7f001f",
+     "number": "1",
+     "refdes": "R3",
+     "at": {
+      "xNm": -1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "1",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "7ff02b73-dfed-5841-91f7-b54454ceabbd",
+     "contentDigest": "b98c5d28dec7e7b0",
+     "parentUuid": "2073849d-13a1-5c6f-b6f4-5f6b0e7f001f",
+     "number": "2",
+     "refdes": "R3",
+     "at": {
+      "xNm": 1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "2",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "footprint",
+     "uuid": "3557800a-6a99-56d7-bd1f-6b1cf8abec66",
+     "contentDigest": "dfd5366b5fa81a8d",
+     "libId": "Resistor_SMD:R_0603_1608Metric",
+     "at": {
+      "xNm": 20000000,
+      "yNm": 5000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "footprintPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/23f0e81a-7865-5d18-bd0e-1d11af24fc3d",
+     "refdes": "R4",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "R4",
+       "at": {
+        "xNm": 0,
+        "yNm": -1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "47k",
+       "at": {
+        "xNm": 0,
+        "yNm": 1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "MPN",
+       "value": "R4-BASE",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Attributes": "{\"smd\":true}",
+      "Board only": false,
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "footprint-text",
+     "uuid": "068227eb-43ef-516c-a084-13e3b401c7ad",
+     "contentDigest": "d5904d5fa17e50e4",
+     "parentUuid": "3557800a-6a99-56d7-bd1f-6b1cf8abec66",
+     "refdes": "R4",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Fab",
+     "text": "${REFERENCE}",
+     "reviewFields": {
+      "Text": "${REFERENCE}",
+      "Text kind": "user"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "59bdfdfa-bede-5b8c-bfcd-5663e9f3c287",
+     "contentDigest": "e8edefce0bfcd933",
+     "parentUuid": "3557800a-6a99-56d7-bd1f-6b1cf8abec66",
+     "refdes": "R4",
+     "at": {
+      "xNm": 0,
+      "yNm": -1000000
+     },
+     "layer": "F.CrtYd",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "4a1cba1f-4e91-5fc7-b6c4-6ea0b451601b",
+     "contentDigest": "5b35d9dc0d88f179",
+     "parentUuid": "3557800a-6a99-56d7-bd1f-6b1cf8abec66",
+     "number": "1",
+     "refdes": "R4",
+     "at": {
+      "xNm": -1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "1",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "fe601a95-70b0-5e99-bfd5-0c3c2f642146",
+     "contentDigest": "b98c5d28dec7e7b0",
+     "parentUuid": "3557800a-6a99-56d7-bd1f-6b1cf8abec66",
+     "number": "2",
+     "refdes": "R4",
+     "at": {
+      "xNm": 1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "2",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "footprint",
+     "uuid": "78868d5e-e525-51b9-adcc-94b26de45321",
+     "contentDigest": "274b3ff2f7f85159",
+     "libId": "Capacitor_SMD:C_0603_1608Metric",
+     "at": {
+      "xNm": 25000000,
+      "yNm": 5000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "footprintPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c34fa430-f6b0-55a2-a210-f21b13a3d089",
+     "refdes": "C1",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "C1",
+       "at": {
+        "xNm": 0,
+        "yNm": -1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "1uF",
+       "at": {
+        "xNm": 0,
+        "yNm": 1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "MPN",
+       "value": "X-1",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Note",
+       "value": "He said \"hi\"",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Attributes": "{\"smd\":true}",
+      "Board only": false,
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "footprint-text",
+     "uuid": "9fc1186d-2008-58a0-90b8-0c011e756611",
+     "contentDigest": "d5904d5fa17e50e4",
+     "parentUuid": "78868d5e-e525-51b9-adcc-94b26de45321",
+     "refdes": "C1",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Fab",
+     "text": "${REFERENCE}",
+     "reviewFields": {
+      "Text": "${REFERENCE}",
+      "Text kind": "user"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "e1fced50-571f-5ac0-b88b-5006f151e31f",
+     "contentDigest": "e8edefce0bfcd933",
+     "parentUuid": "78868d5e-e525-51b9-adcc-94b26de45321",
+     "refdes": "C1",
+     "at": {
+      "xNm": 0,
+      "yNm": -1000000
+     },
+     "layer": "F.CrtYd",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "6233730e-2d95-5aea-9413-fc5a7aec371b",
+     "contentDigest": "5b35d9dc0d88f179",
+     "parentUuid": "78868d5e-e525-51b9-adcc-94b26de45321",
+     "number": "1",
+     "refdes": "C1",
+     "at": {
+      "xNm": -1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "1",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "39099167-cf42-5b75-9d6f-c4ed06f97bd6",
+     "contentDigest": "b98c5d28dec7e7b0",
+     "parentUuid": "78868d5e-e525-51b9-adcc-94b26de45321",
+     "number": "2",
+     "refdes": "C1",
+     "at": {
+      "xNm": 1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "2",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "footprint",
+     "uuid": "f137ce95-5350-58e0-8833-623a61e2ba70",
+     "contentDigest": "c5c21532faf15f1d",
+     "libId": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+     "at": {
+      "xNm": 32000000,
+      "yNm": 5000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "footprintPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/1be1d8dc-a710-5986-ba18-62d6bc021e6b",
+     "refdes": "U1",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "U1",
+       "at": {
+        "xNm": 0,
+        "yNm": -1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "DualAmp",
+       "at": {
+        "xNm": 0,
+        "yNm": 1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Attributes": "{\"smd\":true}",
+      "Board only": false,
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "footprint-text",
+     "uuid": "ab0c4aad-cf9b-57f1-865a-65fdb1a54ac1",
+     "contentDigest": "d5904d5fa17e50e4",
+     "parentUuid": "f137ce95-5350-58e0-8833-623a61e2ba70",
+     "refdes": "U1",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Fab",
+     "text": "${REFERENCE}",
+     "reviewFields": {
+      "Text": "${REFERENCE}",
+      "Text kind": "user"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "1fc1b32b-d601-5af6-84e7-f37554496684",
+     "contentDigest": "e8edefce0bfcd933",
+     "parentUuid": "f137ce95-5350-58e0-8833-623a61e2ba70",
+     "refdes": "U1",
+     "at": {
+      "xNm": 0,
+      "yNm": -1000000
+     },
+     "layer": "F.CrtYd",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "e28c4d43-9d01-53ae-b9db-d502120113fc",
+     "contentDigest": "5b35d9dc0d88f179",
+     "parentUuid": "f137ce95-5350-58e0-8833-623a61e2ba70",
+     "number": "1",
+     "refdes": "U1",
+     "at": {
+      "xNm": -1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "1",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "0999b5db-da80-546d-92bd-9db0988b9a34",
+     "contentDigest": "ed147ec2ee2f01a5",
+     "parentUuid": "f137ce95-5350-58e0-8833-623a61e2ba70",
+     "number": "2",
+     "refdes": "U1",
+     "at": {
+      "xNm": -714000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "2",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "9fd12027-ff82-5726-80a7-153f6369745b",
+     "contentDigest": "85ea8a1e6337b7f5",
+     "parentUuid": "f137ce95-5350-58e0-8833-623a61e2ba70",
+     "number": "3",
+     "refdes": "U1",
+     "at": {
+      "xNm": -429000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "3",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "3e003708-3269-5f60-a97b-e72e11f3cb69",
+     "contentDigest": "98127c05a28bd8b9",
+     "parentUuid": "f137ce95-5350-58e0-8833-623a61e2ba70",
+     "number": "4",
+     "refdes": "U1",
+     "at": {
+      "xNm": -143000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "4",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "1f8e7b35-0e8a-5668-bbcb-35a4c19c5990",
+     "contentDigest": "c2bb667cb5315ba0",
+     "parentUuid": "f137ce95-5350-58e0-8833-623a61e2ba70",
+     "number": "5",
+     "refdes": "U1",
+     "at": {
+      "xNm": 143000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "5",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "b5d1302d-eac9-506f-b381-194297cccf12",
+     "contentDigest": "70345027266f40a0",
+     "parentUuid": "f137ce95-5350-58e0-8833-623a61e2ba70",
+     "number": "6",
+     "refdes": "U1",
+     "at": {
+      "xNm": 429000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "6",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "834399f7-d5a5-583f-be7a-1b1c278edf1c",
+     "contentDigest": "b72ed7ddf7451a3d",
+     "parentUuid": "f137ce95-5350-58e0-8833-623a61e2ba70",
+     "number": "7",
+     "refdes": "U1",
+     "at": {
+      "xNm": 714000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "7",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "57a3a65a-3863-5421-a50a-7852b447e39a",
+     "contentDigest": "59e10663dc039204",
+     "parentUuid": "f137ce95-5350-58e0-8833-623a61e2ba70",
+     "number": "8",
+     "refdes": "U1",
+     "at": {
+      "xNm": 1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "8",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "footprint",
+     "uuid": "5a220ef8-f143-59ec-941e-de3da0b7105e",
+     "contentDigest": "78c75b0e0c70fe6b",
+     "libId": "Package_TO_SOT_SMD:SOT-23",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 5000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "footprintPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/7d201bda-eaa8-50cb-a4b8-98b6f582e55e",
+     "refdes": "Q1",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "Q1",
+       "at": {
+        "xNm": 0,
+        "yNm": -1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "BC847",
+       "at": {
+        "xNm": 0,
+        "yNm": 1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Attributes": "{\"smd\":true}",
+      "Board only": false,
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "footprint-text",
+     "uuid": "928ac098-cccb-58ed-a4b5-2d9895f2aee7",
+     "contentDigest": "d5904d5fa17e50e4",
+     "parentUuid": "5a220ef8-f143-59ec-941e-de3da0b7105e",
+     "refdes": "Q1",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Fab",
+     "text": "${REFERENCE}",
+     "reviewFields": {
+      "Text": "${REFERENCE}",
+      "Text kind": "user"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "5c5b6837-b58f-5268-bce6-ec9505ac1417",
+     "contentDigest": "e8edefce0bfcd933",
+     "parentUuid": "5a220ef8-f143-59ec-941e-de3da0b7105e",
+     "refdes": "Q1",
+     "at": {
+      "xNm": 0,
+      "yNm": -1000000
+     },
+     "layer": "F.CrtYd",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "2a6ae32c-2084-5974-9e55-113a913d306a",
+     "contentDigest": "5b35d9dc0d88f179",
+     "parentUuid": "5a220ef8-f143-59ec-941e-de3da0b7105e",
+     "number": "1",
+     "refdes": "Q1",
+     "at": {
+      "xNm": -1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "1",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "7c8e5068-a68c-53cf-9d49-a219e9533122",
+     "contentDigest": "646702cd6ab0d034",
+     "parentUuid": "5a220ef8-f143-59ec-941e-de3da0b7105e",
+     "number": "2",
+     "refdes": "Q1",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "2",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "b795f6d3-89ae-527b-be57-7d10402cb822",
+     "contentDigest": "6a0a2c1c3dc77ea3",
+     "parentUuid": "5a220ef8-f143-59ec-941e-de3da0b7105e",
+     "number": "3",
+     "refdes": "Q1",
+     "at": {
+      "xNm": 1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "3",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "footprint",
+     "uuid": "8bdd2fcb-5aff-5a3a-a6e2-96f479a3fb83",
+     "contentDigest": "e4eb8531cf2d0ff0",
+     "libId": "Package_TO_SOT_SMD:SOT-89-3",
+     "at": {
+      "xNm": 48000000,
+      "yNm": 5000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "footprintPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/7d201bda-eaa8-50cb-a4b8-98b6f582e55e",
+     "refdes": "Q1",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "Q1",
+       "at": {
+        "xNm": 0,
+        "yNm": -1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "BCX56",
+       "at": {
+        "xNm": 0,
+        "yNm": 1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Attributes": "{\"dnp\":true,\"smd\":true}",
+      "Board only": false,
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "footprint-text",
+     "uuid": "639e0e25-b244-504b-9b15-f2d861df92fa",
+     "contentDigest": "d5904d5fa17e50e4",
+     "parentUuid": "8bdd2fcb-5aff-5a3a-a6e2-96f479a3fb83",
+     "refdes": "Q1",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Fab",
+     "text": "${REFERENCE}",
+     "reviewFields": {
+      "Text": "${REFERENCE}",
+      "Text kind": "user"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "12ac981a-ead7-5487-9af9-6c392135cff4",
+     "contentDigest": "e8edefce0bfcd933",
+     "parentUuid": "8bdd2fcb-5aff-5a3a-a6e2-96f479a3fb83",
+     "refdes": "Q1",
+     "at": {
+      "xNm": 0,
+      "yNm": -1000000
+     },
+     "layer": "F.CrtYd",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "2cfdc01c-0acb-59c1-a5d7-be837fde82cc",
+     "contentDigest": "5b35d9dc0d88f179",
+     "parentUuid": "8bdd2fcb-5aff-5a3a-a6e2-96f479a3fb83",
+     "number": "1",
+     "refdes": "Q1",
+     "at": {
+      "xNm": -1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "1",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "e91b5b03-f66d-5c8c-8c2b-f722956e96d9",
+     "contentDigest": "646702cd6ab0d034",
+     "parentUuid": "8bdd2fcb-5aff-5a3a-a6e2-96f479a3fb83",
+     "number": "2",
+     "refdes": "Q1",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "2",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "163df637-adf8-5d6b-9106-2954035ed27a",
+     "contentDigest": "6a0a2c1c3dc77ea3",
+     "parentUuid": "8bdd2fcb-5aff-5a3a-a6e2-96f479a3fb83",
+     "number": "3",
+     "refdes": "Q1",
+     "at": {
+      "xNm": 1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "3",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "footprint",
+     "uuid": "b6537e7e-dfe7-5c02-8e83-0f273a34b98b",
+     "contentDigest": "63163f559b112a7e",
+     "libId": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+     "at": {
+      "xNm": 5000000,
+      "yNm": 15000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "footprintPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/a5cfa1a3-dfa6-506d-9fc0-fdb3dcd9a7e5",
+     "refdes": "U2",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "U2",
+       "at": {
+        "xNm": 0,
+        "yNm": -1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "DualAmp",
+       "at": {
+        "xNm": 0,
+        "yNm": 1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Attributes": "{\"smd\":true}",
+      "Board only": false,
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "footprint-text",
+     "uuid": "12b24567-1b41-5836-8f02-3a3db4b07820",
+     "contentDigest": "d5904d5fa17e50e4",
+     "parentUuid": "b6537e7e-dfe7-5c02-8e83-0f273a34b98b",
+     "refdes": "U2",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Fab",
+     "text": "${REFERENCE}",
+     "reviewFields": {
+      "Text": "${REFERENCE}",
+      "Text kind": "user"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "8c36e49d-a99e-5c63-88e7-1177dfd1d8fd",
+     "contentDigest": "e8edefce0bfcd933",
+     "parentUuid": "b6537e7e-dfe7-5c02-8e83-0f273a34b98b",
+     "refdes": "U2",
+     "at": {
+      "xNm": 0,
+      "yNm": -1000000
+     },
+     "layer": "F.CrtYd",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "12b1a297-86f6-5417-861a-057e4d16bc42",
+     "contentDigest": "5b35d9dc0d88f179",
+     "parentUuid": "b6537e7e-dfe7-5c02-8e83-0f273a34b98b",
+     "number": "1",
+     "refdes": "U2",
+     "at": {
+      "xNm": -1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "1",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "179359f8-d287-54e8-bf4e-3178373e18c3",
+     "contentDigest": "ed147ec2ee2f01a5",
+     "parentUuid": "b6537e7e-dfe7-5c02-8e83-0f273a34b98b",
+     "number": "2",
+     "refdes": "U2",
+     "at": {
+      "xNm": -714000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "2",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "d7178697-8717-50ab-b347-637f23e228d2",
+     "contentDigest": "85ea8a1e6337b7f5",
+     "parentUuid": "b6537e7e-dfe7-5c02-8e83-0f273a34b98b",
+     "number": "3",
+     "refdes": "U2",
+     "at": {
+      "xNm": -429000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "3",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "a1a589ea-d1e5-5e59-a05a-74c4081eb338",
+     "contentDigest": "98127c05a28bd8b9",
+     "parentUuid": "b6537e7e-dfe7-5c02-8e83-0f273a34b98b",
+     "number": "4",
+     "refdes": "U2",
+     "at": {
+      "xNm": -143000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "4",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "c90d06ae-199c-5aaf-be91-e80615753041",
+     "contentDigest": "c2bb667cb5315ba0",
+     "parentUuid": "b6537e7e-dfe7-5c02-8e83-0f273a34b98b",
+     "number": "5",
+     "refdes": "U2",
+     "at": {
+      "xNm": 143000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "5",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "423c2703-ab21-5155-905d-3d8959d05ce7",
+     "contentDigest": "70345027266f40a0",
+     "parentUuid": "b6537e7e-dfe7-5c02-8e83-0f273a34b98b",
+     "number": "6",
+     "refdes": "U2",
+     "at": {
+      "xNm": 429000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "6",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "bb891908-9702-5713-88c3-f1a27ca254da",
+     "contentDigest": "b72ed7ddf7451a3d",
+     "parentUuid": "b6537e7e-dfe7-5c02-8e83-0f273a34b98b",
+     "number": "7",
+     "refdes": "U2",
+     "at": {
+      "xNm": 714000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "7",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "8dae8e2e-f8ae-5d84-982b-99ec11faec99",
+     "contentDigest": "59e10663dc039204",
+     "parentUuid": "b6537e7e-dfe7-5c02-8e83-0f273a34b98b",
+     "number": "8",
+     "refdes": "U2",
+     "at": {
+      "xNm": 1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "8",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "footprint",
+     "uuid": "5296bb19-4455-52ba-9eab-2f8aff8fe095",
+     "contentDigest": "5be0b15a6954eeaf",
+     "libId": "Resistor_SMD:R_0603_1608Metric",
+     "at": {
+      "xNm": 15000000,
+      "yNm": 15000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "footprintPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/a9a5553f-6467-5f4c-99ec-239d47111690",
+     "refdes": "R12",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "R12",
+       "at": {
+        "xNm": 0,
+        "yNm": -1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "4k7",
+       "at": {
+        "xNm": 0,
+        "yNm": 1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Attributes": "{\"smd\":true}",
+      "Board only": false,
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "footprint-text",
+     "uuid": "c3cf7ba9-eeed-5417-9245-94e61220ebcb",
+     "contentDigest": "d5904d5fa17e50e4",
+     "parentUuid": "5296bb19-4455-52ba-9eab-2f8aff8fe095",
+     "refdes": "R12",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Fab",
+     "text": "${REFERENCE}",
+     "reviewFields": {
+      "Text": "${REFERENCE}",
+      "Text kind": "user"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "7fb1f798-4c81-590e-b940-5d1ba44a242a",
+     "contentDigest": "e8edefce0bfcd933",
+     "parentUuid": "5296bb19-4455-52ba-9eab-2f8aff8fe095",
+     "refdes": "R12",
+     "at": {
+      "xNm": 0,
+      "yNm": -1000000
+     },
+     "layer": "F.CrtYd",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "30cee710-1328-58b5-b724-094f99082fa1",
+     "contentDigest": "5b35d9dc0d88f179",
+     "parentUuid": "5296bb19-4455-52ba-9eab-2f8aff8fe095",
+     "number": "1",
+     "refdes": "R12",
+     "at": {
+      "xNm": -1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "1",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "e0707acc-5407-530d-af26-7090e4925df8",
+     "contentDigest": "b98c5d28dec7e7b0",
+     "parentUuid": "5296bb19-4455-52ba-9eab-2f8aff8fe095",
+     "number": "2",
+     "refdes": "R12",
+     "at": {
+      "xNm": 1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "2",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "footprint",
+     "uuid": "79e10a17-6c02-57db-aeca-8858a552f276",
+     "contentDigest": "f6076d63d549c35c",
+     "libId": "Resistor_SMD:R_0603_1608Metric",
+     "at": {
+      "xNm": 20000000,
+      "yNm": 15000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "footprintPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/e466f341-d6de-5757-99d7-3cab7d8daea1/1c78f846-3def-57ae-ac80-247ce4b3b496",
+     "refdes": "R6",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "R6",
+       "at": {
+        "xNm": 0,
+        "yNm": -1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "0R",
+       "at": {
+        "xNm": 0,
+        "yNm": 1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Attributes": "{\"smd\":true}",
+      "Board only": false,
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "footprint-text",
+     "uuid": "7e528e42-f727-5337-8dcf-968fb26b7383",
+     "contentDigest": "d5904d5fa17e50e4",
+     "parentUuid": "79e10a17-6c02-57db-aeca-8858a552f276",
+     "refdes": "R6",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Fab",
+     "text": "${REFERENCE}",
+     "reviewFields": {
+      "Text": "${REFERENCE}",
+      "Text kind": "user"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "d9bf7284-f5d8-58e1-b8e3-85e6b9a940d5",
+     "contentDigest": "e8edefce0bfcd933",
+     "parentUuid": "79e10a17-6c02-57db-aeca-8858a552f276",
+     "refdes": "R6",
+     "at": {
+      "xNm": 0,
+      "yNm": -1000000
+     },
+     "layer": "F.CrtYd",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "3af8ba5e-12f3-5e93-a8f6-7dd32f830f3a",
+     "contentDigest": "5b35d9dc0d88f179",
+     "parentUuid": "79e10a17-6c02-57db-aeca-8858a552f276",
+     "number": "1",
+     "refdes": "R6",
+     "at": {
+      "xNm": -1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "1",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "97ba43ba-984e-5ae3-9e6f-564f117922b6",
+     "contentDigest": "b98c5d28dec7e7b0",
+     "parentUuid": "79e10a17-6c02-57db-aeca-8858a552f276",
+     "number": "2",
+     "refdes": "R6",
+     "at": {
+      "xNm": 1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "2",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "footprint",
+     "uuid": "5332fc15-1d56-5263-98d2-33033b43605e",
+     "contentDigest": "fbb9f97c19e32c0f",
+     "libId": "Resistor_SMD:R_0603_1608Metric",
+     "at": {
+      "xNm": 25000000,
+      "yNm": 15000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "footprintPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/2b37a7b5-50d3-5e47-8b5a-0eb89cbfd3a1/900d8d20-7de0-547f-a978-fd9a5c67007c",
+     "refdes": "R7",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "R7",
+       "at": {
+        "xNm": 0,
+        "yNm": -1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "100R",
+       "at": {
+        "xNm": 0,
+        "yNm": 1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "MPN",
+       "value": "CH-BASE",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Attributes": "{\"smd\":true}",
+      "Board only": false,
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "footprint-text",
+     "uuid": "3ca1b3e4-da00-54b2-9c04-c83c32f59c6a",
+     "contentDigest": "d5904d5fa17e50e4",
+     "parentUuid": "5332fc15-1d56-5263-98d2-33033b43605e",
+     "refdes": "R7",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Fab",
+     "text": "${REFERENCE}",
+     "reviewFields": {
+      "Text": "${REFERENCE}",
+      "Text kind": "user"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "85546fc2-211e-5d29-b98e-d391ffc9d95d",
+     "contentDigest": "e8edefce0bfcd933",
+     "parentUuid": "5332fc15-1d56-5263-98d2-33033b43605e",
+     "refdes": "R7",
+     "at": {
+      "xNm": 0,
+      "yNm": -1000000
+     },
+     "layer": "F.CrtYd",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "8d88f0e9-bfe5-5a87-acfe-0b24b40adf11",
+     "contentDigest": "5b35d9dc0d88f179",
+     "parentUuid": "5332fc15-1d56-5263-98d2-33033b43605e",
+     "number": "1",
+     "refdes": "R7",
+     "at": {
+      "xNm": -1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "1",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "241dae7e-bab2-53e0-a4e4-734e372f96ae",
+     "contentDigest": "b98c5d28dec7e7b0",
+     "parentUuid": "5332fc15-1d56-5263-98d2-33033b43605e",
+     "number": "2",
+     "refdes": "R7",
+     "at": {
+      "xNm": 1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "2",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "footprint",
+     "uuid": "705904d1-297c-5955-ae0e-d36895ea5be4",
+     "contentDigest": "8faac3af42d70eb6",
+     "libId": "Resistor_SMD:R_0603_1608Metric",
+     "at": {
+      "xNm": 30000000,
+      "yNm": 15000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "footprintPath": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/a3f95ab9-d212-5d48-93ad-8aff8aef4abf/900d8d20-7de0-547f-a978-fd9a5c67007c",
+     "refdes": "R8",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "R8",
+       "at": {
+        "xNm": 0,
+        "yNm": -1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "100R",
+       "at": {
+        "xNm": 0,
+        "yNm": 1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "MPN",
+       "value": "CH-BASE",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Attributes": "{\"smd\":true}",
+      "Board only": false,
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "footprint-text",
+     "uuid": "6b4a7837-21c5-5fd9-9ca0-57a6e26830c0",
+     "contentDigest": "d5904d5fa17e50e4",
+     "parentUuid": "705904d1-297c-5955-ae0e-d36895ea5be4",
+     "refdes": "R8",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Fab",
+     "text": "${REFERENCE}",
+     "reviewFields": {
+      "Text": "${REFERENCE}",
+      "Text kind": "user"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "a9ce6c78-a411-562f-8ea0-9208728fdc77",
+     "contentDigest": "e8edefce0bfcd933",
+     "parentUuid": "705904d1-297c-5955-ae0e-d36895ea5be4",
+     "refdes": "R8",
+     "at": {
+      "xNm": 0,
+      "yNm": -1000000
+     },
+     "layer": "F.CrtYd",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "f418953c-16a3-56eb-85ba-0cd6921ffd67",
+     "contentDigest": "5b35d9dc0d88f179",
+     "parentUuid": "705904d1-297c-5955-ae0e-d36895ea5be4",
+     "number": "1",
+     "refdes": "R8",
+     "at": {
+      "xNm": -1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "1",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "65ae5e68-d4dd-5de3-8479-89037c96d7dc",
+     "contentDigest": "b98c5d28dec7e7b0",
+     "parentUuid": "705904d1-297c-5955-ae0e-d36895ea5be4",
+     "number": "2",
+     "refdes": "R8",
+     "at": {
+      "xNm": 1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "2",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "footprint",
+     "uuid": "72e28d8a-fadf-5e02-8a20-c37d1e474754",
+     "contentDigest": "e1b6b36f2627da1a",
+     "libId": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 15000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "refdes": "J9",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "J9",
+       "at": {
+        "xNm": 0,
+        "yNm": -1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "Debug",
+       "at": {
+        "xNm": 0,
+        "yNm": 1500000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Attributes": "{\"through_hole\":true}",
+      "Board only": false,
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "footprint-text",
+     "uuid": "2c3b9356-e13a-534d-a4dc-4ade3bf800e6",
+     "contentDigest": "d5904d5fa17e50e4",
+     "parentUuid": "72e28d8a-fadf-5e02-8a20-c37d1e474754",
+     "refdes": "J9",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Fab",
+     "text": "${REFERENCE}",
+     "reviewFields": {
+      "Text": "${REFERENCE}",
+      "Text kind": "user"
+     }
+    },
+    {
+     "kind": "footprint-graphic",
+     "uuid": "3ed0a3fb-4cb4-542d-8f0f-847a1a93fb8d",
+     "contentDigest": "e8edefce0bfcd933",
+     "parentUuid": "72e28d8a-fadf-5e02-8a20-c37d1e474754",
+     "refdes": "J9",
+     "at": {
+      "xNm": 0,
+      "yNm": -1000000
+     },
+     "layer": "F.CrtYd",
+     "reviewFields": {
+      "Stroke": "0.1 mm, solid"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "8ce17de5-c4c0-5495-8409-c170f331a8eb",
+     "contentDigest": "5b35d9dc0d88f179",
+     "parentUuid": "72e28d8a-fadf-5e02-8a20-c37d1e474754",
+     "number": "1",
+     "refdes": "J9",
+     "at": {
+      "xNm": -1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "1",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "53af10d7-9616-5ffd-bf5b-da720c9ec69a",
+     "contentDigest": "b98c5d28dec7e7b0",
+     "parentUuid": "72e28d8a-fadf-5e02-8a20-c37d1e474754",
+     "number": "2",
+     "refdes": "J9",
+     "at": {
+      "xNm": 1000000,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "reviewFields": {
+      "Layers": "F.Cu, F.Mask, F.Paste",
+      "Pad number": "2",
+      "Pad shape": "rect",
+      "Pad type": "smd",
+      "Size": "0.8 × 0.9"
+     }
+    },
+    {
+     "kind": "graphic",
+     "uuid": "a0aca1a9-188e-5ac7-a477-25b1a1dfad99",
+     "contentDigest": "2761ad1493746949",
+     "at": {
+      "xNm": 30000000,
+      "yNm": 0
+     },
+     "layer": "Edge.Cuts",
+     "reviewFields": {
+      "Stroke": "0.05 mm, default"
+     }
+    },
+    {
+     "kind": "graphic",
+     "uuid": "bfa05e4b-6b6c-5729-b7e6-928e93945eaf",
+     "contentDigest": "61fe9f7993c316a6",
+     "at": {
+      "xNm": 60000000,
+      "yNm": 20000000
+     },
+     "layer": "Edge.Cuts",
+     "reviewFields": {
+      "Stroke": "0.05 mm, default"
+     }
+    },
+    {
+     "kind": "graphic",
+     "uuid": "9a731ac5-23ee-585f-84a6-ee6a7bd1714c",
+     "contentDigest": "30ef0193c459fac6",
+     "at": {
+      "xNm": 30000000,
+      "yNm": 40000000
+     },
+     "layer": "Edge.Cuts",
+     "reviewFields": {
+      "Stroke": "0.05 mm, default"
+     }
+    },
+    {
+     "kind": "graphic",
+     "uuid": "20374a37-4588-56c2-8687-eccfe7c2388d",
+     "contentDigest": "137906d8b149a255",
+     "at": {
+      "xNm": 0,
+      "yNm": 20000000
+     },
+     "layer": "Edge.Cuts",
+     "reviewFields": {
+      "Stroke": "0.05 mm, default"
+     }
+    }
+   ],
+   "reviewOnlyObjects": [
+    {
+     "kind": "fabrication-output",
+     "id": "fabrication-output:fa0df659a79fed73",
+     "name": "Fabrication output settings",
+     "reviewFields": {
+      "Create Gerber job file": true,
+      "Drill marks": 1,
+      "Mirror output": false,
+      "Output directory": "",
+      "Output format": "Gerber",
+      "Plot drawing sheet": false,
+      "Plot layers": [],
+      "Plot on all layers": [],
+      "Sketch pads on fabrication layers": false,
+      "Solder mask expansion (mm)": 0,
+      "Subtract solder mask from silkscreen": false,
+      "Use Gerber X2 attributes": true,
+      "Use Gerber file extensions": false,
+      "Use Gerber net attributes": true,
+      "Use auxiliary origin": false
+     }
+    }
+   ]
+  },
+  {
+   "path": "variants_oracle.kicad_pro",
+   "objects": [],
+   "reviewOnlyObjects": [
+    {
+     "kind": "net-class",
+     "id": "net-class:5eef40ed135ba38d",
+     "name": "Default",
+     "reviewFields": {
+      "Clearance": 0.2,
+      "Track width": 0.2,
+      "Via diameter": 0.6,
+      "Via drill": 0.3
+     }
+    }
+   ]
+  },
+  {
+   "path": "variants_oracle.kicad_sch",
+   "objects": [
+    {
+     "kind": "symbol",
+     "uuid": "caa639b3-c965-5f5f-8579-1b1030520a32",
+     "contentDigest": "8e5990d3f31d3980",
+     "libId": "Device:R",
+     "at": {
+      "xNm": 20000000,
+      "yNm": 20000000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "R1",
+     "kiidPaths": [
+      "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/caa639b3-c965-5f5f-8579-1b1030520a32"
+     ],
+     "instances": [
+      {
+       "reference": "R1",
+       "path": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/caa639b3-c965-5f5f-8579-1b1030520a32"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "R1",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 18730000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "10k",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 21270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Resistor_SMD:R_0603_1608Metric",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 23810000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 26350000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 28890000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "MPN",
+       "value": "R1-BASE",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 31430000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "5ec43707-86ff-5d0f-a20b-70d18c64e1f7",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "caa639b3-c965-5f5f-8579-1b1030520a32",
+     "number": "1",
+     "refdes": "R1",
+     "at": {
+      "xNm": 20000000,
+      "yNm": 20000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "5121879c-703f-5afa-8d17-a8c98a29217e",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "caa639b3-c965-5f5f-8579-1b1030520a32",
+     "number": "2",
+     "refdes": "R1",
+     "at": {
+      "xNm": 20000000,
+      "yNm": 20000000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "bdaa41e8-4b3e-516d-b481-b6b06f958325",
+     "contentDigest": "c36658e359102bac",
+     "libId": "Device:R",
+     "at": {
+      "xNm": 30000000,
+      "yNm": 20000000
+     },
+     "rotationDeg": 0,
+     "dnp": true,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "R2",
+     "kiidPaths": [
+      "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/bdaa41e8-4b3e-516d-b481-b6b06f958325"
+     ],
+     "instances": [
+      {
+       "reference": "R2",
+       "path": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/bdaa41e8-4b3e-516d-b481-b6b06f958325"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "R2",
+       "at": {
+        "xNm": 33810000,
+        "yNm": 18730000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "22k",
+       "at": {
+        "xNm": 33810000,
+        "yNm": 21270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Resistor_SMD:R_0603_1608Metric",
+       "at": {
+        "xNm": 33810000,
+        "yNm": 23810000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 33810000,
+        "yNm": 26350000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 33810000,
+        "yNm": 28890000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "917d5e63-2375-5f26-96f1-7cb6db4437dd",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "bdaa41e8-4b3e-516d-b481-b6b06f958325",
+     "number": "1",
+     "refdes": "R2",
+     "at": {
+      "xNm": 30000000,
+      "yNm": 20000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "65faa0d1-86a9-5995-b9e9-1c4e62a2d47a",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "bdaa41e8-4b3e-516d-b481-b6b06f958325",
+     "number": "2",
+     "refdes": "R2",
+     "at": {
+      "xNm": 30000000,
+      "yNm": 20000000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "4ef94c69-7653-5842-9ae5-ff8865862183",
+     "contentDigest": "63dcb577f518e7c8",
+     "libId": "Device:R",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 20000000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "R3",
+     "kiidPaths": [
+      "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/4ef94c69-7653-5842-9ae5-ff8865862183"
+     ],
+     "instances": [
+      {
+       "reference": "R3",
+       "path": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/4ef94c69-7653-5842-9ae5-ff8865862183"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "R3",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 18730000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "33k",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 21270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Resistor_SMD:R_0603_1608Metric",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 23810000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 26350000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 28890000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "f1fef541-129f-5fb1-be29-c816bcde3597",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "4ef94c69-7653-5842-9ae5-ff8865862183",
+     "number": "1",
+     "refdes": "R3",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 20000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "d5cfc2c6-760f-561a-b409-da6e1154bed9",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "4ef94c69-7653-5842-9ae5-ff8865862183",
+     "number": "2",
+     "refdes": "R3",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 20000000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "23f0e81a-7865-5d18-bd0e-1d11af24fc3d",
+     "contentDigest": "75eba0baaa963b76",
+     "libId": "Device:R",
+     "at": {
+      "xNm": 50000000,
+      "yNm": 20000000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "R4",
+     "kiidPaths": [
+      "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/23f0e81a-7865-5d18-bd0e-1d11af24fc3d"
+     ],
+     "instances": [
+      {
+       "reference": "R4",
+       "path": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/23f0e81a-7865-5d18-bd0e-1d11af24fc3d"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "R4",
+       "at": {
+        "xNm": 53810000,
+        "yNm": 18730000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "47k",
+       "at": {
+        "xNm": 53810000,
+        "yNm": 21270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Resistor_SMD:R_0603_1608Metric",
+       "at": {
+        "xNm": 53810000,
+        "yNm": 23810000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 53810000,
+        "yNm": 26350000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 53810000,
+        "yNm": 28890000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "MPN",
+       "value": "R4-BASE",
+       "at": {
+        "xNm": 53810000,
+        "yNm": 31430000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "255010bc-bd32-5e7c-92b6-de4a16b8e396",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "23f0e81a-7865-5d18-bd0e-1d11af24fc3d",
+     "number": "1",
+     "refdes": "R4",
+     "at": {
+      "xNm": 50000000,
+      "yNm": 20000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "14f635d7-fa43-59c8-ace7-bf5708bcd78d",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "23f0e81a-7865-5d18-bd0e-1d11af24fc3d",
+     "number": "2",
+     "refdes": "R4",
+     "at": {
+      "xNm": 50000000,
+      "yNm": 20000000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "c34fa430-f6b0-55a2-a210-f21b13a3d089",
+     "contentDigest": "8c39f9fbadfcce3c",
+     "libId": "Device:C",
+     "at": {
+      "xNm": 60000000,
+      "yNm": 20000000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "C1",
+     "kiidPaths": [
+      "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c34fa430-f6b0-55a2-a210-f21b13a3d089"
+     ],
+     "instances": [
+      {
+       "reference": "C1",
+       "path": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c34fa430-f6b0-55a2-a210-f21b13a3d089"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "C1",
+       "at": {
+        "xNm": 63810000,
+        "yNm": 18730000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "1uF",
+       "at": {
+        "xNm": 63810000,
+        "yNm": 21270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Capacitor_SMD:C_0603_1608Metric",
+       "at": {
+        "xNm": 63810000,
+        "yNm": 23810000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 63810000,
+        "yNm": 26350000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 63810000,
+        "yNm": 28890000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "MPN",
+       "value": "X-1",
+       "at": {
+        "xNm": 63810000,
+        "yNm": 31430000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Note",
+       "value": "He said \"hi\"",
+       "at": {
+        "xNm": 63810000,
+        "yNm": 33970000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "519fe5ea-0f00-525c-a377-33f7d11051f4",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "c34fa430-f6b0-55a2-a210-f21b13a3d089",
+     "number": "1",
+     "refdes": "C1",
+     "at": {
+      "xNm": 60000000,
+      "yNm": 20000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "e55166b0-1215-5e72-9a1a-60d09d1ca268",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "c34fa430-f6b0-55a2-a210-f21b13a3d089",
+     "number": "2",
+     "refdes": "C1",
+     "at": {
+      "xNm": 60000000,
+      "yNm": 20000000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "3e98b5e2-e4d0-5512-91f4-b35191971034",
+     "contentDigest": "2b86f069c6c08236",
+     "libId": "Oracle:DualAmp",
+     "at": {
+      "xNm": 20000000,
+      "yNm": 40000000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "U1",
+     "kiidPaths": [
+      "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/3e98b5e2-e4d0-5512-91f4-b35191971034"
+     ],
+     "instances": [
+      {
+       "reference": "U1",
+       "path": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/3e98b5e2-e4d0-5512-91f4-b35191971034"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "U1",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 38730000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "DualAmp",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 41270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 43810000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 46350000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 48890000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "0cd04fde-a98d-50dd-b65a-b578e0302784",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "3e98b5e2-e4d0-5512-91f4-b35191971034",
+     "number": "1",
+     "refdes": "U1",
+     "at": {
+      "xNm": 20000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "d09b6420-a67e-5284-9112-1f2490955894",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "3e98b5e2-e4d0-5512-91f4-b35191971034",
+     "number": "2",
+     "refdes": "U1",
+     "at": {
+      "xNm": 20000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "1be1d8dc-a710-5986-ba18-62d6bc021e6b",
+     "contentDigest": "b804dbc4b44730c7",
+     "libId": "Oracle:DualAmp",
+     "at": {
+      "xNm": 30000000,
+      "yNm": 40000000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "U1",
+     "kiidPaths": [
+      "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/1be1d8dc-a710-5986-ba18-62d6bc021e6b"
+     ],
+     "instances": [
+      {
+       "reference": "U1",
+       "path": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/1be1d8dc-a710-5986-ba18-62d6bc021e6b"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "U1",
+       "at": {
+        "xNm": 33810000,
+        "yNm": 38730000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "DualAmp",
+       "at": {
+        "xNm": 33810000,
+        "yNm": 41270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+       "at": {
+        "xNm": 33810000,
+        "yNm": 43810000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 33810000,
+        "yNm": 46350000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 33810000,
+        "yNm": 48890000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 2
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "daa4d285-5635-5ac0-bb62-fad7130d2dbf",
+     "contentDigest": "f115308b48b2b923",
+     "parentUuid": "1be1d8dc-a710-5986-ba18-62d6bc021e6b",
+     "number": "3",
+     "refdes": "U1",
+     "at": {
+      "xNm": 30000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "3"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "b1c38866-a397-5db5-843a-c8a912690aa4",
+     "contentDigest": "5e9f7a2776776754",
+     "parentUuid": "1be1d8dc-a710-5986-ba18-62d6bc021e6b",
+     "number": "4",
+     "refdes": "U1",
+     "at": {
+      "xNm": 30000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "4"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "7d201bda-eaa8-50cb-a4b8-98b6f582e55e",
+     "contentDigest": "d95fcdbf8316028f",
+     "libId": "Device:Q_NPN_BEC",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "Q1",
+     "kiidPaths": [
+      "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/7d201bda-eaa8-50cb-a4b8-98b6f582e55e"
+     ],
+     "instances": [
+      {
+       "reference": "Q1",
+       "path": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/7d201bda-eaa8-50cb-a4b8-98b6f582e55e"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "Q1",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 38730000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "BC847",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 41270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Package_TO_SOT_SMD:SOT-23",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 43810000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 46350000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 48890000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "468c9274-4fd0-5e33-9b7b-ede5162364d7",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "7d201bda-eaa8-50cb-a4b8-98b6f582e55e",
+     "number": "1",
+     "refdes": "Q1",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "0e6e1a21-2698-5990-8064-7b82261305fb",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "7d201bda-eaa8-50cb-a4b8-98b6f582e55e",
+     "number": "2",
+     "refdes": "Q1",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "b9fa1333-5efb-5b06-b2a4-b8071bc8926d",
+     "contentDigest": "f115308b48b2b923",
+     "parentUuid": "7d201bda-eaa8-50cb-a4b8-98b6f582e55e",
+     "number": "3",
+     "refdes": "Q1",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "3"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "a902666b-3af7-54fc-b81f-3efbe0ea2470",
+     "contentDigest": "b88f66d01ec29715",
+     "libId": "Device:R",
+     "at": {
+      "xNm": 50000000,
+      "yNm": 40000000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "R9",
+     "kiidPaths": [
+      "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/a902666b-3af7-54fc-b81f-3efbe0ea2470"
+     ],
+     "instances": [
+      {
+       "reference": "R9",
+       "path": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/a902666b-3af7-54fc-b81f-3efbe0ea2470"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "R9",
+       "at": {
+        "xNm": 53810000,
+        "yNm": 38730000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "1k",
+       "at": {
+        "xNm": 53810000,
+        "yNm": 41270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Resistor_SMD:R_0603_1608Metric",
+       "at": {
+        "xNm": 53810000,
+        "yNm": 43810000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 53810000,
+        "yNm": 46350000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 53810000,
+        "yNm": 48890000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "d8d92904-1019-5103-ab00-000df25c0237",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "a902666b-3af7-54fc-b81f-3efbe0ea2470",
+     "number": "1",
+     "refdes": "R9",
+     "at": {
+      "xNm": 50000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "1b858bf1-ff73-5882-a29c-b1dc2bc5c71a",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "a902666b-3af7-54fc-b81f-3efbe0ea2470",
+     "number": "2",
+     "refdes": "R9",
+     "at": {
+      "xNm": 50000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "896ca249-e76b-518e-840f-dcb7cbbd7750",
+     "contentDigest": "5547b51bdcb8e7ae",
+     "libId": "power:GND",
+     "at": {
+      "xNm": 60000000,
+      "yNm": 40000000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "#PWR01",
+     "kiidPaths": [
+      "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/896ca249-e76b-518e-840f-dcb7cbbd7750"
+     ],
+     "instances": [
+      {
+       "reference": "#PWR01",
+       "path": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/896ca249-e76b-518e-840f-dcb7cbbd7750"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "#PWR01",
+       "at": {
+        "xNm": 63810000,
+        "yNm": 38730000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "GND",
+       "at": {
+        "xNm": 63810000,
+        "yNm": 41270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "",
+       "at": {
+        "xNm": 63810000,
+        "yNm": 43810000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 63810000,
+        "yNm": 46350000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 63810000,
+        "yNm": 48890000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "0bcb8113-6ac2-5c65-9426-371cfe059f1e",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "896ca249-e76b-518e-840f-dcb7cbbd7750",
+     "number": "1",
+     "refdes": "#PWR01",
+     "at": {
+      "xNm": 60000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "sheet",
+     "uuid": "c33f383d-e37a-5ee0-b3d2-b1d64b3f8476",
+     "contentDigest": "af9920821732bab7",
+     "at": {
+      "xNm": 150000000,
+      "yNm": 20000000
+     },
+     "kiidPaths": [
+      "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476"
+     ],
+     "properties": [
+      {
+       "name": "Sheetname",
+       "value": "Wireless",
+       "at": {
+        "xNm": 150000000,
+        "yNm": 19300000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "justify": {
+         "horizontal": "left",
+         "vertical": "bottom",
+         "mirror": false
+        }
+       }
+      },
+      {
+       "name": "Sheetfile",
+       "value": "wireless.kicad_sch",
+       "at": {
+        "xNm": 150000000,
+        "yNm": 33300000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "justify": {
+         "horizontal": "left",
+         "vertical": "top",
+         "mirror": false
+        }
+       }
+      }
+     ]
+    },
+    {
+     "kind": "sheet",
+     "uuid": "2b37a7b5-50d3-5e47-8b5a-0eb89cbfd3a1",
+     "contentDigest": "c33984c8e98d57b4",
+     "at": {
+      "xNm": 150000000,
+      "yNm": 60000000
+     },
+     "kiidPaths": [
+      "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/2b37a7b5-50d3-5e47-8b5a-0eb89cbfd3a1"
+     ],
+     "properties": [
+      {
+       "name": "Sheetname",
+       "value": "CH_A",
+       "at": {
+        "xNm": 150000000,
+        "yNm": 59300000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "justify": {
+         "horizontal": "left",
+         "vertical": "bottom",
+         "mirror": false
+        }
+       }
+      },
+      {
+       "name": "Sheetfile",
+       "value": "channel.kicad_sch",
+       "at": {
+        "xNm": 150000000,
+        "yNm": 73300000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "justify": {
+         "horizontal": "left",
+         "vertical": "top",
+         "mirror": false
+        }
+       }
+      }
+     ]
+    },
+    {
+     "kind": "sheet",
+     "uuid": "a3f95ab9-d212-5d48-93ad-8aff8aef4abf",
+     "contentDigest": "a5ae56ffe516969e",
+     "at": {
+      "xNm": 150000000,
+      "yNm": 90000000
+     },
+     "kiidPaths": [
+      "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/a3f95ab9-d212-5d48-93ad-8aff8aef4abf"
+     ],
+     "properties": [
+      {
+       "name": "Sheetname",
+       "value": "CH_B",
+       "at": {
+        "xNm": 150000000,
+        "yNm": 89300000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "justify": {
+         "horizontal": "left",
+         "vertical": "bottom",
+         "mirror": false
+        }
+       }
+      },
+      {
+       "name": "Sheetfile",
+       "value": "channel.kicad_sch",
+       "at": {
+        "xNm": 150000000,
+        "yNm": 103300000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "justify": {
+         "horizontal": "left",
+         "vertical": "top",
+         "mirror": false
+        }
+       }
+      }
+     ]
+    }
+   ],
+   "reviewOnlyObjects": []
+  },
+  {
+   "path": "wireless.kicad_sch",
+   "objects": [
+    {
+     "kind": "symbol",
+     "uuid": "a5cfa1a3-dfa6-506d-9fc0-fdb3dcd9a7e5",
+     "contentDigest": "f3e1f54e9e91d4bd",
+     "libId": "Oracle:DualAmp",
+     "at": {
+      "xNm": 20000000,
+      "yNm": 20000000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "U2",
+     "kiidPaths": [
+      "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/a5cfa1a3-dfa6-506d-9fc0-fdb3dcd9a7e5"
+     ],
+     "instances": [
+      {
+       "reference": "U2",
+       "path": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/a5cfa1a3-dfa6-506d-9fc0-fdb3dcd9a7e5"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "U2",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 18730000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "DualAmp",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 21270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 23810000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 26350000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 23810000,
+        "yNm": 28890000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "4458b203-97e6-5c45-84da-2d3e179fa598",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "a5cfa1a3-dfa6-506d-9fc0-fdb3dcd9a7e5",
+     "number": "1",
+     "refdes": "U2",
+     "at": {
+      "xNm": 20000000,
+      "yNm": 20000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "c4fa2072-6a6e-58e3-bb23-1a03f89b3536",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "a5cfa1a3-dfa6-506d-9fc0-fdb3dcd9a7e5",
+     "number": "2",
+     "refdes": "U2",
+     "at": {
+      "xNm": 20000000,
+      "yNm": 20000000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "a9a5553f-6467-5f4c-99ec-239d47111690",
+     "contentDigest": "ec8a9cd1e5418f36",
+     "libId": "Device:R",
+     "at": {
+      "xNm": 30000000,
+      "yNm": 20000000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "R12",
+     "kiidPaths": [
+      "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/a9a5553f-6467-5f4c-99ec-239d47111690"
+     ],
+     "instances": [
+      {
+       "reference": "R12",
+       "path": "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/a9a5553f-6467-5f4c-99ec-239d47111690"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "R12",
+       "at": {
+        "xNm": 33810000,
+        "yNm": 18730000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "4k7",
+       "at": {
+        "xNm": 33810000,
+        "yNm": 21270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Resistor_SMD:R_0603_1608Metric",
+       "at": {
+        "xNm": 33810000,
+        "yNm": 23810000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 33810000,
+        "yNm": 26350000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 33810000,
+        "yNm": 28890000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "hide": true
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "5d468514-48f9-57bf-a90e-3f1053b3a84b",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "a9a5553f-6467-5f4c-99ec-239d47111690",
+     "number": "1",
+     "refdes": "R12",
+     "at": {
+      "xNm": 30000000,
+      "yNm": 20000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "be35d240-2b1a-5828-bf9f-53b8b4663ad7",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "a9a5553f-6467-5f4c-99ec-239d47111690",
+     "number": "2",
+     "refdes": "R12",
+     "at": {
+      "xNm": 30000000,
+      "yNm": 20000000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    },
+    {
+     "kind": "sheet",
+     "uuid": "e466f341-d6de-5757-99d7-3cab7d8daea1",
+     "contentDigest": "651a372e219680a1",
+     "at": {
+      "xNm": 100000000,
+      "yNm": 80000000
+     },
+     "kiidPaths": [
+      "/df45a56d-eafa-53fe-96d8-7823ed0c0fa3/c33f383d-e37a-5ee0-b3d2-b1d64b3f8476/e466f341-d6de-5757-99d7-3cab7d8daea1"
+     ],
+     "properties": [
+      {
+       "name": "Sheetname",
+       "value": "Antenna",
+       "at": {
+        "xNm": 100000000,
+        "yNm": 79300000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "justify": {
+         "horizontal": "left",
+         "vertical": "bottom",
+         "mirror": false
+        }
+       }
+      },
+      {
+       "name": "Sheetfile",
+       "value": "antenna.kicad_sch",
+       "at": {
+        "xNm": 100000000,
+        "yNm": 93300000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        },
+        "justify": {
+         "horizontal": "left",
+         "vertical": "top",
+         "mirror": false
+        }
+       }
+      }
+     ]
+    }
+   ],
+   "reviewOnlyObjects": []
+  }
+ ]
+}

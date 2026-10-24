@@ -445,8 +445,10 @@ class RestoreStageTests(unittest.TestCase):
             code, _, pg_calls, output = self._restore(root, archive, failing={"pg_restore"})
 
             self.assertEqual(code, 1)
-            self.assertIn("--single-transaction", pg_calls[0])
-            self.assertIn("--clean", pg_calls[0])
+            self.assertIn("--single-transaction", prism_backup.RESTORE_SCRIPT)
+            self.assertIn("ON_ERROR_STOP=1", prism_backup.RESTORE_SCRIPT)
+            self.assertIn(prism_backup.RESTORE_SCRIPT, pg_calls[0])
+            self.assertIn(prism_backup.DROP_SCHEMAS_QUERY, pg_calls[0])
             self.assertEqual((root / "data/projects/live.txt").read_text(encoding="utf-8"), "live")
             self.assertFalse((root / "data/.projects.incoming").exists())
             self.assertIn("rolled back", output)

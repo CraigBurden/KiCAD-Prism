@@ -6,10 +6,17 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from app.core.config import settings
+from app.services import job_service
 from app.services import project_import_service
 
 
 class ImportFollowUpSchedulingTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # These cover the metadata and thumbnail follow-ups; the design bundle
+        # follow-up (on by default) is covered in test_design_bundle_job.py.
+        self.enterContext(mock.patch.object(settings, "PRISM_DESIGN_BUNDLE_AUTO_BUILD", False))
+
     def test_one_enqueue_failure_names_the_project_and_operation(self) -> None:
         discovered = [
             project_import_service.DiscoveredProject(
@@ -114,7 +121,7 @@ class ImportFollowUpSchedulingTests(unittest.TestCase):
                 "get_project_by_id",
                 return_value={"id": "prj-1", "repo_id": "repo-1"},
             ),
-            mock.patch.object(project_import_service.v3_jobs, "enqueue", side_effect=enqueue),
+            mock.patch.object(job_service.jobs, "enqueue", side_effect=enqueue),
             mock.patch.object(
                 project_import_service.workspace,
                 "delete_project",

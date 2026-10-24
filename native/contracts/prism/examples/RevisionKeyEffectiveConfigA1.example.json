@@ -1,0 +1,10 @@
+{
+  "schema": "prism.revision_key.effective_config.a1",
+  "project_file": "USB-PD-Trigger-Board.kicad_pro",
+  "root_schematic": "USB-PD-Trigger-Board.kicad_sch",
+  "board": "USB-PD-Trigger-Board.kicad_pcb",
+  "excluded_dirs": [
+    "Design-Outputs",
+    "Manufacturing-Outputs"
+  ]
+}

@@ -6,13 +6,16 @@ import json
 import os
 import shutil
 import uuid
+import contextlib
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Sequence
 
 from app.core.config import settings
+from app.services.object_store import CATALOG_OWNER, ObjectStore, ReferenceOwner
+from app.services.artifact_schema_migrations import ARTIFACT_LEDGER
 from app.services.postgres_database import database
 
 
@@ -24,12 +27,24 @@ class StoredArtifact:
 
 
 class LocalArtifactStore:
-    """Local content-addressed storage with PostgreSQL ownership metadata."""
+    """Catalog ownership metadata over the shared content-addressed object store.
 
-    def __init__(self, root: Path | None = None) -> None:
+    Objects live in :class:`ObjectStore`; this class owns the catalog tables,
+    import snapshots, and the catalog retention policy (archive, quarantine,
+    purge), which acts through the store and never removes an object another
+    owner still pins.
+    """
+
+    def __init__(
+        self,
+        root: Path | None = None,
+        *,
+        owners: Sequence[ReferenceOwner] | None = None,
+    ) -> None:
         default = Path(settings.KICAD_PROJECTS_ROOT) / ".kicad-prism" / "artifacts"
         self.root = (root or Path(settings.CATALOG_ARTIFACT_ROOT or default)).expanduser().resolve()
-        self.objects = self.root / "objects" / "sha256"
+        self.store = ObjectStore(self.root / "objects" / "sha256", owners=owners)
+        self.objects = self.store.root
         self.archive = self.root / "archive" / "sha256"
         self.staging = self.root / "staging"
         self.quarantine = self.root / "quarantine"
@@ -46,86 +61,11 @@ class LocalArtifactStore:
             return
         for directory in (self.objects, self.archive, self.staging, self.quarantine):
             directory.mkdir(parents=True, exist_ok=True)
-        with self._connect() as conn:
-            conn.execute("CREATE SCHEMA IF NOT EXISTS operations")
-            conn.execute("SET search_path TO operations, catalog, public")
-            conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-artifacts-schema",))
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS catalog_artifacts (
-                    sha256 TEXT PRIMARY KEY,
-                    size_bytes BIGINT NOT NULL,
-                    media_type TEXT NOT NULL DEFAULT 'application/octet-stream',
-                    artifact_kind TEXT NOT NULL DEFAULT 'source',
-                    storage_state TEXT NOT NULL DEFAULT 'available',
-                    object_path TEXT NOT NULL,
-                    archived_path TEXT NOT NULL DEFAULT '',
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    last_accessed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    quarantined_at TIMESTAMPTZ,
-                    purged_at TIMESTAMPTZ
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS catalog_artifact_references (
-                    id TEXT PRIMARY KEY,
-                    artifact_sha256 TEXT NOT NULL REFERENCES catalog_artifacts(sha256),
-                    owner_type TEXT NOT NULL,
-                    owner_id TEXT NOT NULL,
-                    role TEXT NOT NULL DEFAULT '',
-                    released BOOLEAN NOT NULL DEFAULT FALSE,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    removed_at TIMESTAMPTZ,
-                    UNIQUE(artifact_sha256, owner_type, owner_id, role)
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS catalog_import_snapshots (
-                    id TEXT PRIMARY KEY,
-                    source_type TEXT NOT NULL,
-                    display_name TEXT NOT NULL,
-                    source_locator TEXT NOT NULL DEFAULT '',
-                    status TEXT NOT NULL DEFAULT 'uploading',
-                    manifest_sha256 TEXT NOT NULL DEFAULT '',
-                    file_count INTEGER NOT NULL DEFAULT 0,
-                    size_bytes BIGINT NOT NULL DEFAULT 0,
-                    created_by TEXT NOT NULL DEFAULT '',
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    completed_at TIMESTAMPTZ
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS catalog_import_snapshot_files (
-                    snapshot_id TEXT NOT NULL REFERENCES catalog_import_snapshots(id) ON DELETE CASCADE,
-                    relative_path TEXT NOT NULL,
-                    artifact_sha256 TEXT NOT NULL REFERENCES catalog_artifacts(sha256),
-                    size_bytes BIGINT NOT NULL,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    PRIMARY KEY(snapshot_id, relative_path)
-                )
-                """
-            )
-            # The catalog's common read path is revision -> asset. Retention needs
-            # the reverse lookup and should not scan every revision link.
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_revision_assets_asset "
-                "ON revision_assets(asset_id, revision_id)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_artifact_refs_active "
-                "ON catalog_artifact_references(artifact_sha256, removed_at, released)"
-            )
-            conn.commit()
+        ARTIFACT_LEDGER.migrate(self._connect)
         self._initialized = True
 
     def object_path(self, digest: str) -> Path:
-        return self.objects / digest[:2] / digest[2:4] / digest
+        return self.store.path_for(digest)
 
     def put_stream(
         self,
@@ -136,29 +76,7 @@ class LocalArtifactStore:
         max_bytes: int | None = None,
     ) -> StoredArtifact:
         self.initialize()
-        temp = self.staging / f"upload-{uuid.uuid4().hex}"
-        digest = hashlib.sha256()
-        size = 0
-        try:
-            with temp.open("wb") as output:
-                while chunk := stream.read(1024 * 1024):
-                    digest.update(chunk)
-                    size += len(chunk)
-                    if max_bytes is not None and size > max_bytes:
-                        raise ValueError("Artifact exceeds the configured per-file size limit")
-                    output.write(chunk)
-                output.flush()
-                os.fsync(output.fileno())
-        except Exception:
-            temp.unlink(missing_ok=True)
-            raise
-        sha = digest.hexdigest()
-        destination = self.object_path(sha)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        if destination.exists():
-            temp.unlink(missing_ok=True)
-        else:
-            os.replace(temp, destination)
+        stored = self.store.put_stream(stream, staging_dir=self.staging, max_bytes=max_bytes)
         with self._connect() as conn:
             conn.execute(
                 """
@@ -167,10 +85,10 @@ class LocalArtifactStore:
                 ) VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (sha256) DO UPDATE SET last_accessed_at = NOW()
                 """,
-                (sha, size, media_type, artifact_kind, str(destination)),
+                (stored.digest, stored.size_bytes, media_type, artifact_kind, str(stored.path)),
             )
             conn.commit()
-        return StoredArtifact(sha256=sha, size_bytes=size, path=destination)
+        return StoredArtifact(sha256=stored.digest, size_bytes=stored.size_bytes, path=stored.path)
 
     def put_file(self, path: Path, **kwargs: Any) -> StoredArtifact:
         with path.open("rb") as stream:
@@ -366,12 +284,13 @@ class LocalArtifactStore:
             archived = Path(str(row["archived_path"] or ""))
             if not archived.is_file():
                 raise ValueError(f"Archived artifact {sha256} is unavailable")
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            with gzip.open(archived, "rb") as input_file, destination.open("wb") as output:
-                shutil.copyfileobj(input_file, output)
-            if hashlib.sha256(destination.read_bytes()).hexdigest() != sha256:
-                destination.unlink(missing_ok=True)
-                raise ValueError(f"Archived artifact {sha256} failed integrity verification")
+            try:
+                with gzip.open(archived, "rb") as input_file:
+                    destination = self.store.put_stream(
+                        input_file, staging_dir=self.staging, expected_digest=sha256
+                    ).path
+            except ValueError as error:
+                raise ValueError(f"Archived artifact {sha256} failed integrity verification") from error
             conn.execute(
                 "UPDATE catalog_artifacts SET storage_state = 'available', object_path = %s, "
                 "last_accessed_at = NOW() WHERE sha256 = %s",
@@ -379,6 +298,28 @@ class LocalArtifactStore:
             )
             conn.commit()
         return destination
+
+    def locate(self, sha256: str, *, conn: Any = None) -> dict[str, str] | None:
+        """Where an object's bytes live, without restoring or touching it (read-only).
+
+        ``conn`` reads another database's ledger (a script's ``--database-url``);
+        its transaction is rolled back, which also undoes the ``SET LOCAL``."""
+        with contextlib.ExitStack() as stack:
+            if conn is None:
+                conn = stack.enter_context(self._connect())
+            else:
+                conn.execute("SET LOCAL search_path TO operations, catalog, public")
+            row = None
+            # An uninitialized ledger has no table; this method never creates it.
+            if conn.execute("SELECT to_regclass('catalog_artifacts') AS relation").fetchone()["relation"]:
+                row = conn.execute(
+                    "SELECT storage_state, object_path, archived_path FROM catalog_artifacts WHERE sha256 = %s",
+                    (sha256,),
+                ).fetchone()
+            conn.rollback()
+        if not row:
+            return None
+        return {key: str(row[key] or "") for key in ("storage_state", "object_path", "archived_path")}
 
     def materialize(self, sha256: str, destination: Path) -> Path:
         source = self.ensure_available(sha256)
@@ -392,6 +333,24 @@ class LocalArtifactStore:
         except OSError:
             shutil.copyfile(source, destination)
         return destination
+
+    def referenced_object_paths(self) -> set[str]:
+        """Object paths the catalog still owns, for collectors of the shared tree."""
+        with self._connect() as conn:
+            exists = conn.execute(
+                "SELECT to_regclass('operations.catalog_artifacts') AS name"
+            ).fetchone()
+            if not exists or not exists["name"]:
+                return set()
+            rows = conn.execute(
+                "SELECT object_path FROM catalog_artifacts "
+                "WHERE storage_state = 'available' AND object_path <> ''"
+            ).fetchall()
+        return {str(row["object_path"]) for row in rows}
+
+    def _foreign_references(self) -> set[Path]:
+        """Objects other owners pin; catalog policy must not move them (same digest)."""
+        return self.store.referenced_paths(exclude=CATALOG_OWNER)
 
     def archive_unreleased_before(self, cutoff: datetime) -> int:
         """Compress old, unreferenced source objects. Released refs always win."""
@@ -417,9 +376,12 @@ class LocalArtifactStore:
                 """,
                 (cutoff,),
             ).fetchall()
+            foreign = self._foreign_references() if rows else set()
             for row in rows:
                 source = Path(row["object_path"])
                 if not source.is_file() or source.suffix.lower() in {".step", ".stp"}:
+                    continue
+                if source.resolve() in foreign:
                     continue
                 destination = self.archive / row["sha256"][:2] / f"{row['sha256']}.gz"
                 destination.parent.mkdir(parents=True, exist_ok=True)
@@ -452,9 +414,10 @@ class LocalArtifactStore:
                 """,
                 (cutoff,),
             ).fetchall()
+            foreign = self._foreign_references() if rows else set()
             for row in rows:
                 source = Path(str(row["object_path"] or ""))
-                if not source.is_file():
+                if not source.is_file() or source.resolve() in foreign:
                     continue
                 destination = self.quarantine / run_id / str(row["sha256"])
                 destination.parent.mkdir(parents=True, exist_ok=True)

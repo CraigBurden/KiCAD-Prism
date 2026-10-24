@@ -1,9 +1,9 @@
 """Acquire plotted board views for the Documentation Engine.
 
-This is the one boundary that talks to ``kicad-cli`` and Cruncher for
-documentation artwork. A missing view degrades the sheets that depend on it
-and is recorded as a warning; it does not abort the document set. Concurrency
-is capped by memory, not cores: every job loads the whole board.
+This is the one boundary that talks to ``kicad-cli`` for documentation
+artwork. A missing view degrades the sheets that depend on it and is recorded
+as a warning; it does not abort the document set. Concurrency is capped by
+memory, not cores: every job loads the whole board.
 """
 
 from __future__ import annotations
@@ -13,17 +13,17 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 from app.release_studio.documents.artwork import (
     AcquiredArtwork,
     ArtworkError,
     acquire,
     acquire_board_render,
-    acquire_board_views,
     acquire_drill_map,
-    acquire_testpoint_views,
+    acquire_layers,
 )
+from app.services.kicad_tools import KicadTool
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +50,10 @@ _TECHNICAL_LAYERS: tuple[str, ...] = (
 DRILL_ARTWORK_KEY = "drill"
 
 #: Key the concurrent acquisition uses for the one job that returns every
-#: Cruncher assembly view. Testpoint views are a second board load and run
-#: outside this pool so they cannot steal a plot slot.
-_CRUNCHER_JOB = "__cruncher__"
+#: assembly and testpoint view from the design bundle. It runs in the same
+#: pool as the plots because the bundle load is a separate process.
+_BUNDLE_ARTWORK_JOB = "__artwork__"
+_LAYER_BATCH_JOB = "__layers__"
 
 #: Ceiling on concurrent acquisitions.
 #:
@@ -118,7 +119,8 @@ def _acquire_concurrently(
         for future in as_completed(futures):
             key = futures[future]
             label = {
-                _CRUNCHER_JOB: "assembly views",
+                _BUNDLE_ARTWORK_JOB: "assembly views",
+                _LAYER_BATCH_JOB: "batched layer artwork",
             }.get(key, f"artwork for {key}")
             try:
                 results[key] = future.result()
@@ -131,14 +133,13 @@ def _acquire_concurrently(
 
 @dataclass(frozen=True, slots=True)
 class AcquisitionRequest:
-    """What the Documentation Engine asks KiCad and Cruncher to plot."""
+    """What the Documentation Engine asks KiCad and ``prism-kicad`` to plot."""
 
     board: Path | None
     workdir: Path | None
     layer_pages: tuple[str, ...]
     variant: str = ""
-    cli_path: str | None = None
-    cruncher_path: str | None = None
+    cli: KicadTool | None = None
     designators: tuple[str, ...] = ()
     acquirer: Callable[..., AcquiredArtwork] | None = None
     drill_acquirer: Callable[..., AcquiredArtwork] | None = None
@@ -165,9 +166,10 @@ class AcquisitionResult:
 def acquire_views(request: AcquisitionRequest) -> AcquisitionResult:
     """Run every independent acquisition; a failure costs one view, not the set.
 
-    Layer plots, the cover render, the drill map, and the assembly Cruncher
-    share one bounded pool. Testpoint views are a second board load and run
-    after that pool so they cannot steal a plot slot.
+    Layer plots, the cover render and the drill map share one bounded pool with
+    the assembly artwork (one ``prism-kicad artwork`` invocation over the design
+    bundle). Testpoint views are a second bundle load and run after that pool so
+    they cannot steal a plot slot.
     """
 
     warnings: list[str] = []
@@ -177,14 +179,24 @@ def acquire_views(request: AcquisitionRequest) -> AcquisitionResult:
 
     jobs: dict[str, Callable[[], Any]] = {}
     board = request.board
-    cli_path = request.cli_path
+    cli = request.cli
     workdir = request.workdir
-    if board is not None and cli_path and workdir is not None:
+    if board is not None and cli and workdir is not None:
+        if request.acquirer is None and request.layer_pages:
+            # One board load per format for every layer (acquire_layers).
+            jobs[_LAYER_BATCH_JOB] = partial(
+                acquire_layers,
+                cli,
+                board,
+                request.layer_pages,
+                workdir / "layers",
+                variant=request.variant,
+            )
         fetch = request.acquirer or acquire
-        for layer in request.layer_pages:
+        for layer in request.layer_pages if request.acquirer is not None else ():
             jobs[layer_artwork_key(layer)] = partial(
                 fetch,
-                cli_path,
+                cli,
                 board,
                 # The outline travels with every layer: a copper plot with no
                 # board edge cannot be located on the board it came from.
@@ -194,37 +206,63 @@ def acquire_views(request: AcquisitionRequest) -> AcquisitionResult:
             )
         jobs[BOARD_RENDER_KEY] = partial(
             request.board_render_acquirer or acquire_board_render,
-            cli_path,
+            cli,
             board,
             workdir / "render",
         )
         jobs[DRILL_ARTWORK_KEY] = partial(
             request.drill_acquirer or acquire_drill_map,
-            cli_path,
+            cli,
             board,
             workdir / DRILL_ARTWORK_KEY,
         )
     else:
         warnings.append("kicad-cli unavailable: sheets composed without board artwork")
 
-    if board is not None and request.cruncher_path and workdir is not None:
-        # One invocation for every assembly view: loading the board dominates
-        # the cost and Cruncher writes them all from a single load.
-        jobs[_CRUNCHER_JOB] = partial(
-            request.assembly_acquirer or acquire_board_views,
-            request.cruncher_path,
-            board,
-            workdir / "cruncher",
-        )
-    else:
-        warnings.append(
-            "kicad-cruncher unavailable: assembly sheets composed without artwork"
+    if workdir is not None and request.assembly_acquirer is not None:
+        # One invocation for every assembly view: loading the bundle dominates
+        # the cost and the producer writes them all from a single load. The
+        # injected acquirer is the bundle artwork call.
+        jobs[_BUNDLE_ARTWORK_JOB] = partial(
+            request.assembly_acquirer, workdir / "bundle"
         )
 
     acquired = _acquire_concurrently(jobs, warnings)
+    if _LAYER_BATCH_JOB in jobs:
+
+        def one_by_one(pages: Sequence[str]) -> dict[str, Any]:
+            return _acquire_concurrently(
+                {
+                    layer: partial(
+                        acquire,
+                        cli,
+                        board,
+                        ("Edge.Cuts", layer) if layer != "Edge.Cuts" else ("Edge.Cuts",),
+                        workdir / f"layer-{layer.replace('.', '_')}",
+                        variant=request.variant,
+                    )
+                    for layer in pages
+                },
+                warnings,
+            )
+
+        batch = acquired.pop(_LAYER_BATCH_JOB, None)
+        if batch is None:
+            # The batched plot failed outright: plot layer by layer, so one
+            # bad layer costs its own page rather than all of them.
+            batch = one_by_one(request.layer_pages)
+        else:
+            # A layer the batch did not write (a file name KiCad chose that
+            # plot_file_layer_names did not predict) is plotted on its own.
+            missing = [layer for layer, artwork in batch.items() if isinstance(artwork, ArtworkError)]
+            for layer in missing:
+                del batch[layer]
+            batch.update(one_by_one(missing))
+        for layer, artwork in batch.items():
+            layers[layer_artwork_key(layer)] = artwork
     board_render = acquired.pop(BOARD_RENDER_KEY, None)
     for key, value in acquired.items():
-        if key != _CRUNCHER_JOB:
+        if key != _BUNDLE_ARTWORK_JOB:
             layers[key] = value
             continue
         for view_key, drawing in value.items():
@@ -234,30 +272,19 @@ def acquire_views(request: AcquisitionRequest) -> AcquisitionResult:
             else:
                 assembly[side] = drawing
 
-    # Testpoints are a second board load from a derived TP-only staging board.
-    # That keeps the assembly input untouched and lets legacy fp_text
-    # references be normalized to Cruncher's property-based designator API.
-    # They run *after* the plot pool (and after the assembly Cruncher, when that
-    # was overlapped with catalogue wave A) so they cannot steal an acquisition
-    # slot from a layer plot.
-    #
-    # Measured rather than assumed: pooling them alongside the layer plots on
-    # JTYU-OBC moved compose from 213.3s to 217.5s. Cruncher is CPU bound, so
-    # overlapping it with the plots splits the same cores instead of filling
-    # idle ones.
-    if (
-        board is not None
-        and request.cruncher_path
-        and workdir is not None
-        and not testpoint
-    ):
+    # Testpoints are a second bundle load, with the testpoint configuration's
+    # ``TP*`` selector limiting the view. They run *after* the plot pool so
+    # they cannot steal an acquisition slot from a layer plot.
+    testpoint_job = None
+    if workdir is not None and not testpoint and request.testpoint_acquirer is not None:
+        testpoint_job = partial(
+            request.testpoint_acquirer,
+            workdir / "testpoints",
+            designators=tuple(request.designators or ()),
+        )
+    if testpoint_job is not None:
         try:
-            testpoint_views = (request.testpoint_acquirer or acquire_testpoint_views)(
-                request.cruncher_path,
-                board,
-                workdir / "testpoints",
-                designators=tuple(request.designators or ()),
-            )
+            testpoint_views = testpoint_job()
             for view_key, drawing in testpoint_views.items():
                 kind, _, side = view_key.partition("-")
                 if kind == "testpoint":

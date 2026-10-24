@@ -18,17 +18,12 @@ import json
 import os
 import tempfile
 import threading
-import uuid
 from contextlib import contextmanager
 from typing import Dict, List, Optional, Tuple
 
-from app.services import comment_live_events, comments_revisions, comments_schema_migrations, project_service
+from app.services import comment_attachments, comment_bundle, comment_live_events, comment_social, comments_schema_migrations
 from app.services.comments_revisions import Editor, RevisionConflict  # noqa: F401  (re-exported for callers)
-from app.services.comments_store_codec import (
-    ANCHOR_STATE_PINNED,
-    ANCHOR_STATE_UNPINNED,
-    AUTHOR_KIND_LEGACY,
-    AUTHOR_KIND_USER,
+from app.services.comments_store_codec import (  # noqa: F401  (constants re-exported for the API)
     COMMENT_CLASSES,
     COMMENT_SEVERITIES,
     COMMENTS_META,
@@ -36,45 +31,22 @@ from app.services.comments_store_codec import (
     DEFAULT_COMMENT_SEVERITY,
     _COMMENT_COLUMNS,
     _REPLY_COLUMNS,
-    _SYSTEM_EDITOR,
-    _anchor_already_pinned,
-    _mentions_from_content,
-    _normalize_comment_class,
-    _normalize_mentions,
-    _normalize_severity,
-    _optional_str,
-    _parse_area_bounds,
     _row_to_comment_dict,
     _row_to_reply_dict,
     _utc_now_iso,
     get_project_comments_json_path,
     import_comments_payload,
 )
-from app.services.comments_store_retry import _retry_on_deadlock
-from app.services.comments_store_schema import create_base_tables
+from app.services.comments_store_media import CommentsStoreMediaMixin
+from app.services.comments_store_writes import CommentsStoreWritesMixin
 from app.services.postgres_database import database
-from app.services.trackers.promotion import (
-    PromotionActor,
-    _live_thread,
-    after_root_severity_change,
-    evaluate_dispatch,
-    manual_promote_root,
-    maybe_auto_promote_root,
-)
 from app.services.trackers.projections import attach_tracker_projection, attach_tracker_projections
-from app.services.trackers.publication_policy import DispatchPause
-from app.services.trackers.reply_mutations import (
-    after_reply_added,
-    after_reply_deleted,
-    after_reply_edited,
-)
-from app.services.trackers.reply_mutations import share_reply as enqueue_share_reply
-from app.services.trackers.state_mutations import enqueue_set_state
-from app.services.trackers.thread_mutations import after_root_content_edited, after_root_deleted
 
 
-class CommentsStoreService:
-    """PostgreSQL-backed comments service."""
+class CommentsStoreService(CommentsStoreWritesMixin, CommentsStoreMediaMixin):
+    """PostgreSQL-backed comments service: reads, import/export and project lifecycle here;
+    root and reply writes in ``comments_store_writes``; attachments and history in
+    ``comments_store_media``."""
 
     # Tests point a subclass at a disposable schema; production is "comments".
     schema = "comments"
@@ -93,13 +65,7 @@ class CommentsStoreService:
             if self._initialized:
                 return
 
-            with self._connect() as conn:
-                conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-schema",))
-                conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{self.schema}"')
-                conn.execute(f'SET search_path TO "{self.schema}", public')
-                create_base_tables(conn)
-                comments_schema_migrations.apply_comments_migrations(conn)
-                conn.commit()
+            comments_schema_migrations.COMMENTS_LEDGER.migrate(self._connect, schema=self.schema)
 
             self._initialized = True
 
@@ -138,7 +104,8 @@ class CommentsStoreService:
         if existing_count == 0:
             payload = self._read_comments_json(project_path)
             if payload:
-                import_comments_payload(conn, project_id, payload)
+                bundle_dir = os.path.dirname(get_project_comments_json_path(project_path))
+                import_comments_payload(conn, project_id, payload, bundle_dir)
 
         conn.execute(
             """
@@ -204,6 +171,8 @@ class CommentsStoreService:
             for row in comment_rows
         ]
         attach_tracker_projections(conn, project_id, comments, workspace_schema=self.workspace_schema)
+        comment_attachments.decorate(conn, project_id, comments)
+        comment_social.decorate(conn, project_id, comments)
 
         return {
             "meta": dict(COMMENTS_META),
@@ -242,6 +211,8 @@ class CommentsStoreService:
         ).fetchall()
 
         comment = _row_to_comment_dict(row, [_row_to_reply_dict(reply) for reply in reply_rows])
+        comment_attachments.decorate(conn, project_id, [comment])
+        comment_social.decorate(conn, project_id, [comment])
         attach_tracker_projection(
             conn, project_id, comment,
             workspace_schema=self.workspace_schema, unsynced_reply_ids=unsynced_reply_ids,
@@ -254,156 +225,6 @@ class CommentsStoreService:
             with conn.transaction():
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
                 return self._build_snapshot(conn, project_id)
-
-    @_retry_on_deadlock
-    def create_comment(
-        self,
-        project_id: str,
-        project_path: str,
-        context: str,
-        location: Dict,
-        content: str,
-        author: str,
-        element_id: Optional[str] = None,
-        element_ref: Optional[str] = None,
-        element_type: Optional[str] = None,
-        comment_class: Optional[str] = None,
-        severity: Optional[str] = None,
-        mentions: Optional[List[str]] = None,
-        metadata: Optional[Dict] = None,
-        scope: str = "canvas",
-        base_commit: Optional[str] = None,
-        compare_commit: Optional[str] = None,
-        comparison_domain: Optional[str] = None,
-        file_path: Optional[str] = None,
-        semantic_item_id: Optional[str] = None,
-        anchor_kind: Optional[str] = None,
-        author_user_id: Optional[str] = None,
-        author_kind: Optional[str] = None,
-        anchor_commit: Optional[str] = None,
-        anchor_revision_key: Optional[str] = None,
-        anchor_source: Optional[str] = None,
-        selected_side: Optional[str] = None,
-        project_relative_path: Optional[str] = None,
-        promotion_actor: Optional[PromotionActor] = None,
-    ) -> Dict:
-        """Insert a root comment at revision 1 and record its creation.
-
-        ``author`` is the display text. Ownership comes only from
-        ``author_user_id``; without one the row is ``legacy`` and has no
-        owner, which is how pre-identity callers keep working. The anchor
-        is ``pinned`` only when the caller supplies a validated commit;
-        nothing here infers one.
-        """
-        self.initialize()
-        context_norm = context.upper()
-        timestamp = _utc_now_iso()
-        author_user_id = _optional_str(author_user_id)
-        author_kind_norm = _optional_str(author_kind) or (AUTHOR_KIND_USER if author_user_id else AUTHOR_KIND_LEGACY)
-        anchor_commit = _optional_str(anchor_commit)
-        selected_side = _optional_str(selected_side)
-        project_relative_path = _optional_str(project_relative_path)
-        has_comparison_pair = bool(_optional_str(base_commit) and _optional_str(compare_commit))
-        anchor_state = ANCHOR_STATE_PINNED if (anchor_commit or has_comparison_pair) else ANCHOR_STATE_UNPINNED
-        area = _parse_area_bounds(location.get("bounds"))
-        class_norm = _normalize_comment_class(comment_class)
-        severity_norm = _normalize_severity(severity)
-        mentions_norm = _normalize_mentions(mentions)
-        if not mentions_norm:
-            mentions_norm = _mentions_from_content(content)
-        metadata_norm = metadata if isinstance(metadata, dict) else {}
-
-        with self._connect() as conn:
-            with conn.transaction():
-                self._bootstrap_project_if_needed(conn, project_id, project_path)
-
-                comment_id = f"c_{uuid.uuid4().hex[:8]}"
-                conn.execute(
-                    """
-                    INSERT INTO comments(
-                        id, project_id, author, timestamp, status, context,
-                        location_x, location_y, location_layer, location_page, content,
-                        area_x, area_y, area_w, area_h,
-                        element_id, element_ref, element_type,
-                        comment_class, severity, mentions, metadata,
-                        scope, base_commit, compare_commit, comparison_domain,
-                        file_path, semantic_item_id, anchor_kind,
-                        author_user_id, author_kind, revision, updated_at,
-                        anchor_commit, anchor_revision_key, anchor_source, anchor_state,
-                        selected_side, project_relative_path
-                    )
-                    VALUES(
-                        %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb,
-                        %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, 1, %s,
-                        %s, %s, %s, %s,
-                        %s, %s
-                    )
-                    """,
-                    (
-                        comment_id,
-                        project_id,
-                        author,
-                        timestamp,
-                        context_norm,
-                        float(location.get("x", 0.0)),
-                        float(location.get("y", 0.0)),
-                        str(location.get("layer", "")),
-                        str(location.get("page", "")),
-                        content,
-                        area[0] if area else None,
-                        area[1] if area else None,
-                        area[2] if area else None,
-                        area[3] if area else None,
-                        _optional_str(element_id),
-                        _optional_str(element_ref),
-                        _optional_str(element_type),
-                        class_norm,
-                        severity_norm,
-                        json.dumps(mentions_norm),
-                        json.dumps(metadata_norm),
-                        scope,
-                        _optional_str(base_commit),
-                        _optional_str(compare_commit),
-                        _optional_str(comparison_domain),
-                        _optional_str(file_path),
-                        _optional_str(semantic_item_id),
-                        _optional_str(anchor_kind),
-                        author_user_id,
-                        author_kind_norm,
-                        timestamp,
-                        anchor_commit,
-                        _optional_str(anchor_revision_key),
-                        _optional_str(anchor_source),
-                        anchor_state,
-                        selected_side,
-                        project_relative_path,
-                    ),
-                )
-                comments_revisions.record_revision(
-                    conn, project_id=project_id, target_kind=comments_revisions.ROOT, target_id=comment_id,
-                    revision=1, change_kind=comments_revisions.CHANGE_CREATE,
-                    editor=Editor(user_id=author_user_id, kind=author_kind_norm, display=author),
-                    content=content, severity=severity_norm, comment_class=class_norm, mentions=mentions_norm,
-                )
-
-                created = self._get_comment_with_replies(conn, project_id, comment_id)
-                if not created:
-                    raise RuntimeError("Failed to fetch created comment.")
-
-                if promotion_actor is not None:
-                    outcome = maybe_auto_promote_root(
-                        conn, project_id=project_id, comment=created, actor=promotion_actor,
-                        workspace_schema=self.workspace_schema,
-                    )
-                    created = self._get_comment_with_replies(conn, project_id, comment_id)
-                    if not created:
-                        raise RuntimeError("Failed to fetch created comment.")
-                    if outcome.action == "denied" and outcome.code:
-                        created.setdefault("tracker", {}).setdefault("notPromotableReason", outcome.code)
-
-                return created
 
     def get_comparison_comments(
         self,
@@ -447,94 +268,17 @@ class CommentsStoreService:
                     ).fetchall()
                     for reply in reply_rows:
                         replies_by_comment.setdefault(reply["comment_id"], []).append(_row_to_reply_dict(reply))
+                comments = [
+                    _row_to_comment_dict(row, replies_by_comment.get(row["id"], []))
+                    for row in rows
+                ]
+                comment_attachments.decorate(conn, project_id, comments)
+                comment_social.decorate(conn, project_id, comments)
                 return {
                     "meta": dict(COMMENTS_META),
                     "cursor": cursor,
-                    "comments": [
-                        _row_to_comment_dict(row, replies_by_comment.get(row["id"], []))
-                        for row in rows
-                    ],
+                    "comments": comments,
                 }
-
-    def _authorize_linked_status(self, conn, project_id: str, comment_id: str, actor: PromotionActor) -> None:
-        """A role below the project's promote role may not move a linked thread.
-
-        A paused connector only means no ``set_state`` op is queued; the local
-        status still changes.
-        """
-        thread = _live_thread(conn, comment_id)
-        if thread is None or str(thread.get("external_id") or "") in ("", "pending"):
-            return
-        try:
-            evaluate_dispatch(conn, project_id, actor.role, workspace_schema=self.workspace_schema)
-        except DispatchPause:
-            pass
-
-    def _enqueue_status(self, conn, project_id: str, comment_id: str, actor: PromotionActor) -> Optional[Dict]:
-        updated = self._get_comment_with_replies(conn, project_id, comment_id)
-        if updated is not None:
-            enqueue_set_state(
-                conn, project_id=project_id, comment_id=comment_id, actor=actor,
-                local_revision=int(updated.get("revision") or 1),
-                workspace_schema=self.workspace_schema,
-            )
-            updated = self._get_comment_with_replies(conn, project_id, comment_id)
-        return updated
-
-    def _after_root_edit(
-        self, conn, project_id: str, comment_id: str, actor: PromotionActor,
-        *, previous_severity: str, severity_changed: bool, content_changed: bool,
-    ) -> None:
-        updated = self._get_comment_with_replies(conn, project_id, comment_id)
-        if updated is None:
-            return
-        if severity_changed:
-            after_root_severity_change(
-                conn, project_id=project_id, comment=updated, previous_severity=previous_severity,
-                actor=actor, workspace_schema=self.workspace_schema,
-            )
-            updated = self._get_comment_with_replies(conn, project_id, comment_id)
-        if content_changed and updated is not None:
-            after_root_content_edited(
-                conn, project_id=project_id, comment=updated, actor=actor,
-                workspace_schema=self.workspace_schema,
-            )
-
-    def _current_severity(self, conn, project_id: str, comment_id: str) -> str:
-        row = conn.execute(
-            "SELECT severity FROM comments WHERE project_id = %s AND id = %s AND deleted_at IS NULL",
-            (project_id, comment_id),
-        ).fetchone()
-        return str((row or {}).get("severity") or DEFAULT_COMMENT_SEVERITY)
-
-    @_retry_on_deadlock
-    def update_comment_status(
-        self,
-        project_id: str,
-        project_path: str,
-        comment_id: str,
-        status: str,
-        editor: Optional[Editor] = None,
-        expected_revision: Optional[int] = None,
-        promotion_actor: Optional[PromotionActor] = None,
-    ) -> Optional[Dict]:
-        """Resolve or reopen; raises RevisionConflict when the thread moved on."""
-        self.initialize()
-
-        with self._connect() as conn:
-            with conn.transaction():
-                self._bootstrap_project_if_needed(conn, project_id, project_path)
-                if not self._live_root_exists(conn, project_id, comment_id):
-                    return None
-                if promotion_actor is not None:
-                    self._authorize_linked_status(conn, project_id, comment_id, promotion_actor)
-                comments_revisions.set_root_status(
-                    conn, project_id=project_id, comment_id=comment_id, status=status,
-                    editor=editor or _SYSTEM_EDITOR, expected_revision=expected_revision,
-                )
-                if promotion_actor is not None:
-                    return self._enqueue_status(conn, project_id, comment_id, promotion_actor)
-                return self._get_comment_with_replies(conn, project_id, comment_id)
 
     def get_comment(self, project_id: str, project_path: str, comment_id: str) -> Optional[Dict]:
         """One live root with its live replies, or None."""
@@ -564,247 +308,6 @@ class CommentsStoreService:
             (project_id, comment_id),
         ).fetchone())
 
-    def _lock_live_root(self, conn, project_id: str, comment_id: str) -> bool:
-        """Lock a live root so a concurrent tombstone cannot race a reply insert."""
-        return bool(conn.execute(
-            """
-            SELECT 1 FROM comments
-            WHERE project_id = %s AND id = %s AND deleted_at IS NULL
-            FOR UPDATE
-            """,
-            (project_id, comment_id),
-        ).fetchone())
-
-    @_retry_on_deadlock
-    def edit_comment(
-        self,
-        project_id: str,
-        project_path: str,
-        comment_id: str,
-        editor: Editor,
-        expected_revision: Optional[int],
-        content: Optional[str] = None,
-        severity: Optional[str] = None,
-        comment_class: Optional[str] = None,
-        mentions: Optional[List[str]] = None,
-        promotion_actor: Optional[PromotionActor] = None,
-    ) -> Optional[Dict]:
-        """Edit a root's prose/severity/class/mentions as one revision.
-
-        Anchor and location are immutable and deliberately not accepted here.
-        """
-        self.initialize()
-        with self._connect() as conn:
-            with conn.transaction():
-                self._bootstrap_project_if_needed(conn, project_id, project_path)
-                if not self._live_root_exists(conn, project_id, comment_id):
-                    return None
-                previous_severity = self._current_severity(conn, project_id, comment_id)
-                comments_revisions.edit_root(
-                    conn, project_id=project_id, comment_id=comment_id, editor=editor,
-                    expected_revision=expected_revision, content=content,
-                    severity=_normalize_severity(severity) if severity is not None else None,
-                    comment_class=_normalize_comment_class(comment_class) if comment_class is not None else None,
-                    mentions=_normalize_mentions(mentions) if mentions is not None else None,
-                )
-                if promotion_actor is not None:
-                    self._after_root_edit(
-                        conn, project_id, comment_id, promotion_actor,
-                        previous_severity=previous_severity,
-                        severity_changed=severity is not None, content_changed=content is not None,
-                    )
-                return self._get_comment_with_replies(conn, project_id, comment_id)
-
-    @_retry_on_deadlock
-    def patch_comment(
-        self,
-        project_id: str,
-        project_path: str,
-        comment_id: str,
-        editor: Editor,
-        *,
-        expected_revision: Optional[int] = None,
-        content: Optional[str] = None,
-        severity: Optional[str] = None,
-        comment_class: Optional[str] = None,
-        mentions: Optional[List[str]] = None,
-        status: Optional[str] = None,
-        promotion_actor: Optional[PromotionActor] = None,
-    ) -> Optional[Dict]:
-        """Apply an HTTP patch atomically, even when it edits prose and status.
-
-        With ``promotion_actor`` a linked thread queues the matching forge
-        update (issue body, severity label, open/closed) in the same
-        transaction; without it the patch stays Prism-local.
-        """
-        self.initialize()
-        with self._connect() as conn:
-            with conn.transaction():
-                self._bootstrap_project_if_needed(conn, project_id, project_path)
-                if not self._live_root_exists(conn, project_id, comment_id):
-                    return None
-                if status is not None and promotion_actor is not None:
-                    self._authorize_linked_status(conn, project_id, comment_id, promotion_actor)
-                previous_severity = self._current_severity(conn, project_id, comment_id)
-                has_edit = any(value is not None for value in (content, severity, comment_class, mentions))
-                if has_edit:
-                    expected_revision = comments_revisions.edit_root(
-                        conn, project_id=project_id, comment_id=comment_id, editor=editor,
-                        expected_revision=expected_revision, content=content,
-                        severity=_normalize_severity(severity) if severity is not None else None,
-                        comment_class=_normalize_comment_class(comment_class) if comment_class is not None else None,
-                        mentions=_normalize_mentions(mentions) if mentions is not None else None,
-                    )
-                    if promotion_actor is not None:
-                        self._after_root_edit(
-                            conn, project_id, comment_id, promotion_actor,
-                            previous_severity=previous_severity,
-                            severity_changed=severity is not None, content_changed=content is not None,
-                        )
-                if status is not None:
-                    comments_revisions.set_root_status(
-                        conn, project_id=project_id, comment_id=comment_id, status=status,
-                        editor=editor, expected_revision=expected_revision,
-                    )
-                    if promotion_actor is not None:
-                        return self._enqueue_status(conn, project_id, comment_id, promotion_actor)
-                return self._get_comment_with_replies(conn, project_id, comment_id)
-
-    @_retry_on_deadlock
-    def pin_comment_anchor(
-        self,
-        project_id: str,
-        project_path: str,
-        comment_id: str,
-        editor: Editor,
-        *,
-        commit: str,
-        source_revision_key: Optional[str],
-        file_path: Optional[str] = None,
-        project_relative_path: Optional[str] = None,
-        expected_revision: Optional[int] = None,
-    ) -> Optional[Dict]:
-        """Admin pin of an unpinned root. Already-pinned rows stay immutable."""
-        self.initialize()
-        now = _utc_now_iso()
-        with self._connect() as conn:
-            with conn.transaction():
-                self._bootstrap_project_if_needed(conn, project_id, project_path)
-                row = conn.execute(
-                    f"SELECT {_COMMENT_COLUMNS} FROM comments WHERE project_id = %s AND id = %s AND deleted_at IS NULL",
-                    (project_id, comment_id),
-                ).fetchone()
-                if row is None:
-                    return None
-                if _anchor_already_pinned(row):
-                    raise ValueError("anchor fields are immutable")
-                params: List[object] = [
-                    commit, source_revision_key, "manual", ANCHOR_STATE_PINNED,
-                    _optional_str(file_path) or row.get("file_path"),
-                    _optional_str(project_relative_path) or row.get("project_relative_path"),
-                    now, project_id, comment_id,
-                ]
-                guard = " AND anchor_state = %s"
-                params.append(ANCHOR_STATE_UNPINNED)
-                if expected_revision is not None:
-                    guard += " AND revision = %s"
-                    params.append(expected_revision)
-                updated = conn.execute(
-                    f"""
-                    UPDATE comments
-                    SET anchor_commit = %s, anchor_revision_key = %s, anchor_source = %s,
-                        anchor_state = %s, file_path = %s, project_relative_path = %s,
-                        revision = revision + 1, updated_at = %s
-                    WHERE project_id = %s AND id = %s AND deleted_at IS NULL{guard}
-                    RETURNING revision
-                    """,
-                    tuple(params),
-                ).fetchone()
-                if updated is None:
-                    latest = conn.execute(
-                        f"SELECT {_COMMENT_COLUMNS} FROM comments WHERE project_id = %s AND id = %s AND deleted_at IS NULL",
-                        (project_id, comment_id),
-                    ).fetchone()
-                    if latest is None:
-                        return None
-                    if _anchor_already_pinned(latest):
-                        raise ValueError("anchor fields are immutable")
-                    raise comments_revisions.RevisionConflict(
-                        "root", comment_id, int(latest["revision"] or 1),
-                    )
-                comments_revisions.record_revision(
-                    conn, project_id=project_id, target_kind=comments_revisions.ROOT, target_id=comment_id,
-                    revision=int(updated["revision"]), change_kind=comments_revisions.CHANGE_EDIT, editor=editor,
-                    content=row["content"],
-                )
-                return self._get_comment_with_replies(conn, project_id, comment_id)
-
-    @_retry_on_deadlock
-    def edit_reply(
-        self,
-        project_id: str,
-        project_path: str,
-        comment_id: str,
-        reply_id: str,
-        content: str,
-        editor: Editor,
-        expected_revision: Optional[int],
-        promotion_actor: Optional[PromotionActor] = None,
-    ) -> Optional[Dict]:
-        self.initialize()
-        with self._connect() as conn:
-            with conn.transaction():
-                self._bootstrap_project_if_needed(conn, project_id, project_path)
-                if not self._live_reply(conn, project_id, comment_id, reply_id):
-                    return None
-                comments_revisions.edit_reply(
-                    conn, project_id=project_id, reply_id=reply_id, content=content,
-                    editor=editor, expected_revision=expected_revision,
-                )
-                updated = self._get_comment_with_replies(conn, project_id, comment_id)
-                if updated is not None and promotion_actor is not None:
-                    edited = self._live_reply(conn, project_id, comment_id, reply_id)
-                    if edited:
-                        after_reply_edited(
-                            conn, project_id=project_id, comment=updated,
-                            reply=_row_to_reply_dict(edited), actor=promotion_actor,
-                            workspace_schema=self.workspace_schema,
-                        )
-                        updated = self._get_comment_with_replies(conn, project_id, comment_id)
-                return updated
-
-    @_retry_on_deadlock
-    def delete_reply(
-        self,
-        project_id: str,
-        project_path: str,
-        comment_id: str,
-        reply_id: str,
-        editor: Editor,
-        expected_revision: Optional[int] = None,
-        promotion_actor: Optional[PromotionActor] = None,
-    ) -> Optional[Dict]:
-        """Tombstone one reply; history and the row itself are kept."""
-        self.initialize()
-        with self._connect() as conn:
-            with conn.transaction():
-                self._bootstrap_project_if_needed(conn, project_id, project_path)
-                live_reply = self._live_reply(conn, project_id, comment_id, reply_id)
-                if not live_reply:
-                    return None
-                reply_snapshot = _row_to_reply_dict(live_reply)
-                comments_revisions.tombstone_reply(
-                    conn, project_id=project_id, reply_id=reply_id, editor=editor, expected_revision=expected_revision,
-                )
-                updated = self._get_comment_with_replies(conn, project_id, comment_id)
-                if updated is not None and promotion_actor is not None:
-                    after_reply_deleted(
-                        conn, project_id=project_id, comment=updated, reply=reply_snapshot,
-                        actor=promotion_actor, workspace_schema=self.workspace_schema,
-                    )
-                    updated = self._get_comment_with_replies(conn, project_id, comment_id)
-                return updated
-
     def _live_reply(self, conn, project_id: str, comment_id: str, reply_id: str):
         return conn.execute(
             f"""
@@ -819,238 +322,6 @@ class CommentsStoreService:
         with self._connect() as conn:
             row = self._live_reply(conn, project_id, comment_id, reply_id)
             return _row_to_reply_dict(row) if row else None
-
-    def get_history(self, project_id: str, target_kind: str, target_id: str) -> List[Dict]:
-        self.initialize()
-        with self._connect() as conn:
-            return comments_revisions.history(conn, project_id=project_id, target_kind=target_kind, target_id=target_id)
-
-    def get_anchor_bindings(self, project_id: str, comment_ids: List[str]) -> Dict[str, List[Dict]]:
-        """Read manual reattachments in one query; creation stays on the root row."""
-        self.initialize()
-        if not comment_ids:
-            return {}
-        with self._connect() as conn:
-            rows = conn.execute(
-                """SELECT id, comment_id, effective_commit, element_id, file_path,
-                          location_x, location_y, location_layer, location_page, area_bounds, relative_point
-                   FROM comment_anchor_bindings
-                   WHERE project_id = %s AND comment_id = ANY(%s)
-                   ORDER BY id""",
-                (project_id, comment_ids),
-            ).fetchall()
-        bindings: Dict[str, List[Dict]] = {}
-        for row in rows:
-            location = {
-                "x": row["location_x"], "y": row["location_y"],
-                "layer": row["location_layer"], "page": row["location_page"],
-            }
-            if row["area_bounds"] is not None:
-                location["bounds"] = row["area_bounds"]
-            bindings.setdefault(row["comment_id"], []).append({
-                "sequence": int(row["id"]), "commit": row["effective_commit"],
-                "elementId": row["element_id"], "filePath": row["file_path"],
-                "location": location, "relativePoint": row["relative_point"],
-            })
-        return bindings
-
-    @_retry_on_deadlock
-    def reattach_comment(
-        self,
-        project_id: str,
-        project_path: str,
-        comment_id: str,
-        *,
-        commit: str,
-        location: Dict,
-        element_id: Optional[str],
-        relative_point: Optional[List[float]],
-        file_path: Optional[str],
-        editor: Editor,
-        expected_revision: int,
-    ) -> Optional[Dict]:
-        """Append a binding effective from ``commit``; never rewrite origin."""
-        self.initialize()
-        with self._connect() as conn:
-            with conn.transaction():
-                self._bootstrap_project_if_needed(conn, project_id, project_path)
-                row = conn.execute(
-                    """UPDATE comments SET revision = revision + 1, updated_at = %s
-                       WHERE project_id = %s AND id = %s AND scope = 'canvas'
-                         AND deleted_at IS NULL AND revision = %s
-                       RETURNING revision, scope""",
-                    (_utc_now_iso(), project_id, comment_id, expected_revision),
-                ).fetchone()
-                if row is None:
-                    current = conn.execute(
-                        "SELECT revision FROM comments WHERE project_id = %s AND id = %s AND scope = 'canvas' AND deleted_at IS NULL",
-                        (project_id, comment_id),
-                    ).fetchone()
-                    if current is None:
-                        return None
-                    raise RevisionConflict("root", comment_id, int(current["revision"]))
-
-                conn.execute(
-                    """INSERT INTO comment_anchor_bindings (
-                           project_id, comment_id, effective_commit, element_id, file_path,
-                           location_x, location_y, location_layer, location_page, area_bounds, relative_point,
-                           editor_user_id, editor_kind
-                       ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s)""",
-                    (
-                        project_id, comment_id, commit, _optional_str(element_id), _optional_str(file_path),
-                        float(location["x"]), float(location["y"]),
-                        str(location.get("layer", "")), str(location.get("page", "")),
-                        json.dumps(location["bounds"]) if location.get("bounds") is not None else None,
-                        json.dumps(relative_point) if relative_point is not None else None,
-                        editor.user_id, editor.kind,
-                    ),
-                )
-                comments_revisions.record_revision(
-                    conn, project_id=project_id, target_kind=comments_revisions.ROOT,
-                    target_id=comment_id, revision=int(row["revision"]),
-                    change_kind=comments_revisions.CHANGE_REATTACH, editor=editor, emit_change=False,
-                )
-                comment_live_events.record_change(
-                    conn, project_id=project_id, comment_id=comment_id,
-                    scope="canvas", change_kind="anchor",
-                )
-                return self._get_comment_with_replies(conn, project_id, comment_id)
-
-    @_retry_on_deadlock
-    def add_reply(
-        self,
-        project_id: str,
-        project_path: str,
-        comment_id: str,
-        content: str,
-        author: str,
-        author_user_id: Optional[str] = None,
-        author_kind: Optional[str] = None,
-        origin: str = comments_revisions.ORIGIN_PRISM,
-        promotion_actor: Optional[PromotionActor] = None,
-    ) -> Optional[Tuple[Dict, Dict]]:
-        self.initialize()
-        timestamp = _utc_now_iso()
-        reply_id = f"r_{uuid.uuid4().hex[:8]}"
-        author_user_id = _optional_str(author_user_id)
-        author_kind_norm = _optional_str(author_kind) or (AUTHOR_KIND_USER if author_user_id else AUTHOR_KIND_LEGACY)
-
-        with self._connect() as conn:
-            with conn.transaction():
-                self._bootstrap_project_if_needed(conn, project_id, project_path)
-
-                if not self._lock_live_root(conn, project_id, comment_id):
-                    return None
-
-                conn.execute(
-                    """
-                    INSERT INTO comment_replies(
-                        id, comment_id, project_id, author, timestamp, content,
-                        author_user_id, author_kind, revision, updated_at, origin
-                    )
-                    SELECT %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s
-                    FROM comments
-                    WHERE project_id = %s AND id = %s AND deleted_at IS NULL
-                    """,
-                    (reply_id, comment_id, project_id, author, timestamp, content,
-                     author_user_id, author_kind_norm, timestamp, origin,
-                     project_id, comment_id),
-                )
-                inserted = conn.execute(
-                    "SELECT 1 FROM comment_replies WHERE project_id = %s AND id = %s",
-                    (project_id, reply_id),
-                ).fetchone()
-                if not inserted:
-                    return None
-                comments_revisions.record_revision(
-                    conn, project_id=project_id, target_kind=comments_revisions.REPLY, target_id=reply_id,
-                    revision=1, change_kind=comments_revisions.CHANGE_CREATE,
-                    editor=Editor(user_id=author_user_id, kind=author_kind_norm, display=author, origin=origin),
-                    content=content,
-                )
-
-                unsynced_reply_ids: set[str] = set()
-                if promotion_actor is not None:
-                    parent = self._get_comment_with_replies(conn, project_id, comment_id)
-                    created_reply = self._live_reply(conn, project_id, comment_id, reply_id)
-                    if parent and created_reply:
-                        outcome = after_reply_added(
-                            conn, project_id=project_id, comment=parent,
-                            reply=_row_to_reply_dict(created_reply), actor=promotion_actor,
-                            workspace_schema=self.workspace_schema,
-                        )
-                        if outcome.action == "unsynced":
-                            unsynced_reply_ids.add(reply_id)
-                            conn.execute(
-                                "UPDATE comment_replies SET sync_state = %s WHERE project_id = %s AND id = %s",
-                                ("unsynced_local", project_id, reply_id),
-                            )
-
-                updated_comment = self._get_comment_with_replies(
-                    conn, project_id, comment_id, unsynced_reply_ids=unsynced_reply_ids or None,
-                )
-                if not updated_comment:
-                    return None
-
-                created = self._live_reply(conn, project_id, comment_id, reply_id)
-                reply_payload = _row_to_reply_dict(created)
-                if reply_id in unsynced_reply_ids:
-                    reply_payload["sync"] = {"state": "unsynced_local", "reason": "publication_required"}
-                return (updated_comment, reply_payload)
-
-    @_retry_on_deadlock
-    def promote_comment(
-        self, project_id: str, project_path: str, comment_id: str, actor: PromotionActor,
-    ) -> Optional[Dict]:
-        self.initialize()
-        with self._connect() as conn:
-            with conn.transaction():
-                self._bootstrap_project_if_needed(conn, project_id, project_path)
-                current = self._get_comment_with_replies(conn, project_id, comment_id)
-                if current is None:
-                    return None
-                result = manual_promote_root(
-                    conn, project_id=project_id, comment=current, actor=actor,
-                    workspace_schema=self.workspace_schema,
-                )
-                if result.action == "denied":
-                    from app.services.trackers.publication_policy import PublicationDenied
-
-                    raise PublicationDenied(result.code or "publication_required", result.reason or "Publication denied")
-                # The tracked_threads/sync_ops trigger emits the durable
-                # projection event in this transaction for a newly queued op.
-                return self._get_comment_with_replies(conn, project_id, comment_id)
-
-    @_retry_on_deadlock
-    def share_reply(
-        self, project_id: str, project_path: str, comment_id: str,
-        reply_id: str, actor: PromotionActor,
-    ) -> Optional[Dict]:
-        self.initialize()
-        with self._connect() as conn:
-            with conn.transaction():
-                self._bootstrap_project_if_needed(conn, project_id, project_path)
-                current = self._get_comment_with_replies(conn, project_id, comment_id)
-                reply = self._live_reply(conn, project_id, comment_id, reply_id)
-                if current is None or reply is None:
-                    return None
-                enqueue_share_reply(
-                    conn, project_id=project_id, comment=current,
-                    reply=_row_to_reply_dict(reply), actor=actor,
-                    workspace_schema=self.workspace_schema,
-                )
-                conn.execute(
-                    "UPDATE comment_replies SET sync_state = NULL WHERE project_id = %s AND id = %s",
-                    (project_id, reply_id),
-                )
-                comment_live_events.record_change(
-                    conn, project_id=project_id, comment_id=comment_id,
-                    scope=current.get("scope", "canvas"), change_kind="projection",
-                    base_commit=current.get("baseCommit"), compare_commit=current.get("compareCommit"),
-                )
-                return self._get_comment_with_replies(conn, project_id, comment_id)
-
-
 
     def delete_project_comments(self, project_id: str) -> None:
         """Remove every comment listing stored for a deleted project."""
@@ -1070,40 +341,6 @@ class CommentsStoreService:
                     (project_id,),
                 )
 
-    @_retry_on_deadlock
-    def delete_comment(
-        self,
-        project_id: str,
-        project_path: str,
-        comment_id: str,
-        editor: Optional[Editor] = None,
-        expected_revision: Optional[int] = None,
-        promotion_actor: Optional[PromotionActor] = None,
-    ) -> bool:
-        """Tombstone a root and its live replies.
-
-        The rows stay for history and for the tracker's unlink lineage;
-        every read path filters ``deleted_at``. ``delete_project_comments``
-        remains the one hard delete, used when the project itself goes.
-        """
-        self.initialize()
-
-        with self._connect() as conn:
-            with conn.transaction():
-                self._bootstrap_project_if_needed(conn, project_id, project_path)
-                if not self._live_root_exists(conn, project_id, comment_id):
-                    return False
-                comments_revisions.tombstone_root(
-                    conn, project_id=project_id, comment_id=comment_id,
-                    editor=editor or _SYSTEM_EDITOR, expected_revision=expected_revision,
-                )
-                if promotion_actor is not None:
-                    after_root_deleted(
-                        conn, project_id=project_id, comment_id=comment_id, actor=promotion_actor,
-                        workspace_schema=self.workspace_schema,
-                    )
-                return True
-
     def export_comments_json(self, project_id: str, project_path: str) -> str:
         self.initialize()
 
@@ -1111,9 +348,11 @@ class CommentsStoreService:
             with conn.transaction():
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
                 snapshot = self._build_snapshot(conn, project_id)
+                comment_social.strip(snapshot["comments"])
 
                 comments_path = get_project_comments_json_path(project_path)
                 os.makedirs(os.path.dirname(comments_path), exist_ok=True)
+                comment_bundle.write_bundle(conn, project_id, os.path.dirname(comments_path), snapshot)
 
                 fd, tmp_path = tempfile.mkstemp(
                     prefix=".comments-",

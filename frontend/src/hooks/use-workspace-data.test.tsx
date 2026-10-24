@@ -79,6 +79,8 @@ describe("useWorkspaceData", () => {
     expect(result.current.projects.map((p) => p.id)).toEqual(["project-a1"]);
     expect(result.current.stale).toBe(false);
     unmount();
+    // The store lets a key go a microtask after its last observer leaves.
+    await flush();
 
     const remounted = renderHook(() => useWorkspaceData({ sessionKey: alice }));
     expect(remounted.result.current.loading).toBe(false);
@@ -172,6 +174,7 @@ describe("useWorkspaceData", () => {
     const { result, unmount } = renderHook(() => useWorkspaceData({ sessionKey: alice }));
     const snapshot = result.current;
     unmount();
+    await flush();
     expect(loads[0].signal?.aborted).toBe(true);
     await act(async () => loads[0].resolve(bootstrap("late")));
     expect(result.current).toBe(snapshot);

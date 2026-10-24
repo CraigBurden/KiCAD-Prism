@@ -1,10 +1,16 @@
-"""Per-provider construction of tracker adapters.
+"""Provider kits: everything that differs between code hosts.
 
-The tracker runtime (executors, recovery, the provider registry, connector
-administration and inbound webhooks) asks this module for a provider's pieces
-instead of constructing a forge's classes itself. Adding an issue-capable
-provider means adding one ``ProviderKit`` here; nothing else branches on the
-provider name.
+Every host Prism talks to has a ``HostKit``: which instance kinds it accepts and
+how to validate one, its default host name, the shape of its repository paths,
+and how people link accounts on it (OAuth app + identity adapter). A host that
+can also publish issues carries a ``ProviderKit`` in ``HostKit.issues``:
+credential fields, issue and comment adapters (which list their own recovery
+pages), the connection test, the repository picker and web URLs. Gitea/Forgejo
+is a linking-only kit (``issues`` is ``None``), not a set of ``if`` branches.
+
+The tracker runtime (executors, recovery, connector runtime, connector
+administration, identity linking and inbound webhooks) asks this module for a
+provider's pieces instead of branching on the provider name.
 
 Imports of adapter modules stay inside the builder functions so that loading
 this module does not pull every forge's HTTP stack into processes that only
@@ -16,7 +22,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional
 
-from app.services.trackers.contracts import Destination
 from app.services.trackers.errors import ProviderError
 
 # Display names are safe to use anywhere, including for hosts that only link
@@ -24,7 +29,7 @@ from app.services.trackers.errors import ProviderError
 DISPLAY_NAMES: dict[str, str] = {
     "github": "GitHub",
     "gitlab": "GitLab",
-    "gitea": "Gitea",
+    "gitea": "Gitea / Forgejo",
     "forgejo": "Forgejo",
 }
 
@@ -67,10 +72,12 @@ class ProviderKit:
     credential_error: str
     issue_adapter: Callable[[Mapping[str, Any], Mapping[str, Any], Any], Any]
     comment_adapter: Callable[[Any, Mapping[str, Any]], Any]
-    issue_page_fetcher: Callable[..., Any]
-    comment_page_fetcher: Callable[[Any, Destination, str], Any]
     test_connection: Callable[[Mapping[str, Any], Mapping[str, Any]], dict[str, Any]]
     list_repositories: Callable[[Mapping[str, Any], Mapping[str, Any]], list[dict[str, Any]]]
+    # (connector, container path, issue number) -> the issue's web page.
+    issue_web_url: Callable[[Mapping[str, Any], str, Any], str]
+    # (connector, container path, issue number, external comment id) -> the comment's web page.
+    comment_web_url: Callable[[Mapping[str, Any], str, Any, str], str]
 
     def credential_payload(self, credentials: Mapping[str, Any]) -> dict[str, str]:
         """Envelope fields from an admin request, accepting snake_case aliases."""
@@ -128,16 +135,23 @@ def _github_comment_adapter(issue_adapter: Any, connector: Mapping[str, Any]) ->
     )
 
 
-def _github_issue_pages(adapter: Any, dest: Destination, *, since: str | None = None) -> Any:
-    from app.services.trackers.github_recovery import make_issue_page_fetcher
-
-    return make_issue_page_fetcher(adapter, dest, since=since)
 
 
-def _github_comment_pages(adapter: Any, dest: Destination, issue: str) -> Any:
-    from app.services.trackers.github_recovery import make_comment_page_fetcher
+def _github_web_root(connector: Mapping[str, Any]) -> str:
+    from app.services.trackers.github_identity import web_root_for
 
-    return make_comment_page_fetcher(adapter, dest, issue)
+    return web_root_for(
+        instance_kind=str(connector.get("instance_kind") or "github.com"),
+        base_url=str(connector.get("base_url") or ""),
+    )
+
+
+def _github_issue_url(connector: Mapping[str, Any], container_path: str, number: Any) -> str:
+    return f"{_github_web_root(connector)}/{_repo_path(container_path)}/issues/{number}"
+
+
+def _github_comment_url(connector: Mapping[str, Any], container_path: str, number: Any, comment_id: str) -> str:
+    return f"{_github_issue_url(connector, container_path, number)}#issuecomment-{comment_id}"
 
 
 def _github_test(connector: Mapping[str, Any], material: Mapping[str, Any]) -> dict[str, Any]:
@@ -166,10 +180,10 @@ GITHUB = ProviderKit(
     credential_error="GitHub App id, installation id and private key are required.",
     issue_adapter=_github_issue_adapter,
     comment_adapter=_github_comment_adapter,
-    issue_page_fetcher=_github_issue_pages,
-    comment_page_fetcher=_github_comment_pages,
     test_connection=_github_test,
     list_repositories=_github_repositories,
+    issue_web_url=_github_issue_url,
+    comment_web_url=_github_comment_url,
 )
 
 
@@ -213,40 +227,25 @@ def _gitlab_comment_adapter(issue_adapter: Any, connector: Mapping[str, Any]) ->
     )
 
 
-def _gitlab_issue_pages(adapter: Any, dest: Destination, *, since: str | None = None) -> Any:
-    """Recovery pages of bot-authored issues.
-
-    The recovery scanner reads GitHub's issue fields (``body``, ``user.id``,
-    ``number``, ``html_url``); each GitLab issue is presented in that shape so
-    the scanner and its marker validation stay shared.
-    """
-
-    first_url, first_params = adapter.bot_issue_query(dest, since=since)
-
-    def fetch(cursor: Optional[str]) -> Any:
-        # The cursor is GitLab's next-page URL, so a scan can resume or restart.
-        response = adapter._request("GET", cursor or first_url, params=None if cursor else first_params)
-        page = [item for item in adapter._json_list(response) if isinstance(item, dict)]
-        items = [
-            {
-                "id": item.get("id"),
-                "number": item.get("iid"),
-                "body": item.get("description") or "",
-                "user": {"id": (item.get("author") or {}).get("id")},
-                "html_url": item.get("web_url") or "",
-            }
-            for item in page
-        ]
-        return items, response.next_page()
-
-    return fetch
 
 
-def _gitlab_comment_pages(adapter: Any, dest: Destination, issue: str) -> Any:
-    from app.services.trackers.github_recovery import make_comment_page_fetcher
+def _gitlab_web_root(connector: Mapping[str, Any]) -> str:
+    from app.services.trackers.gitlab_auth import web_root_for
 
-    # Provider-neutral: it walks ``adapter.list_comments``.
-    return make_comment_page_fetcher(adapter, dest, issue)
+    return web_root_for(
+        instance_kind=str(connector.get("instance_kind") or "gitlab.com"),
+        base_url=str(connector.get("base_url") or ""),
+    )
+
+
+def _gitlab_issue_url(connector: Mapping[str, Any], container_path: str, number: Any) -> str:
+    return f"{_gitlab_web_root(connector)}/{_repo_path(container_path)}/-/issues/{number}"
+
+
+def _gitlab_comment_url(connector: Mapping[str, Any], container_path: str, number: Any, comment_id: str) -> str:
+    # GitLab reply ids are ``<issue iid>:<note id>``; the page anchors the note.
+    note = str(comment_id).rpartition(":")[2]
+    return f"{_gitlab_issue_url(connector, container_path, number)}#note_{note}"
 
 
 def _gitlab_test(connector: Mapping[str, Any], material: Mapping[str, Any]) -> dict[str, Any]:
@@ -308,27 +307,173 @@ GITLAB = ProviderKit(
     credential_error="A GitLab bot access token is required.",
     issue_adapter=_gitlab_issue_adapter,
     comment_adapter=_gitlab_comment_adapter,
-    issue_page_fetcher=_gitlab_issue_pages,
-    comment_page_fetcher=_gitlab_comment_pages,
     test_connection=_gitlab_test,
     list_repositories=_gitlab_repositories,
+    issue_web_url=_gitlab_issue_url,
+    comment_web_url=_gitlab_comment_url,
+)
+
+
+# --- Hosts: instance validation and account linking --------------------------
+
+
+@dataclass(frozen=True)
+class HostKit:
+    """One code host: instances, repository paths, account linking, and (optionally) issues."""
+
+    provider: str
+    instance_kinds: tuple[str, ...]
+    # Host people recognise when the connector has no base URL; "" when every
+    # instance is self-hosted.
+    default_host: str
+    # GitLab nests projects in groups (``group/sub/project``); GitHub is ``owner/repo``.
+    nested_paths: bool
+    validate_instance: Callable[[str, str], None]
+    # (instance kind, base URL, client id, client secret, redirect URI) -> OAuth app.
+    oauth_app: Callable[[str, str, str, str, str], Any]
+    # (OAuth app, PRISM_FORGE_HOSTS) -> identity adapter.
+    identity_adapter: Callable[[Any, str], Any]
+    # Whether a connection without publishing credentials is still useful (for
+    # account linking). A GitHub connection *is* its App, so without the App's
+    # credentials it counts as revoked.
+    links_without_credentials: bool = True
+    issues: Optional[ProviderKit] = None
+
+    @property
+    def linking_only(self) -> bool:
+        return self.issues is None
+
+
+def _github_validate(instance_kind: str, base_url: str) -> None:
+    if instance_kind == "ghes" and not (base_url or "").strip():
+        raise ProviderError("invalid_request", "GHES connectors require a base URL.")
+
+
+def _github_oauth_app(instance_kind: str, base_url: str, client_id: str, secret: str, redirect_uri: str) -> Any:
+    from app.services.trackers.github_identity import GitHubOAuthApp
+
+    return GitHubOAuthApp(
+        client_id=client_id,
+        client_secret=secret,
+        instance_kind=instance_kind,
+        base_url=base_url,
+        redirect_uri=redirect_uri,
+    )
+
+
+def _github_identity(app: Any, hosts: str) -> Any:
+    from app.services.trackers.github_identity import GitHubIdentityAdapter
+
+    return GitHubIdentityAdapter(app, forge_hosts_raw=hosts)
+
+
+def _gitlab_validate(instance_kind: str, base_url: str) -> None:
+    from app.services.trackers.gitlab_auth import api_root_for
+
+    api_root_for(instance_kind=instance_kind, base_url=base_url)
+
+
+def _gitlab_oauth_app(instance_kind: str, base_url: str, client_id: str, secret: str, redirect_uri: str) -> Any:
+    from app.services.trackers.gitlab_identity import GitLabOAuthApp
+
+    return GitLabOAuthApp(
+        client_id=client_id,
+        client_secret=secret,
+        instance_kind=instance_kind,
+        base_url=base_url,
+        redirect_uri=redirect_uri,
+    )
+
+
+def _gitlab_identity(app: Any, hosts: str) -> Any:
+    from app.services.trackers.gitlab_identity import GitLabIdentityAdapter
+
+    return GitLabIdentityAdapter(app, forge_hosts_raw=hosts)
+
+
+def _gitea_validate(instance_kind: str, base_url: str) -> None:
+    del instance_kind
+    from app.services.trackers.gitea_identity import web_root_for
+
+    web_root_for(base_url)
+
+
+def _gitea_oauth_app(instance_kind: str, base_url: str, client_id: str, secret: str, redirect_uri: str) -> Any:
+    del instance_kind
+    from app.services.trackers.gitea_identity import GiteaOAuthApp
+
+    return GiteaOAuthApp(client_id=client_id, client_secret=secret, base_url=base_url, redirect_uri=redirect_uri)
+
+
+def _gitea_identity(app: Any, hosts: str) -> Any:
+    from app.services.trackers.gitea_identity import GiteaIdentityAdapter
+
+    return GiteaIdentityAdapter(app, forge_hosts_raw=hosts)
+
+
+GITHUB_HOST = HostKit(
+    provider="github",
+    instance_kinds=("github.com", "ghes"),
+    default_host="github.com",
+    nested_paths=False,
+    validate_instance=_github_validate,
+    oauth_app=_github_oauth_app,
+    identity_adapter=_github_identity,
+    links_without_credentials=False,
+    issues=GITHUB,
+)
+GITLAB_HOST = HostKit(
+    provider="gitlab",
+    instance_kinds=("gitlab.com", "self-hosted"),
+    default_host="gitlab.com",
+    nested_paths=True,
+    validate_instance=_gitlab_validate,
+    oauth_app=_gitlab_oauth_app,
+    identity_adapter=_gitlab_identity,
+    issues=GITLAB,
+)
+# Account linking only; one kit serves Gitea and Forgejo servers.
+GITEA_HOST = HostKit(
+    provider="gitea",
+    instance_kinds=("self-hosted",),
+    default_host="",
+    nested_paths=False,
+    validate_instance=_gitea_validate,
+    oauth_app=_gitea_oauth_app,
+    identity_adapter=_gitea_identity,
 )
 
 
 # --- Registry ---------------------------------------------------------------
 
-_KITS: dict[str, ProviderKit] = {GITHUB.provider: GITHUB, GITLAB.provider: GITLAB}
+_HOSTS: dict[str, HostKit] = {kit.provider: kit for kit in (GITHUB_HOST, GITLAB_HOST, GITEA_HOST)}
 _WEBHOOK_FACTORIES: dict[str, Callable[[], WebhookCodec]] = {"github": _github_webhook, "gitlab": _gitlab_webhook}
 
 
+def host_kits() -> tuple[HostKit, ...]:
+    """Every host an admin can connect, in the order they are offered."""
+
+    return tuple(_HOSTS.values())
+
+
+def host_kit(provider: str | None) -> HostKit:
+    kit = _HOSTS.get(provider or "")
+    if kit is None:
+        raise ProviderError("invalid_request", "Unsupported tracker provider.")
+    return kit
+
+
 def is_issue_provider(provider: str | None) -> bool:
-    return (provider or "") in _KITS
+    kit = _HOSTS.get(provider or "")
+    return kit is not None and kit.issues is not None
 
 
 def kit_for(provider: str | None) -> ProviderKit:
-    kit = _KITS.get(provider or "")
-    if kit is not None:
-        return kit
+    """The issue kit for an issue-capable provider; refuses linking-only hosts by name."""
+
+    host = _HOSTS.get(provider or "")
+    if host is not None and host.issues is not None:
+        return host.issues
     if (provider or "") in DISPLAY_NAMES:
         raise ProviderError(
             "capability_missing",
@@ -350,28 +495,44 @@ def comment_adapter_for(connector: Mapping[str, Any], issue_adapter: Any) -> Any
     return kit_for(str(connector.get("provider") or "")).comment_adapter(issue_adapter, connector)
 
 
-# Recovery pages are read with the adapter that will act on the result, so the
-# adapter's own ``kind`` picks the kit; callers cannot pair it with another forge.
-def issue_page_fetcher_for(adapter: Any, dest: Destination, *, since: str | None = None) -> Any:
-    return kit_for(adapter.kind).issue_page_fetcher(adapter, dest, since=since)
+def issue_web_url(connector: Mapping[str, Any], container_path: str, number: Any) -> str:
+    """Web page of an issue, used when the forge's response did not carry one."""
+
+    return kit_for(str(connector.get("provider") or "")).issue_web_url(connector, container_path, number)
 
 
-def comment_page_fetcher_for(adapter: Any, dest: Destination, issue: str) -> Any:
-    return kit_for(adapter.kind).comment_page_fetcher(adapter, dest, issue)
+def comment_web_url(connector: Mapping[str, Any], container_path: str, number: Any, comment_id: str) -> str:
+    """Web page of a comment, used when the forge's response did not carry one."""
+
+    kit = kit_for(str(connector.get("provider") or ""))
+    return kit.comment_web_url(connector, container_path, number, comment_id)
+
+
+def _repo_path(container_path: str) -> str:
+    path = (container_path or "").strip().strip("/")
+    if "/" not in path:
+        raise ValueError("container_path must name a repository")
+    return path
 
 
 __all__ = [
     "DISPLAY_NAMES",
+    "GITEA_HOST",
     "GITHUB",
+    "GITHUB_HOST",
     "GITLAB",
+    "GITLAB_HOST",
+    "HostKit",
     "ProviderKit",
     "WebhookCodec",
     "comment_adapter_for",
-    "comment_page_fetcher_for",
+    "comment_web_url",
     "display_name",
+    "host_kit",
+    "host_kits",
     "is_issue_provider",
     "issue_adapter_for",
-    "issue_page_fetcher_for",
+    "issue_web_url",
     "kit_for",
     "webhook_codec",
 ]

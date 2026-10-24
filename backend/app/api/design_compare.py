@@ -15,9 +15,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app.api._helpers import get_project_for_role_or_404
+from app.core.errors import caller_errors
 from app.core.security import AuthenticatedUser, require_viewer
 from app.services import design_compare_service
-from app.services.job_runtime import job_state_root
+from app.services.job_artifact_service import job_artifacts
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
 
@@ -95,7 +96,7 @@ async def start_design_compare(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     get_project_for_role_or_404(project_id, user.role)
-    try:
+    with caller_errors((ValueError, 400), unexpected="Comparison failed to start"):
         job_id = await asyncio.to_thread(
             design_compare_service.start_design_compare_job,
             project_id,
@@ -105,21 +106,6 @@ async def start_design_compare(
             requested_by=user.email,
         )
         return {"job_id": job_id}
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@router.get("/{project_id}/design-compare/{job_id}/status")
-async def design_compare_status(
-    project_id: str, job_id: str, user: AuthenticatedUser = Depends(require_viewer)
-):
-    get_project_for_role_or_404(project_id, user.role)
-    status = await asyncio.to_thread(design_compare_service.get_job_status, job_id)
-    if not status or status.get("project_id") != project_id:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return status
 
 
 @router.get("/{project_id}/design-compare/{job_id}")
@@ -135,7 +121,8 @@ async def design_compare_result(
     result = await asyncio.to_thread(design_compare_service.get_job_result, job_id)
     if not result:
         raise HTTPException(status_code=404, detail="Result not found")
-    if result.get("schema") == "prism.design_compare_bundle_v1":
+    # v1: the legacy pipeline; v2: `prism-kicad compare` (ADR amendment C2r §9 step 5).
+    if result.get("schema") in ("prism.design_compare_bundle_v1", "prism.design_compare_bundle_v2"):
         sidecars = {
             name: {
                 **metadata,
@@ -177,13 +164,8 @@ async def design_compare_sidecar(
     )
     if not artifact:
         raise HTTPException(status_code=404, detail="Comparison sidecar not found")
-    root = (job_state_root() / "artifacts" / "objects" / "sha256").resolve()
-    path = Path(str(artifact.get("object_path") or "")).resolve()
-    try:
-        path.relative_to(root)
-    except ValueError as error:
-        raise HTTPException(status_code=404, detail="Comparison sidecar not found") from error
-    if not path.is_file():
+    path = job_artifacts.store.contains(str(artifact.get("object_path") or ""))
+    if path is None or not path.is_file():
         raise HTTPException(status_code=404, detail="Comparison sidecar not found")
     return FileResponse(
         path,

@@ -1,0 +1,65 @@
+{
+ "schema": "prism.occurrences.a0",
+ "sheets": [
+  {
+   "sheetPath": "/3864e78d-5fe5-51cb-8013-c70e7368c94c",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": []
+  }
+ ],
+ "symbols": [
+  {
+   "kiidPath": "/3864e78d-5fe5-51cb-8013-c70e7368c94c/72af98b8-8f94-515a-b8ad-c2500955df2f",
+   "sheetPath": "/3864e78d-5fe5-51cb-8013-c70e7368c94c",
+   "symbolUuid": "72af98b8-8f94-515a-b8ad-c2500955df2f",
+   "documentPath": "ambiguous.kicad_sch",
+   "libId": "PrismFixture:Conn_Custom_2x05",
+   "reference": "J1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "PrismFixture:Conn_Custom_2x05",
+    "Reference": "J1",
+    "Value": "Conn_Custom_2x05"
+   },
+   "bomFields": {
+    "value": "Conn_Custom_2x05",
+    "footprint": "PrismFixture:Conn_Custom_2x05"
+   },
+   "variants": []
+  }
+ ],
+ "footprints": [
+  {
+   "uuid": "728727d3-9906-542d-b89f-c0d27a8d505a",
+   "documentPath": "ambiguous.kicad_pcb",
+   "reference": "J1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  }
+ ],
+ "references": [
+  {
+   "reference": "J1",
+   "symbols": [
+    "/3864e78d-5fe5-51cb-8013-c70e7368c94c/72af98b8-8f94-515a-b8ad-c2500955df2f"
+   ],
+   "footprints": [
+    "728727d3-9906-542d-b89f-c0d27a8d505a"
+   ]
+  }
+ ],
+ "variantDeclarations": []
+}

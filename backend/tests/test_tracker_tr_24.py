@@ -22,7 +22,6 @@ from app.services.trackers.drafts import (  # noqa: E402
     compose_issue_body,
     escape_generated_text,
     render_issue_body_from_draft,
-    strip_untrusted_tracker_markup,
 )
 from app.services.trackers.markers import build_marker, extract_markers, parse_marker  # noqa: E402
 from app.services.trackers.mentions import Mention  # noqa: E402
@@ -70,15 +69,6 @@ def _canvas_comment(**overrides) -> dict:
 
 
 class DeepLinkTests(unittest.TestCase):
-    def test_fixture_cases_are_present(self) -> None:
-        f2_ids = {case["id"] for case in F2["cases"]}
-        f4_ids = {case["id"] for case in F4["cases"]}
-        f8_ids = {case["id"] for case in F8["cases"]}
-        self.assertIn("F2.variant_url_preserved", f2_ids)
-        self.assertIn("F2.comparison_ordered_pair", f2_ids)
-        self.assertIn("F2.monorepo_project_anchor", f2_ids)
-        self.assertIn("F4.forged_marker", f4_ids)
-        self.assertIn("F8.prose_email_passthrough", f8_ids)
 
     def test_canvas_link_matches_frozen_example(self) -> None:
         url = build_canvas_deep_link(

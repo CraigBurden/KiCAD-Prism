@@ -21,8 +21,10 @@ import {
     referenceFor,
     semanticCategory,
     stringFieldPair,
+    unionLayers,
 } from "./comparison-change-facts";
 import { formatValue, propertyDeltas } from "./comparison-property-model";
+import { pointMm } from "./design-compare-result";
 import type { BomChangeRow, BomDiff, ChangeItem } from "./types";
 
 export interface ChangeGroup {
@@ -331,15 +333,13 @@ function identityFor(
     const kind = objectKind(change);
     const page = pageFor(change);
     const category = semanticCategory(change);
-    const exactIdentity = change.semantic_id
+    const exactIdentity = change.semanticId
         ?? referenceFor(change)
         ?? change.net
-        ?? change.geometry?.semantic_id
-        ?? change.oldGeometry?.semantic_id
         ?? change.id;
 
     if (category === "rules") {
-        if (kind === "drc_exclusion") {
+        if (kind === "drc-exclusion") {
             return {
                 bucket: "drc-exclusions",
                 idIdentity: "drc-exclusions",
@@ -347,7 +347,7 @@ function identityFor(
                 label: "DRC exclusions",
             };
         }
-        if (kind === "erc_exclusion") {
+        if (kind === "erc-exclusion") {
             return {
                 bucket: "erc-exclusions",
                 idIdentity: "erc-exclusions",
@@ -355,7 +355,7 @@ function identityFor(
                 label: "ERC exclusions",
             };
         }
-        if (kind === "erc_pin_rule") {
+        if (kind === "erc-pin-rule") {
             return {
                 bucket: "erc-pin-compatibility",
                 idIdentity: "erc-pin-compatibility",
@@ -363,7 +363,7 @@ function identityFor(
                 label: "ERC pin compatibility",
             };
         }
-        if (kind === "net_class_assignment") {
+        if (kind === "net-class-assignment") {
             return {
                 bucket: "net-class-assignments",
                 idIdentity: "net-class-assignments",
@@ -398,8 +398,8 @@ function identityFor(
         if (
             change.net
             && category === "nets"
-            && kind !== "no_connect"
-            && kind !== "sheet_pin"
+            && kind !== "no-connect"
+            && kind !== "sheet-pin"
         ) {
             return {
                 bucket: `net:${change.net}`,
@@ -433,7 +433,7 @@ function identityFor(
                 label: "Wiring changes",
             };
         }
-        if (kind === "no_connect" && change.kind !== "changed") {
+        if (kind === "no-connect" && change.kind !== "changed") {
             return {
                 bucket: `no-connect:${page}`,
                 idIdentity: `no-connect:${page}`,
@@ -441,7 +441,7 @@ function identityFor(
                 label: "No-connect markers",
             };
         }
-        if (kind === "sheet_pin") {
+        if (kind === "sheet-pin") {
             return {
                 bucket: `sheet-pins:${page}`,
                 idIdentity: `sheet-pins:${page}`,
@@ -479,13 +479,9 @@ function identityFor(
             );
         }
         if (category === "zones") {
-            const layer = change.layers?.join(", ")
-                || change.compare_item?.layers?.join(", ")
-                || change.compare_item?.layer
-                || change.base_item?.layers?.join(", ")
-                || change.base_item?.layer
-                || change.geometry?.layer
-                || change.oldGeometry?.layer
+            const layer = unionLayers(change).join(", ")
+                || change.head?.layer
+                || change.base?.layer
                 || null;
             const zoneName = change.net?.trim() || "Unconnected";
             return {
@@ -522,7 +518,7 @@ function identityFor(
             };
         }
         if (category === "graphics") {
-            const layer = change.layers?.join(", ") || change.geometry?.layer || "Documentation";
+            const layer = unionLayers(change).join(", ") || "Documentation";
             const foldedLayer = layer.toLocaleLowerCase();
             if (foldedLayer.includes("edge.cuts")) {
                 return {
@@ -547,7 +543,7 @@ function identityFor(
                 bucket: `graphics:${layer}:${kind}`,
                 idIdentity: `graphics:${layer}:${kind}`,
                 category,
-                label: `${layer} ${kind.replace(/_/g, " ")}`,
+                label: `${layer} ${kind.replace(/[-_]/g, " ")}`,
             };
         }
     }
@@ -699,19 +695,10 @@ export function groupChanges(
             continue;
         }
         const change = group.changes[0];
-        const bounds = change?.geometry?.bounds ?? change?.oldGeometry?.bounds;
-        const at = change?.position_compare
-            ?? change?.position_base
-            ?? (change?.geometry?.x !== undefined && change.geometry.y !== undefined
-                ? [change.geometry.x, change.geometry.y] as [number, number]
-                : null)
-            ?? (change?.oldGeometry?.x !== undefined && change.oldGeometry.y !== undefined
-                ? [change.oldGeometry.x, change.oldGeometry.y] as [number, number]
-                : null)
-            ?? change?.details?.visualTargets?.find((target) => target.at)?.at
-            ?? (bounds
-                ? [bounds[0] + bounds[2] / 2, bounds[1] + bounds[3] / 2] as [number, number]
-                : null);
+        const point = change?.head?.at
+            ?? change?.base?.at
+            ?? change?.details.targets?.find((target) => target.at)?.at;
+        const at = point ? pointMm(point) : null;
         if (at) {
             const coordinate = (value: number) => Number(value.toFixed(2)).toString();
             group.label = `${group.label} · at ${coordinate(at[0])}, ${coordinate(at[1])}`;

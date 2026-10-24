@@ -1,5 +1,7 @@
 # Architecture Notes
 
+> **Superseded (2026-10-23).** This describes the removed mesh pipeline (`topology_compiler`, `prism.semantic_gltf_a0`, Python `kicad_monkey` copper). The viewer now draws boards from the design bundle's analytic model ([README](../README.md), [ADR amendment V2](../../docs/architecture/adr-native-design-bundle-amendment-v2.md)). Kept as a historical record.
+
 ## Runtime Shape
 
 The visualiser is driven by `topology_model_a0`, not by a Prism viewer API.

@@ -1,5 +1,7 @@
 # kicad_monkey Rust PCB integration report
 
+> **Superseded (2026-10-23).** This review concerns the Python `kicad_monkey` / `prism-kicad-native` path that the native design bundle replaced ([ADR](../architecture/adr-native-design-bundle.md)). Kept as a historical record.
+
 Date: 2026-09-21
 Branch: `feat/kicad-monkey-rust-pcb`
 Baseline: `origin/dev` at `6e0a0ae52f196bede8660ea426d60cf65d69442c`

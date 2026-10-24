@@ -15,9 +15,9 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Iterator, Mapping, Sequence
 
+from app.core import errors
 from app.release_studio.canonical import sha256_canonical
 from app.services.postgres_database import database
-from app.services.workspace_schema_migrations import apply_workspace_migrations
 
 CANDIDATE_STATUSES = ("draft", "building", "built", "failed", "superseded", "frozen")
 
@@ -39,13 +39,6 @@ def connect() -> Iterator[Any]:
     with database.connection() as conn:
         conn.execute("SET search_path TO workspace, public")
         yield conn
-
-
-def initialize() -> None:
-    with connect() as conn:
-        conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-schema",))
-        apply_workspace_migrations(conn)
-        conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -299,6 +292,8 @@ def create_candidate(
     hermetic: bool,
     non_hermetic_reasons: Sequence[str] = (),
     closure_inputs: Sequence[Mapping[str, Any]] = (),
+    model_inputs: Sequence[Mapping[str, Any]] = (),
+    self_contained: bool | None = None,
     policy_snapshot_captured: bool = False,
     policy_document: Mapping[str, Any] | None = None,
     configuration_snapshot_captured: bool = False,
@@ -331,15 +326,16 @@ def create_candidate(
                 id, project_id, repository_id, config_key, commit_sha, variant,
                 technical_config_digest, input_closure_digest, toolchain_digest,
                 generator_build, build_key, status, hermetic, non_hermetic_reasons,
-                policy_snapshot_captured, policy_document,
+                self_contained, policy_snapshot_captured, policy_document,
                 configuration_snapshot_captured, configuration_document, created_by
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s)
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 candidate_id, project_id, repository_id, config_key, commit_sha,
                 variant, technical_config_digest, input_closure_digest,
                 toolchain_digest, generator_build, build_key, hermetic,
-                json.dumps(list(non_hermetic_reasons)), policy_snapshot_captured,
+                json.dumps(list(non_hermetic_reasons)), self_contained,
+                policy_snapshot_captured,
                 json.dumps(dict(policy_document)) if policy_document is not None else None,
                 configuration_snapshot_captured,
                 json.dumps(dict(configuration_document)) if configuration_document is not None else None,
@@ -363,6 +359,22 @@ def create_candidate(
                     json.dumps(dict(item.get("details") or {})),
                 ),
             )
+        for item in model_inputs:
+            conn.execute(
+                """
+                INSERT INTO ws_release_model_inputs(
+                    id, candidate_id, source_path, reference, location,
+                    resolved_path, digest, advisory
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (candidate_id, source_path, reference) DO NOTHING
+                """,
+                (
+                    _new_id("mi"), candidate_id, str(item["source_path"]),
+                    str(item["reference"]), str(item["location"]),
+                    str(item.get("resolved_path") or ""), str(item.get("digest") or ""),
+                    bool(item.get("advisory")),
+                ),
+            )
         append_audit_event(
             conn,
             project_id=project_id,
@@ -378,66 +390,6 @@ def create_candidate(
             "SELECT * FROM ws_release_candidates WHERE id = %s", (candidate_id,)
         ).fetchone()
     return dict(row)
-
-
-def record_prepare_failure(
-    *,
-    project_id: str,
-    repository_id: str,
-    config_key: str,
-    commit_sha: str,
-    variant: str,
-    job_id: str | None,
-    fence: int,
-    author: str,
-    error: str,
-) -> dict[str, Any]:
-    """Persist an attempt that failed before configuration/closure preparation.
-
-    This deliberately uses a separate, clearly synthetic identity namespace:
-    it preserves the operator-visible failure without claiming it is a valid
-    successful technical candidate or permitting it to collide with one.
-    """
-
-    # A failed preparation has no trusted project config to load. Persist a
-    # minimal, normalized diagnostic context instead of re-opening mutable Git
-    # when an operator views the retained attempt.
-    from app.release_studio.config import technical_config_digest
-
-    failure_configuration = {
-        "schema": "prism.release-studio.configuration/1",
-        "title": f"Preparation failure: {config_key}",
-        "board": "",
-        "schematic": "",
-        "default_variant": variant,
-        "fields": {},
-        "notes": {"failure_context": "preparation did not complete"},
-        "variants": [],
-        "typography": "inter",
-        "vendors": [],
-        "document_number": "",
-        "revision": "",
-    }
-    candidate = create_candidate(
-        project_id=project_id,
-        repository_id=repository_id,
-        config_key=config_key,
-        commit_sha=commit_sha,
-        variant=variant,
-        technical_config_digest=technical_config_digest(failure_configuration),
-        input_closure_digest=sha256_canonical({"prepare_failure": True, "commit": commit_sha}),
-        toolchain_digest=sha256_canonical({"prepare_failure": "toolchain-unavailable"}),
-        generator_build="release-studio/prepare-failure",
-        hermetic=False,
-        non_hermetic_reasons=["build preparation did not complete"],
-        configuration_snapshot_captured=True,
-        configuration_document=failure_configuration,
-        created_by=author,
-    )
-    # The worker publishes diagnostic evidence while the attempt is still
-    # running, then performs its single terminal transition with the artifact
-    # id. Terminal rows are never patched after the fact.
-    return start_build(candidate["id"], job_id=job_id, fence=fence)
 
 
 def list_candidates(project_id: str, config_key: str | None = None) -> list[dict[str, Any]]:
@@ -458,6 +410,22 @@ def get_candidate(candidate_id: str) -> dict[str, Any] | None:
             "SELECT * FROM ws_release_candidates WHERE id = %s", (candidate_id,)
         ).fetchone()
     return dict(row) if row else None
+
+
+def model_inputs(candidate_id: str) -> list[dict[str, Any]]:
+    """The 3D model references a candidate's closure resolved."""
+
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT source_path, reference, location, resolved_path, digest, advisory
+            FROM ws_release_model_inputs
+            WHERE candidate_id = %s
+            ORDER BY source_path, reference
+            """,
+            (candidate_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def set_candidate_status(candidate_id: str, status: str, *, actor: str = "") -> dict[str, Any]:
@@ -495,316 +463,6 @@ def set_candidate_status(candidate_id: str, status: str, *, actor: str = "") -> 
 # ---------------------------------------------------------------------------
 # Builds
 # ---------------------------------------------------------------------------
-
-
-def start_build(candidate_id: str, *, job_id: str | None, fence: int) -> dict[str, Any]:
-    with connect() as conn:
-        attempt = int(
-            (
-                conn.execute(
-                    "SELECT COUNT(*) AS n FROM ws_release_builds WHERE candidate_id = %s",
-                    (candidate_id,),
-                ).fetchone()
-                or {"n": 0}
-            )["n"]
-        ) + 1
-        build_id = _new_id("build")
-        conn.execute(
-            """
-            INSERT INTO ws_release_builds(
-                id, candidate_id, job_id, fence, attempt, status, started_at
-            ) VALUES (%s,%s,%s,%s,%s,'running',NOW())
-            """,
-            (build_id, candidate_id, job_id, fence, attempt),
-        )
-        conn.execute(
-            "UPDATE ws_release_candidates SET status='building', updated_at=NOW() WHERE id=%s",
-            (candidate_id,),
-        )
-        conn.commit()
-        row = conn.execute("SELECT * FROM ws_release_builds WHERE id = %s", (build_id,)).fetchone()
-    return dict(row)
-
-
-def complete_build(
-    *,
-    build_id: str,
-    dossier,
-    toolchain: Mapping[str, Any],
-    dossier_artifact_id: str | None = None,
-    evidence_artifact_id: str | None = None,
-    fence: int | None = None,
-    actor: str = "",
-    warnings: Sequence[str] = (),
-    projections: Mapping[str, Any] | None = None,
-    timings: Sequence[Mapping[str, Any]] = (),
-) -> dict[str, Any]:
-    """Finalize one build in a single transaction, re-validating the fence.
-
-    Object storage and PostgreSQL are separate systems, so this is fenced and
-    crash-safe rather than atomic.  The property that matters is that a stale
-    worker can never make its artifact authoritative.
-    """
-
-    with connect() as conn:
-        build = conn.execute(
-            "SELECT * FROM ws_release_builds WHERE id = %s FOR UPDATE", (build_id,)
-        ).fetchone()
-        if build is None:
-            raise ReleaseStudioError("build not found")
-        if build["status"] != "running":
-            raise ReleaseStudioError(
-                f"cannot complete terminal/non-running build with status {build['status']!r}"
-            )
-        if fence is not None and int(build["fence"]) != int(fence):
-            raise ReleaseStudioError(
-                f"stale fence: build holds {build['fence']}, caller presented {fence}"
-            )
-        candidate = conn.execute(
-            "SELECT * FROM ws_release_candidates WHERE id = %s", (build["candidate_id"],)
-        ).fetchone()
-        conn.execute(
-            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-            (f"release-audit:{candidate['project_id']}:{candidate['config_key']}",),
-        )
-
-        conn.execute(
-            """
-            UPDATE ws_release_builds SET
-                status='succeeded', manifest_digest=%s, dossier_digest=%s,
-                dossier_artifact_id=%s, evidence_artifact_id=%s,
-                toolchain=%s, warnings=%s, timings=%s, completed_at=NOW()
-            WHERE id = %s
-            """,
-            (
-                dossier.manifest_digest, dossier.dossier_digest,
-                dossier_artifact_id, evidence_artifact_id,
-                json.dumps(dict(toolchain)), json.dumps(list(warnings)),
-                # Phase wall clock, so "where did the build go?" is answerable
-                # from the build row instead of by unpacking build-evidence.
-                # Evidence only: never hashed into a fingerprint or manifest.
-                json.dumps([dict(item) for item in timings]), build_id,
-            ),
-        )
-        conn.execute("DELETE FROM ws_release_members WHERE build_id = %s", (build_id,))
-        for member in dossier.members:
-            member_id = _new_id("mem")
-            conn.execute(
-                """
-                INSERT INTO ws_release_members(
-                    id, build_id, path, member_kind, media_type, size_bytes,
-                    released_digest, source_raw_digest, canonicalizer
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                """,
-                (
-                    member_id, build_id, member.path, member.member_kind,
-                    member.media_type, member.size_bytes, member.released_digest,
-                    member.source_raw_digest, member.canonicalizer,
-                ),
-            )
-            for domain in member.domains:
-                conn.execute(
-                    """
-                    INSERT INTO ws_release_member_domains(member_id, build_id, domain)
-                    VALUES (%s,%s,%s) ON CONFLICT DO NOTHING
-                    """,
-                    (member_id, build_id, domain),
-                )
-
-        conn.execute("DELETE FROM ws_release_evidence WHERE build_id = %s", (build_id,))
-        for record in dossier.evidence:
-            conn.execute(
-                """
-                INSERT INTO ws_release_evidence(id, build_id, kind, report_digest, counts)
-                VALUES (%s,%s,%s,%s,%s)
-                """,
-                (
-                    _new_id("ev"), build_id, record["kind"],
-                    record["report_digest"], json.dumps(record["counts"]),
-                ),
-            )
-
-        conn.execute(
-            "DELETE FROM ws_release_build_projections WHERE build_id = %s", (build_id,)
-        )
-        for name, payload in sorted(dict(projections or {}).items()):
-            if not payload:
-                continue
-            conn.execute(
-                """
-                INSERT INTO ws_release_build_projections(build_id, name, digest, payload)
-                VALUES (%s,%s,%s,%s)
-                """,
-                (build_id, name, sha256_canonical(payload), json.dumps(payload)),
-            )
-
-        conn.execute("DELETE FROM ws_release_scope_fingerprints WHERE build_id = %s", (build_id,))
-        for domain, record in dossier.fingerprints.items():
-            conn.execute(
-                """
-                INSERT INTO ws_release_scope_fingerprints(
-                    build_id, domain, fingerprint, inputs, fidelity
-                ) VALUES (%s,%s,%s,%s,%s)
-                """,
-                (
-                    build_id, domain, record["fingerprint"],
-                    json.dumps(record["inputs"]), record.get("fidelity", "artifact"),
-                ),
-            )
-
-        for artifact_id, kind in (
-            (dossier_artifact_id, "dossier"),
-            (evidence_artifact_id, "build_evidence"),
-        ):
-            if artifact_id:
-                conn.execute(
-                    """
-                    INSERT INTO ws_artifact_release_pins(artifact_id, pin_kind, pin_ref)
-                    VALUES (%s,%s,%s) ON CONFLICT (artifact_id) DO NOTHING
-                    """,
-                    (artifact_id, kind, build_id),
-                )
-
-        conn.execute(
-            "UPDATE ws_release_candidates SET status='built', updated_at=NOW() WHERE id=%s",
-            (build["candidate_id"],),
-        )
-        append_audit_event(
-            conn,
-            project_id=candidate["project_id"],
-            config_key=candidate["config_key"],
-            event_type="build.succeeded",
-            actor=actor,
-            subject_kind="build",
-            subject_id=build_id,
-            details={
-                "manifest_digest": dossier.manifest_digest,
-                "dossier_digest": dossier.dossier_digest,
-                "members": len(dossier.members),
-            },
-        )
-        conn.commit()
-        row = conn.execute("SELECT * FROM ws_release_builds WHERE id = %s", (build_id,)).fetchone()
-    return dict(row)
-
-
-def fail_build(
-    build_id: str,
-    *,
-    error_code: str,
-    error_message: str,
-    actor: str = "",
-    evidence_artifact_id: str | None = None,
-) -> None:
-    with connect() as conn:
-        build = conn.execute(
-            "SELECT * FROM ws_release_builds WHERE id = %s FOR UPDATE", (build_id,)
-        ).fetchone()
-        if build is None:
-            return
-        if build["status"] != "running":
-            raise ReleaseStudioError(
-                f"cannot fail terminal/non-running build with status {build['status']!r}"
-            )
-        candidate = conn.execute(
-            "SELECT * FROM ws_release_candidates WHERE id = %s", (build["candidate_id"],)
-        ).fetchone()
-        conn.execute(
-            """
-            UPDATE ws_release_builds SET status='failed', error_code=%s,
-                   error_message=%s,
-                   evidence_artifact_id=COALESCE(%s, evidence_artifact_id),
-                   completed_at=NOW() WHERE id=%s
-            """,
-            (error_code, error_message[:2000], evidence_artifact_id, build_id),
-        )
-        if evidence_artifact_id:
-            conn.execute(
-                """
-                INSERT INTO ws_artifact_release_pins(artifact_id, pin_kind, pin_ref)
-                VALUES (%s, 'build_evidence', %s)
-                ON CONFLICT (artifact_id) DO NOTHING
-                """,
-                (evidence_artifact_id, build_id),
-            )
-        conn.execute(
-            "UPDATE ws_release_candidates SET status='failed', updated_at=NOW() WHERE id=%s",
-            (build["candidate_id"],),
-        )
-        append_audit_event(
-            conn,
-            project_id=candidate["project_id"],
-            config_key=candidate["config_key"],
-            event_type="build.failed",
-            actor=actor,
-            subject_kind="build",
-            subject_id=build_id,
-            details={
-                "error_code": error_code,
-                "evidence_artifact_id": evidence_artifact_id or "",
-            },
-        )
-        conn.commit()
-
-
-def cancel_build(
-    build_id: str,
-    *,
-    message: str,
-    evidence_artifact_id: str | None = None,
-    actor: str = "",
-) -> None:
-    """Terminally cancel a build without misreporting it as a tool failure."""
-
-    with connect() as conn:
-        build = conn.execute(
-            "SELECT * FROM ws_release_builds WHERE id = %s FOR UPDATE", (build_id,)
-        ).fetchone()
-        if build is None:
-            return
-        if build["status"] != "running":
-            raise ReleaseStudioError(
-                f"cannot cancel terminal/non-running build with status {build['status']!r}"
-            )
-        candidate = conn.execute(
-            "SELECT * FROM ws_release_candidates WHERE id = %s", (build["candidate_id"],)
-        ).fetchone()
-        conn.execute(
-            """
-            UPDATE ws_release_builds SET status='cancelled', error_code='cancelled',
-                   error_message=%s,
-                   evidence_artifact_id=COALESCE(%s, evidence_artifact_id),
-                   completed_at=NOW() WHERE id=%s
-            """,
-            (message[:2000], evidence_artifact_id, build_id),
-        )
-        if evidence_artifact_id:
-            conn.execute(
-                """
-                INSERT INTO ws_artifact_release_pins(artifact_id, pin_kind, pin_ref)
-                VALUES (%s, 'build_evidence', %s)
-                ON CONFLICT (artifact_id) DO NOTHING
-                """,
-                (evidence_artifact_id, build_id),
-            )
-        # Candidates model immutable identities, not worker outcomes. The
-        # attempt carries the cancelled state; returning the candidate to draft
-        # leaves a retry available without representing cancellation as failure.
-        conn.execute(
-            "UPDATE ws_release_candidates SET status='draft', updated_at=NOW() WHERE id=%s",
-            (build["candidate_id"],),
-        )
-        append_audit_event(
-            conn,
-            project_id=candidate["project_id"],
-            config_key=candidate["config_key"],
-            event_type="build.cancelled",
-            actor=actor,
-            subject_kind="build",
-            subject_id=build_id,
-            details={"evidence_artifact_id": evidence_artifact_id or ""},
-        )
-        conn.commit()
 
 
 def get_build(build_id: str) -> dict[str, Any] | None:
@@ -929,12 +587,11 @@ REVIEW_SLOTS = ("designer", "qa")
 REVIEW_DECISIONS = ("approved", "withdrawn")
 
 
-class ReviewDecisionError(ReleaseStudioError):
-    """A review or publish gate refused the request."""
+class ReviewDecisionError(errors.DomainError, ReleaseStudioError):
+    """A review or publish gate refused the request (409 unless given)."""
 
     def __init__(self, message: str, *, status_code: int = 409) -> None:
-        super().__init__(message)
-        self.status_code = status_code
+        super().__init__(message, status_code=status_code)
 
 
 def _json_object(value: Any) -> dict[str, Any]:
@@ -1035,6 +692,7 @@ def build_approval_state(
     publish_row: Mapping[str, Any] | None,
     actor_email: str = "",
     actor_role: str = "",
+    unpinned_models: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     digest = str(build.get("dossier_digest") or "")
     designer = _active_approval(designer_row, digest)
@@ -1087,6 +745,8 @@ def build_approval_state(
         "can_withdraw": can_withdraw,
         "can_publish": can_publish,
         "blocked_reason": " ".join(blocked) if not can_publish and not published else "",
+        # Approve and publish each need these acknowledged; they never block.
+        "unpinned_models": [dict(item) for item in unpinned_models],
     }
 
 
@@ -1133,6 +793,7 @@ def record_review_decision(
     electrical_errors: Sequence[str] = (),
     build_status: str = "",
     config_key: str = "",
+    acknowledged_models: Sequence[str] = (),
 ) -> dict[str, Any]:
     if slot not in REVIEW_SLOTS:
         raise ReviewDecisionError("Unknown review slot.", status_code=400)
@@ -1190,10 +851,14 @@ def record_review_decision(
         conn.execute(
             """
             INSERT INTO ws_release_review_decisions(
-                id, project_id, build_id, slot, actor, decision, note, dossier_digest
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                id, project_id, build_id, slot, actor, decision, note, dossier_digest,
+                acknowledged_models
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
-            (row_id, project_id, build_id, slot, actor, decision, written, digest),
+            (
+                row_id, project_id, build_id, slot, actor, decision, written, digest,
+                json.dumps(list(acknowledged_models)),
+            ),
         )
         append_audit_event(
             conn,
@@ -1203,7 +868,12 @@ def record_review_decision(
             actor=actor,
             subject_kind="build",
             subject_id=build_id,
-            details={"slot": slot, "note": written, "dossier_digest": digest},
+            details={
+                "slot": slot,
+                "note": written,
+                "dossier_digest": digest,
+                "acknowledged_models": list(acknowledged_models),
+            },
         )
         conn.commit()
     return latest_review_decision(build_id, slot) or {}
@@ -1220,6 +890,7 @@ def record_publish(
     forge_url: str,
     asset_names: Sequence[str],
     config_key: str = "",
+    acknowledged_models: Sequence[str] = (),
 ) -> dict[str, Any]:
     existing = get_publish_record(build_id)
     if existing:
@@ -1231,8 +902,8 @@ def record_publish(
                 """
                 INSERT INTO ws_release_publish_records(
                     id, project_id, build_id, tag, commit_sha, dossier_digest,
-                    published_by, forge_url, asset_names
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    published_by, forge_url, asset_names, acknowledged_models
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
                     row_id,
@@ -1244,6 +915,7 @@ def record_publish(
                     published_by,
                     forge_url,
                     json.dumps(list(asset_names)),
+                    json.dumps(list(acknowledged_models)),
                 ),
             )
             append_audit_event(
@@ -1254,7 +926,12 @@ def record_publish(
                 actor=published_by,
                 subject_kind="build",
                 subject_id=build_id,
-                details={"tag": tag, "forge_url": forge_url, "asset_names": list(asset_names)},
+                details={
+                    "tag": tag,
+                    "forge_url": forge_url,
+                    "asset_names": list(asset_names),
+                    "acknowledged_models": list(acknowledged_models),
+                },
             )
             conn.commit()
     except Exception as exc:
@@ -1276,28 +953,24 @@ __all__ = [
     "append_audit_event",
     "audit_head",
     "build_evidence",
-    "cancel_build",
     "build_fingerprints",
     "build_members",
-    "complete_build",
     "compute_build_key",
     "connect",
     "create_candidate",
     "current_audit_head",
-    "fail_build",
     "get_artifact",
     "get_build",
     "get_candidate",
     "get_configuration",
     "get_source_defaults",
     "save_source_defaults",
-    "initialize",
     "latest_build",
     "list_builds",
     "list_audit_events",
     "list_candidates",
     "list_configurations",
-    "record_prepare_failure",
+    "model_inputs",
     "record_publish",
     "record_review_decision",
     "ReviewDecisionError",
@@ -1308,6 +981,5 @@ __all__ = [
     "list_review_decisions",
     "selected_vendor_packs_ready",
     "set_candidate_status",
-    "start_build",
     "upsert_configuration",
 ]

@@ -1,12 +1,10 @@
 """Compute and store the descriptive metadata behind the project card.
 
-The workspace preview panel used to call an endpoint that read both KiCad
-files and scanned them on every open. The facts it wants -- header fields and
-board size -- change only when the files change, so they are computed once per
-import or sync and stored. ``/properties`` is then a single row read.
-
-Board size comes from ``kicad-cli``; header fields come from a bounded read of
-the file's first 256 KB. Neither is derived from a full-file scan of our own.
+The facts the card wants -- header fields and board size -- are stored once per
+import or sync. ``/properties`` serves them from the design bundle's
+``projections/project.json`` member (ADR §8, §9.7 R1); board size still comes
+from ``kicad-cli`` because the member does not carry it (ADR §2.1). Neither is
+derived from a full-file scan of our own.
 """
 
 from __future__ import annotations
@@ -18,6 +16,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.services import kicad_board_stats_service, project_properties_service
+from app.services.project_history_scope import ProjectHistory, project_history
 from app.services.workspace_service import workspace
 
 
@@ -32,34 +31,12 @@ def locate_project_file(project_path: str, anchor: Optional[str] = None) -> Opti
     project the rendered board does. Absence is normal: a directory can hold
     design files with no project file, and that is not an error here.
     """
-    from app.services import semantic_visualizer_service
+    from app.services import kicad_project_locator
 
     try:
-        return str(semantic_visualizer_service.find_kicad_project(project_path, anchor))
+        return str(kicad_project_locator.find_kicad_project(project_path, anchor))
     except (OSError, ValueError):
         return None
-
-
-def _read_project_text_variables(
-    project_file: Optional[str],
-) -> tuple[dict[str, str], str]:
-    """The project's ``text_variables`` and the name KiCad knows it by.
-
-    A malformed project file must not fail the metadata job: the board may
-    still render and its title block may not reference any variable at all.
-    """
-    if not project_file:
-        return {}, ""
-
-    project_name = Path(project_file).stem
-    try:
-        from kicad_monkey import KiCadProject
-
-        project = KiCadProject.from_file(project_file)
-    except Exception as error:  # malformed JSON, unreadable file, ...
-        logger.warning("Could not read text variables from %s: %s", project_file, error)
-        return {}, project_name
-    return dict(project.text_variables), project_name
 
 
 def source_fingerprint(
@@ -126,7 +103,9 @@ def repo_fingerprint(repo_path: Optional[str]) -> str:
         return ""
 
 
-def compute_repository_facts(repo_path: str, relative_path: Optional[str]) -> dict[str, Any]:
+def compute_repository_facts(
+    repo_path: str, relative_path: Optional[str], history: Optional[ProjectHistory] = None
+) -> dict[str, Any]:
     """The latest commit and tag the card shows.
 
     ``get_releases_filtered`` counts files under the subproject path for every
@@ -134,7 +113,6 @@ def compute_repository_facts(repo_path: str, relative_path: Optional[str]) -> di
     a job rather than in the request that opens a panel.
     """
     from app.services.git_service import (
-        get_commits_list,
         get_commits_list_filtered,
         get_releases,
         get_releases_filtered,
@@ -142,10 +120,9 @@ def compute_repository_facts(repo_path: str, relative_path: Optional[str]) -> di
 
     if relative_path:
         releases = get_releases_filtered(repo_path, relative_path)
-        latest_page = get_commits_list_filtered(repo_path, relative_path, 1)
     else:
         releases = get_releases(repo_path)
-        latest_page = get_commits_list(repo_path, 1)
+    latest_page = get_commits_list_filtered(repo_path, relative_path, 1, history=history)
 
     latest_commits = latest_page["commits"] if isinstance(latest_page, dict) else latest_page
     return {
@@ -154,55 +131,92 @@ def compute_repository_facts(repo_path: str, relative_path: Optional[str]) -> di
     }
 
 
-def compute_project_metadata(
-    project_path: str,
-    schematic_path: Optional[str],
-    pcb_path: Optional[str],
-    *,
-    anchor: Optional[str] = None,
-) -> dict[str, Any]:
-    """Read what the files say about themselves.
+def _board_facts(pcb_path: Optional[str]) -> tuple[dict[str, Any], str]:
+    """The reduced ``kicad-cli`` stats for a board, and the source label.
 
     kicad-cli failure is not an error here. A deployment without the toolchain,
     or a board it refuses, still yields a usable card -- one without a size on
     it. Failing the whole job would leave the panel with nothing at all, which
     is strictly worse and would also make the toolchain a hard dependency of
-    browsing the workspace.
-
-    ``anchor`` picks the project's own ``.kicad_pro`` when a directory holds
-    more than one, and that project's ``text_variables`` expand the title
-    block fields of both documents.
+    browsing the workspace. ``""`` labels "no stats", which the card and the job details both read;
+    it is what distinguishes a board with no outline from an unavailable tool.
     """
-    project_file = locate_project_file(project_path, anchor)
-    project_variables, project_name = _read_project_text_variables(project_file)
+    if not pcb_path:
+        return {}, ""
+    try:
+        stats = kicad_board_stats_service.export_board_stats(pcb_path)
+        return kicad_board_stats_service.board_facts(stats), kicad_board_stats_service.SOURCE
+    except kicad_board_stats_service.BoardStatsUnavailable as error:
+        logger.warning("Board statistics unavailable for %s: %s", pcb_path, error)
+        return {}, ""
 
-    board_facts: dict[str, Any] = {}
-    stats_source = ""
-    if pcb_path:
-        try:
-            stats = kicad_board_stats_service.export_board_stats(pcb_path)
-            board_facts = kicad_board_stats_service.board_facts(stats)
-            stats_source = kicad_board_stats_service.SOURCE
-        except kicad_board_stats_service.BoardStatsUnavailable as error:
-            logger.warning("Board statistics unavailable for %s: %s", pcb_path, error)
 
+def _bundle_file_metadata(
+    project_id: str,
+    pcb_path: Optional[str],
+    files_fingerprint: str,
+    *,
+    requested_by: str = "",
+) -> dict[str, Any]:
+    """The card's file metadata from the bundle's ``projections/project.json``.
+
+    ``bundle_read`` reads the checkout's HEAD when no commit is named and raises
+    ``DesignDataPending`` while the member builds (it queues the job) or
+    ``DesignDataFailed`` when it cannot be built; the metadata job retries the
+    former and fails with the latter. A member that is a final non-member (no
+    project file) leaves both card halves empty. Board size and thickness are
+    still read from the checkout's board, so the card keeps the same values.
+    """
+    from app.services.design_bundle import consumer
+
+    read = consumer.bundle_read(
+        "PROJECT_METADATA", project_id, None, ["projections/project.json"], requested_by=requested_by
+    )
+    board_facts, stats_source = _board_facts(pcb_path)
+    if not read.ready("projections/project.json"):
+        return {
+            "schematic": None,
+            "pcb": None,
+            "source_fingerprint": files_fingerprint,
+            "board_stats_source": stats_source,
+        }
+    member = read.json("projections/project.json")
+    card = project_properties_service.card_from_project_member(member, board_facts)
     return {
-        "schematic": project_properties_service.compute_schematic_metadata(
-            project_path,
-            schematic_path,
-            project_variables=project_variables,
-            project_name=project_name,
-        ),
-        "pcb": project_properties_service.compute_pcb_metadata(
-            project_path,
-            pcb_path,
-            board_facts,
-            project_variables=project_variables,
-            project_name=project_name,
-        ),
-        "source_fingerprint": source_fingerprint(schematic_path, pcb_path, project_file),
+        "schematic": card["schematic"],
+        "pcb": card["pcb"],
+        "source_fingerprint": files_fingerprint,
         "board_stats_source": stats_source,
     }
+
+
+def card_from_bundle(project_id: str, *, requested_by: str = "") -> tuple[dict[str, Any], dict[str, str]]:
+    """The card's ``schematic`` and ``pcb`` dicts, read straight from the bundle.
+
+    The properties route serves this rather than a stored row, so opening a
+    project answers with the revision the bundle names. Board size and
+    thickness come from the stored row when the import or metadata job has
+    recorded them; the member itself does not carry them (ADR §2.1). Also
+    returns the response headers that say HEAD was served over a dirty tree.
+    """
+    from app.services.design_bundle import consumer
+
+    read = consumer.bundle_read(
+        "PROJECT_METADATA",
+        project_id,
+        None,
+        ["projections/project.json"],
+        requested_by=requested_by,
+    )
+    headers = read.response_headers()
+    if not read.ready("projections/project.json"):
+        return {"schematic": None, "pcb": None}, headers
+    stored = workspace.get_project_metadata(project_id) or {}
+    pcb = stored.get("pcb") or {}
+    facts = {"dimensions_mm": pcb.get("dimensions_mm"), "thickness_mm": pcb.get("thickness_mm")}
+    card = project_properties_service.card_from_project_member(read.json("projections/project.json"), facts)
+    return card, headers
+
 
 
 def refresh_project_metadata(
@@ -221,6 +235,11 @@ def refresh_project_metadata(
     pass -- 30 s on a large board -- and a push that only moved HEAD is not a
     reason to pay it. Repository facts are always recomputed: they are the
     cheap half and they are what a push actually changes.
+
+    When the files have changed, a ready ``projections/project.json`` bundle
+    member supplies the header fields (ADR §8, flag ``PROJECT_METADATA``);
+    otherwise the legacy readers read the checkout. Either way the stored row
+    and the fingerprint are the same.
     """
     stored = workspace.get_project_metadata(project_id)
     files_fingerprint = source_fingerprint(
@@ -236,15 +255,15 @@ def refresh_project_metadata(
             "reused_file_metadata": True,
         }
     else:
-        computed = compute_project_metadata(
-            project_path, schematic_path, pcb_path, anchor=anchor
-        )
+        computed = _bundle_file_metadata(project_id, pcb_path, files_fingerprint)
         computed["reused_file_metadata"] = False
 
     repository: Optional[dict[str, Any]] = None
     if repo_path:
         try:
-            repository = compute_repository_facts(repo_path, relative_path)
+            rows = workspace.get_projects_by_repo(str(row["repo_id"])) if (row := workspace.get_project_by_id(project_id)) else []
+            history = project_history(relative_path or "", anchor, project_id, rows)
+            repository = compute_repository_facts(repo_path, relative_path, history)
         except Exception as error:
             # A card without a commit line beats a job that fails and leaves
             # the whole row unwritten.

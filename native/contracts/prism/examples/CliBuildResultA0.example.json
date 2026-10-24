@@ -1,0 +1,58 @@
+{
+  "schema": "prism.cli.build_result.a0",
+  "stage": "parse",
+  "stages": [
+    {
+      "stage": "parse",
+      "status": "failed",
+      "error": {
+        "code": "source-unparseable",
+        "message": "Unbalanced opening parenthesis",
+        "location": {
+          "path": "sources/broken.kicad_sch",
+          "line": 1,
+          "column": 1,
+          "offset": 0
+        }
+      },
+      "failed_members": []
+    },
+    {
+      "stage": "board",
+      "status": "skipped",
+      "skip_reason": "earlier-stage-failed",
+      "failed_members": []
+    },
+    {
+      "stage": "models",
+      "status": "skipped",
+      "skip_reason": "earlier-stage-failed",
+      "failed_members": []
+    }
+  ],
+  "archive_bytes": 3927,
+  "archive_sha256": "b4c3d4b04fbaa9bc4e0aa83bd41a885768632896488b1bef25e7b1053a71e65b",
+  "written_members": [
+    {
+      "path": "bundle.json",
+      "bytes": 1963,
+      "sha256": "2261e0ea1b23e1ae69c36340887f10300ed24243f9ba853defa3c2ac1c420883"
+    },
+    {
+      "path": "sources/broken.kicad_pcb",
+      "bytes": 3688,
+      "sha256": "1e81b1f4bf86a0b732bd593c46bdcd5202f0a44a59ef517eb464a008979641b0"
+    },
+    {
+      "path": "sources/broken.kicad_pro",
+      "bytes": 860,
+      "sha256": "41eee78536b07d3ff81dbf62e186402272afbeb12362793965489d50e729eed6"
+    },
+    {
+      "path": "sources/broken.kicad_sch",
+      "bytes": 2050,
+      "sha256": "8be1f0272a62ebe5604a0bc442b4652c5ed2b368a64549e9fa9198d47fc13521"
+    }
+  ],
+  "warnings": []
+}

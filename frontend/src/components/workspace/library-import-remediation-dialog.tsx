@@ -7,21 +7,27 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import type { ProjectComponentImportProposal } from "@/types/catalog";
+import { blockingImportFindings, customImportProblems, importMetadataProblems, isFieldRequired } from "@/lib/catalog-field-rules";
+import type { CatalogMetadataField, ImportMetadataOverrides, ProjectComponentImportProposal } from "@/types/catalog";
+import { acceptExtraFields, scannedExtraFields } from "./library-import-custom-fields";
 
 export interface ProposalRemediation {
-  metadata_overrides: Record<string, string>;
+  metadata_overrides: ImportMetadataOverrides;
   asset_selections: Record<string, string[]>;
   change_summary: string;
 }
 
 interface LibraryImportRemediationDialogProps {
   proposal: ProjectComponentImportProposal | null;
+  /** Active custom metadata fields; each gets an input (D43). */
+  customFields?: readonly CatalogMetadataField[];
   open: boolean;
   submitting: boolean;
   onOpenChange: (open: boolean) => void;
   onAccept: (remediation: ProposalRemediation) => void;
 }
+
+const NO_CUSTOM_FIELDS: readonly CatalogMetadataField[] = [];
 
 const assetIcon = (assetType: string) => assetType === "symbol" ? FileCode2 : assetType === "footprint" ? CircuitBoard : Box;
 
@@ -53,7 +59,9 @@ function initialSelections(
   return defaults;
 }
 
-export function LibraryImportRemediationDialog({ proposal, open, submitting, onOpenChange, onAccept }: LibraryImportRemediationDialogProps) {
+export function LibraryImportRemediationDialog({
+  proposal, customFields = NO_CUSTOM_FIELDS, open, submitting, onOpenChange, onAccept,
+}: LibraryImportRemediationDialogProps) {
   const assetsByType = useMemo(() => {
     const grouped: Record<string, ProjectComponentImportProposal["assets"]> = {};
     for (const asset of proposal?.assets || []) (grouped[asset.asset_type] ||= []).push(asset);
@@ -68,18 +76,30 @@ export function LibraryImportRemediationDialog({ proposal, open, submitting, onO
   const [selections, setSelections] = useState<Record<string, string[]>>(
     () => initialSelections(assetsByType),
   );
+  // Only the custom values the reviewer typed; the rest come from the symbol's own fields.
+  const [editedExtras, setEditedExtras] = useState<Record<string, string>>({});
   const [changeSummary, setChangeSummary] = useState(
     () => `Import ${proposal?.reference || "component"} from Prism project`,
   );
 
-  const requiredMetadataComplete = ["value", "description", "datasheet", "manufacturer", "manufacturer_part_number"]
-    .every((field) => metadata[field]?.trim());
+  const scannedExtras = useMemo(() => (proposal ? scannedExtraFields(proposal) : {}), [proposal]);
+  const extraValue = (storageKey: string) => editedExtras[storageKey] ?? scannedExtras[storageKey] ?? "";
+
+  // The same rules the server applies when accepting.
+  const metadataProblems = [
+    ...importMetadataProblems(metadata),
+    ...customImportProblems(customFields, { ...scannedExtras, ...editedExtras }),
+  ];
+  const accept = () => {
+    const extraFields = proposal ? acceptExtraFields(proposal, editedExtras) : undefined;
+    onAccept({
+      metadata_overrides: extraFields ? { ...metadata, extra_fields: extraFields } : metadata,
+      asset_selections: selections,
+      change_summary: changeSummary,
+    });
+  };
   const requiredAssetsComplete = ["symbol", "footprint"].every((assetType) => selections[assetType]?.length === 1);
-  const unresolvable = (proposal?.findings || []).filter((finding) =>
-    finding.severity === "error"
-    && !finding.code.startsWith("missing_metadata_")
-    && !finding.code.startsWith("conflicting_")
-  );
+  const unresolvable = blockingImportFindings(proposal?.findings || []);
 
   const setField = (field: string, value: string) => setMetadata((current) => ({ ...current, [field]: value }));
   const selectPrimary = (assetType: string, sha256: string) => setSelections((current) => ({ ...current, [assetType]: [sha256] }));
@@ -94,7 +114,7 @@ export function LibraryImportRemediationDialog({ proposal, open, submitting, onO
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Review project component</DialogTitle>
-          <DialogDescription>Complete required metadata and choose the immutable assets that will enter the draft revision.</DialogDescription>
+          <DialogDescription className="sr-only">Required metadata and assets for the draft revision</DialogDescription>
         </DialogHeader>
 
         {proposal && <div className="space-y-6">
@@ -105,6 +125,15 @@ export function LibraryImportRemediationDialog({ proposal, open, submitting, onO
             <div className="space-y-1.5"><Label htmlFor="import-datasheet">Datasheet</Label><Input id="import-datasheet" value={metadata.datasheet || ""} onChange={(event) => setField("datasheet", event.target.value)} /></div>
             <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="import-description">Description</Label><Textarea id="import-description" value={metadata.description || ""} onChange={(event) => setField("description", event.target.value)} /></div>
             <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="import-footprint">Footprint mapping</Label><Input id="import-footprint" value={metadata.package_name || ""} onChange={(event) => setField("package_name", event.target.value)} /></div>
+            {customFields.map((field) => {
+              const id = `import-custom-${field.id}`;
+              const value = extraValue(field.storage_key);
+              const required = isFieldRequired(field);
+              return <div key={field.id} className="space-y-1.5">
+                <Label htmlFor={id}>{field.label || field.key}{required ? <span className="text-destructive"> *</span> : null}</Label>
+                <Input id={id} value={value} aria-invalid={required && !value.trim()} onChange={(event) => setEditedExtras((current) => ({ ...current, [field.storage_key]: event.target.value }))} />
+              </div>;
+            })}
           </section>
 
           <section>
@@ -124,7 +153,7 @@ export function LibraryImportRemediationDialog({ proposal, open, submitting, onO
                   })}</div>
                 </div>;
               })}
-              {Object.keys(assetsByType).length === 0 && <p className="border p-3 text-sm text-muted-foreground">No assets were extracted.</p>}
+              {Object.keys(assetsByType).length === 0 && <p className="p-3 text-sm text-muted-foreground">No assets</p>}
             </div>
           </section>
 
@@ -135,8 +164,9 @@ export function LibraryImportRemediationDialog({ proposal, open, submitting, onO
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>Cancel</Button>
           <Button
-            onClick={() => onAccept({ metadata_overrides: metadata, asset_selections: selections, change_summary: changeSummary })}
-            disabled={submitting || !requiredMetadataComplete || !requiredAssetsComplete || unresolvable.length > 0 || !changeSummary.trim()}
+            onClick={accept}
+            title={metadataProblems.join("\n") || undefined}
+            disabled={submitting || metadataProblems.length > 0 || !requiredAssetsComplete || unresolvable.length > 0 || !changeSummary.trim()}
           >
             {submitting ? "Creating revision…" : "Accept as draft revision"}
           </Button>

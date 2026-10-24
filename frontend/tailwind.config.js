@@ -45,6 +45,13 @@ module.exports = {
                     DEFAULT: 'hsl(var(--warning))',
                     foreground: 'hsl(var(--warning-foreground))',
                 },
+                kind: {
+                    board: 'hsl(var(--kind-board))',
+                    module: 'hsl(var(--kind-module))',
+                    subsystem: 'hsl(var(--kind-subsystem))',
+                    harness: 'hsl(var(--kind-harness))',
+                    link: 'hsl(var(--kind-link))',
+                },
                 border: 'hsl(var(--border))',
                 input: 'hsl(var(--input))',
                 ring: 'hsl(var(--ring))',

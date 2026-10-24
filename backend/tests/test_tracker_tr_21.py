@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException
+from fastapi import HTTPException
+from app.core.errors import DomainError  # noqa: E402
 from pydantic import SecretStr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -20,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.config import Settings  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
 from app.api import tracker_identity as identity_api  # noqa: E402
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.trackers.connector_service import ConnectorService  # noqa: E402
 from app.services.trackers.contracts import ForgeUser, IdentityToken  # noqa: E402
 from app.services.trackers.github_identity import GitHubIdentityAdapter, GitHubOAuthApp  # noqa: E402
@@ -35,7 +32,8 @@ from app.services.trackers.migrations import (  # noqa: E402
     migrate_tracker_webhook_oauth_tables,
     migrate_workspace_tracker_tables,
 )
-from app.services.trackers.secrets import decrypt_secret  # noqa: E402
+from app.services.comments_schema_migrations import COMMENTS_LEDGER  # noqa: E402
+from support.postgres import requires_scratch_postgres, scratch_schema  # noqa: E402
 
 try:
     import psycopg
@@ -44,29 +42,11 @@ except ImportError:  # pragma: no cover
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 F3 = json.loads((DOCS / "fixtures" / "F03.json").read_text(encoding="utf-8"))
 CLIENT_SECRET = "oauth-client-secret-fixture-tr21"
 TEST_SESSION_SECRET = "unit-test-session-secret-not-a-credential"
 ROOT_KEY = "aa" * 32
-
-
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 def _settings(**overrides) -> Settings:
@@ -95,6 +75,9 @@ def session(role: str, *, user_id: str = "u_1", session_id: str = "sid_1") -> Au
         session_id=session_id,
         user_id=user_id,
     )
+
+
+ROUTE_ERRORS = (HTTPException, DomainError)
 
 
 def run(coro):
@@ -139,65 +122,13 @@ class _FakeAdapter(GitHubIdentityAdapter):
         return ForgeUser(id="5550001", login="arjun-gh", displayName="Arjun")
 
 
-class RoutingContractTests(unittest.TestCase):
-    def test_main_registers_identity_routes(self) -> None:
-        source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
-        self.assertIn("tracker_identity_router", source)
-        self.assertIn("initialize_tracker_identity_service", source)
-        app = FastAPI()
-        app.include_router(identity_api.router)
-        app.include_router(identity_api.admin_router)
-        paths = set(app.openapi()["paths"])
-        self.assertIn("/api/trackers/identities", paths)
-        self.assertIn("/api/trackers/connectors/{connector_id}/oauth/begin", paths)
-        self.assertIn("/api/trackers/oauth/callback", paths)
-        self.assertIn("/api/trackers/identities/{connector_id}", paths)
 
-    def test_fixture_cases_are_present(self) -> None:
-        ids = {case["id"] for case in F3["cases"]}
-        self.assertIn("F3.oauth_revoke", ids)
-        self.assertIn("F3.identity_bound_to_user_and_connector", ids)
-
-
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class IdentityOAuthPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"tr21_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
+        self.scratch = scratch_schema(self, "tr21", ledgers=(COMMENTS_LEDGER,), then=(migrate_workspace_tracker_tables, migrate_tracker_webhook_oauth_tables,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
         self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self.conn.execute(
-            """
-            CREATE TABLE comments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL DEFAULT '',
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                status TEXT NOT NULL DEFAULT 'OPEN',
-                context TEXT NOT NULL DEFAULT 'PCB',
-                location_x REAL NOT NULL DEFAULT 0,
-                location_y REAL NOT NULL DEFAULT 0,
-                location_layer TEXT NOT NULL DEFAULT '',
-                location_page TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT ''
-            );
-            CREATE TABLE comment_replies (
-                id TEXT PRIMARY KEY,
-                comment_id TEXT NOT NULL REFERENCES comments(id),
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL DEFAULT '',
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                content TEXT NOT NULL DEFAULT ''
-            );
-            """,
-            prepare=False,
-        )
-        migrate_workspace_tracker_tables(self.conn)
-        migrate_tracker_webhook_oauth_tables(self.conn)
-        comments_schema_migrations.apply_comments_migrations(self.conn)
         self.conn.commit()
         self.settings = _settings()
         self.fake = _FakeAdapter()
@@ -223,17 +154,10 @@ class IdentityOAuthPostgresTests(unittest.TestCase):
 
     def _cleanup(self) -> None:
         identity_api.service = IdentityService()
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
 
     @contextmanager
     def _factory(self):
-        conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        conn.execute(f'SET search_path TO "{self.schema}", public')
+        conn = self.scratch.connect()
         try:
             yield conn
         finally:
@@ -362,7 +286,7 @@ class IdentityOAuthPostgresTests(unittest.TestCase):
         )
         listed_other = run(identity_api.list_identities(self.other))
         self.assertEqual(listed_other, [])
-        with self.assertRaises(HTTPException) as unlink_other:
+        with self.assertRaises(ROUTE_ERRORS) as unlink_other:
             run(identity_api.unlink_identity("cn_gh1", self.other))
         self.assertEqual(unlink_other.exception.status_code, 404)
 

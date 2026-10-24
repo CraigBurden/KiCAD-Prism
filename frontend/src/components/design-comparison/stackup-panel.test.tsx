@@ -9,6 +9,8 @@ describe("StackupPanel", () => {
                 stackup={{
                     base: [],
                     head: [],
+                    baseSettings: {},
+                    headSettings: {},
                     changed: false,
                     present: false,
                 }}
@@ -20,12 +22,14 @@ describe("StackupPanel", () => {
     });
 
     it("shows both stackups even when they are identical", () => {
-        const layers = [{ name: "F.Cu", type: "copper", thickness: 0.035 }];
+        const layers = [{ name: "F.Cu", type: "copper", thicknessNm: 35000 }];
         const view = render(
             <StackupPanel
                 stackup={{
                     base: layers,
                     head: layers,
+                    baseSettings: {},
+                    headSettings: {},
                     changed: false,
                     present: true,
                 }}
@@ -40,8 +44,10 @@ describe("StackupPanel", () => {
         const view = render(
             <StackupPanel
                 stackup={{
-                    base: [{ name: "F.Cu", type: "copper", thickness: 0.035 }],
-                    head: [{ name: "F.Cu", type: "copper", thickness: 0.07 }],
+                    base: [{ name: "F.Cu", type: "copper", thicknessNm: 35000 }],
+                    head: [{ name: "F.Cu", type: "copper", thicknessNm: 70000 }],
+                    baseSettings: {},
+                    headSettings: {},
                     changed: true,
                     present: true,
                 }}
@@ -59,21 +65,21 @@ describe("StackupPanel", () => {
                     base: [{
                         name: "dielectric 1",
                         type: "core",
-                        thickness: 1.2,
+                        thicknessNm: 1_200_000,
                         material: "FR4",
-                        epsilon_r: 4.2,
-                        loss_tangent: 0.02,
+                        epsilonR: 4.2,
+                        lossTangent: 0.02,
                     }],
                     head: [{
                         name: "dielectric 1",
                         type: "core",
-                        thickness: 1.2,
+                        thicknessNm: 1_200_000,
                         material: "Megtron 6",
-                        epsilon_r: 3.6,
-                        loss_tangent: 0.004,
+                        epsilonR: 3.6,
+                        lossTangent: 0.004,
                     }],
-                    base_settings: { copper_finish: "HASL", dielectric_constraints: false },
-                    head_settings: { copper_finish: "ENIG", dielectric_constraints: true },
+                    baseSettings: { copperFinish: "HASL", dielectricConstraints: false },
+                    headSettings: { copperFinish: "ENIG", dielectricConstraints: true },
                     changed: true,
                     present: true,
                 }}

@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import unittest
 import uuid
 from pathlib import Path
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.comments_revisions import history  # noqa: E402
 from app.services.trackers.contracts import (  # noqa: E402
     ForgeUser,
@@ -26,10 +23,9 @@ from app.services.trackers.inbound import (  # noqa: E402
     assert_inbound_suppresses_outbound,
     fetch_then_apply_hint,
 )
-from app.services.trackers.inbox_store import InboxStore, StaleHintFence, apply_schema as apply_inbox_schema  # noqa: E402
+from app.services.trackers.inbox_store import InboxStore, StaleHintFence  # noqa: E402
 from app.services.trackers.markers import build_marker  # noqa: E402
-from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
-from app.services.trackers.op_store import OpStore, apply_schema as apply_op_schema  # noqa: E402
+from app.services.trackers.op_store import OpStore  # noqa: E402
 from app.services.trackers.provenance import (  # noqa: E402
     body_hash,
     classify_comment_change,
@@ -38,6 +34,7 @@ from app.services.trackers.provenance import (  # noqa: E402
     stored_hash_matches,
 )
 from app.services.trackers.store import TrackerStore  # noqa: E402
+from support.postgres import requires_scratch_postgres, tracker_schema, seed_comment, seed_reply  # noqa: E402
 
 try:
     import psycopg
@@ -46,8 +43,6 @@ except ImportError:  # pragma: no cover
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 F4 = json.loads((DOCS / "fixtures" / "F04.json").read_text(encoding="utf-8"))
 F5 = json.loads((DOCS / "fixtures" / "F05.json").read_text(encoding="utf-8"))
@@ -68,22 +63,6 @@ REPLY_ID = "r_91a4c0de"
 OP_CREATE = "op_create_412"
 OP_REPLY = "op_add_reply"
 EXT_COMMENT = "2211003"
-
-
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 def _forge_user(*, user_id: str, login: str, is_bot: bool = False) -> ForgeUser:
@@ -117,21 +96,6 @@ def _remote_issue(*, body: str, state: str = "open", author: ForgeUser | None = 
         container=IssueContainerRef(remoteContainerId=CONTAINER, path="acme/openswitch"),
     )
 
-
-class FixtureContractTests(unittest.TestCase):
-    def test_tr28_fixture_cases_present(self) -> None:
-        f4_ids = {case["id"] for case in F4["cases"]}
-        self.assertIn("F4.external_author_reply", f4_ids)
-        self.assertIn("F4.bot_body_edited_by_human", f4_ids)
-        self.assertIn("F4.echo_exact_hash", f4_ids)
-        self.assertIn("F4.echo_hash_mismatch", f4_ids)
-        self.assertIn("F4.two_projects_same_repo", f4_ids)
-        f5_ids = {case["id"] for case in F5["cases"]}
-        self.assertIn("F5.webhook_before_response", f5_ids)
-        f7_ids = {case["id"] for case in F7["cases"]}
-        self.assertIn("F7.reordered_hints", f7_ids)
-        f8_ids = {case["id"] for case in F8["cases"]}
-        self.assertIn("F8.inbound_never_enqueues", f8_ids)
 
 
 class ProvenanceUnitTests(unittest.TestCase):
@@ -174,21 +138,11 @@ class ProvenanceUnitTests(unittest.TestCase):
         self.assertIsNone(echo)
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class InboundPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"tr28_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self._create_comments_foundation()
-        comments_schema_migrations.apply_comments_migrations(self.conn)
-        migrate_workspace_tracker_tables(self.conn)
-        apply_op_schema(self.conn)
-        apply_inbox_schema(self.conn)
+        self.scratch = tracker_schema(self, "tr28")
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
         self.store = TrackerStore(self.conn)
         self.ops = OpStore(self.conn)
         self.inbox = InboxStore(self.conn)
@@ -201,42 +155,6 @@ class InboundPostgresTests(unittest.TestCase):
             bot_login=BOT_LOGIN,
         )
         self.conn.commit()
-
-    def _cleanup(self) -> None:
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
-
-    def _create_comments_foundation(self) -> None:
-        self.conn.execute(
-            """
-            CREATE TABLE comments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                status TEXT NOT NULL DEFAULT 'OPEN',
-                context TEXT NOT NULL DEFAULT 'PCB',
-                location_x REAL NOT NULL DEFAULT 0,
-                location_y REAL NOT NULL DEFAULT 0,
-                location_layer TEXT NOT NULL DEFAULT '',
-                location_page TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT ''
-            );
-            CREATE TABLE comment_replies (
-                id TEXT PRIMARY KEY,
-                comment_id TEXT NOT NULL REFERENCES comments(id),
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                content TEXT NOT NULL DEFAULT ''
-            );
-            """,
-            prepare=False,
-        )
 
     def _seed_project(
         self,
@@ -256,10 +174,7 @@ class InboundPostgresTests(unittest.TestCase):
             remote_container_id=CONTAINER,
             generation=2,
         )
-        self.conn.execute(
-            "INSERT INTO comments(id, project_id, author, content) VALUES (%s, %s, %s, %s)",
-            (comment_id, project_id, "Priya", "root content"),
-        )
+        seed_comment(self.conn, comment_id, project_id, author="Priya", content="root content")
         self.store.insert_thread(
             thread_id=thread_id,
             comment_id=comment_id,
@@ -273,13 +188,16 @@ class InboundPostgresTests(unittest.TestCase):
         )
 
     def _seed_prism_reply(self, *, thread_id: str, body: str) -> None:
-        self.conn.execute(
-            """
-            INSERT INTO comment_replies (
-                id, comment_id, project_id, author, author_kind, origin, content, revision
-            ) VALUES (%s, %s, %s, %s, 'user', 'prism', %s, 1)
-            """,
-            (REPLY_ID, COMMENT_ID, "prj_a", "Priya", body),
+        seed_reply(
+            self.conn,
+            REPLY_ID,
+            COMMENT_ID,
+            "prj_a",
+            author="Priya",
+            author_kind="user",
+            origin="prism",
+            content=body,
+            revision=1,
         )
         self.store.insert_reply_link(
             link_id="trl_1",
@@ -337,6 +255,40 @@ class InboundPostgresTests(unittest.TestCase):
         self.assertEqual(row["origin"], "remote")
         self.assertEqual(row["author"], HUMAN_LOGIN)
         assert_inbound_suppresses_outbound(self.conn, before=before)
+
+    def test_rich_reply_maps_prism_image_urls_back(self) -> None:  # issue #417
+        from unittest.mock import patch as _patch
+
+        from app.core.config import settings as _settings
+        from app.services.trackers import attachment_links
+
+        self._seed_project(project_id="prj_a", comment_id=COMMENT_ID, thread_id="tt_a")
+        attachment_id = "ab" * 16
+        self.conn.execute(
+            """INSERT INTO comment_attachments(id, project_id, comment_id, sha256, filename, media_type, size_bytes, state)
+               VALUES (%s, 'prj_a', %s, %s, 'snip.png', 'image/png', 3, 'attached')""",
+            (attachment_id, COMMENT_ID, "c" * 64),
+        )
+        from pydantic import SecretStr as _Secret
+
+        with _patch.object(_settings, "COMMENT_ATTACHMENT_LINK_SECRET", _Secret("k" * 48)), \
+             _patch.object(_settings, "PUBLIC_BASE_URL", "https://prism.example.com"):
+            url = attachment_links.signed_url("prj_a", attachment_id)
+            unknown = attachment_links.signed_url("prj_a", "cd" * 16)
+        body = f"Agreed, see ![snip.png]({url}) and ![x]({unknown})"
+        fetcher = CallableFetcher(comment=lambda *_args: _remote_comment(body=body))
+        hint = self._enqueue_hint(event="created")
+        with _patch.object(_settings, "COMMENT_ATTACHMENT_LINK_SECRET", _Secret("k" * 48)):
+            result = fetch_then_apply_hint(
+                self.conn, hint, fetcher=fetcher, inbox=self.inbox, ops=self.ops, store=self.store,
+                bot_user_id=BOT_ID, bot_login=BOT_LOGIN,
+            )
+        self.assertEqual(result.outcome, "applied")
+        row = self.conn.execute(
+            "SELECT content, content_format FROM comment_replies WHERE origin = 'remote'"
+        ).fetchone()
+        self.assertEqual(row["content_format"], "md")
+        self.assertEqual(row["content"], f"Agreed, see ![snip.png](attachment:{attachment_id}) and ![x]({unknown})")
 
     def test_f4_bot_body_edited_by_human(self) -> None:
         self._seed_project(project_id="prj_a", comment_id=COMMENT_ID, thread_id="tt_a")

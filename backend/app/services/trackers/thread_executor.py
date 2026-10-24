@@ -11,16 +11,14 @@ no @wraps monkey-patch of ``create_executor.execute_claimed_op``.
 from __future__ import annotations
 
 import json
-from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Iterator, Mapping
+from typing import Any, Mapping
 
 from app.core.config import settings
+from app.services.trackers import attachment_links
 from app.services.trackers.contracts import IssuePatch, RemoteComment, RemoteIssue
-from app.services.trackers.create_executor import (
-    _issue_adapter,
-    _load_execution_context,
-)
+from app.services.trackers.connector_runtime import connector_runtime
+from app.services.trackers.create_executor import load_execution_context
 from app.services.trackers.drafts import (
     DraftAttribution,
     DraftRenderInput,
@@ -33,7 +31,6 @@ from app.services.trackers.executor_support import (
     policy_check,
 )
 from app.services.trackers.github_recovery import next_quarantine_at
-from app.services.trackers.providers import comment_page_fetcher_for
 from app.services.trackers.markers import build_marker
 from app.services.trackers.op_store import EXECUTE_DISPATCH, RECOVERY_DISPATCH, OpStore
 from app.services.trackers.promotion import DispatchPause, PublicationDenied, evaluate_dispatch
@@ -46,55 +43,10 @@ from app.services.trackers.thread_mutations import (
     should_rewrite_title,
 )
 
-_mounted = False
-_connect_factory: Callable[[], Any] | None = None
-
-
-def set_connect_factory(factory: Callable[[], Any] | None) -> None:
-    global _connect_factory
-    _connect_factory = factory
-
-
-@contextmanager
-def _default_connect() -> Iterator[Any]:
-    if _connect_factory is not None:
-        with _connect_factory() as conn:
-            yield conn
-        return
-    from app.services.postgres_database import database
-
-    with database.connection() as conn:
-        conn.execute("SET search_path TO comments, workspace, public")
-        yield conn
-
-
-def mount_thread_executor() -> None:
-    """Register root thread ops on the composition dispatch table."""
-
-    global _mounted
-    if _mounted:
-        return
-    from app.services.trackers.composition import mount_outbound_executor, register_outbound_op
-
-    for kind in THREAD_OPS:
-        register_outbound_op(kind, execute=execute_thread_claimed_op, recover=recover_thread_op)
-    mount_outbound_executor()
-    _mounted = True
-
-
-def unmount_thread_executor() -> None:
-    global _mounted
-    if not _mounted:
-        return
-    from app.services.trackers.composition import unregister_outbound_ops
-
-    unregister_outbound_ops(*THREAD_OPS)
-    _mounted = False
-
 
 def execute_thread_claimed_op(claimed: Mapping[str, Any]) -> str | None:
     dispatch = str(claimed.get("dispatch") or EXECUTE_DISPATCH)
-    with _default_connect() as conn:
+    with connector_runtime().connection() as conn:
         ops = OpStore(conn)
         op_id = str(claimed["id"])
         fresh = ops.get(op_id)
@@ -117,8 +69,6 @@ def recover_thread_op(conn: Any, op: Mapping[str, Any]) -> None:
         return
     if kind == "update_issue":
         _recover_update_issue(conn, op, ops)
-
-
 
 
 def _policy_check(conn: Any, ctx: Any) -> None:
@@ -169,7 +119,7 @@ def _refresh_thread_metadata(conn: Any, thread: Mapping[str, Any]) -> dict:
 
 
 def _execute_update_issue(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
-    ctx = _load_execution_context(conn, op)
+    ctx = load_execution_context(conn, op)
     op_id = str(op["id"])
     fence = int(op["fence"])
     thread = _refresh_thread_metadata(conn, ctx.thread)
@@ -201,13 +151,16 @@ def _execute_update_issue(conn: Any, op: Mapping[str, Any], ops: OpStore) -> Non
     try:
         conn.commit()
         conn.commit()
-        adapter = _issue_adapter(ctx.connector)
+        adapter = connector_runtime().issue_adapter(ctx.connector)
         issue_ref = issue_number_for_api(thread)
         fetched = adapter.get_issue(ctx.destination, issue_ref, etag=None)
         if not isinstance(fetched, RemoteIssue):
             raise ProviderError("transient", "Issue fetch did not return a readable issue")
         composed = compose_outbound_issue_body(
-            local_prose=str(ctx.comment.get("content") or ""),
+            local_prose=attachment_links.render_outbound(
+                conn, str(ctx.comment.get("content") or ""), str(ctx.comment.get("contentFormat") or "plain"),
+                project_id=ctx.project_id, destination=ctx.destination, adapter_factory=lambda: adapter,
+            ),
             remote_body=fetched.body or "",
         )
         if composed is None:
@@ -270,7 +223,7 @@ def _build_deletion_note_body(
 
 
 def _execute_post_note(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
-    ctx = _load_execution_context(conn, op)
+    ctx = load_execution_context(conn, op)
     op_id = str(op["id"])
     fence = int(op["fence"])
     thread = ctx.thread
@@ -296,9 +249,7 @@ def _execute_post_note(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
     try:
         conn.commit()
         conn.commit()
-        from app.services.trackers.reply_executor import _comment_adapter
-
-        adapter = _comment_adapter(ctx.connector)
+        adapter = connector_runtime().comment_adapter(ctx.connector)
         issue_ref = issue_number_for_api(thread)
         body = _build_deletion_note_body(
             connector_id=ctx.destination.connectorId,
@@ -338,14 +289,12 @@ def _execute_thread(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
 
 
 def _recover_post_note(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
-    ctx = _load_execution_context(conn, op)
+    ctx = load_execution_context(conn, op)
     op_id = str(op["id"])
     fence = int(op["fence"])
     if str(op.get("state") or "") == "confirmed":
         return
-    from app.services.trackers.reply_executor import _comment_adapter
-
-    adapter = _comment_adapter(ctx.connector)
+    adapter = connector_runtime().comment_adapter(ctx.connector)
     issue_ref = issue_number_for_api(ctx.thread)
     marker_text = build_marker(
         connector_id=ctx.destination.connectorId,
@@ -368,7 +317,7 @@ def _recover_post_note(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
     sent_at = op.get("sent_at")
     if isinstance(sent_at, datetime) and sent_at.tzinfo is None:
         sent_at = sent_at.replace(tzinfo=timezone.utc)
-    fetch_page = comment_page_fetcher_for(adapter, ctx.destination, issue_ref)
+    fetch_page = adapter.recovery_comment_pages(ctx.destination, issue_ref)
     cursor: str | None = None
     while True:
         try:
@@ -412,8 +361,5 @@ def _recover_update_issue(conn: Any, op: Mapping[str, Any], ops: OpStore) -> Non
 
 __all__ = [
     "execute_thread_claimed_op",
-    "mount_thread_executor",
     "recover_thread_op",
-    "set_connect_factory",
-    "unmount_thread_executor",
 ]

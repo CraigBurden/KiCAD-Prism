@@ -190,6 +190,9 @@ def env_values(answers: dict) -> dict[str, str]:
         "CORS_ORIGINS_STR": answers["cors_origins"],
         "POSTGRES_PASSWORD": answers["postgres_password"],
         "PRISM_HTTP_PORT": answers["http_port"],
+        # docker-compose.yml forwards this file to the containers; --env-file
+        # alone only fills its placeholders.
+        "PRISM_ENV_FILE": "generated/.env",
     }
     if not answers.get("auth_enabled", True):
         # Every request is served as this role. viewer keeps an open evaluation
@@ -238,13 +241,28 @@ def render_caddyfile(answers: dict) -> str | None:
         else:
             tls_block = ""
 
+    return header + caddy_site(hostname, tls_block, forwarded_proto(scheme))
+
+
+def forwarded_proto(scheme: str) -> str:
+    """What the proxy tells Prism the client scheme was.
+
+    Behind a supplied certificate Caddy may sit behind another hop and cannot
+    infer https from the request, so internal-ca pins it.
+    """
+    return "https" if scheme == INTERNAL_CA else "{scheme}"
+
+
+def caddy_site(hostname: str, tls_block: str, proto: str) -> str:
+    """The one Caddy site block every Caddyfile is rendered from.
+
+    The installer output and the committed ``deploy/`` and ``deploy/release/``
+    templates (``static_caddyfiles``) both call this, so they cannot drift.
+    """
     if tls_block:
         tls_block += "\n"
-
-    forwarded_proto = "https" if scheme == INTERNAL_CA else "{scheme}"
-
     return (
-        f"{header}{hostname} {{\n"
+        f"{hostname} {{\n"
         f"{tls_block}"
         "\tencode gzip zstd\n"
         "\n"
@@ -256,7 +274,7 @@ def render_caddyfile(answers: dict) -> str | None:
         "\treverse_proxy frontend:80 {\n"
         "\t\theader_up Host {host}\n"
         "\t\theader_up X-Real-IP {remote_host}\n"
-        f"\t\theader_up X-Forwarded-Proto {forwarded_proto}\n"
+        f"\t\theader_up X-Forwarded-Proto {proto}\n"
         "\n"
         "\t\ttransport http {\n"
         "\t\t\tread_timeout 300s\n"

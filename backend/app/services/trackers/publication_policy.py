@@ -16,9 +16,10 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 from app.core.config import Settings, settings as default_settings
+from app.core import errors
 from app.core.roles import Role, normalize_role, role_meets_minimum
 from app.services.trackers.connector_service import ConnectorNotFound, ConnectorService, connector_host
-from app.services.trackers.providers import is_issue_provider
+from app.services.trackers.providers import host_kit, is_issue_provider
 from app.services.trackers.store import TrackerStore
 
 DEFAULT_LABELS = {
@@ -49,21 +50,30 @@ class ProjectTrackerNotFound(KeyError):
     """No tracker settings row for this project."""
 
 
-class PublicationDenied(ValueError):
-    """Actor or policy blocks publication."""
+class PublicationDenied(errors.Forbidden, ValueError):
+    """Actor or policy blocks publication (403, typed; still a ``ValueError`` for older callers)."""
 
     def __init__(self, code: str, message: str, *, required_role: str | None = None) -> None:
-        super().__init__(message)
-        self.code = code
+        extra = {"requiredRole": required_role} if required_role else {}
+        super().__init__(message, code=code, **extra)
         self.required_role = required_role
 
 
 class DispatchPause(Exception):
-    """Queued write must wait for acknowledgement or connector recovery."""
+    """Queued write must wait for acknowledgement or connector recovery.
+
+    Not a domain error: the tracker routes render it (409) in two shapes, and it carries no ``code``.
+    """
 
     def __init__(self, reason: str, message: str) -> None:
         super().__init__(message)
         self.reason = reason
+        self.message = message
+
+    def refusal(self, code: str | None = None) -> errors.Conflict:
+        """The typed 409 a route answers: ``code`` (default the reason) and ``pausedReason``."""
+
+        return errors.Conflict(self.message, code=code or self.reason, pausedReason=self.reason)
 
 
 _PATH_SEGMENT = r"[A-Za-z0-9_.-]+"
@@ -85,7 +95,7 @@ def repo_path_for_host(repo_url: str, host: str, *, provider: str = "github") ->
     if remote_host.casefold().removeprefix("www.") != wanted:
         return None
     path = path.strip("/").removesuffix(".git")
-    if provider == "gitlab":
+    if host_kit(provider).nested_paths:
         pattern = rf"{_PATH_SEGMENT}(/{_PATH_SEGMENT})+"
     else:
         pattern = rf"{_PATH_SEGMENT}/{_PATH_SEGMENT}"

@@ -20,12 +20,15 @@ from fastapi import HTTPException
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core.errors import DomainError  # noqa: E402
 from app.api import catalog_admin  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
-from app.services.component_catalog_domain import (  # noqa: E402
-    _ASSET_BROWSE_CACHE_TTL_SECONDS,
-    ComponentCatalogDomainService,
-)
+from app.services.catalog.runtime import ASSET_BROWSE_CACHE_TTL_SECONDS  # noqa: E402
+from app.services.component_catalog_domain import ComponentCatalogDomainService  # noqa: E402
+
+
+# A route refuses with an HTTPException or a typed domain error (rendered by the app handler).
+ROUTE_ERRORS = (HTTPException, DomainError)
 
 
 class _FilesystemOnlyCatalogService(ComponentCatalogDomainService):
@@ -37,7 +40,7 @@ class _FilesystemOnlyCatalogService(ComponentCatalogDomainService):
     """
 
     def initialize(self) -> None:
-        self._ensure_storage_dirs()
+        self.runtime.ensure_storage_dirs()
 
 
 class AssetBrowseListingTests(unittest.TestCase):
@@ -48,8 +51,11 @@ class AssetBrowseListingTests(unittest.TestCase):
         self.service = _FilesystemOnlyCatalogService(store_root=self.store)
         self.service.initialize()
 
+    def _asset_root(self, asset_type: str) -> Path:
+        return self.service.asset_files.asset_root(self.service.runtime, asset_type)
+
     def _write(self, asset_type: str, relative_path: str) -> Path:
-        path = self.service._asset_root(asset_type) / relative_path
+        path = self._asset_root(asset_type) / relative_path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("(kicad_symbol_lib)", encoding="utf-8")
         return path
@@ -143,13 +149,13 @@ class AssetBrowseListingTests(unittest.TestCase):
 
         # Slipped in behind the cache, without going through the write path that
         # invalidates it, so a second call must not have paid for another walk.
-        stray = self.service._asset_root("symbol") / "Sensors" / "OPA187.kicad_sym"
+        stray = self._asset_root("symbol") / "Sensors" / "OPA187.kicad_sym"
         stray.write_text("(kicad_symbol_lib)", encoding="utf-8")
         self.assertEqual(self.service.browse_library_assets("symbol")["total"], 1)
 
-        cached_at, files = self.service._browse_cache["symbol"]
-        self.service._browse_cache["symbol"] = (
-            cached_at - _ASSET_BROWSE_CACHE_TTL_SECONDS - 1,
+        cached_at, files = self.service.runtime.browse_cache["symbol"]
+        self.service.runtime.browse_cache["symbol"] = (
+            cached_at - ASSET_BROWSE_CACHE_TTL_SECONDS - 1,
             files,
         )
 
@@ -168,8 +174,10 @@ class AssetBrowseListingTests(unittest.TestCase):
         self._write("symbol", "Sensors/LMT86DCK.kicad_sym")
         self.assertEqual(self.service.browse_library_assets("symbol")["total"], 1)
 
-        destination = self.service._asset_root("symbol") / "Sensors" / "OPA187.kicad_sym"
-        self.service._write_canonical_file(destination, b"(kicad_symbol_lib)")
+        destination = self._asset_root("symbol") / "Sensors" / "OPA187.kicad_sym"
+        self.service.asset_files.write_canonical_file(
+            self.service.runtime, destination, b"(kicad_symbol_lib)"
+        )
 
         listing = self.service.browse_library_assets("symbol")
         self.assertEqual(listing["total"], 2)
@@ -187,16 +195,16 @@ class AssetBrowseListingTests(unittest.TestCase):
         def write_midway(self_path: Path, pattern: str):  # type: ignore[no-untyped-def]
             results = list(real_rglob(self_path, pattern))
             # Stand in for another request storing a file while this walk runs.
-            destination = service._asset_root("symbol") / "Sensors" / "OPA187.kicad_sym"
+            destination = self._asset_root("symbol") / "Sensors" / "OPA187.kicad_sym"
             destination.write_bytes(b"(kicad_symbol_lib)")
-            service._invalidate_browse_cache()
+            service.runtime.invalidate_browse_cache()
             return iter(results)
 
         service = self.service
         with patch.object(Path, "rglob", write_midway):
             stale = service.browse_library_assets("symbol")
         self.assertEqual(stale["total"], 1)
-        self.assertNotIn("symbol", service._browse_cache)
+        self.assertNotIn("symbol", service.runtime.browse_cache)
 
         # Nothing was cached, so the next browse walks again and sees the write.
         self.assertEqual(service.browse_library_assets("symbol")["total"], 2)
@@ -288,7 +296,7 @@ class AssetBrowseEndpointTests(unittest.TestCase):
             "browse_library_assets",
             side_effect=ValueError("Unsupported asset type"),
         ):
-            with self.assertRaises(HTTPException) as raised:
+            with self.assertRaises(ROUTE_ERRORS) as raised:
                 catalog_admin.browse_library_assets(
                     asset_type="gerber", q="", limit=50, user=self.user
                 )

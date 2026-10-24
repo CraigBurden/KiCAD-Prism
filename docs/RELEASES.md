@@ -12,8 +12,10 @@ release. It is for maintainers; users should follow [Deployment](DEPLOYMENT.md).
 - Both branches require the `Quality gate`; force pushes should remain disabled.
 
 The quality workflow runs frontend lint, tests and builds, backend tests,
-semantic viewer tests and builds, source Compose validation, release Compose
-validation, and release-bundle tests.
+semantic viewer tests and builds, the native Rust checks (format, clippy,
+contract codegen, licence and source policy, workspace tests on each platform,
+wasm32, hygiene) and projection parity, source Compose validation, release
+Compose validation, and release-bundle tests.
 
 ## What does not publish images
 
@@ -74,7 +76,8 @@ The release job runs on a GitHub-hosted Linux AMD64 runner. It:
    those local images;
 3. waits for service health;
 4. verifies API readiness, frontend health, both worker processes, embedded Git
-   revision, `x86_64`, and `kicad-cli --version`;
+   revision, `x86_64`, `kicad-cli --version`, and `prism-kicad --version` in
+   the API and general worker;
 5. tears down the test stack;
 6. logs into GitHub Container Registry only after all smoke checks pass.
 
@@ -137,13 +140,13 @@ Do not manually publish substitute images under a release tag.
 
 ## v4.0.0-alpha promotion
 
-The next release is `v4.0.0-alpha`, directly after `v3.0.2-alpha`; no intervening
-3.x minor release is required. Review [the release notes](releases/v4.0.0-alpha.md)
-and the complete dev-to-main PR before promotion. The previous v3.1 notes are
-an unpublished planning record.
+`v4.0.0-alpha` followed `v3.0.2-alpha` directly; no intervening 3.x minor
+release was published, and the v3.1 notes are an unpublished planning record.
+See [the release notes](releases/v4.0.0-alpha.md).
 
 Every tag requires nonempty `docs/releases/<tag>.md`. The workflow uses that
 file as the GitHub Release body and includes it as `RELEASE_NOTES.md` in the
-checksummed deployment archive. Keep the v4 tag pending until the reviewed
-`dev` is merged into `main` and the resulting main commit passes the Quality
-gate. Prerelease images publish only `4.0.0-alpha`, never floating stable tags.
+checksummed deployment archive. A tag waits until the reviewed `dev` is merged
+into `main` and the resulting main commit passes the Quality gate. Prerelease
+images publish only their own version tag (for example `4.0.0-alpha`), never
+floating stable tags.

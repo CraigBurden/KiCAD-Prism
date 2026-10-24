@@ -273,20 +273,9 @@ class TrackerWebhookService:
                 raise WebhookRejected("webhook_not_configured") from None
 
 
-def initialize_tracker_webhook_service() -> None:
-    from app.services.postgres_database import database
-    from app.services.workspace_schema_migrations import apply_workspace_migrations
-
-    with database.connection() as conn:
-        conn.execute("SET search_path TO workspace, public")
-        apply_workspace_migrations(conn)
-        conn.commit()
-
-
 __all__ = [
     "TrackerWebhookService",
     "WebhookRejected",
-    "initialize_tracker_webhook_service",
     "parse_github_event",
     "verify_signature",
 ]

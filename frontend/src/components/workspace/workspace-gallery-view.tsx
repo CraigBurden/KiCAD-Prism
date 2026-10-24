@@ -1,10 +1,12 @@
-import { Folder } from "lucide-react";
+import type { ReactNode } from "react";
+import { CircuitBoard, Folder } from "lucide-react";
 
 import { FolderTreeItem, Project } from "@/types/project";
 import { ProjectCard } from "@/components/project-card";
 import { Checkbox } from "@/components/ui/checkbox";
 
 import { FolderActionMenu, ProjectActionMenu } from "./workspace-action-menus";
+import { WorkspaceSectionHeading } from "./workspace-section-heading";
 import {
   FOLDER_GRID_CLASS,
   FOLDER_GRID_CLASS_COMPACT,
@@ -33,6 +35,10 @@ interface WorkspaceGalleryViewProps {
   onDeleteProject: (project: Project) => void;
   onRegenerateThumbnail: (project: Project) => void;
   canManageProjects: boolean;
+  /** Selection and paging controls for the boards, shown in their heading. */
+  projectsToolbar?: ReactNode;
+  /** Boards at this level across every page. */
+  projectCount?: number;
 }
 
 export function WorkspaceGalleryView({
@@ -42,7 +48,6 @@ export function WorkspaceGalleryView({
   selectedProjectId,
   propertiesPanelOpen = false,
   bulkSelectedProjectIds,
-  currentFolderId,
   visibleFolders,
   visibleProjects,
   getProjectDisplayName,
@@ -56,6 +61,8 @@ export function WorkspaceGalleryView({
   onDeleteProject,
   onRegenerateThumbnail,
   canManageProjects,
+  projectsToolbar,
+  projectCount,
 }: WorkspaceGalleryViewProps) {
   const projectGridClass = propertiesPanelOpen ? PROJECT_GRID_CLASS_COMPACT : PROJECT_GRID_CLASS;
   const folderGridClass = propertiesPanelOpen ? FOLDER_GRID_CLASS_COMPACT : FOLDER_GRID_CLASS;
@@ -64,10 +71,13 @@ export function WorkspaceGalleryView({
     : "h-5 w-5 border-2 bg-background/95 shadow-md";
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {isSearching ? (
         <>
-          <p className="text-sm text-muted-foreground">Search Results ({searchResults.length})</p>
+          <section className="space-y-3">
+          <WorkspaceSectionHeading icon={CircuitBoard} title="Matching boards" count={searchResults.length}>
+            {projectsToolbar}
+          </WorkspaceSectionHeading>
           {searchResults.length === 0 ? (
             <div className="rounded-xl border border-dashed p-10 text-center text-sm text-muted-foreground">
               No projects found for "{searchQuery}".
@@ -114,14 +124,13 @@ export function WorkspaceGalleryView({
               ))}
             </div>
           )}
+          </section>
         </>
       ) : (
         <>
           {visibleFolders.length > 0 && (
             <section className="space-y-3">
-              {currentFolderId !== null && (
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Folders</h3>
-              )}
+              <WorkspaceSectionHeading icon={Folder} title="Folders" count={visibleFolders.length} />
               <div className={folderGridClass}>
                 {visibleFolders.map((folder) => (
                   <div
@@ -163,9 +172,12 @@ export function WorkspaceGalleryView({
           )}
 
           <section className="space-y-3">
+            <WorkspaceSectionHeading icon={CircuitBoard} title="Boards" count={projectCount ?? visibleProjects.length}>
+              {projectsToolbar}
+            </WorkspaceSectionHeading>
             {visibleProjects.length === 0 ? (
               <div className="rounded-xl border border-dashed p-10 text-center text-sm text-muted-foreground">
-                No projects in this level.
+                No boards in this folder.
               </div>
             ) : (
               <div className={projectGridClass} data-testid="project-gallery-grid">

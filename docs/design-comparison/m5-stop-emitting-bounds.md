@@ -1,5 +1,7 @@
 # M5: stop emitting bounds
 
+> **Superseded (2026-10-23).** This milestone record describes the Node `ecad-parse`/`ecad-diff` and Python comparison pipeline. Design Comparison is now computed by `prism-kicad compare` ([ADR amendment C2r](../architecture/adr-native-design-bundle-amendment-c2r.md)), and the services named here were removed. Kept as a historical record.
+
 Milestone 5 of [the Design Comparison revamp](../DESIGN_COMPARISON_REVAMP.md).
 Prism's PROJECT_DIFF is now identity-only. Geometry is measured from the
 ecad-viewer scene after parser objects have been resolved and painted.

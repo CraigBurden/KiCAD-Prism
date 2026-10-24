@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { Box, Eye, EyeOff, Layers3, Loader2, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
+import { Box, Eye, EyeOff, Focus, Layers3, Loader2, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
     Card,
     CardAction,
@@ -12,14 +18,19 @@ import {
     CardTitle,
 } from "@/components/ui/card";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
+import { isAbortError, watchPrismJob, type PrismJobStatus } from "@/lib/jobs";
+import { canManageProjects } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import { useCommittedRef } from "@/hooks/use-committed-ref";
 import { dnpVisibilityNotice } from "./design-variants/dnp-visibility";
+import { Semantic3dControls } from "./semantic-3d-controls";
 import type { User } from "@/types/auth";
 import type { PrismSelection } from "@/types/prism-selection";
 import type { HighlightedNet } from "@/lib/net-highlights";
+import type { PrismInsetScene3D } from "@/lib/inset-scene-3d";
 import type {
     PrismRendererSelection,
+    PrismSemanticContextMenuDetail,
     PrismSemanticViewerElement,
     PrismSemanticViewerSelectionDetail,
 } from "@/types/prism-semantic-viewer";
@@ -44,7 +55,12 @@ interface WebGpu3dStatus {
     error?: string;
     generator: WebGpuGeneratorTag;
     readiness?: WebGpu3dReadiness;
+    /** The design bundle's build while one is queued or running (bundle mode). */
+    job_id?: string | null;
 }
+
+/** How often the tab asks again while the revision's 3D data is still being built. */
+const STATUS_POLL_MS = 2000;
 
 interface WebGpu3dReadiness {
     schema: "prism.visualizer_readiness.a0";
@@ -62,10 +78,18 @@ interface WorkflowJob {
     percent?: number;
     logs?: string[];
     error?: string;
-    readiness_stage?: string;
-    readiness?: WebGpu3dReadiness;
-    bundle_url?: string;
-    sourceRevisionKey?: string;
+}
+
+/** The tab's view of a generation job. */
+function workflowJobView(job: PrismJobStatus, logs: string[]): WorkflowJob {
+    return {
+        job_id: job.job_id,
+        status: job.status,
+        message: job.message,
+        percent: job.percent,
+        logs,
+        error: job.error_message,
+    };
 }
 
 interface GenerateResponse {
@@ -99,6 +123,8 @@ interface WebGpu3dTabProps {
     /** Local Show DNP override; never changes the variant. */
     showDnp?: boolean;
     onShowDnpChange?: (showDnp: boolean) => void;
+    /** IN-61: the 3D view of PCB insets, fed this tab's board. */
+    insetScene?: PrismInsetScene3D;
 }
 
 const selectionForRenderer = (selection: PrismSelection | null): PrismRendererSelection | null => {
@@ -138,11 +164,11 @@ export function WebGpu3dTab({
     ambiguousComponents = NO_COMPONENTS,
     showDnp = false,
     onShowDnpChange,
+    insetScene,
 }: WebGpu3dTabProps) {
     const viewerRef = useRef<PrismSemanticViewerElement | null>(null);
     const selectionRef = useCommittedRef(selection);
     const generationStartedAt = useRef<number | null>(null);
-    const readinessRevisionRef = useRef<string | null>(null);
     const [tabLoadStartedAt] = useState(() => performance.now());
     const [viewerElement, setViewerElement] = useState<PrismSemanticViewerElement | null>(null);
     const [status, setStatus] = useState<WebGpu3dStatus | null>(null);
@@ -152,7 +178,13 @@ export function WebGpu3dTab({
     const [jobId, setJobId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [viewerRevision, setViewerRevision] = useState(0);
-    const canGenerate = user?.role === "admin" || user?.role === "designer";
+    const [leftInset, setLeftInset] = useState(0);
+    /** Models the reviewer hid from the 3D context menu, on top of the DNP set. */
+    const [userHidden, setUserHidden] = useState<string[]>([]);
+    /** The one model left visible by "Show only", or null. */
+    const [isolated, setIsolated] = useState<string | null>(null);
+    const [contextMenu, setContextMenu] = useState<PrismSemanticContextMenuDetail | null>(null);
+    const canGenerate = canManageProjects(user?.role);
     const isStackup = workspace === "stackup";
 
     const commitQuery = useMemo(
@@ -161,8 +193,8 @@ export function WebGpu3dTab({
     );
     const statusUrl = `/api/projects/${projectId}/webgpu-3d/status${commitQuery}`;
 
-    const refreshStatus = useCallback(async () => {
-        setLoading(true);
+    const refreshStatus = useCallback(async (quiet = false) => {
+        if (!quiet) setLoading(true);
         try {
             const next = await fetchJson<WebGpu3dStatus>(
                 statusUrl,
@@ -170,7 +202,6 @@ export function WebGpu3dTab({
                 "Failed to load WebGPU 3D asset status",
             );
             setStatus(next);
-            readinessRevisionRef.current = next.readiness?.revision ?? null;
             setError(next.error ?? null);
         } catch (nextError) {
             setStatus(null);
@@ -188,56 +219,42 @@ export function WebGpu3dTab({
         void refreshStatus();
     }, [refreshStatus]);
 
+    // V2a: while the design bundle builds (no board yet) or its parts are
+    // still exporting, ask again; each new stage changes the readiness
+    // revision, which remounts the viewer with what is now stored.
+    const statusPending = status?.status === "building" || status?.readiness?.stage === "board-ready";
+    useEffect(() => {
+        if (!statusPending || jobId) return;
+        const timer = window.setInterval(() => void refreshStatus(true), STATUS_POLL_MS);
+        return () => window.clearInterval(timer);
+    }, [jobId, refreshStatus, statusPending]);
+
     useEffect(() => {
         if (!jobId) return;
-        let cancelled = false;
-        let timer: number | null = null;
-
-        const poll = async () => {
-            try {
-                const next = await fetchJson<WorkflowJob>(
-                    `/api/projects/jobs/${jobId}`,
-                    undefined,
-                    "Failed to read WebGPU generation job",
-                );
-                if (cancelled) return;
-                setJob(next);
-                const nextReadinessRevision = next.readiness?.revision;
-                if (
-                    next.bundle_url
-                    && nextReadinessRevision
-                    && nextReadinessRevision !== readinessRevisionRef.current
-                ) {
-                    readinessRevisionRef.current = nextReadinessRevision;
-                    setViewerRevision((revision) => revision + 1);
-                    await refreshStatus();
-                }
-                if (next.status === "completed") {
-                    setJobId(null);
-                    setViewerRevision((revision) => revision + 1);
-                    await refreshStatus();
-                    return;
-                }
-                if (next.status === "failed") {
-                    setJobId(null);
-                    setError(next.error || next.message || "WebGPU 3D generation failed");
-                    return;
-                }
-            } catch (nextError) {
-                if (!cancelled) {
-                    setJobId(null);
-                    setError(nextError instanceof Error ? nextError.message : "Failed to poll WebGPU generation");
-                }
+        const controller = new AbortController();
+        const { signal } = controller;
+        void watchPrismJob(jobId, {
+            signal,
+            intervalMs: 1000,
+            includeLogs: true,
+            onUpdate: (next, logs) => {
+                setJob(workflowJobView(next, logs));
+            },
+        }).then(async (settled) => {
+            if (signal.aborted) return;
+            setJobId(null);
+            if (settled.status === "completed") {
+                setViewerRevision((revision) => revision + 1);
+                await refreshStatus();
                 return;
             }
-            timer = window.setTimeout(poll, 1000);
-        };
-
-        timer = window.setTimeout(poll, 500);
-        return () => {
-            cancelled = true;
-            if (timer !== null) window.clearTimeout(timer);
-        };
+            setError(settled.error_message || settled.message || "WebGPU 3D generation failed");
+        }).catch((nextError: unknown) => {
+            if (isAbortError(nextError) || signal.aborted) return;
+            setJobId(null);
+            setError(nextError instanceof Error ? nextError.message : "Failed to poll WebGPU generation");
+        });
+        return () => controller.abort();
     }, [jobId, refreshStatus]);
 
     const generate = useCallback(async (force: boolean) => {
@@ -330,6 +347,9 @@ export function WebGpu3dTab({
                 sourceRevisionKey: status?.sourceRevisionKey,
             });
         };
+        const handleContextMenu = (event: Event) => {
+            setContextMenu((event as CustomEvent<PrismSemanticContextMenuDetail>).detail);
+        };
         const handleError = (event: Event) => {
             const custom = event as CustomEvent<{ error?: Error }>;
             setError(custom.detail?.error?.message || "The WebGPU renderer failed to load");
@@ -338,11 +358,13 @@ export function WebGpu3dTab({
         node.addEventListener("prism-semantic-viewer:performance", handlePerformance);
         node.addEventListener("prism-semantic-viewer:selectionchange", handleSelection);
         node.addEventListener("prism-semantic-viewer:error", handleError);
+        node.addEventListener("prism-semantic-viewer:contextmenu", handleContextMenu);
         return () => {
             node.removeEventListener("prism-semantic-viewer:ready", handleReady);
             node.removeEventListener("prism-semantic-viewer:performance", handlePerformance);
             node.removeEventListener("prism-semantic-viewer:selectionchange", handleSelection);
             node.removeEventListener("prism-semantic-viewer:error", handleError);
+            node.removeEventListener("prism-semantic-viewer:contextmenu", handleContextMenu);
         };
     }, [onClearSelection, onSelection, projectId, selectionRef, status?.sourceRevisionKey, tabLoadStartedAt, viewerElement]);
 
@@ -358,10 +380,15 @@ export function WebGpu3dTab({
         let cancelled = false;
         void customElements.whenDefined("prism-semantic-viewer").then(() => {
             if (cancelled) return;
-            node.setHiddenComponents([...hiddenComponents]);
+            // "Show only" hides every other reference; alternate-footprint parts
+            // stay visible, as they do for DNP and Hide.
+            const hidden = isolated
+                ? (node.getComponentReferences?.() ?? []).filter((reference) => reference !== isolated)
+                : [...hiddenComponents, ...userHidden];
+            node.setHiddenComponents([...new Set(hidden)]);
         });
         return () => { cancelled = true; };
-    }, [hiddenComponents, isStackup, viewerElement, viewerReady]);
+    }, [hiddenComponents, isStackup, isolated, userHidden, viewerElement, viewerReady]);
 
     const ambiguityNotice = dnpVisibilityNotice({
         hidden: [],
@@ -369,28 +396,34 @@ export function WebGpu3dTab({
         absent: [],
     });
 
-    const readiness = job?.readiness ?? status?.readiness;
+    const readiness = status?.readiness;
     const readinessStage = readiness?.stage || (status?.status === "ready" ? "semantic-ready" : "generating");
-    const readinessProgress = job?.readiness?.progress ?? readiness?.progress ?? job?.percent ?? 0;
+    const readinessProgress = readiness?.progress ?? job?.percent ?? 0;
     const stageLabel = {
         "board-ready": "Board visible",
         "components-ready": "Board and components visible",
         "semantic-ready": "Semantic scene ready",
         generating: "Generating 3D assets",
     }[readinessStage] || readinessStage;
-    const resolvedBundleUrl = status?.bundle_url ?? job?.bundle_url;
+    const resolvedBundleUrl = status?.bundle_url;
     const canShowViewer = Boolean(
         resolvedBundleUrl
-        && (
-            status?.available
-            || status?.status === "building"
-            || status?.status === "ready"
-            || Boolean(job?.bundle_url && job?.readiness)
-        ),
+        && (status?.available || status?.status === "building" || status?.status === "ready"),
     );
     const bundleUrl = resolvedBundleUrl
         ? `${resolvedBundleUrl}${resolvedBundleUrl.includes("?") ? "&" : "?"}viewer=${encodeURIComponent(readiness?.revision || status?.generated_at || status?.sourceRevisionKey || "staged")}`
         : undefined;
+
+    // IN-61: no bundle (or no WebGPU) is final for insets; a building bundle
+    // without a viewer yet is too, until the next T after it is ready.
+    const viewerFailed = Boolean(error) && !viewerReady;
+    const insetUnavailable = !loading && (!canShowViewer || viewerFailed);
+    useEffect(() => {
+        if (!insetScene) return;
+        if (insetUnavailable) insetScene.update({ kind: "unavailable" });
+        else if (viewerElement) insetScene.update({ kind: "viewer", element: viewerElement });
+        else insetScene.update({ kind: "loading" });
+    }, [insetScene, insetUnavailable, viewerElement]);
 
     if (loading && !status) {
         return (
@@ -439,6 +472,23 @@ export function WebGpu3dTab({
                                 {error}
                             </p>
                         )}
+                        {status?.status === "building" && !job && (
+                            <div className="space-y-2 border bg-muted/30 p-3" role="status">
+                                <div className="flex items-center justify-between gap-3 text-xs">
+                                    <span className="flex items-center gap-2 font-medium">
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        {status.message || "Building this revision's design data"}
+                                    </span>
+                                    <span className="shrink-0 tabular-nums text-muted-foreground">{Math.round(status.readiness?.progress ?? 0)}%</span>
+                                </div>
+                                <div className="h-1.5 overflow-hidden bg-muted">
+                                    <div
+                                        className="h-full bg-primary transition-[width] duration-300"
+                                        style={{ width: `${Math.max(0, Math.min(100, status.readiness?.progress ?? 0))}%` }}
+                                    />
+                                </div>
+                            </div>
+                        )}
                         {job && (
                             <div className="space-y-2 border bg-muted/30 p-3">
                                 <div className="flex items-center justify-between text-xs">
@@ -455,10 +505,20 @@ export function WebGpu3dTab({
                             </div>
                         )}
                         <div className="flex flex-wrap gap-2">
-                            <Button onClick={() => void generate(false)} disabled={!canGenerate || Boolean(jobId)}>
-                                {jobId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-                                Generate 3D assets
-                            </Button>
+                            {status?.status === "invalid" ? (
+                                <Button onClick={() => void generate(true)} disabled={!canGenerate || Boolean(jobId)}>
+                                    {jobId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
+                                    Rebuild
+                                </Button>
+                            ) : (
+                                <Button
+                                    onClick={() => void generate(false)}
+                                    disabled={!canGenerate || Boolean(jobId) || Boolean(status?.job_id)}
+                                >
+                                    {jobId || status?.job_id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                                    Generate 3D assets
+                                </Button>
+                            )}
                             <Button variant="outline" onClick={() => void refreshStatus()} disabled={loading}>
                                 <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
                                 Refresh status
@@ -506,20 +566,59 @@ export function WebGpu3dTab({
                 "--prism-border": "hsl(var(--border))",
                 "--prism-primary": "hsl(var(--primary))",
                 "--prism-primary-foreground": "hsl(var(--primary-foreground))",
+                "--prism-viewport-inset-left": `${isStackup ? 0 : leftInset}px`,
             } as CSSProperties}
         >
             <prism-semantic-viewer
-                key={`${status?.sourceRevisionKey ?? job?.sourceRevisionKey ?? projectId}-${status?.generator?.build ?? "build"}-${readiness?.revision || viewerRevision}`}
+                key={`${status?.sourceRevisionKey ?? projectId}-${status?.generator?.build ?? "build"}-${readiness?.revision || viewerRevision}`}
                 ref={attachViewer}
                 bundle-url={bundleUrl}
                 workspace={workspace}
                 active={active && !isStackup ? "true" : undefined}
+                hide-panel={isStackup ? undefined : "true"}
                 className="block h-full min-h-0 w-full"
             />
+            {!isStackup && (
+                <Semantic3dControls viewer={viewerElement} onVisibleWidthChange={setLeftInset} />
+            )}
+            <DropdownMenu open={Boolean(contextMenu)} onOpenChange={(open) => { if (!open) setContextMenu(null); }}>
+                <DropdownMenuTrigger asChild>
+                    <span
+                        aria-hidden="true"
+                        className="pointer-events-none fixed size-0"
+                        style={{ left: contextMenu?.clientX ?? 0, top: contextMenu?.clientY ?? 0 }}
+                    />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-auto" sideOffset={2}>
+                    {contextMenu?.reference ? (
+                        <>
+                            <DropdownMenuItem
+                                onSelect={() => {
+                                    const reference = contextMenu.reference!;
+                                    setIsolated(null);
+                                    setUserHidden((current) => current.includes(reference) ? current : [...current, reference]);
+                                }}
+                            >
+                                <EyeOff className="size-3.5" />
+                                Hide {contextMenu.reference}
+                                {contextMenu.value && (
+                                    <span className="text-muted-foreground">{contextMenu.value}</span>
+                                )}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => setIsolated(contextMenu.reference!)}>
+                                <Focus className="size-3.5" />
+                                Show only {contextMenu.reference}
+                            </DropdownMenuItem>
+                        </>
+                    ) : (
+                        <DropdownMenuItem disabled>No model here</DropdownMenuItem>
+                    )}
+                </DropdownMenuContent>
+            </DropdownMenu>
             <div className={cn(
                 "pointer-events-none absolute flex items-center gap-2",
-                isStackup ? "right-5 top-5" : "left-3 top-3",
-            )}>
+                isStackup ? "right-5 top-5" : "top-3",
+            )} style={isStackup ? undefined : { left: leftInset + 12 }}>
                 {readinessStage !== "semantic-ready" && (
                     <Badge variant="secondary" className="pointer-events-auto gap-1 shadow-sm">
                         <Loader2 className="h-3 w-3 animate-spin" />
@@ -539,9 +638,24 @@ export function WebGpu3dTab({
                         {showDnp ? "Showing DNP" : "Show DNP"}
                     </Button>
                 )}
+                {!isStackup && (isolated || userHidden.length > 0) && (
+                    <Button
+                        className="pointer-events-auto shadow-sm"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                            setIsolated(null);
+                            setUserHidden([]);
+                        }}
+                        title={isolated ? `Showing only ${isolated}` : `Hidden: ${userHidden.join(", ")}`}
+                    >
+                        <Eye className="mr-2 h-3.5 w-3.5" />
+                        {isolated ? `Show all (only ${isolated} shown)` : `Show all (${userHidden.length} hidden)`}
+                    </Button>
+                )}
                 {!isStackup && ambiguityNotice && (
                     <Badge
-                        variant="outline"
+                        variant="secondary"
                         className="pointer-events-auto shadow-sm"
                         title={ambiguityNotice}
                     >

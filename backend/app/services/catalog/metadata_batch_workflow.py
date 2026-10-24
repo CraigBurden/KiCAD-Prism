@@ -3,7 +3,7 @@
 Staging validates each item against the current field schema and records a
 diff per component; applying rewrites one component per transaction so a
 conflict on one item never rolls back the others. The batch-level loop that
-opens those transactions stays with the facade. Nothing here commits.
+opens those transactions is ``metadata_batch_lifecycle.py``. Nothing here commits.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from typing import Any
 import uuid
 
 from app.services.catalog.component_writer import CatalogComponentWriter
-from app.services.catalog.conflicts import CatalogConflict
+from app.services.catalog.conflicts import revision_conflict
 from app.services.catalog.locking import CatalogLockOperations
 from app.services.catalog.metadata_batch_application import CatalogMetadataBatchApplication
 from app.services.catalog.metadata_batch_staging import CatalogMetadataBatchStaging
@@ -145,9 +145,9 @@ class CatalogMetadataBatchWorkflow:
         if not component or not revision:
             raise ValueError("Component not found")
         if str(revision["id"]) != str(item["expected_revision_id"]):
-            raise CatalogConflict("Component revision conflict: current revision changed after preview")
+            raise revision_conflict("Component revision conflict: current revision changed after preview")
         definitions = {field["key"]: field for field in self._metadata_fields.list_fields(conn)}
-        prepared = self._application.prepare_revision(item, revision, definitions)
+        prepared = self._application.prepare_revision(item, component, revision, definitions)
         metadata = prepared.metadata
         self._catalog_locks.lock_component_identity(conn, metadata["manufacturer"], metadata["mpn"])
         _, revision_id = self._component_writer.upsert_metadata_row(

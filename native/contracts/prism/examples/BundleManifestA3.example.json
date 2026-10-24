@@ -1,0 +1,332 @@
+{
+  "schema": "prism.bundle.manifest.a3",
+  "generator": {
+    "schema": "prism.cli.version.a0",
+    "crate_version": "0.1.0",
+    "engine_version": "2026.9.7",
+    "hlr_procedure": {
+      "geometer_version": "2026.9.19",
+      "options": "assembly-hlr-a0"
+    },
+    "kicad_file_formats": {
+      "board": 20260206,
+      "schematic": 20260306
+    },
+    "kicad_version": "10.0.6",
+    "member_schemas": [
+      {
+        "path": "bundle.json",
+        "schema": "prism.bundle.manifest.a3"
+      },
+      {
+        "path": "design.json",
+        "schema": "kicad_monkey.design.a0"
+      },
+      {
+        "path": "materialization/board.kmpack",
+        "schema": "kicad_monkey.materialization.a0"
+      },
+      {
+        "path": "models/assembly-hlr.json",
+        "schema": "prism.assembly_hlr.a0"
+      },
+      {
+        "path": "projections/board-objects.json",
+        "schema": "prism.board_objects.a0"
+      },
+      {
+        "path": "projections/occurrences.json",
+        "schema": "prism.occurrences.a0"
+      },
+      {
+        "path": "projections/placements.json",
+        "schema": "prism.placements.a1"
+      },
+      {
+        "path": "projections/project.json",
+        "schema": "prism.project.a0"
+      },
+      {
+        "path": "projections/route-metrics.json",
+        "schema": "prism.route_metrics.a0"
+      },
+      {
+        "path": "projections/semantic-index.json",
+        "schema": "prism.semantic_index.a2"
+      },
+      {
+        "path": "projections/stackup.json",
+        "schema": "prism.stackup.a0"
+      },
+      {
+        "path": "projections/system-interface.json",
+        "schema": "prism.system_interface.v1"
+      }
+    ],
+    "models_procedure": "kicad-cli-glb-a0",
+    "pack_format_version": 0,
+    "refill_procedure": "pcbnew-zone-filler-a0",
+    "upgrade_procedure": "kicad-seeded-upgrade-a0"
+  },
+  "revision_key": "faea5ace66f591553c21fdcb2555e5a67e6e2fe73b7d17663375ac6f809206f5",
+  "bundle_key": "f21ae403857908e6b3058eef04b526d4c84068414b2dfaf3b972ebb8e524ca06",
+  "config": {
+    "schema": "prism.revision_key.effective_config.a1",
+    "project_file": "USB-PD-Trigger-Board.kicad_pro",
+    "root_schematic": "USB-PD-Trigger-Board.kicad_sch",
+    "board": "USB-PD-Trigger-Board.kicad_pcb",
+    "excluded_dirs": [
+      "Design-Outputs",
+      "Manufacturing-Outputs"
+    ]
+  },
+  "board_id": "main",
+  "stages": {
+    "parse": {
+      "status": "complete",
+      "warnings": [],
+      "failed_members": []
+    },
+    "board": {
+      "status": "complete",
+      "fill_provenance": "refilled",
+      "fill_check": {
+        "saved_operations": 13,
+        "refilled_operations": 13,
+        "differing_operations": 24,
+        "stale": true
+      },
+      "cross_check": {
+        "status": "passed",
+        "components_compared": 37,
+        "pads_compared": 133,
+        "nets_compared": 45,
+        "mappings": [],
+        "warnings": [],
+        "errors": []
+      },
+      "warnings": [
+        {
+          "code": "kicad-default-stackup",
+          "message": "The board states no stackup; KiCad's default was used (35 um copper, 10 um mask). Set the stackup in Board Setup to record your own."
+        },
+        {
+          "code": "stale-saved-fills",
+          "message": "saved zone fills are stale: 24 zone-fill operations differ between the saved fills (13 operations) and a fresh refill (13 operations); the refilled board was materialized"
+        }
+      ],
+      "failed_members": []
+    },
+    "models": {
+      "status": "complete",
+      "warnings": [],
+      "failed_members": []
+    }
+  },
+  "read_set": {
+    "probes": [
+      {
+        "path": "USB-PD-Trigger-Board.kicad_dru",
+        "present": false
+      },
+      {
+        "path": "fp-lib-table",
+        "present": false
+      },
+      {
+        "path": "sym-lib-table",
+        "present": false
+      }
+    ],
+    "listings": [
+      {
+        "directory": "",
+        "suffixes": [
+          ".kicad_jobset"
+        ],
+        "paths": []
+      }
+    ],
+    "gitlinks": []
+  },
+  "members": [
+    {
+      "path": "design.json",
+      "role": "design",
+      "stage": "parse",
+      "sha256": "3efb778cbde358fc9210d746139af370dd6ff9a031c7ce0435f4aab66ab14fff",
+      "bytes": 501316,
+      "member_schema": "kicad_monkey.design.a0"
+    },
+    {
+      "path": "materialization/board.kmpack",
+      "role": "materialization",
+      "stage": "board",
+      "sha256": "699f4ec40dc0efd7d7e91bb55523ffa2726c21dba8530e092ef983e0c9ee13a5",
+      "bytes": 175592,
+      "member_schema": "kicad_monkey.materialization.a0"
+    },
+    {
+      "path": "projections/board-objects.json",
+      "role": "projection",
+      "stage": "parse",
+      "sha256": "a7abcb13fe87730e95448c4411a2a0741cd15157f4e4010920f0a99b4d85f43f",
+      "bytes": 11368,
+      "member_schema": "prism.board_objects.a0"
+    },
+    {
+      "path": "projections/occurrences.json",
+      "role": "projection",
+      "stage": "parse",
+      "sha256": "3eab0ff5930410db995fbe695c8612f8b88d8d4479e092855b9c903279c6826a",
+      "bytes": 8493,
+      "member_schema": "prism.occurrences.a0"
+    },
+    {
+      "path": "projections/placements.json",
+      "role": "projection",
+      "stage": "parse",
+      "sha256": "e0dd71789e05e124bd4c6ff1d6e51464c86decaad7b965ce053cc9a5d08d36c9",
+      "bytes": 3319,
+      "member_schema": "prism.placements.a1"
+    },
+    {
+      "path": "projections/project.json",
+      "role": "projection",
+      "stage": "parse",
+      "sha256": "090efd4ea8c92d83a2e00fbcccf835d2d2879c79f2f52e35902fcddb08922935",
+      "bytes": 30,
+      "member_schema": "prism.project.a0"
+    },
+    {
+      "path": "projections/route-metrics.json",
+      "role": "projection",
+      "stage": "parse",
+      "sha256": "6dfc725a4bea8e4cfd79bacfa047f1ac8856ae10368ae21a44e53943f2b2e041",
+      "bytes": 794,
+      "member_schema": "prism.route_metrics.a0"
+    },
+    {
+      "path": "projections/semantic-index.json",
+      "role": "projection",
+      "stage": "parse",
+      "sha256": "dfb3b7986d827b37b8367ab797cf444f16d8c9f2a6f922976d2f156ec53c5844",
+      "bytes": 16611,
+      "member_schema": "prism.semantic_index.a2"
+    },
+    {
+      "path": "projections/stackup.json",
+      "role": "projection",
+      "stage": "parse",
+      "sha256": "423f77b4b1c0b3b71c061c4020880d92423f90dfdc0def8619f31ddb943ab02a",
+      "bytes": 3120,
+      "member_schema": "prism.stackup.a0"
+    },
+    {
+      "path": "projections/system-interface.json",
+      "role": "projection",
+      "stage": "parse",
+      "sha256": "ad490d6ffeaf24e754d06fc704e3be36c07c5a220a5f2bdd3ae50487c70d008c",
+      "bytes": 39,
+      "member_schema": "prism.system_interface.v1"
+    },
+    {
+      "path": "refilled/USB-PD-Trigger-Board.kicad_pcb",
+      "role": "refilled-board",
+      "stage": "board",
+      "sha256": "c4c4c2c87a18343de394f231fe4a3b775908753347f768893e40e054ef16e489",
+      "bytes": 632794
+    },
+    {
+      "path": "sources/Subsheets/Output-Connector.kicad_sch",
+      "role": "source-schematic",
+      "stage": "parse",
+      "sha256": "1f53c6c67d0479eb8a1d78c79e8384ed1200aed4ff4e1f95b34a845f817062e9",
+      "bytes": 13878,
+      "source": {
+        "path": "Subsheets/Output-Connector.kicad_sch",
+        "kind": "regular",
+        "object_id": "bf8f40e6f7dd99f80e451cedf5a00167ed8f230d"
+      }
+    },
+    {
+      "path": "sources/USB-PD-Trigger-Board.kicad_pcb",
+      "role": "source-board",
+      "stage": "parse",
+      "sha256": "8a4ba583284a29b46f10452384eb859c1ea000f5e0c31bdcd96d1289010f8ae9",
+      "bytes": 581590,
+      "source": {
+        "path": "USB-PD-Trigger-Board.kicad_pcb",
+        "kind": "regular",
+        "object_id": "ea46fd3d3b4fbbd841460287151d95062224bc29"
+      }
+    },
+    {
+      "path": "sources/USB-PD-Trigger-Board.kicad_pro",
+      "role": "source-project",
+      "stage": "parse",
+      "sha256": "3b1efe5889ad418323be882a1143db2518f56874879794c61176b243412b12ad",
+      "bytes": 17486,
+      "source": {
+        "path": "USB-PD-Trigger-Board.kicad_pro",
+        "kind": "regular",
+        "object_id": "c28d96a6aade5a49de42472186377dc6cf1feb54"
+      }
+    },
+    {
+      "path": "sources/USB-PD-Trigger-Board.kicad_sch",
+      "role": "source-schematic",
+      "stage": "parse",
+      "sha256": "0b07bb1e2b4dea9dc6b7fd1053c13d57b15c516b7e06c9d8a5a395b4ece4c8a8",
+      "bytes": 350378,
+      "source": {
+        "path": "USB-PD-Trigger-Board.kicad_sch",
+        "kind": "regular",
+        "object_id": "2bbe68bcc29c032be4957b1bab82ded652c439be"
+      }
+    },
+    {
+      "path": "sources/packages3D/796638-2.step",
+      "role": "source-3d-model",
+      "stage": "parse",
+      "sha256": "110ef5e5dac9547cd859e8dce0138098c57f4e37128da9ff51da889f8801a87f",
+      "bytes": 89300,
+      "source": {
+        "path": "packages3D/796638-2.step",
+        "kind": "regular",
+        "object_id": "c36353a3b446b1491c562382f60fb0aecf79daac"
+      }
+    },
+    {
+      "path": "sources/packages3D/CYPD3177-24LQXQT.stp",
+      "role": "source-3d-model",
+      "stage": "parse",
+      "sha256": "fd0f7908ef75ac07950457906e717256abe7f42bbb20ad9747fe07a6d708de5f",
+      "bytes": 427669,
+      "source": {
+        "path": "packages3D/CYPD3177-24LQXQT.stp",
+        "kind": "regular",
+        "object_id": "08654cb7b76bb5c9e688f2e9687973670baff6c6"
+      }
+    },
+    {
+      "path": "sources/packages3D/USB4056-03-A_REVA2.step",
+      "role": "source-3d-model",
+      "stage": "parse",
+      "sha256": "9b870d20179a629517be6faeaedb6e215adc5a349d3e42ebea3e3ee1aed84013",
+      "bytes": 3001183,
+      "source": {
+        "path": "packages3D/USB4056-03-A_REVA2.step",
+        "kind": "regular",
+        "object_id": "95772eeb8c0d7e241e62580868572efadce85d24"
+      }
+    },
+    {
+      "path": "viewer/models/components.glb",
+      "role": "component-models",
+      "stage": "models",
+      "sha256": "ec4b495a8f1f40c1234465df011763e8563bb167053085930ce67535ae72a5c6",
+      "bytes": 1360412
+    }
+  ]
+}

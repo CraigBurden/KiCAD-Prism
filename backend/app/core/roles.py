@@ -22,6 +22,11 @@ ROLE_LABELS: dict[Role, str] = {
 }
 
 CATALOG_READ_ROLES: frozenset[Role] = frozenset({"admin", "designer", "qa"})
+# Browsing the component database (list, detail, revisions, previews, the
+# metadata grid, the release queue) is open to viewers too (System Builder
+# D-P2-24). Operational reads (imports, jobs, validation runs, inventory
+# export, health) stay on CATALOG_READ_ROLES.
+CATALOG_BROWSE_ROLES: frozenset[Role] = CATALOG_READ_ROLES | frozenset({"viewer"})
 CATALOG_WRITE_ROLES: frozenset[Role] = frozenset({"admin", "designer"})
 CATALOG_QA_ROLES: frozenset[Role] = frozenset({"admin", "qa"})
 PROJECT_VIEW_ROLES: frozenset[Role] = frozenset({"viewer", "qa"})
@@ -44,9 +49,3 @@ def role_meets_minimum(role: Role, minimum: Role) -> bool:
 
 def role_label(role: Role) -> str:
     return ROLE_LABELS[role]
-
-
-def role_matches_allowed_role(role: Role, allowed_roles: list[str]) -> bool:
-    if role in allowed_roles:
-        return True
-    return role in PROJECT_VIEW_ROLES and "viewer" in allowed_roles

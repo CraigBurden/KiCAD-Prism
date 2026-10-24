@@ -3,32 +3,32 @@ import {
   Archive,
   ArrowLeft,
   Boxes,
-  ChevronRight,
   CircleAlert,
-  CircleDashed,
   Clock3,
-  Download,
   Edit3,
   ExternalLink,
   FileBox,
   FileCheck2,
   GitCompareArrows,
-  Library,
   Link2,
-  Layers3,
   Loader2,
   PackageCheck,
   RefreshCw,
-  RotateCcw,
   SearchCheck,
   ShieldCheck,
   UserRoundCheck,
-  Upload,
   XCircle,
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { inventoryWarnings } from "@/lib/inventory-presentation";
+import {
+  AVAILABILITY_BADGE_TITLE,
+  AVAILABILITY_BADGE_VARIANT,
+  VALIDATION_BADGE_VARIANT,
+  WORKFLOW_BADGE_TITLE,
+  WORKFLOW_BADGE_VARIANT,
+} from "@/lib/catalog-badges";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,32 +42,32 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { StudioTabsList, StudioTabsTrigger } from "@/components/ui/studio-tabs";
+import { Tabs } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { fetchJson } from "@/lib/api";
-import { canWriteCatalog, workflowStage } from "@/lib/roles";
-import { cn } from "@/lib/utils";
+import {
+  compareComponentRevisions,
+  detachComponentAsset,
+  getComponent,
+  getComponentRevision,
+  listComponentAudit,
+  listComponentReleases,
+  listComponentReviews,
+  listComponentRevisions,
+  listComponentUsage,
+  regenerateComponentPreviews,
+  releaseComponent,
+  verifyComponentAudit,
+} from "./catalog-client";
+import { canAdministerCatalog, canReviewCatalogQa, canWriteCatalog, workflowStage } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import type {
   AvailabilityState,
   CatalogAsset,
-  CatalogAuditEvent,
-  CatalogAuditVerification,
   CatalogComponent,
-  CatalogComponentUsage,
-  CatalogReviewDecision,
-  CatalogReleaseRecord,
-  CatalogRepresentation,
   CatalogRevisionDiff,
-  CatalogRevisionSummary,
   CatalogValidationStatus,
   WorkflowStage,
 } from "@/types/catalog";
@@ -75,13 +75,11 @@ import type { Project } from "@/types/project";
 import {
   DefinitionRows,
   EmptyState,
-  formatBytes,
   humanize,
   LoadingState,
   MetricCard,
   PanelCard,
   shortHash,
-  StatusBadge,
 } from "./library-component-chrome";
 import {
   combinedEvidenceState,
@@ -100,6 +98,9 @@ import {
   RevisionsPanel,
   WhereUsedPanel,
 } from "./library-component-evidence-panels";
+import { AssetsPanel, ProvisionalNotice, isProvisionalPart } from "./library-component-assets";
+import { MatesWithPanel } from "./library-component-mates";
+import { ModelsPanel } from "./library-component-models";
 import { LibraryPreviewPair } from "./library-preview-inspector";
 import {
   ASSET_LABELS,
@@ -196,12 +197,8 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
 
   return (
     <div className="space-y-4">
-      {component.identity_kind === "provisional_ipn" ? (
-        <div className="border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
-          <strong>Provisional component.</strong> Add the real manufacturer part number before approval, release, inventory synchronization, or placement.
-        </div>
-      ) : null}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {isProvisionalPart(component) ? <ProvisionalNotice /> : null}
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         <MetricCard label="Release state" value={WORKFLOW_LABELS[workflowStage(component)]} detail={`Revision v${component.revision}`} />
         <MetricCard label="Required assets" value={`${requiredAttached}/${requiredAttached + component.missing_assets.length}`} detail={component.missing_assets.length ? `Missing ${component.missing_assets.join(", ")}` : "All required assets attached"} />
         <MetricCard label="Validation" value={VALIDATION_LABELS[component.validation.status]} detail={`${component.validation.error_count} errors · ${component.validation.warning_count} warnings`} />
@@ -211,7 +208,6 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
       <div className="grid gap-4 xl:grid-cols-2">
         <PanelCard
           title="Component identity"
-          description="Canonical catalog metadata for this revision."
           action={canMutate ? <Button size="sm" variant="outline" onClick={onEdit}><Edit3 className="h-3.5 w-3.5" /> Edit metadata</Button> : undefined}
         >
           <DefinitionRows rows={[
@@ -226,7 +222,7 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
           ]} />
         </PanelCard>
 
-        <PanelCard title="Engineering data" description="Thermal, sourcing, and enterprise attributes.">
+        <PanelCard title="Engineering data">
           <DefinitionRows rows={[
             ...engineeringRows,
             { label: "Vendor", value: component.vendor },
@@ -238,7 +234,7 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <PanelCard title="Visual inspection" description={`${renderableAssets} renderable asset${renderableAssets === 1 ? "" : "s"} on this revision's representation.`}>
+        <PanelCard title="Visual inspection">
           {hasRenderableAssets ? (
             <LibraryPreviewPair
               label={component.name}
@@ -246,11 +242,11 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
               footprintAssetId={previewPair.footprintAssetId}
             />
           ) : (
-            <EmptyState icon={SearchCheck} title="No renderable assets" detail="Attach a symbol or footprint before visual review." />
+            <EmptyState icon={SearchCheck} title="No renderable assets" />
           )}
         </PanelCard>
 
-        <PanelCard title="Revision provenance" description="Immutable evidence used to reproduce and audit this revision.">
+        <PanelCard title="Revision provenance">
           <DefinitionRows rows={[
             { label: "Revision", value: `v${component.revision}` },
             { label: "Change kind", value: humanize(component.change_kind) },
@@ -263,248 +259,13 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
       </div>
 
       {Object.keys(component.extra_fields).length ? (
-        <PanelCard title="Extended symbol fields" description="Additional fields preserved from the source symbol or integration.">
+        <PanelCard title="Extended symbol fields">
           <DefinitionRows rows={Object.entries(component.extra_fields).map(([label, value]) => ({ label, value }))} />
         </PanelCard>
       ) : null}
-    </div>
-  );
-}
 
-function RepresentationRow({
-  component,
-  representation,
-  canMutate,
-  onChanged,
-}: {
-  component: CatalogComponent;
-  representation: CatalogRepresentation;
-  canMutate: boolean;
-  onChanged: () => void;
-}) {
-  const symbols = component.assets.filter((asset) => asset.asset_type === "symbol");
-  const footprints = component.assets.filter((asset) => asset.asset_type === "footprint");
-  // An edit buffer, not a mirror: it is meant to diverge from the prop as soon
-  // as the field is typed in, so it cannot be computed inline. The row is keyed
-  // on representation.id, so a different representation gets a different form.
-  // react-doctor-disable-next-line react-doctor/no-derived-useState
-  const [label, setLabel] = useState(representation.label);
-  const [symbolId, setSymbolId] = useState(representation.symbol?.id || "");
-  const [footprintId, setFootprintId] = useState(representation.footprint?.id || "");
-  const [order, setOrder] = useState(String(representation.display_order));
-  const [saving, setSaving] = useState(false);
-
-  const update = async (makeDefault = representation.is_default) => {
-    setSaving(true);
-    try {
-      await fetchJson(`/api/catalog/components/${encodeURIComponent(component.id)}/representations/${encodeURIComponent(representation.id)}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          label,
-          symbol_asset_id: symbolId,
-          footprint_asset_id: footprintId,
-          display_order: Number(order) || 0,
-          is_default: makeDefault,
-          expected_revision_id: component.revision_id,
-        }),
-      });
-      toast.success(makeDefault && !representation.is_default ? "Default representation updated." : "Representation saved.");
-      onChanged();
-    } catch (reason) {
-      toast.error(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const remove = async () => {
-    setSaving(true);
-    try {
-      await fetchJson(`/api/catalog/components/${encodeURIComponent(component.id)}/representations/${encodeURIComponent(representation.id)}?expected_revision_id=${encodeURIComponent(component.revision_id)}`, { method: "DELETE" });
-      toast.success("Representation removed in a new revision.");
-      onChanged();
-    } catch (reason) {
-      toast.error(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="grid gap-2 border p-3 lg:grid-cols-[minmax(10rem,1fr)_minmax(10rem,1fr)_minmax(10rem,1fr)_5rem_auto]">
-      <Input aria-label="Representation label" value={label} onChange={(event) => setLabel(event.target.value)} disabled={!canMutate || saving} />
-      <Select value={symbolId || "none"} onValueChange={(value) => setSymbolId(value === "none" ? "" : value)} disabled={!canMutate || saving}>
-        <SelectTrigger aria-label="Symbol asset"><SelectValue placeholder="No symbol" /></SelectTrigger>
-        <SelectContent><SelectItem value="none">No symbol</SelectItem>{symbols.map((asset) => <SelectItem key={asset.id} value={asset.id}>{asset.target_name}</SelectItem>)}</SelectContent>
-      </Select>
-      <Select value={footprintId || "none"} onValueChange={(value) => setFootprintId(value === "none" ? "" : value)} disabled={!canMutate || saving}>
-        <SelectTrigger aria-label="Footprint asset"><SelectValue placeholder="No footprint" /></SelectTrigger>
-        <SelectContent><SelectItem value="none">No footprint</SelectItem>{footprints.map((asset) => <SelectItem key={asset.id} value={asset.id}>{asset.target_name}</SelectItem>)}</SelectContent>
-      </Select>
-      <Input aria-label="Display order" type="number" value={order} onChange={(event) => setOrder(event.target.value)} disabled={!canMutate || saving} />
-      <div className="flex items-center justify-end gap-1">
-        {representation.is_default ? <Badge>Default</Badge> : <Button size="sm" variant="outline" disabled={!canMutate || saving || !symbolId || !footprintId} onClick={() => void update(true)}>Make default</Button>}
-        <Button size="sm" disabled={!canMutate || saving} onClick={() => void update()}>{saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}Save</Button>
-        <Button size="icon-sm" variant="ghost" className="text-destructive" aria-label={`Delete ${representation.label}`} disabled={!canMutate || saving} onClick={() => void remove()}><XCircle className="h-3.5 w-3.5" /></Button>
-      </div>
-      {(representation.symbol?.preview_id || representation.footprint?.preview_id) ? (
-        <div className="grid gap-2 border-t pt-2 lg:col-span-5 sm:grid-cols-2">
-          {(["symbol", "footprint"] as const).map((kind) => {
-            const asset = representation[kind];
-            return asset?.preview_id ? (
-              <div key={kind} className="flex min-h-28 items-center justify-center bg-preview-surface p-2">
-                <img src={`/api/catalog/previews/${encodeURIComponent(asset.preview_id)}`} alt={`${representation.label} ${kind} preview`} className="max-h-36 max-w-full object-contain" />
-              </div>
-            ) : <div key={kind} className="flex min-h-28 items-center justify-center border border-dashed text-xs text-muted-foreground">No {kind} preview</div>;
-          })}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function RepresentationsPanel({ component, canMutate, onChanged }: { component: CatalogComponent; canMutate: boolean; onChanged: () => void }) {
-  const [creating, setCreating] = useState(false);
-  const symbols = component.assets.filter((asset) => asset.asset_type === "symbol");
-  const footprints = component.assets.filter((asset) => asset.asset_type === "footprint");
-  const add = async () => {
-    setCreating(true);
-    try {
-      const currentDefault = component.representations.find((item) => item.is_default);
-      const candidates = symbols.flatMap((symbol) => footprints.map((footprint) => ({ symbol, footprint })));
-      const unused = candidates.find(({ symbol, footprint }) => !component.representations.some((item) => item.symbol?.id === symbol.id && item.footprint?.id === footprint.id));
-      await fetchJson(`/api/catalog/components/${encodeURIComponent(component.id)}/representations`, {
-        method: "POST",
-        body: JSON.stringify({
-          label: `Representation ${component.representations.length + 1}`,
-          symbol_asset_id: unused?.symbol.id || (component.representations.length ? "" : currentDefault?.symbol?.id || symbols[0]?.id || ""),
-          footprint_asset_id: unused?.footprint.id || (component.representations.length ? "" : currentDefault?.footprint?.id || footprints[0]?.id || ""),
-          display_order: component.representations.length,
-          expected_revision_id: component.revision_id,
-        }),
-      });
-      toast.success("Representation added in a new revision.");
-      onChanged();
-    } catch (reason) {
-      toast.error(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setCreating(false);
-    }
-  };
-  return (
-    <PanelCard
-      title="Symbol-footprint representations"
-      description="Pair any attached symbol with any attached footprint. Placement and previews follow the selected pair."
-      action={canMutate ? <Button size="sm" variant="outline" disabled={creating} onClick={() => void add()}>{creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers3 className="h-3.5 w-3.5" />} Add representation</Button> : null}
-    >
-      {component.identity_kind === "provisional_ipn" ? <div className="mb-3 border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">This provisional component cannot be completed or released until it has a real manufacturer and MPN.</div> : null}
-      <div className="space-y-2">
-        {component.representations.map((representation) => <RepresentationRow key={representation.id} component={component} representation={representation} canMutate={canMutate} onChanged={onChanged} />)}
-        {!component.representations.length ? <EmptyState icon={Layers3} title="No representations" detail="Attach symbol and footprint assets, then pair them here." /> : null}
-      </div>
-    </PanelCard>
-  );
-}
-
-function AssetsPanel({
-  component,
-  canMutate,
-  busyAction,
-  onAttach,
-  onDetachAsset,
-  onDownload,
-  onRegeneratePreviews,
-  onValidate,
-  onRepresentationsChanged,
-}: {
-  component: CatalogComponent;
-  canMutate: boolean;
-  busyAction: string;
-  onAttach: (assetType: AssetType) => void;
-  onDetachAsset: (asset: CatalogAsset) => void;
-  onDownload: (asset: CatalogAsset) => void;
-  onRegeneratePreviews: () => void;
-  onValidate: () => void;
-  onRepresentationsChanged: () => void;
-}) {
-  const groups = (["symbol", "footprint", "3dmodel", "spice"] as const).map((type) => ({
-    type,
-    assets: component.assets.filter((asset) => asset.asset_type === type),
-  }));
-  const downloadsAvailable = component.revision_id === component.released_revision_id;
-  const previewPair = resolveLibraryPreviewPairAssetIds(component);
-  const hasRenderableAssets = Boolean(previewPair.symbolAssetId || previewPair.footprintAssetId);
-
-  return (
-    <div className="space-y-4">
-      <RepresentationsPanel component={component} canMutate={canMutate} onChanged={onRepresentationsChanged} />
-      <div className="flex flex-wrap items-center justify-between gap-3 border bg-card p-3">
-        <div>
-          <p className="text-sm font-medium">Revision assets and evidence</p>
-        </div>
-        {canMutate ? (
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" disabled={Boolean(busyAction)} onClick={onRegeneratePreviews}>
-              {busyAction === "previews" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />} Regenerate previews
-            </Button>
-            <Button size="sm" disabled={Boolean(busyAction) || !component.validation.enabled} onClick={onValidate} title={component.validation.enabled ? "Run KiCad Library Convention validation" : "Enable CATALOG_KLC_ENABLED to run validation"}>
-              {busyAction === "validation" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />} Run KLC validation
-            </Button>
-          </div>
-        ) : null}
-      </div>
-      <div className="grid gap-4 lg:grid-cols-2">
-        {groups.map(({ type, assets }) => (
-          <PanelCard
-            key={type}
-            title={type === "3dmodel" ? "3D models" : type === "spice" ? "SPICE models" : `${humanize(type)} assets`}
-            description={`${assets.length} immutable file${assets.length === 1 ? "" : "s"} attached to v${component.revision}.`}
-            action={(
-              <div className="flex items-center gap-2">
-                <StatusBadge tone={assets.length ? "success" : type === "symbol" || type === "footprint" ? "danger" : "warning"}>{assets.length ? "Attached" : "Missing"}</StatusBadge>
-                {canMutate ? <Button size="sm" variant="outline" disabled={Boolean(busyAction)} onClick={() => onAttach(type)}><Upload className="h-3.5 w-3.5" />Add</Button> : null}
-              </div>
-            )}
-          >
-            {assets.length ? (
-              <div className="divide-y divide-border">
-                {assets.map((asset) => (
-                  <div key={asset.id} className="space-y-2 py-3 first:pt-0 last:pb-0">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">{asset.name}</p>
-                        <p className="truncate text-xs text-muted-foreground">{asset.target_library ? `${asset.target_library}:` : ""}{asset.target_name}</p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        {asset.required ? <Badge>Required</Badge> : <Badge variant="secondary">Optional</Badge>}
-                        <Button size="icon-sm" variant="ghost" aria-label={`Download ${asset.name}`} title={downloadsAvailable ? "Download released asset" : "Downloads are available from the released revision"} disabled={!downloadsAvailable} onClick={() => onDownload(asset)}><Download className="h-3.5 w-3.5" /></Button>
-                        {canMutate ? <Button size="icon-sm" variant="ghost" className="text-destructive" aria-label={`Detach ${asset.name}`} onClick={() => onDetachAsset(asset)}><XCircle className="h-3.5 w-3.5" /></Button> : null}
-                      </div>
-                    </div>
-                    <div className="grid min-w-0 gap-1 text-xs text-muted-foreground sm:grid-cols-2">
-                      <span className="min-w-0 truncate">{asset.content_type || "Unknown content type"}</span>
-                      <span>{formatBytes(asset.size_bytes)}</span>
-                      <span className="min-w-0 truncate font-mono sm:col-span-2" title={asset.sha256}>{asset.sha256 ? `SHA-256 ${asset.sha256}` : `Asset ${asset.id}`}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <EmptyState icon={CircleDashed} title={`No ${humanize(type)} asset`} detail={type === "symbol" || type === "footprint" ? "This required asset blocks place readiness." : "This optional asset has not been provided."} />
-            )}
-          </PanelCard>
-        ))}
-      </div>
-
-      {hasRenderableAssets ? (
-        <PanelCard title="Rendered previews" description="Drawn from this revision\u2019s own symbol and footprint, without opening KiCad.">
-          <LibraryPreviewPair
-            label={component.name}
-            symbolAssetId={previewPair.symbolAssetId}
-            footprintAssetId={previewPair.footprintAssetId}
-          />
-        </PanelCard>
-      ) : null}
+      <MatesWithPanel componentId={component.id} canMutate={canMutate} />
+      <ModelsPanel componentId={component.id} canMutate={canMutate} />
     </div>
   );
 }
@@ -521,6 +282,7 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
     </div>
   );
 }
+
 
 // react-doctor-disable-next-line no-giant-component - tabs, evidence, and release queue share one component resource
 export function LibraryComponentWorkspace({
@@ -630,7 +392,7 @@ export function LibraryComponentWorkspace({
     setComponentGeneration("");
     setCurrentComponent(null);
     setActiveComponent(null);
-    void fetchJson<CatalogComponent>(`/api/catalog/components/${encodeURIComponent(componentId)}`, { signal: controller.signal })
+    void getComponent(componentId, controller.signal)
       .then((component) => {
         if (controller.signal.aborted) return;
         setCurrentComponent(component);
@@ -655,7 +417,7 @@ export function LibraryComponentWorkspace({
     }
     const controller = new AbortController();
     setHistoricalLoading(true);
-    void fetchJson<CatalogComponent>(`/api/catalog/components/${encodeURIComponent(componentId)}/revisions/${encodeURIComponent(requestedRevisionId)}`, { signal: controller.signal })
+    void getComponentRevision(componentId, requestedRevisionId, controller.signal)
       .then((component) => {
         if (controller.signal.aborted) return;
         if (!isCatalogComponent(component)) {
@@ -671,14 +433,12 @@ export function LibraryComponentWorkspace({
     return () => controller.abort();
   }, [componentId, currentComponent, requestedRevisionId]);
 
-  const componentPath = `/api/catalog/components/${encodeURIComponent(componentId)}`;
-
   useEvidenceResource({
     enabled: componentReady && needsRevisions,
     generation: evidenceGeneration,
     retryKey: evidenceRetryKey,
     loadState: revisionsLoad,
-    load: (signal) => fetchJson<{ items: CatalogRevisionSummary[] }>(`${componentPath}/revisions`, { signal }),
+    load: (signal) => listComponentRevisions(componentId, signal),
     onLoaded: (response) => publishEvidence("revisions", response.items),
   });
 
@@ -687,7 +447,7 @@ export function LibraryComponentWorkspace({
     generation: evidenceGeneration,
     retryKey: evidenceRetryKey,
     loadState: reviewsLoad,
-    load: (signal) => fetchJson<{ items: CatalogReviewDecision[] }>(`${componentPath}/reviews`, { signal }),
+    load: (signal) => listComponentReviews(componentId, signal),
     onLoaded: (response) => publishEvidence("reviews", response.items),
   });
 
@@ -696,7 +456,7 @@ export function LibraryComponentWorkspace({
     generation: evidenceGeneration,
     retryKey: evidenceRetryKey,
     loadState: releasesLoad,
-    load: (signal) => fetchJson<{ items: CatalogReleaseRecord[] }>(`${componentPath}/releases`, { signal }),
+    load: (signal) => listComponentReleases(componentId, signal),
     onLoaded: (response) => publishEvidence("releases", response.items),
   });
 
@@ -705,7 +465,7 @@ export function LibraryComponentWorkspace({
     generation: evidenceGeneration,
     retryKey: evidenceRetryKey,
     loadState: usageLoad,
-    load: (signal) => fetchJson<{ items: CatalogComponentUsage[] }>(`${componentPath}/usage`, { signal }),
+    load: (signal) => listComponentUsage(componentId, signal),
     onLoaded: (response) => publishEvidence("usage", response.items),
   });
 
@@ -718,8 +478,8 @@ export function LibraryComponentWorkspace({
     // chain shown against a half-loaded event list would be misleading.
     load: (signal) =>
       Promise.all([
-        fetchJson<{ items: CatalogAuditEvent[] }>(`${componentPath}/audit`, { signal }),
-        fetchJson<CatalogAuditVerification>(`${componentPath}/audit/verify`, { signal }),
+        listComponentAudit(componentId, signal),
+        verifyComponentAudit(componentId, signal),
       ]),
     onLoaded: ([eventList, auditVerification]) => {
       publishEvidence("events", eventList.items);
@@ -757,8 +517,7 @@ export function LibraryComponentWorkspace({
     let settled = false;
     setDiff(null);
     setDiffLoad({ status: "loading", error: "", generation: cacheKey });
-    const params = new URLSearchParams({ before: diffPair.before, after: diffPair.after });
-    void fetchJson<CatalogRevisionDiff>(`/api/catalog/components/${encodeURIComponent(componentId)}/revisions/compare?${params.toString()}`, { signal: controller.signal })
+    void compareComponentRevisions(componentId, diffPair.before, diffPair.after, controller.signal)
       .then((value) => {
         settled = true;
         if (controller.signal.aborted) return;
@@ -779,12 +538,12 @@ export function LibraryComponentWorkspace({
   const historical = Boolean(currentComponent && activeComponent && currentComponent.revision_id !== activeComponent.revision_id);
   const canMutate = Boolean(!historical && canWriteCatalog(user?.role));
   const sameActorApproval = Boolean(
-    user?.role === "admin" &&
+    canAdministerCatalog(user?.role) &&
     currentComponent &&
     (transitionTarget === "done" || transitionTarget === "released") &&
     (workflowStage(currentComponent) === "qa_review" || workflowStage(currentComponent) === "done") &&
     currentComponent.created_by &&
-    currentComponent.created_by === user.email
+    currentComponent.created_by === user?.email
   );
   const decisionNoteRequired = Boolean(
     currentComponent && transitionTarget && workflowStage(currentComponent) === "qa_review" && (transitionTarget === "done" || transitionTarget === "in_progress")
@@ -802,16 +561,12 @@ export function LibraryComponentWorkspace({
     }
     setTransitioning(true);
     try {
-      await fetchJson<CatalogComponent>(`/api/catalog/components/${encodeURIComponent(componentId)}/release`, {
-        method: "POST",
-        body: JSON.stringify({
-          workflow_stage: transitionTarget,
-          review_note: reviewNote.trim(),
-          self_approval_override_reason: overrideReason.trim(),
-          expected_revision_id: currentComponent.revision_id,
-          expected_manifest_hash: currentComponent.manifest_hash,
-        }),
-      });
+      await releaseComponent(componentId, {
+        workflow_stage: transitionTarget,
+        review_note: reviewNote.trim(),
+        self_approval_override_reason: overrideReason.trim(),
+        expected_manifest_hash: currentComponent.manifest_hash,
+      }, currentComponent.revision_id);
       toast.success(`Component moved to ${WORKFLOW_LABELS[transitionTarget]}.`);
       setTransitionTarget(null);
       setReviewNote("");
@@ -846,8 +601,7 @@ export function LibraryComponentWorkspace({
     if (!detachAsset || !canMutate || !currentComponent) return;
     setBusyAction("detach-id");
     try {
-      const params = new URLSearchParams({ expected_revision_id: currentComponent.revision_id });
-      await fetchJson(`/api/catalog/components/${encodeURIComponent(componentId)}/assets/id/${encodeURIComponent(detachAsset.id)}?${params.toString()}`, { method: "DELETE" });
+      await detachComponentAsset(componentId, detachAsset.id, currentComponent.revision_id);
       toast.success(`${ASSET_LABELS[detachAsset.asset_type]} detached in a new revision.`);
       setDetachAsset(null);
       updateParams({ revision: null, compare: null });
@@ -863,7 +617,7 @@ export function LibraryComponentWorkspace({
     if (!canMutate) return;
     setBusyAction("previews");
     try {
-      const updated = await fetchJson<CatalogComponent>(`/api/catalog/components/${encodeURIComponent(componentId)}/previews/regenerate`, { method: "POST" });
+      const updated = await regenerateComponentPreviews(componentId);
       const ready = updated.previews.filter((preview) => preview.status === "ready").length;
       const failed = updated.previews.filter((preview) => preview.status === "failed").length;
       if (ready) toast.success(`${ready} preview${ready === 1 ? "" : "s"} ready${failed ? `; ${failed} failed` : ""}.`);
@@ -907,74 +661,59 @@ export function LibraryComponentWorkspace({
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <header className="shrink-0 border-b bg-card">
-        <div className="px-4 py-3">
-          <div className="mb-3 flex items-center gap-1 text-xs text-muted-foreground">
-            <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onBack}><ArrowLeft className="h-3 w-3" /> {returnLabel}</Button>
-            <ChevronRight className="h-3 w-3" />
-            <span className="truncate">{activeComponent.manufacturer || "Unspecified manufacturer"}</span>
-            <ChevronRight className="h-3 w-3" />
-            <span className="truncate text-foreground">{activeComponent.mpn || activeComponent.name}</span>
-          </div>
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <Library className="h-5 w-5 text-primary" />
-                <h2 className="text-xl font-semibold tracking-tight">{activeComponent.name}</h2>
-                <Badge>v{activeComponent.revision}</Badge>
-                {historical ? <Badge variant="secondary">Historical</Badge> : <Badge variant="outline">Current</Badge>}
-              </div>
-              <p className="mt-1 max-w-4xl text-sm text-muted-foreground">{activeComponent.description || `${activeComponent.manufacturer} ${activeComponent.mpn}` || "No description available."}</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge tone={workflowStage(activeComponent) === "released" ? "success" : "neutral"}>{WORKFLOW_LABELS[workflowStage(activeComponent)]}</StatusBadge>
-              <StatusBadge tone={activeComponent.validation.status === "failed" ? "danger" : activeComponent.validation.status === "warning" ? "warning" : activeComponent.validation.status === "passed" ? "success" : "neutral"}>{VALIDATION_LABELS[activeComponent.validation.status]}</StatusBadge>
-              <StatusBadge tone={activeComponent.place_enabled ? "success" : activeComponent.availability_state === "files_partial" ? "warning" : activeComponent.availability_state === "metadata_only" ? "danger" : "neutral"}>{activeComponent.place_enabled ? "Placeable" : AVAILABILITY_LABELS[activeComponent.availability_state]}</StatusBadge>
-              <Button size="sm" variant="outline" aria-label="Refresh component workspace" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw className="h-3 w-3" /> Refresh</Button>
-            </div>
+        <div className="flex min-h-11 flex-wrap items-center gap-2 px-2 py-1.5">
+          <Button size="sm" variant="ghost" className="h-7 px-2" title={returnLabel} onClick={onBack}><ArrowLeft className="h-3.5 w-3.5" />{returnLabel}</Button>
+          <Separator orientation="vertical" className="h-5" />
+          <h2 className="min-w-0 truncate text-sm font-semibold" title={activeComponent.description || undefined}>{activeComponent.name}</h2>
+          <span className="min-w-0 truncate text-xs text-muted-foreground" title={activeComponent.manufacturer || undefined}>{activeComponent.mpn}</span>
+          <Badge variant={historical ? "warning" : "default"} title={historical ? "Historical revision" : "Current revision"}>v{activeComponent.revision}</Badge>
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
+            <Badge variant={WORKFLOW_BADGE_VARIANT[workflowStage(activeComponent)]} title={WORKFLOW_BADGE_TITLE[workflowStage(activeComponent)]}>{WORKFLOW_LABELS[workflowStage(activeComponent)]}</Badge>
+            <Badge variant={VALIDATION_BADGE_VARIANT[activeComponent.validation.status]} title={`${activeComponent.validation.error_count} errors · ${activeComponent.validation.warning_count} warnings`}>{VALIDATION_LABELS[activeComponent.validation.status]}</Badge>
+            <Badge variant={activeComponent.place_enabled ? "success" : AVAILABILITY_BADGE_VARIANT[activeComponent.availability_state]} title={AVAILABILITY_BADGE_TITLE[activeComponent.availability_state]}>{activeComponent.place_enabled ? "Placeable" : AVAILABILITY_LABELS[activeComponent.availability_state]}</Badge>
+            {!historical && !canMutate ? (
+              <Badge variant="secondary" title={`Editing needs the Designer or Admin role${canReviewCatalogQa(user?.role) ? "; QA review stays available" : ""}`}><ShieldCheck className="h-3 w-3" />Read only</Badge>
+            ) : null}
+            <Button size="icon-sm" variant="ghost" aria-label="Refresh component workspace" title="Refresh" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw className="h-3.5 w-3.5" /></Button>
           </div>
         </div>
 
-        {!historical && !canMutate ? (
-          <div className="flex items-center gap-2 border-t bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
-            <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
-            You have read-only access to this component. Editing metadata and attaching
-            assets need the Designer or Admin role.
-            {user?.role === "qa" ? " QA Review actions remain available on the workflow panel." : ""}
-          </div>
-        ) : null}
         {historical ? (
-          <div className="flex items-center justify-between gap-3 border-t bg-muted/30 px-4 py-2 text-xs">
-            <span className="flex items-center gap-2"><Clock3 className="h-3.5 w-3.5" /> Viewing immutable revision v{activeComponent.revision}. Editing and workflow actions are disabled.</span>
-            <Button size="sm" variant="outline" className="h-7" onClick={() => updateParams({ revision: null, compare: null })}>Return to current v{currentComponent.revision}</Button>
+          <div className="flex items-center justify-between gap-3 border-t bg-muted/30 px-3 py-1.5 text-xs">
+            <span className="flex items-center gap-2"><Clock3 className="h-3.5 w-3.5" />v{activeComponent.revision} · read only</span>
+            <Button size="sm" variant="outline" className="h-7" aria-label={`Return to current v${currentComponent.revision}`} title="Return to the current revision" onClick={() => updateParams({ revision: null, compare: null })}>Current v{currentComponent.revision}</Button>
           </div>
         ) : null}
         {historicalLoading ? (
-          <div className="flex items-center gap-2 border-t bg-muted/30 px-4 py-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading the requested immutable revision…</div>
+          <div className="flex items-center gap-2 border-t bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground" role="status" aria-label="Loading revision"><Loader2 className="h-3.5 w-3.5 animate-spin" /></div>
         ) : null}
         {historicalError ? (
-          <div className="flex items-center justify-between gap-3 border-t border-destructive bg-destructive/10 px-4 py-2 text-xs">
-            <span className="flex items-center gap-2"><CircleAlert className="h-3.5 w-3.5 text-destructive" /> {historicalError}</span>
-            <Button size="sm" variant="outline" className="h-7" onClick={() => updateParams({ revision: null, compare: null })}>Return to current revision</Button>
+          <div className="flex items-center justify-between gap-3 border-t border-destructive bg-destructive/10 px-3 py-1.5 text-xs">
+            <span className="flex min-w-0 items-center gap-2"><CircleAlert className="h-3.5 w-3.5 shrink-0 text-destructive" /><span className="truncate" title={historicalError}>{historicalError}</span></span>
+            <Button size="sm" variant="outline" className="h-7" aria-label="Return to current revision" title="Return to the current revision" onClick={() => updateParams({ revision: null, compare: null })}>Current revision</Button>
           </div>
         ) : null}
 
-        <nav className="flex overflow-x-auto border-t px-3" aria-label="Component workspace sections">
-          {COMPONENT_TABS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              className={cn("flex shrink-0 items-center gap-2 border-b-2 border-transparent px-3 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", activeTab === id && "border-primary text-foreground")}
-              aria-current={activeTab === id ? "page" : undefined}
-              onClick={() => updateParams({ componentTab: id, compare: id === "revisions" ? compareRevisionId : null })}
-            >
-              <Icon className="h-3.5 w-3.5" />{label}
-            </button>
-          ))}
-        </nav>
+        <div className="flex items-center overflow-x-auto border-t px-2 py-1.5">
+          <Tabs value={activeTab} activationMode="manual" className="shrink-0">
+            <StudioTabsList aria-label="Component workspace sections">
+              {COMPONENT_TABS.map(({ id, label, icon: Icon }) => (
+                <StudioTabsTrigger
+                  key={id}
+                  value={id}
+                  className="gap-1.5"
+                  onClick={() => updateParams({ componentTab: id, compare: id === "revisions" ? compareRevisionId : null })}
+                >
+                  <Icon className="size-3.5" aria-hidden />{label}
+                </StudioTabsTrigger>
+              ))}
+            </StudioTabsList>
+          </Tabs>
+        </div>
       </header>
 
       <ScrollArea className="min-h-0 flex-1">
-        <main className="mx-auto w-full max-w-screen-2xl p-4">
+        <main className="mx-auto w-full max-w-screen-2xl p-3">
           {activeTab === "overview" ? <OverviewPanel component={activeComponent} canMutate={canMutate} onEdit={openMetadataEditor} /> : null}
           {activeTab === "assets" ? (
             <AssetsPanel
@@ -1030,7 +769,7 @@ export function LibraryComponentWorkspace({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{transitionTarget ? `Move v${currentComponent.revision} to ${WORKFLOW_LABELS[transitionTarget]}` : "Workflow decision"}</DialogTitle>
-            <DialogDescription>This decision is stored as structured review evidence and in the hash-chained audit trail.</DialogDescription>
+            <DialogDescription className="sr-only">Recorded as review evidence and in the audit trail</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -1039,7 +778,7 @@ export function LibraryComponentWorkspace({
             </div>
             {sameActorApproval ? (
               <div className="space-y-2 border border-destructive bg-destructive/10 p-3">
-                <div className="flex items-start gap-2"><CircleAlert className="mt-0.5 h-4 w-4 text-destructive" /><p className="text-xs">You created this revision. Administrator self-approval or self-publication is an emergency override and requires a separate justification.</p></div>
+                <div className="flex items-start gap-2"><CircleAlert className="mt-0.5 h-4 w-4 text-destructive" /><p className="text-xs" title="Self-approval or self-publication is an emergency override">You created this revision: override</p></div>
                 <Label htmlFor="component-override-reason">Override justification (required)</Label>
                 <Textarea id="component-override-reason" value={overrideReason} onChange={(event) => setOverrideReason(event.target.value)} placeholder="Why could an independent reviewer not approve this revision?" rows={3} />
               </div>
@@ -1095,7 +834,7 @@ export function LibraryComponentWorkspace({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Detach {detachAsset?.name || "asset"}</DialogTitle>
-            <DialogDescription>This creates a new revision without this file. A symbol or footprint that a representation still references must be reassigned first. Prior revisions and canonical files remain intact.</DialogDescription>
+            <DialogDescription>New revision without this file. Earlier revisions keep it.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" disabled={busyAction === "detach-id"} onClick={() => setDetachAsset(null)}>Cancel</Button>

@@ -1,42 +1,56 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
+from app.core.errors import install_error_handlers
 from app.core.gzip_config import (
     GZIP_COMPRESS_LEVEL,
     GZIP_EXCLUDED_CONTENT_TYPES,
     GZIP_MINIMUM_SIZE,
 )
 from app.api.auth import router as auth_router
+from app.api.fabrication_view import router as fabrication_view_router
 from app.api.projects import router as projects_router
+from app.api.project_semantic_index import router as project_semantic_index_router
+from app.api.project_viewer_3d import router as project_viewer_3d_router
+from app.api.project_properties import router as project_properties_router
+from app.api.project_viewer_sources import router as project_viewer_sources_router
 from app.api.project_variants import router as project_variants_router
+from app.api.project_catalog_usage import router as project_catalog_usage_router
 from app.api.project_import_followups import router as project_import_followups_router
+from app.api.design_bundles import router as design_bundles_router
 from app.api.comments import router as comments_router
+from app.api.comment_attachment_links import router as comment_attachment_links_router
 from app.api.comment_live import router as comment_live_router
 from app.api.design_compare import router as design_compare_router
 from app.api.release_studio import router as release_studio_router
+from app.api.sim_studio import router as sim_studio_router
 from app.api.folders import router as folders_router
 from app.api.settings import router as settings_router
 from app.api.workspace import router as workspace_router
 from app.api.remote_provider import router as remote_provider_router
 from app.api.provider_oauth import router as provider_oauth_router
-from app.api.tracker_connectors import register_validation_redaction, router as tracker_connectors_router
+from app.api.tracker_connectors import router as tracker_connectors_router
 from app.api.project_trackers import router as project_trackers_router
 from app.api.tracker_sync import router as tracker_sync_router
 from app.api.tracker_webhooks import router as tracker_webhooks_router
 from app.api.tracker_identity import admin_router as tracker_identity_admin_router
 from app.api.tracker_identity import router as tracker_identity_router
 from app.api.catalog_admin import router as catalog_admin_router
+from app.api.catalog_part_relations import router as catalog_part_relations_router
 from app.api.oauth import router as oauth_router
 from app.api.service_clients import router as service_clients_router
 from app.api.jobs import router as jobs_router
 from app.api.health import router as health_router
-from app.services import password_credential_service, rate_limit_service, session_store_service
-from app.services.comments_store_service import initialize_comments_store
+from app.api.plugin import router as plugin_router
+from app.api.git_http import router as git_http_router
+from app.api.agent import router as agent_router
+from app.services import password_credential_service, session_store_service
+from app.services.design_bundle.errors import install_handlers as install_design_data_handlers
+from app.services.schema_head import bring_every_schema_to_head
+from app.services.superseded_store_cleanup import cleanup_superseded_stores
 from app.services.comment_live_broker import broker as comment_live_broker
 from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
-from app.services.workspace_service import workspace
-from app.services.job_service import jobs
 from app.core.config import settings
 from app.core.security_headers import apply_security_headers
 import os
@@ -58,7 +72,7 @@ def configure_git():
     This used to run ``git config --global url.https://<token>@github.com/…``,
     which left the token in cleartext in the container's ``~/.gitconfig``. The
     rewrite now travels in the environment of each Git invocation instead; see
-    ``project_import_service._inject_github_token``.
+    ``git_remote_access._inject_github_token``.
     """
     if settings.GITHUB_TOKEN:
         logger.info("GITHUB_TOKEN is set; HTTPS GitHub remotes will use it per invocation.")
@@ -180,23 +194,13 @@ async def lifespan(app: FastAPI):
     announce_configuration_warnings()
     configure_git()
     ensure_ssh_dir()
-    initialize_comments_store()
-    catalog_service.initialize()
-    workspace.initialize()
-    jobs.initialize()
-    from app.services.trackers.connector_service import initialize_tracker_connector_service
-    from app.services.trackers.identity_service import initialize_tracker_identity_service
-    from app.services.trackers.github_webhooks import initialize_tracker_webhook_service
+    bring_every_schema_to_head()
+    cleanup_superseded_stores()
     from app.services.trackers.composition import initialize_tracker_composition
 
-    initialize_tracker_connector_service()
-    initialize_tracker_identity_service()
-    initialize_tracker_webhook_service()
     initialize_tracker_composition()
     if settings.AUTH_ENABLED:
-        session_store_service.initialize_session_store()
         session_store_service.prune_expired_sessions()
-        rate_limit_service.initialize_rate_limit_store()
         try:
             seeded = password_credential_service.seed_bootstrap_admins()
             if seeded:
@@ -206,8 +210,8 @@ async def lifespan(app: FastAPI):
                     "afterwards.",
                     ", ".join(seeded),
                 )
-        except Exception:
-            logger.exception("Failed to seed bootstrap admin password")
+        except Exception as exc:
+            logger.exception("Failed to seed bootstrap admin password: %s", exc)
     if settings.PRISM_COMMENT_LIVE_ENABLED:
         live_origins = [*settings.CORS_ORIGINS, settings.PUBLIC_BASE_URL]
         if not any(
@@ -228,6 +232,8 @@ async def lifespan(app: FastAPI):
         database.close()
 
 app = FastAPI(title="KiCAD Prism API", lifespan=lifespan)
+install_error_handlers(app)
+install_design_data_handlers(app)
 
 
 # Compress large responses. Registered before apply_security_headers so it ends
@@ -258,28 +264,40 @@ app.add_middleware(
 # Include Routers
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
+app.include_router(project_semantic_index_router, prefix="/api/projects", tags=["projects"])
+app.include_router(project_viewer_3d_router, prefix="/api/projects", tags=["projects"])
+app.include_router(project_properties_router, prefix="/api/projects", tags=["projects"])
+app.include_router(project_viewer_sources_router, prefix="/api/projects", tags=["projects"])
 app.include_router(
     project_import_followups_router, prefix="/api/projects", tags=["projects"]
 )
 app.include_router(comments_router, prefix="/api/projects", tags=["comments"])
 app.include_router(comment_live_router, prefix="/api/projects", tags=["comments-live"])
 app.include_router(project_variants_router, prefix="/api/projects", tags=["variants"])
+app.include_router(project_catalog_usage_router, prefix="/api/projects", tags=["catalog-usage"])
+app.include_router(design_bundles_router)
 app.include_router(design_compare_router, prefix="/api/projects", tags=["design-compare"])
 app.include_router(release_studio_router, prefix="/api/projects", tags=["release-studio"])
+app.include_router(sim_studio_router, prefix="/api", tags=["sim-studio"])
+app.include_router(fabrication_view_router, prefix="/api/projects", tags=["fabrication-view"])
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 app.include_router(folders_router, prefix="/api/folders", tags=["folders"])
 app.include_router(workspace_router, prefix="/api/workspace", tags=["workspace"])
 app.include_router(jobs_router, prefix="/api/jobs", tags=["jobs"])
+app.include_router(plugin_router, prefix="/api/plugin", tags=["plugin"])
+app.include_router(git_http_router, prefix="/git", tags=["git"])
+app.include_router(agent_router)
 app.include_router(health_router)
 app.include_router(catalog_admin_router)
+app.include_router(catalog_part_relations_router)
 app.include_router(oauth_router)
 app.include_router(service_clients_router)
 app.include_router(remote_provider_router, tags=["remote-provider"])
 app.include_router(provider_oauth_router, tags=["provider-oauth"])
 app.include_router(tracker_connectors_router)
-register_validation_redaction(app)
 app.include_router(tracker_identity_router)
 app.include_router(tracker_identity_admin_router)
 app.include_router(project_trackers_router)
 app.include_router(tracker_sync_router)
 app.include_router(tracker_webhooks_router)
+app.include_router(comment_attachment_links_router, tags=["comments"])

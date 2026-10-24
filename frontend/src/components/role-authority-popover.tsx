@@ -30,7 +30,7 @@ export function RoleAuthorityPopover({ role }: RoleAuthorityPopoverProps) {
         <button
           type="button"
           aria-label={`Show permissions for ${roleLabel(role)}`}
-          className="inline-flex items-center gap-1 rounded-sm font-medium text-foreground underline decoration-dotted underline-offset-4 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="inline-flex items-center gap-1 rounded-sm font-medium text-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           {roleLabel(role)}
           <Info aria-hidden="true" className="h-3.5 w-3.5" />

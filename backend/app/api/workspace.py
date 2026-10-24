@@ -30,5 +30,6 @@ async def get_workspace_bootstrap(
     return {
         "projects": projects,
         "folders": data["folders"],
+        "systems": data.get("systems", []),
         "version": version,
     }

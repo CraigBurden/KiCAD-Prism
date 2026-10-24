@@ -1,5 +1,7 @@
 # M6: one comparison session, three views
 
+> **Superseded (2026-10-23).** This milestone record describes the Node `ecad-parse`/`ecad-diff` and Python comparison pipeline. Design Comparison is now computed by `prism-kicad compare` ([ADR amendment C2r](../architecture/adr-native-design-bundle-amendment-c2r.md)), and the services named here were removed. Kept as a historical record.
+
 Milestone 6 of [the Design Comparison revamp](../DESIGN_COMPARISON_REVAMP.md)
 removes Prism's second rendering path. Composite, side-by-side, and Old/New
 now consume one parser-owned comparison session.

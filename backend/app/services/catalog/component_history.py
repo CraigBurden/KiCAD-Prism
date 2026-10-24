@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from app.services.catalog.step_quarantine import purge_excuses_missing_file
 from app.services.catalog.revision_kernel import (
     CatalogRevisionKernel,
     normalize_workflow_stage,
@@ -176,8 +177,12 @@ class CatalogComponentHistoryReads:
                 """,
             (component_id,),
         ).fetchall()
+        purged_asset_ids: list[str] = []
         for asset in assets:
             path = Path(str(asset["canonical_path"]))
+            if not path.is_file() and purge_excuses_missing_file(conn, str(asset["id"])):
+                purged_asset_ids.append(str(asset["id"]))
+                continue
             if not path.is_file() or sha256_file(path) != str(asset["sha256"]):
                 return {
                     "valid": False,
@@ -198,6 +203,7 @@ class CatalogComponentHistoryReads:
             "verified_count": len(rows),
             "revision_count": len(revisions),
             "asset_count": len(assets),
+            "purged_asset_ids": purged_asset_ids,
             "first_invalid_event_id": "",
             "head_hash": previous_hash,
             "anchored_head_hash": anchored_head,

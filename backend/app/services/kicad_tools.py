@@ -1,0 +1,361 @@
+"""The external KiCad tools Prism runs: where they are and how each run is bounded.
+
+Every caller that runs ``kicad-cli`` goes through a :class:`KicadTool`. The
+tool owns what used to be repeated, unevenly, at each call site:
+
+- **discovery** — ``Settings.KICAD_CLI_PATH``, then ``PATH``, then the usual
+  install locations;
+- **isolation** — each kicad-cli process gets its own temp/runtime directory,
+  because KiCad takes an instance lock keyed on it;
+- **a timeout** — every run states one; an expired run is killed and raises
+  :class:`ToolTimeout`;
+- **output capture and tee** — stdout/stderr are captured, and optionally
+  echoed line by line to the worker log as they arrive;
+- **cancellation** — a ``cancel`` callable (``JobContext.check_cancelled``) is
+  polled while the process runs; when it raises, the process is killed and
+  the exception propagates;
+- **a version probe** — ``--version``, cached per executable.
+
+Two adapters satisfy the interface: :class:`LocalTool` runs the real binary,
+and ``app.services.kicad_tool_replay.ReplayTool`` answers from a recording.
+"""
+
+from __future__ import annotations
+
+import os
+import platform
+import shutil
+import subprocess
+import tempfile
+import threading
+import time
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol, Sequence
+
+if TYPE_CHECKING:  # pragma: no cover
+    from app.core.config import Settings
+
+
+KICAD_CLI = "kicad-cli"
+VERSION_TIMEOUT_SECONDS = 10
+_CANCEL_POLL_SECONDS = 1.0
+
+CancelCheck = Callable[[], None]
+
+
+class ToolError(RuntimeError):
+    """A KiCad tool could not be run to completion."""
+
+
+class ToolUnavailable(ToolError):
+    """The tool is not installed where Prism looks, or could not be executed."""
+
+
+class ToolTimeout(ToolError):
+    """The tool ran past its timeout and was killed."""
+
+    def __init__(self, message: str, timeout_seconds: float) -> None:
+        super().__init__(message)
+        self.timeout_seconds = timeout_seconds
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResult:
+    """One finished run. A non-zero exit is a result, not an exception."""
+
+    returncode: int
+    stdout: str = ""
+    stderr: str = ""
+    elapsed_ms: int = 0
+
+    @property
+    def ok(self) -> bool:
+        return self.returncode == 0
+
+    def detail(self) -> str:
+        """Both streams, stripped: kicad-cli reports argument errors on stdout."""
+
+        return " ".join(
+            part.strip() for part in (self.stderr, self.stdout) if part and part.strip()
+        )
+
+
+class KicadTool(Protocol):
+    """One external KiCad tool, as every caller sees it."""
+
+    name: str
+
+    def available(self) -> bool: ...
+
+    def executable(self) -> str: ...
+
+    def version(self) -> str: ...
+
+    def with_cancel(self, cancel: CancelCheck | None) -> "KicadTool": ...
+
+    def run(
+        self,
+        args: Sequence[str],
+        *,
+        timeout: float,
+        cwd: Path | str | None = None,
+        env: Mapping[str, str] | None = None,
+        tee: bool = False,
+    ) -> ToolResult: ...
+
+
+# -- discovery ----------------------------------------------------------------
+
+
+def _settings(settings: "Settings | None") -> "Settings":
+    if settings is not None:
+        return settings
+    from app.core.config import settings as configured
+
+    return configured
+
+
+def kicad_cli_install_candidates() -> tuple[str, ...]:
+    """Where a KiCad install puts kicad-cli when it is not on PATH."""
+
+    system = platform.system()
+    if system == "Darwin":
+        return (
+            "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli",
+            os.path.expanduser("~/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"),
+        )
+    if system == "Windows":
+        root = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "KiCad"
+        versions = sorted((d for d in root.iterdir() if d.is_dir()), reverse=True) if root.is_dir() else []
+        return tuple(str(version / "bin" / "kicad-cli.exe") for version in versions)
+    return ("/usr/bin/kicad-cli", "/usr/local/bin/kicad-cli")
+
+
+def locate_kicad_cli(settings: "Settings | None" = None) -> str | None:
+    """``KICAD_CLI_PATH``, then PATH, then the install locations; ``None`` if absent.
+
+    A configured path is used as given, without falling back: a deployment that
+    pins its CLI must not silently run a different one.
+    """
+
+    configured = _settings(settings).KICAD_CLI_PATH.strip()
+    if configured:
+        return configured
+    found = shutil.which(KICAD_CLI)
+    if found:
+        return found
+    return next((path for path in kicad_cli_install_candidates() if Path(path).is_file()), None)
+
+
+def isolated_env(scratch: Path, base: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Point temp and runtime directories at ``scratch`` for KiCad's instance lock."""
+
+    env = dict(base if base is not None else os.environ)
+    for key in ("TMPDIR", "TMP", "TEMP", "XDG_RUNTIME_DIR"):
+        env[key] = str(scratch)
+    return env
+
+
+# -- the local adapter ----------------------------------------------------------
+
+
+_versions: dict[str, str] = {}
+_versions_lock = threading.Lock()
+
+
+class LocalTool:
+    """Runs the installed binary, located afresh on every call.
+
+    Locating per call is cheap and lets a long-lived process pick up a tool
+    installed after it started.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        locate: Callable[[], str | None],
+        *,
+        isolate: bool,
+        cancel: CancelCheck | None = None,
+    ) -> None:
+        self.name = name
+        self._locate = locate
+        self._isolate = isolate
+        self._cancel = cancel
+
+    def __repr__(self) -> str:
+        return f"LocalTool({self.name!r})"
+
+    def available(self) -> bool:
+        return bool(self._locate())
+
+    def executable(self) -> str:
+        path = self._locate()
+        if not path:
+            raise ToolUnavailable(f"{self.name} is not available on PATH")
+        return path
+
+    def with_cancel(self, cancel: CancelCheck | None) -> "LocalTool":
+        return LocalTool(self.name, self._locate, isolate=self._isolate, cancel=cancel)
+
+    def version(self) -> str:
+        """``--version`` output; ``unavailable`` (not cached) when not installed."""
+
+        path = self._locate()
+        if not path:
+            return "unavailable"
+        with _versions_lock:
+            cached = _versions.get(path)
+        if cached is not None:
+            return cached
+        try:
+            result = self.run(["--version"], timeout=VERSION_TIMEOUT_SECONDS)
+            version = (result.stdout or result.stderr or "").strip() or "unknown"
+        except ToolError:
+            version = "unknown"
+        with _versions_lock:
+            _versions[path] = version
+        return version
+
+    def run(
+        self,
+        args: Sequence[str],
+        *,
+        timeout: float,
+        cwd: Path | str | None = None,
+        env: Mapping[str, str] | None = None,
+        tee: bool = False,
+    ) -> ToolResult:
+        argv = [self.executable(), *(str(part) for part in args)]
+        base = dict(os.environ)
+        base.update(env or {})
+        if not self._isolate:
+            return _run_process(argv, cwd=cwd, env=base, timeout=timeout, tee=tee, cancel=self._cancel)
+        with tempfile.TemporaryDirectory(prefix=f"{self.name}-") as scratch:
+            return _run_process(
+                argv, cwd=cwd, env=isolated_env(Path(scratch), base),
+                timeout=timeout, tee=tee, cancel=self._cancel,
+            )
+
+
+def _run_process(
+    argv: Sequence[str],
+    *,
+    cwd: Path | str | None,
+    env: Mapping[str, str],
+    timeout: float,
+    tee: bool,
+    cancel: CancelCheck | None,
+) -> ToolResult:
+    started = time.perf_counter()
+    try:
+        process = subprocess.Popen(
+            list(argv),
+            cwd=str(cwd) if cwd is not None else None,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+            env=dict(env),
+            close_fds=True,
+        )
+    except OSError as exc:
+        raise ToolUnavailable(f"{Path(argv[0]).name} could not be executed: {exc}") from exc
+
+    chunks: dict[str, list[str]] = {"stdout": [], "stderr": []}
+
+    def _pump(stream: Any, bucket: list[str]) -> None:
+        for line in iter(stream.readline, ""):
+            bucket.append(line)
+            if tee:
+                print(line, end="", flush=True)
+
+    readers = [
+        threading.Thread(target=_pump, args=(process.stdout, chunks["stdout"]), daemon=True),
+        threading.Thread(target=_pump, args=(process.stderr, chunks["stderr"]), daemon=True),
+    ]
+    for reader in readers:
+        reader.start()
+
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ToolTimeout(
+                    f"{Path(argv[0]).name} timed out after {timeout:g}s: "
+                    f"{' '.join(str(part) for part in argv[1:4])}",
+                    timeout,
+                )
+            try:
+                returncode = process.wait(timeout=min(remaining, _CANCEL_POLL_SECONDS))
+                break
+            except subprocess.TimeoutExpired:
+                if cancel is not None:
+                    cancel()
+    except BaseException:
+        process.kill()
+        process.wait()
+        raise
+    finally:
+        for reader in readers:
+            reader.join(timeout=5)
+        for stream in (process.stdout, process.stderr):
+            if stream is not None:
+                stream.close()
+    return ToolResult(
+        returncode=returncode,
+        stdout="".join(chunks["stdout"]),
+        stderr="".join(chunks["stderr"]),
+        elapsed_ms=int((time.perf_counter() - started) * 1000),
+    )
+
+
+def kicad_cli(settings: "Settings | None" = None) -> LocalTool:
+    """The kicad-cli every KiCad job runs, isolated per process."""
+
+    return LocalTool(KICAD_CLI, lambda: locate_kicad_cli(settings), isolate=True)
+
+
+# -- the set a job is handed ------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class KicadTools:
+    """The tools one job runs. ``None`` means not installed: callers degrade."""
+
+    cli: KicadTool | None
+
+    @classmethod
+    def resolve(cls, settings: "Settings | None" = None) -> "KicadTools":
+        """Locate the CLI now; a missing one is ``None``."""
+
+        cli = kicad_cli(settings)
+        return cls(cli=cli if cli.available() else None)
+
+    def with_cancel(self, cancel: CancelCheck | None) -> "KicadTools":
+        return replace(
+            self,
+            cli=self.cli.with_cancel(cancel) if self.cli is not None else None,
+        )
+
+
+__all__ = [
+    "KICAD_CLI",
+    "CancelCheck",
+    "KicadTool",
+    "KicadTools",
+    "LocalTool",
+    "ToolError",
+    "ToolResult",
+    "ToolTimeout",
+    "ToolUnavailable",
+    "isolated_env",
+    "kicad_cli",
+    "kicad_cli_install_candidates",
+    "locate_kicad_cli",
+]

@@ -45,6 +45,13 @@
   --ring: 221.2 83.2% 53.3%;
   --preview-surface: 0 0% 100%;
   --radius: 0.5rem;
+  /* System Builder kinds (D-P2-50): only for telling boards, modules, subsystems
+     and harnesses (and their links) apart; never for status. */
+  --kind-board: 221.2 83.2% 53.3%;
+  --kind-module: 262.1 83.3% 57.8%;
+  --kind-subsystem: 174.7 83.9% 31.6%;
+  --kind-harness: 32.1 94.6% 43.7%;
+  --kind-link: 215.4 16.3% 46.9%;
 }
 
 .dark {
@@ -76,6 +83,11 @@
      drawn over it has to come from `--foreground`, not from this token, which
      is why a preview's unit strip sits outside the frame rather than in it. */
   --preview-surface: 0 0% 100%;
+  --kind-board: 217.2 91.2% 59.8%;
+  --kind-module: 258.3 89.5% 66.3%;
+  --kind-subsystem: 172.5 66% 50.4%;
+  --kind-harness: 37.7 92.1% 50.2%;
+  --kind-link: 215 20.2% 65.1%;
 }
 
 @layer base {
@@ -91,22 +103,59 @@
 }
 
 @layer components {
-  /* The workspace sidebar changes this region's width without changing the
-     viewport breakpoint. Size the import cards from their own container so
-     the project controls keep a single row in either shell state. */
-  .import-sources-container {
-    container: import-sources / inline-size;
+  /* Review-comment typography, shared by the composer (Tiptap) and the
+     rendered thread so what a reviewer types is what everyone reads. */
+  .rich-comment {
+    font-size: 0.875rem;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
   }
-
-  @container import-sources (min-width: 72rem) {
-    .import-source-groups--split {
-      grid-template-columns: minmax(23rem, 1fr) minmax(0, 2fr);
-    }
-
-    .import-source-card,
-    .import-source-controls {
-      flex-wrap: nowrap;
-    }
+  .rich-comment > * + *,
+  .rich-comment .ProseMirror > * + * {
+    margin-top: 0.4em;
+  }
+  .rich-comment ul { list-style: disc; padding-left: 1.25rem; }
+  .rich-comment ol { list-style: decimal; padding-left: 1.25rem; }
+  .rich-comment li > p { margin: 0; }
+  .rich-comment strong { font-weight: 600; }
+  .rich-comment a { color: hsl(var(--primary)); text-decoration: underline; }
+  .rich-comment blockquote {
+    border-left: 3px solid hsl(var(--border));
+    padding-left: 0.6rem;
+    color: hsl(var(--muted-foreground));
+  }
+  .rich-comment code {
+    border-radius: 0.25rem;
+    background: hsl(var(--muted));
+    padding: 0.05rem 0.3rem;
+    font-size: 0.8em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .rich-comment pre {
+    overflow-x: auto;
+    border-radius: 0.375rem;
+    background: hsl(var(--muted));
+    padding: 0.5rem 0.6rem;
+  }
+  .rich-comment pre code { background: transparent; padding: 0; }
+  .rich-comment img {
+    display: block;
+    max-width: 100%;
+    max-height: 22rem;
+    border-radius: 0.375rem;
+    border: 1px solid hsl(var(--border));
+  }
+  .rich-comment img[data-uploading] { opacity: 0.5; }
+  .rich-comment .ProseMirror { outline: none; min-height: inherit; }
+  .rich-comment .ProseMirror img.ProseMirror-selectednode {
+    outline: 2px solid hsl(var(--ring));
+  }
+  .rich-comment .ProseMirror p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
+    color: hsl(var(--muted-foreground));
   }
 }
 
@@ -158,4 +207,22 @@
   .h-app-main {
     height: calc(100vh - 4rem - var(--app-chrome-offset));
   }
+}
+
+/* Visualizer insets (ecad-viewer): map Prism's tokens onto the inset theme.
+   Custom properties inherit into the viewer's shadow root, so these follow
+   light/dark with the rest of the app. */
+ecad-viewer {
+  --inset-bg: hsl(var(--card));
+  --inset-fg: hsl(var(--card-foreground));
+  --inset-muted: hsl(var(--muted-foreground));
+  --inset-muted-bg: hsl(var(--muted));
+  --inset-border: hsl(var(--border));
+  --inset-radius: var(--radius);
+  --inset-font: 'Inter Variable', sans-serif;
+  --inset-tip-bg: hsl(var(--popover-foreground));
+  --inset-tip-fg: hsl(var(--popover));
+  --inset-bottom-bg: hsl(var(--primary) / 0.14);
+  --inset-bottom-fg: hsl(var(--primary));
+  --inset-focus: hsl(var(--ring));
 }

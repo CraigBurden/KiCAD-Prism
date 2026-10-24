@@ -1,6 +1,14 @@
 # KiCAD Prism reverse proxy (internal CA / custom certificates)
 
 # Replace kicad-prism.corp.internal and certificate paths.
+#
+# Serving a bare IP? Clients that send no SNI (Windows Schannel, Chrome) fail
+# the handshake unless this file starts with a global block naming that IP:
+#
+#   {
+#   	default_sni 192.168.1.20
+#   }
+#
 # Put prism.crt and prism.key in the bundle's certs directory.
 
 kicad-prism.corp.internal {
@@ -8,6 +16,7 @@ kicad-prism.corp.internal {
 
 	encode gzip zstd
 
+	# Large catalog imports and long-running semantic generation
 	request_body {
 		max_size 2GB
 	}
@@ -15,9 +24,7 @@ kicad-prism.corp.internal {
 	reverse_proxy frontend:80 {
 		header_up Host {host}
 		header_up X-Real-IP {remote_host}
-		header_up X-Forwarded-For {remote_host}
 		header_up X-Forwarded-Proto https
-		header_up X-Forwarded-Host {host}
 
 		transport http {
 			read_timeout 300s

@@ -5,12 +5,10 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Callable, Optional, TypeVar
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException
-from fastapi.exception_handlers import request_validation_exception_handler
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core import errors
 from app.core.security import AuthenticatedUser, require_admin
 from app.services.trackers.connector_service import (
     ConnectorNotFound,
@@ -66,38 +64,15 @@ def _actor(user: AuthenticatedUser) -> str:
     return user.user_id or user.email
 
 
-def _http_error(exc: Exception) -> HTTPException:
+def _http_error(exc: Exception) -> errors.DomainError:
     if isinstance(exc, ConnectorNotFound):
-        return HTTPException(status_code=404, detail="Connector not found")
+        return errors.NotFound("Connector not found", code="connector_not_found")
     if isinstance(exc, SecretStoreLocked):
-        return HTTPException(status_code=503, detail="Tracker credential encryption is locked")
+        return errors.Unavailable("Tracker credential encryption is locked", code="secret_store_locked")
     if isinstance(exc, ProviderError):
-        status = 403 if exc.class_ in {"forbidden", "auth_lost", "capability_missing"} else 400
-        if exc.class_ == "auth_lost":
-            status = 409
-        return HTTPException(
-            status_code=status,
-            detail={"class": exc.class_, "message": exc.message, "retryable": exc.retryable},
-        )
+        status = 403 if exc.class_ in {"forbidden", "capability_missing"} else 400
+        return exc.refusal(409 if exc.class_ == "auth_lost" else status)
     raise exc
-
-
-def _strip_validation_input(errors: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Drop request ``input`` from 422 bodies so pasted PEM is not echoed."""
-
-    return [{key: value for key, value in item.items() if key != "input"} for item in errors]
-
-
-async def _validation_exception_handler(request, exc: RequestValidationError) -> JSONResponse:
-    if not request.url.path.startswith(_CONNECTOR_PREFIX):
-        return await request_validation_exception_handler(request, exc)
-    return JSONResponse(status_code=422, content={"detail": _strip_validation_input(exc.errors())})
-
-
-def register_validation_redaction(app: FastAPI) -> None:
-    """Strip request bodies from connector validation errors without touching other routes."""
-
-    app.add_exception_handler(RequestValidationError, _validation_exception_handler)
 
 
 async def _run_service(call: Callable[[], T]) -> T:

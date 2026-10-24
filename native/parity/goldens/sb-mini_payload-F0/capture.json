@@ -1,0 +1,166 @@
+{
+ "schema": "prism.parity.capture.a0",
+ "case": "sb-mini_payload-F0",
+ "kind": "fixture",
+ "sourceRoot": "backend/tests/fixtures/system_builder/sources/mini_payload/F0",
+ "project": "mini_payload.kicad_pro",
+ "inputs": [
+  {
+   "path": "channel.kicad_sch",
+   "sha256": "0ae2fe9b23452d261e0b350aa6300f128e8f9d5e4482a903f5068de668526946"
+  },
+  {
+   "path": "mini_payload.kicad_pro",
+   "sha256": "a702c5c73b433915408ad40a6c14db7e5b206da18945c855bfeab0ebc1bce164"
+  },
+  {
+   "path": "mini_payload.kicad_sch",
+   "sha256": "ad719052378eb570c74f48979d01fa0964217d6fac78728f713df16b8b97a05d"
+  }
+ ],
+ "producers": {
+  "todayCommit": "88db84f0ad098df7637d67b21a80def1e6109310",
+  "todayDirty": false,
+  "referenceCommit": "6c67ef387cc8df56a532e8dc01abda2e29406865",
+  "kicadMonkey": "2026.9.7",
+  "kicad": "10.0.6",
+  "python": "3.12.13",
+  "node": "24.22.0",
+  "platform": "darwin-arm64"
+ },
+ "members": {
+  "semantic-index": {
+   "status": "captured",
+   "notes": [
+    "today's a0 sourceRevisionKey 604fc78510faa5e53f3b7d9c45d3e714 (stand-in derived from it)"
+   ]
+  },
+  "board-objects": {
+   "status": "captured",
+   "sidecars": [
+    "today-hash"
+   ],
+   "checks": [
+    {
+     "shape": "rebuild",
+     "result": "equal"
+    },
+    {
+     "shape": "digest-xcheck",
+     "result": "equal",
+     "detail": [
+      "56 digests"
+     ]
+    }
+   ],
+   "notes": [
+    "3 documents, 56 objects, 1 review-only objects",
+    "rebuild: nativeObjects 57 today / 57 golden, componentObjects 4 / 4"
+   ]
+  },
+  "occurrences": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "designCompare.components",
+     "result": "equal"
+    },
+    {
+     "shape": "designCompare.bomRows",
+     "result": "equal"
+    },
+    {
+     "shape": "semanticIndex.assembly.default",
+     "result": "equal"
+    },
+    {
+     "shape": "semanticIndex.components.fields",
+     "result": "divergence",
+     "divergences": [
+      "D6"
+     ],
+     "detail": [
+      "/J11/Description: golden 'Conn_01x02' != member ''",
+      "/J12/Description: golden 'Conn_01x02' != member ''",
+      "/J4/Description: golden 'Conn_02x10' != member ''",
+      "/J9/Description: golden 'Conn_01x02' != member ''",
+      "/TP1/Description: golden 'TestPad' != member ''"
+     ]
+    },
+    {
+     "shape": "semanticIndex.components.pcbRefs",
+     "result": "equal"
+    },
+    {
+     "shape": "semanticIndex.sheetInstances",
+     "result": "equal"
+    },
+    {
+     "shape": "catalog.placedSymbols",
+     "result": "equal"
+    }
+   ],
+   "notes": [
+    "no board: footprints in the empty form"
+   ]
+  },
+  "stackup": {
+   "status": "captured",
+   "notes": [
+    "no board: empty form (present false, KiCad's default board thickness, every array empty); the stackup contract does not define its empty form explicitly (reported)",
+    "no consumer check: today's shapes need a board (RS/3D raise; DC returns its own {present: false, layers: [], settings: {}})"
+   ]
+  },
+  "route-metrics": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "dc",
+     "result": "equal",
+     "detail": [
+      "0 nets"
+     ]
+    }
+   ],
+   "notes": [
+    "0 nets, 0 vias"
+   ]
+  },
+  "placements": {
+   "status": "captured",
+   "notes": [
+    "no board: empty form (R1: footprints [], designators [], no outlineBounds); no consumer check"
+   ]
+  },
+  "project": {
+   "status": "captured",
+   "checks": [
+    {
+     "shape": "card",
+     "result": "equal"
+    },
+    {
+     "shape": "3d.netClasses",
+     "result": "equal"
+    },
+    {
+     "shape": "closure.emptyEnv",
+     "result": "equal"
+    },
+    {
+     "shape": "closure.kicad10Env",
+     "result": "equal"
+    }
+   ],
+   "notes": [
+    "no board: no board document or model references"
+   ]
+  },
+  "system-interface": {
+   "status": "captured",
+   "notes": [
+    "digest sha256:bf30390149edf21e264e52d7cc2070419efb96bec67b644543b53959a5970d6c"
+   ]
+  }
+ }
+}

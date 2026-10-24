@@ -1,6 +1,7 @@
 import { afterEach } from "vitest";
 import { cleanup, configure } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
+import { forgetServerState } from "@/lib/server-state";
 
 /**
  * Give `waitFor` and friends a budget that survives a loaded CI runner.
@@ -37,7 +38,15 @@ configure({ asyncUtilTimeout: 5_000 });
  * `afterEach` is imported rather than read from the global scope for the same
  * reason — there are no vitest globals here.
  */
-afterEach(cleanup);
+afterEach(async () => {
+  cleanup();
+  // Forget every kept server-state key too. The module keeps a key's data
+  // after its last observer leaves (retention), so without this a later test
+  // reading the same key would start from an earlier test's response. The
+  // store lets a key go a microtask after its last observer leaves.
+  await Promise.resolve();
+  forgetServerState([]);
+});
 
 /**
  * jsdom implements no layout, so it ships no `Element.scrollIntoView`.
@@ -69,4 +78,14 @@ if (!("ResizeObserver" in globalThis)) {
     disconnect() {}
   }
   globalThis.ResizeObserver = NoLayoutResizeObserver;
+}
+
+/**
+ * jsdom lacks the pointer-capture and scrolling methods Radix Select calls when
+ * it opens, so a test that picks an option would throw before the list shows.
+ */
+if (typeof Element !== "undefined") {
+  Element.prototype.hasPointerCapture ??= () => false;
+  Element.prototype.releasePointerCapture ??= () => undefined;
+  Element.prototype.scrollIntoView ??= () => undefined;
 }

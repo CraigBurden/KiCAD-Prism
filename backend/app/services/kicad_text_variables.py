@@ -20,7 +20,7 @@ Precedence for one document, highest last:
 
 1. Title block fields, under the names KiCad's own variables use --
    ``ISSUE_DATE``, ``REVISION``, ``TITLE``, ``COMPANY``, ``COMMENT1..9``.
-2. Top-level ``(property "NAME" "VALUE")`` entries in the document. KiCad 8+
+2. Top-level property entries (a quoted name and value) in the document. KiCad 8+
    writes a copy of the project's variables into boards this way, so a board
    still resolves when it is opened without its project.
 3. The project's ``text_variables`` from the sidecar ``.kicad_pro``. The

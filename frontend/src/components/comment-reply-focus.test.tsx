@@ -1,13 +1,13 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CommentCard } from "./comment-card";
 import type { Comment } from "@/types/comments";
+import { typeInComposer } from "@/features/rich-comments/test-utils";
 
-// react-doctor flags the `autoFocus` attribute, so this surface moves focus
-// from an effect instead. The card is a non-modal dialog, not a Radix one, so
-// nothing else would focus the reply box: revealing it has to place the caret
-// in it, or the reviewer types into nothing.
+// The card is a non-modal dialog, not a Radix one, so nothing else would focus
+// the reply box: revealing it has to place the caret in it, or the reviewer
+// types into nothing. The rich composer autofocuses on mount.
 
 const comment: Comment = {
     id: "c1",
@@ -26,6 +26,7 @@ const comment: Comment = {
 function renderCard() {
     render(
         <CommentCard
+            projectId="p1"
             comment={comment}
             screenPosition={{ x: 10, y: 10 }}
             canModify
@@ -48,18 +49,17 @@ describe("CommentCard reply focus", () => {
         expect(screen.queryByRole("textbox", { name: "Reply" })).toBeNull();
     });
 
-    it("puts the caret in the reply box when it is revealed", () => {
+    it("puts the caret in the reply box when it is revealed", async () => {
         renderCard();
         fireEvent.click(replyToggle());
-        expect(document.activeElement).toBe(replyBox());
+        await waitFor(() => expect(document.activeElement).toBe(replyBox()));
     });
 
-    it("takes typing without a second click", () => {
+    it("takes typing without a second click", async () => {
         renderCard();
         fireEvent.click(replyToggle());
-        fireEvent.change(document.activeElement as HTMLTextAreaElement, {
-            target: { value: "looks wrong to me" },
-        });
-        expect((replyBox() as HTMLTextAreaElement).value).toBe("looks wrong to me");
+        await waitFor(() => expect(document.activeElement).toBe(replyBox()));
+        typeInComposer(document.activeElement as HTMLElement, "looks wrong to me");
+        expect(replyBox().textContent).toBe("looks wrong to me");
     });
 });

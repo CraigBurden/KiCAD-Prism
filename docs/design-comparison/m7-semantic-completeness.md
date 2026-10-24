@@ -1,5 +1,7 @@
 # M7: semantic completeness
 
+> **Superseded (2026-10-23).** This milestone record describes the Node `ecad-parse`/`ecad-diff` and Python comparison pipeline. Design Comparison is now computed by `prism-kicad compare` ([ADR amendment C2r](../architecture/adr-native-design-bundle-amendment-c2r.md)), and the services named here were removed. Kept as a historical record.
+
 Milestone 7 of [the Design Comparison revamp](../DESIGN_COMPARISON_REVAMP.md)
 closes the semantic and identity gaps measured in M0–M6.
 

@@ -1,0 +1,116 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.cli.vendor_list:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.cli.vendor_list.a0",
+            "description": "Document schema id."
+        },
+        "vendors": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/CliVendor"
+            },
+            "description": "Every registered vendor, sorted by `id` in code point order."
+        }
+    },
+    "required": [
+        "schema",
+        "vendors"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "stdout of `vendor list` (exit 0).",
+    "title": "prism-kicad vendor list a0",
+    "$defs": {
+        "CliVendor": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "The vendor's id, the `<vendor-id>` of `vendor run` (`jlcpcb`)."
+                },
+                "name": {
+                    "type": "string",
+                    "description": "The vendor's human name."
+                },
+                "outputs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/CliVendorOutput"
+                    },
+                    "description": "The files the vendor writes, sorted by `kind`, then `format`, each in code point order."
+                },
+                "config_schema": {
+                    "$ref": "#/$defs/SchemaId",
+                    "description": "The schema id of the vendor's configuration, for example `prism.vendor.jlcpcb.config.a0`."
+                }
+            },
+            "required": [
+                "id",
+                "name",
+                "outputs",
+                "config_schema"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One registered vendor and its outputs."
+        },
+        "CliVendorOutput": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "$ref": "#/$defs/CliVendorOutputKind",
+                    "description": "What the file holds."
+                },
+                "format": {
+                    "$ref": "#/$defs/CliVendorOutputFormat",
+                    "description": "The file's format."
+                },
+                "version": {
+                    "$ref": "#/$defs/CliReleaseVersion",
+                    "description": "The format's version, raised when the file's layout changes (cli-spec.md §5.8)."
+                }
+            },
+            "required": [
+                "kind",
+                "format",
+                "version"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One file a vendor writes: its kind, format and format version."
+        },
+        "SchemaId": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+\\.[av][0-9]+$",
+            "description": "Id of a JSON document schema, `<family>.<name>.<version>`: for example\n`prism.stackup.a0`, `prism.bundle.manifest.a2`, `prism.system_interface.v1`\nor `kicad_monkey.design.a0`. Lowercase, dot-separated, ending in the\nversion (`a<N>` while pre-stable, `v<N>` once stable)."
+        },
+        "CliVendorOutputKind": {
+            "type": "string",
+            "enum": [
+                "bom",
+                "cpl"
+            ],
+            "description": "What a vendor output file holds."
+        },
+        "CliVendorOutputFormat": {
+            "type": "string",
+            "enum": [
+                "csv",
+                "xlsx"
+            ],
+            "description": "The file format of a vendor output."
+        },
+        "CliReleaseVersion": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+            "description": "A release version of three dot-separated decimal numbers without leading\nzeros, for example `0.1.0` (SemVer), `2026.9.7` (the fork's CalVer) or\n`10.0.6` (KiCad, as `kicad-cli version` prints it). Printable ASCII only,\nwhich keeps the generator id's canonical form unambiguous (cli-spec.md §5.1)."
+        }
+    }
+}

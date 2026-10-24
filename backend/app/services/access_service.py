@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from app.core.config import settings
 from app.core.roles import Role, normalize_role
+from app.services.auth_schema_migrations import AUTH_LEDGER
 from app.services.postgres_database import database
 
 
@@ -39,92 +40,8 @@ def initialize_role_store() -> None:
     with _init_lock:
         if _initialized:
             return
-        with database.connection() as connection:
-            connection.execute("CREATE SCHEMA IF NOT EXISTS workspace")
-            connection.execute("SET search_path TO workspace, public")
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id TEXT PRIMARY KEY,
-                    email TEXT NOT NULL UNIQUE,
-                    name TEXT NOT NULL DEFAULT '',
-                    picture TEXT NOT NULL DEFAULT '',
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS user_roles (
-                    email TEXT PRIMARY KEY,
-                    role TEXT NOT NULL CHECK (role IN ('admin', 'designer', 'viewer', 'qa')),
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    updated_by TEXT NOT NULL
-                )
-                """
-            )
-            _migrate_legacy_roles(connection)
-            _migrate_roles_to_user_id(connection)
-            _ensure_bootstrap_user_rows(connection)
-            connection.commit()
+        AUTH_LEDGER.migrate(database.connection, after=(_ensure_bootstrap_user_rows,))
         _initialized = True
-
-
-def _table_columns(connection: object, table: str) -> set[str]:
-    rows = connection.execute(  # type: ignore[attr-defined]
-        """
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE table_schema = current_schema() AND table_name = %s
-        """,
-        (table,),
-    ).fetchall()
-    return {str(row["column_name"]) for row in rows}
-
-
-def _migrate_roles_to_user_id(connection: object) -> None:
-    """Point user_roles at users.user_id while keeping email as a unique attribute."""
-    columns = _table_columns(connection, "user_roles")
-    if "user_id" not in columns:
-        connection.execute("ALTER TABLE user_roles ADD COLUMN user_id TEXT")  # type: ignore[attr-defined]
-
-    role_rows = connection.execute(  # type: ignore[attr-defined]
-        "SELECT email, user_id FROM user_roles"
-    ).fetchall()
-    for row in role_rows:
-        email = _normalize_email(str(row["email"]))
-        existing = connection.execute(  # type: ignore[attr-defined]
-            "SELECT user_id FROM users WHERE email = %s",
-            (email,),
-        ).fetchone()
-        user_id = str(existing["user_id"]) if existing else uuid.uuid4().hex
-        if existing is None:
-            connection.execute(  # type: ignore[attr-defined]
-                """
-                INSERT INTO users (user_id, email, name)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (email) DO NOTHING
-                """,
-                (user_id, email, email.split("@")[0]),
-            )
-            existing = connection.execute(  # type: ignore[attr-defined]
-                "SELECT user_id FROM users WHERE email = %s",
-                (email,),
-            ).fetchone()
-            user_id = str(existing["user_id"])
-        if not row["user_id"]:
-            connection.execute(  # type: ignore[attr-defined]
-                "UPDATE user_roles SET user_id = %s WHERE email = %s",
-                (user_id, email),
-            )
-
-    connection.execute(  # type: ignore[attr-defined]
-        "ALTER TABLE user_roles ALTER COLUMN user_id SET NOT NULL"
-    )
-    connection.execute(  # type: ignore[attr-defined]
-        "CREATE UNIQUE INDEX IF NOT EXISTS user_roles_user_id_uidx ON user_roles (user_id)"
-    )
 
 
 def _ensure_bootstrap_user_rows(connection: object) -> None:
@@ -144,27 +61,6 @@ def _ensure_bootstrap_user_rows(connection: object) -> None:
             """,
             (uuid.uuid4().hex, email, email.split("@")[0]),
         )
-
-
-def _migrate_legacy_roles(connection: object) -> None:
-    """Map archived catalog-only roles onto the current four-role model."""
-
-    connection.execute(  # type: ignore[attr-defined]
-        "ALTER TABLE user_roles DROP CONSTRAINT IF EXISTS user_roles_role_check"
-    )
-    connection.execute(  # type: ignore[attr-defined]
-        "UPDATE user_roles SET role = 'designer' WHERE role = 'component_designer'"
-    )
-    connection.execute(  # type: ignore[attr-defined]
-        "UPDATE user_roles SET role = 'qa' WHERE role = 'component_qa'"
-    )
-    connection.execute(  # type: ignore[attr-defined]
-        """
-        ALTER TABLE user_roles
-        ADD CONSTRAINT user_roles_role_check
-        CHECK (role IN ('admin', 'designer', 'viewer', 'qa'))
-        """
-    )
 
 
 def get_user_by_email(email: str) -> dict[str, str] | None:

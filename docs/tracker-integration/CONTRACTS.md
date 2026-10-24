@@ -275,7 +275,11 @@ attribution renders as *Requested by: <display> (Prism, unverified)*.
 **Compatibility.** `comments.json` `meta.version` becomes `1.1` (additive:
 `authorUserId`, `authorKind`, `anchor`, reply `id`/`revision`). Import of 1.0
 files yields legacy rows. Desktop consumers (KiCad plugin, REST source URLs)
-ignore unknown fields; nothing is removed.
+ignore unknown fields; nothing is removed. Rich comments (#417) add, still
+within 1.1, `contentFormat` (`plain` | `md`) on roots and replies and
+`attachments[]` (`id`, `filename`, `mediaType`, `size`, `sha256`, `path`); the
+referenced files are written beside the JSON under `.comments/attachments/`,
+with `.comments/threads/<id>.md` renderings. `plain` bodies are unchanged.
 
 **Fixtures.** F1 `duplicate_display_names`, `empty_user_id_session`,
 `service_identity`, `legacy_admin_only`; F2 (all).
@@ -420,7 +424,7 @@ the pooled `search_path` is restored.
 | Class | HTTP / condition | Effect on op | Effect on link |
 | --- | --- | --- | --- |
 | `rate_limited` | 403/429 with rate-limit headers, secondary-limit body | reschedule at `resume_at` | none |
-| `auth_lost` | 401, installation revoked, token refresh failure | `paused:auth` | `inaccessible` |
+| `auth_lost` | 401, installation revoked, token refresh failure | `paused:auth` (connector `paused_reason` `auth_lost`, status `revoked`) | `inaccessible` |
 | `forbidden` | 403 without rate-limit headers | `paused:forbidden` | `inaccessible` |
 | `not_found_uncertain` | 404 | retry/recover per D2/D7 | `inaccessible` until proven |
 | `gone_confirmed` | 410 | `failed:target_gone` | `deleted` |

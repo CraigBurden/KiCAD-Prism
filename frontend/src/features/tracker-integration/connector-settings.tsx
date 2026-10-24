@@ -121,10 +121,7 @@ function connectorPhase(
     if (loading) return "loading";
     if (offline) return "offline";
     if (!connector) return "empty";
-    if (connector.pausedReason === "auth" || connector.pausedReason === "revoked") return "revoked";
-    // A GitHub connection is its App; a GitLab one may exist for account linking alone.
-    if (connector.provider === "github" && !connector.credentialConfigured) return "revoked";
-    return "ready";
+    return connector.status === "revoked" ? "revoked" : "ready";
 }
 
 export function ConnectorSettings({

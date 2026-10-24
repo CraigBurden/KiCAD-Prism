@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import os
 import sys
 import unittest
-import uuid
 from pathlib import Path
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -25,6 +22,8 @@ from app.services.trackers.migrations import (  # noqa: E402
     migrate_comments_tracked_links,
     migrate_workspace_tracker_tables,
 )
+from app.services.comments_schema_migrations import COMMENTS_LEDGER  # noqa: E402
+from support.postgres import requires_scratch_postgres, scratch_schema, seed_comment, seed_reply  # noqa: E402
 
 try:
     import psycopg
@@ -35,20 +34,6 @@ except ImportError:  # pragma: no cover
     UniqueViolation = Exception  # type: ignore[misc, assignment]
     dict_row = None  # type: ignore[assignment]
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
-
-
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
 
 
 class RegistryTests(unittest.TestCase):
@@ -59,11 +44,14 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(len(versions), len(set(versions)))
         self.assertIn(WORKSPACE_MIGRATION_VERSION, versions)
         self.assertEqual(names[WORKSPACE_MIGRATION_VERSION], WORKSPACE_MIGRATION_NAME)
-        self.assertEqual(max(versions), WORKSPACE_WEBHOOK_OAUTH_VERSION)
         self.assertIn(WORKSPACE_FK_CASCADE_VERSION, versions)
         self.assertEqual(names[WORKSPACE_FK_CASCADE_VERSION], WORKSPACE_FK_CASCADE_NAME)
-        self.assertEqual(WS_MIGRATIONS[-1][0], WORKSPACE_WEBHOOK_OAUTH_VERSION)
-        self.assertEqual(WS_MIGRATIONS[-1][1], WORKSPACE_WEBHOOK_OAUTH_NAME)
+        # Later features append their own migrations; the tracker ones must stay
+        # registered once, under their names, in order.
+        self.assertIn(WORKSPACE_WEBHOOK_OAUTH_VERSION, versions)
+        self.assertEqual(names[WORKSPACE_WEBHOOK_OAUTH_VERSION], WORKSPACE_WEBHOOK_OAUTH_NAME)
+        self.assertLess(WORKSPACE_MIGRATION_VERSION, WORKSPACE_FK_CASCADE_VERSION)
+        self.assertLess(WORKSPACE_FK_CASCADE_VERSION, WORKSPACE_WEBHOOK_OAUTH_VERSION)
 
     def test_comments_migration_3_is_tracked_links(self) -> None:
         versions = [version for version, name, _ in comments_schema_migrations.MIGRATIONS]
@@ -78,70 +66,19 @@ class RegistryTests(unittest.TestCase):
         self.assertIn("tracked_threads_container_path", names)
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class TrackerStoragePostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"tr12_{uuid.uuid4().hex[:12]}"
-        dsn = POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
-        self.conn = psycopg.connect(dsn, row_factory=dict_row)
-        self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self._create_comments_foundation()
-        comments_schema_migrations.apply_comments_migrations(self.conn)
-        migrate_workspace_tracker_tables(self.conn)
-        self.conn.commit()
+        self.scratch = scratch_schema(self, "tr12", ledgers=(COMMENTS_LEDGER,), then=(migrate_workspace_tracker_tables,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
         self.store = TrackerStore(self.conn)
-
-    def _cleanup(self) -> None:
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
 
     def _restore_path(self) -> None:
-        self.conn.rollback()
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
+        self.scratch.reset_path()
         self.store = TrackerStore(self.conn)
 
-    def _create_comments_foundation(self) -> None:
-        self.conn.execute(
-            """
-            CREATE TABLE comments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                status TEXT NOT NULL DEFAULT 'OPEN',
-                context TEXT NOT NULL DEFAULT 'PCB',
-                location_x REAL NOT NULL DEFAULT 0,
-                location_y REAL NOT NULL DEFAULT 0,
-                location_layer TEXT NOT NULL DEFAULT '',
-                location_page TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT '',
-                forge_provider TEXT,
-                forge_issue_id TEXT,
-                forge_issue_url TEXT,
-                forge_sync_state TEXT
-            );
-            CREATE TABLE comment_replies (
-                id TEXT PRIMARY KEY,
-                comment_id TEXT NOT NULL REFERENCES comments(id),
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                content TEXT NOT NULL DEFAULT ''
-            );
-            """,
-            prepare=False,
-        )
-
     def test_restart_is_idempotent_and_keeps_forge_projection_columns(self) -> None:
-        comments_schema_migrations.apply_comments_migrations(self.conn)
+        COMMENTS_LEDGER.apply(self.conn)
         migrate_workspace_tracker_tables(self.conn)
         self.conn.commit()
         tables = {
@@ -213,10 +150,8 @@ class TrackerStoragePostgresTests(unittest.TestCase):
             remote_container_id="222",
             generation=1,
         )
-        self.conn.execute(
-            "INSERT INTO comments(id, project_id, author, content) VALUES (%s,%s,%s,%s), (%s,%s,%s,%s)",
-            ("c_a", "prj_a", "Priya", "a", "c_b", "prj_b", "Priya", "b"),
-        )
+        seed_comment(self.conn, "c_a", "prj_a", author="Priya", content="a")
+        seed_comment(self.conn, "c_b", "prj_b", author="Priya", content="b")
         self.store.insert_thread(
             thread_id="tt_a",
             comment_id="c_a",
@@ -262,10 +197,7 @@ class TrackerStoragePostgresTests(unittest.TestCase):
                 forge_login="other",
             )
         self._restore_path()
-        self.conn.execute(
-            "INSERT INTO comments(id, project_id, author, content) VALUES (%s,%s,%s,%s)",
-            ("c_1", "prj_a", "Priya", "x"),
-        )
+        seed_comment(self.conn, "c_1", "prj_a", author="Priya", content="x")
         self.store.set_project_tracker(
             project_tracker_id="pt_a",
             project_id="prj_a",
@@ -296,10 +228,7 @@ class TrackerStoragePostgresTests(unittest.TestCase):
                 external_id="999",
             )
         self._restore_path()
-        self.conn.execute(
-            "INSERT INTO comments(id, project_id, author, content) VALUES (%s,%s,%s,%s)",
-            ("c_2", "prj_a", "Priya", "y"),
-        )
+        seed_comment(self.conn, "c_2", "prj_a", author="Priya", content="y")
         with self.assertRaises(UniqueViolation):
             self.store.insert_thread(
                 thread_id="tt_same_issue",
@@ -325,17 +254,8 @@ class TrackerStoragePostgresTests(unittest.TestCase):
             remote_container_id="111",
             generation=1,
         )
-        self.conn.execute(
-            "INSERT INTO comments(id, project_id, author, content) VALUES (%s,%s,%s,%s)",
-            ("c_1", "prj_a", "Priya", "x"),
-        )
-        self.conn.execute(
-            """
-            INSERT INTO comment_replies(id, comment_id, project_id, author, content)
-            VALUES (%s,%s,%s,%s,%s)
-            """,
-            ("r_1", "c_1", "prj_a", "Arjun", "ok"),
-        )
+        seed_comment(self.conn, "c_1", "prj_a", author="Priya", content="x")
+        seed_reply(self.conn, "r_1", "c_1", "prj_a", author="Arjun", content="ok")
         self.store.insert_thread(
             thread_id="tt_old",
             comment_id="c_1",

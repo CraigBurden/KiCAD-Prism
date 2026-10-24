@@ -107,3 +107,23 @@ describe("EngineeringBomTable assembly filter", () => {
         expect(index.components[1]!.fields!["In BOM"]).toBe("No");
     });
 });
+
+describe("EngineeringBomTable while the index builds", () => {
+    it("shows pending with Check again instead of saying the BOM is unavailable", () => {
+        const onRetry = vi.fn();
+        render(
+            <EngineeringBomTable
+                semanticIndex={null}
+                loading={false}
+                pending
+                selection={null}
+                onSelection={vi.fn()}
+                onRetry={onRetry}
+            />,
+        );
+        expect(screen.getByText("Preparing design data…")).toBeTruthy();
+        expect(screen.queryByText("BOM metadata is not available")).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+        expect(onRetry).toHaveBeenCalledTimes(1);
+    });
+});

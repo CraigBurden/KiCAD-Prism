@@ -100,7 +100,10 @@ class CatalogReleaseWorkflow:
         if not revision:
             raise ValueError("Component revision not found")
         if expected_revision_id and str(revision["id"]) != expected_revision_id:
-            raise revision_conflict("Component revision conflict: refresh the component before changing workflow")
+            raise revision_conflict(
+                "Component revision conflict: refresh the component before changing workflow",
+                component_id=component_id, current_revision_id=str(revision["id"]),
+            )
         if expected_manifest_hash and str(revision.get("manifest_hash") or "") != expected_manifest_hash:
             raise manifest_conflict()
         current_status = normalize_workflow_stage(str(revision["release_status"]))
@@ -136,7 +139,7 @@ class CatalogReleaseWorkflow:
             "klc_release_gate": self._klc.release_gate(),
         }
         if release_status == "released":
-            self._assert_release_allowed(conn, revision_id, validation)
+            self._assert_release_allowed(conn, revision_id, validation, component=component)
 
         approval_decision = None
         if release_status == "released":
@@ -237,6 +240,67 @@ class CatalogReleaseWorkflow:
             },
         )
 
+    def release_trusted_import(
+        self,
+        conn: Any,
+        *,
+        component_id: str,
+        revision_id: str,
+        now: str,
+        actor: str,
+        release_label: str,
+    ) -> None:
+        """Release a sealed bulk-import revision as a trusted import.
+
+        A trusted import skips the review stages and two-person approval, but not
+        the release gates: a provisional part, an incomplete default
+        representation or (under the "block" KLC gate) unvalidated assets are
+        refused with ``ValueError`` before anything is written.
+        """
+        self._catalog_locks.lock_component_for_mutation(conn, component_id)
+        component = self._revision_kernel.component_row(conn, component_id)
+        if not component:
+            raise ValueError("Component not found")
+        if str(component.get("identity_kind") or IDENTITY_KIND_MPN) != IDENTITY_KIND_MPN:
+            raise ValueError("Provisional components require a manufacturer part number before approval or release")
+        assets = self._revision_kernel.load_assets_for_revision(conn, revision_id)
+        validation = self._read_models.component_validation_summary(conn, revision_id, assets)
+        self._assert_release_allowed(conn, revision_id, validation, component=component)
+        manifest_hash = self._revision_kernel.revision_manifest_hash(conn, revision_id)
+        conn.execute(
+            """
+            UPDATE component_revisions
+            SET manifest_hash = %s, release_status = 'released', updated_at = %s
+            WHERE id = %s
+            """,
+            (manifest_hash, now, revision_id),
+        )
+        conn.execute(
+            "UPDATE components SET released_revision_id = %s, updated_at = %s WHERE id = %s",
+            (revision_id, now, component_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO component_release_records (
+                id, component_id, revision_id, release_label, manifest_hash, released_by,
+                approval_decision_id, validation_json, policy_json, created_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, '', '{}', %s, %s)
+            ON CONFLICT(component_id, revision_id, manifest_hash) DO NOTHING
+            """,
+            (
+                str(uuid.uuid4()), component_id, revision_id, release_label,
+                manifest_hash, actor, _compact_json({"trusted_import": True}), now,
+            ),
+        )
+        self._revision_kernel.append_audit_event(
+            conn,
+            component_id=component_id,
+            revision_id=revision_id,
+            event_type="component.released",
+            actor=actor,
+            details={"manifest_hash": manifest_hash, "trusted_import": True},
+        )
+
     def _open_draft_from_release(
         self,
         conn: Any,
@@ -264,7 +328,14 @@ class CatalogReleaseWorkflow:
         )
         return self._revision_kernel.revision_row(conn, str(revision["id"])) or revision
 
-    def _assert_release_allowed(self, conn: Any, revision_id: str, validation: dict[str, Any]) -> None:
+    def _assert_release_allowed(
+        self,
+        conn: Any,
+        revision_id: str,
+        validation: dict[str, Any],
+        *,
+        component: dict[str, Any] | None = None,
+    ) -> None:
         default_representation = conn.execute(
             """
             SELECT symbol_asset_id, footprint_asset_id

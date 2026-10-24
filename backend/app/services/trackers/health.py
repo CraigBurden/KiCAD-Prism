@@ -10,6 +10,7 @@ import json
 from datetime import datetime, timezone, timedelta
 from typing import Any, Mapping, Optional
 
+from app.services.trackers.connector_runtime import LOST_CREDENTIAL_REASONS
 from app.services.trackers.errors import PROVIDER_ERROR_CLASSES
 
 COMMENTS_SCHEMA = "comments"
@@ -203,7 +204,7 @@ def aggregate_connector_health(
     degraded = (
         quarantined > 0
         or failed > 0
-        or paused_reason in {"auth_lost", "revoked"}
+        or paused_reason in LOST_CREDENTIAL_REASONS
         or bool(last_error and last_error.get("class") not in {None, "transient"})
     )
     # F7.quiet_repo_not_broken: successful poll/sweep without webhooks is healthy.

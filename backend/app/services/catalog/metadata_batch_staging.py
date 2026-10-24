@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.services.catalog.metadata_fields import validate_metadata_value
+from app.services.catalog.field_rules import CONTEXT_BULK, field_error, is_field_required
 from app.services.catalog.normalization import json_loads as _json_loads
 
 
@@ -58,7 +58,7 @@ class CatalogMetadataBatchStaging:
         component_id = str(raw_item.get("component_id") or "")
         expected_revision_id = str(raw_item.get("expected_revision_id") or "")
         component = conn.execute(
-            "SELECT c.is_active, cr.* FROM components c JOIN component_revisions cr ON cr.id = c.current_revision_id WHERE c.id = %s",
+            "SELECT c.is_active, c.identity_kind, cr.* FROM components c JOIN component_revisions cr ON cr.id = c.current_revision_id WHERE c.id = %s",
             (component_id,),
         ).fetchone()
         errors: list[str] = []
@@ -71,13 +71,14 @@ class CatalogMetadataBatchStaging:
             errors.append("Component revision conflict: refresh or re-export before applying")
         else:
             extras = _json_loads(component["extra_fields"], {})
+            identity_kind = str(component["identity_kind"] or "")
             for field_key, raw_value in dict(raw_item.get("patch") or {}).items():
                 field = fields.get(str(field_key))
                 if not field or field.get("archived"):
                     errors.append(f"Unknown or archived field: {field_key}")
                     continue
                 value = str(raw_value or "").strip()
-                validation_error = validate_metadata_value(field, value)
+                validation_error = field_error(field, value, context=CONTEXT_BULK, identity_kind=identity_kind)
                 if validation_error:
                     errors.append(f"{field['label']}: {validation_error}")
                     continue
@@ -86,13 +87,13 @@ class CatalogMetadataBatchStaging:
                     normalized_patch[str(field_key)] = value
                     diff.append({"field": str(field_key), "label": str(field["label"]), "before": before, "after": value})
             for field_key, field in fields.items():
-                if not field.get("required") or field.get("archived"):
+                if field.get("archived") or not is_field_required(field, identity_kind=identity_kind):
                     continue
                 if field["storage_kind"] == "column":
                     resulting = normalized_patch.get(field_key, str(component[field["storage_key"]] or ""))
                 else:
                     resulting = normalized_patch.get(field_key, str(extras.get(field["storage_key"], "")))
-                required_error = validate_metadata_value(field, resulting)
+                required_error = field_error(field, resulting, context=CONTEXT_BULK, identity_kind=identity_kind)
                 if required_error:
                     errors.append(f"{field['label']}: {required_error}")
             target_manufacturer = normalized_patch.get("manufacturer", str(component["manufacturer"] or ""))

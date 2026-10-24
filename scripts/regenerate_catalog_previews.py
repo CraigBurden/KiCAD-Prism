@@ -23,6 +23,7 @@ for candidate in (REPO_ROOT / "backend", REPO_ROOT):
         break
 
 ComponentCatalogService: Any = None
+replace_revision_preview_outputs: Any = None
 PLACE_REQUIRED_ASSET_TYPES = ("symbol", "footprint")
 PREVIEW_KIND_SYMBOL = "symbol"
 PREVIEW_KIND_FOOTPRINT = "footprint"
@@ -31,14 +32,18 @@ MAX_REPORTED_ERRORS = 100
 
 
 def _load_catalog_runtime() -> None:
-    global ComponentCatalogService
+    global ComponentCatalogService, replace_revision_preview_outputs
     try:
+        from app.services.catalog.preview_pipeline import (  # noqa: PLC0415
+            replace_revision_preview_outputs as loaded_replace_outputs,
+        )
         from app.services.component_catalog_service_postgres import ComponentCatalogPostgresService  # noqa: PLC0415
     except ModuleNotFoundError as exc:
         raise RuntimeError(
             "Backend Python dependencies are not available. Run inside the backend container."
         ) from exc
     ComponentCatalogService = ComponentCatalogPostgresService
+    replace_revision_preview_outputs = loaded_replace_outputs
 
 
 @dataclass
@@ -83,7 +88,7 @@ def _default_workers() -> int:
 
 
 def _build_ready_preview_index(service: Any, conn: Any) -> dict[str, set[str]]:
-    from app.services.catalog.normalization import sha256_file  # noqa: PLC0415
+    from app.services.catalog.preview_files import preview_sha256  # noqa: PLC0415
 
     rows = conn.execute(
         """
@@ -96,13 +101,11 @@ def _build_ready_preview_index(service: Any, conn: Any) -> dict[str, set[str]]:
     index: dict[str, set[str]] = defaultdict(set)
     for row in rows:
         kind = str(row["kind"])
-        expected = service.previews.generator_identity(service.runtime, kind)["generator_fingerprint"]
+        expected = service.previews.generator_identity(kind)["generator_fingerprint"]
         if str(row["generator_fingerprint"]) != expected:
             continue
-        file_path = Path(str(row["file_path"] or ""))
-        if not file_path.is_file():
-            continue
-        if sha256_file(file_path) != str(row["sha256"]):
+        file_path = str(row["file_path"] or "")
+        if not file_path or preview_sha256(Path(file_path)) != str(row["sha256"]):
             continue
         index[str(row["asset_id"])].add(kind)
     return index
@@ -128,7 +131,7 @@ def _generate_asset_previews(service: Any, asset: dict[str, Any]) -> AssetGenera
     asset_type = str(asset["asset_type"])
     try:
         if asset_type == "symbol":
-            status, result = service.previews.render_symbol_units(service.runtime, asset)
+            status, result = service.previews.render_symbol_units(asset)
             if status != PREVIEW_STATUS_READY or not isinstance(result, list):
                 return AssetGenerationResult(
                     asset_id=asset_id,
@@ -143,7 +146,7 @@ def _generate_asset_previews(service: Any, asset: dict[str, Any]) -> AssetGenera
                 ],
             )
         if asset_type == "footprint":
-            status, result = service.previews.render_footprint(service.runtime, asset)
+            status, result = service.previews.render_footprint(asset)
             if status != PREVIEW_STATUS_READY or not isinstance(result, bytes):
                 return AssetGenerationResult(
                     asset_id=asset_id,
@@ -196,8 +199,6 @@ def _relink_revision_preview_outputs(
     service: Any,
     conn: Any,
     revision_id: str,
-    *,
-    now: str,
 ) -> int:
     changed = 0
     assets = [
@@ -220,20 +221,7 @@ def _relink_revision_preview_outputs(
             latest_by_kind.setdefault(str(preview["kind"]), dict(preview))
         if not latest_by_kind:
             continue
-        conn.execute(
-            "DELETE FROM revision_preview_outputs WHERE revision_id = %s AND asset_id = %s AND (kind = %s OR kind LIKE %s)",
-            (revision_id, str(asset["id"]), kind, f"{kind}:unit%"),
-        )
-        for preview_kind, preview in latest_by_kind.items():
-            conn.execute(
-                """
-                INSERT INTO revision_preview_outputs (revision_id, asset_id, kind, preview_id, generated_at)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (revision_id, asset_id, kind)
-                DO UPDATE SET preview_id = excluded.preview_id, generated_at = excluded.generated_at
-                """,
-                (revision_id, str(asset["id"]), preview_kind, str(preview["id"]), now),
-            )
+        replace_revision_preview_outputs(conn, revision_id, str(asset["id"]), kind, list(latest_by_kind.values()))
         changed += 1
     return changed
 
@@ -384,8 +372,6 @@ def _relink_components(
     commit_batch: int,
     limit: int,
 ) -> None:
-    from app.services.catalog.normalization import utc_now_iso  # noqa: PLC0415
-
     component_ids = _load_target_components(conn, limit=limit)
     stats.components_seen = len(component_ids)
     pending = 0
@@ -397,7 +383,7 @@ def _relink_components(
             if not component:
                 continue
             revision_id = str(component["current_revision_id"])
-            changed = _relink_revision_preview_outputs(service, conn, revision_id, now=utc_now_iso())
+            changed = _relink_revision_preview_outputs(service, conn, revision_id)
             if changed:
                 stats.components_relinked += 1
             pending += 1
@@ -493,6 +479,10 @@ def main() -> int:
 
     projects_root = _resolve_projects_root(args.projects_root)
     os.environ["KICAD_PROJECTS_ROOT"] = projects_root
+    # The backend is already imported; its settings were read at import.
+    from app.core.config import settings  # noqa: PLC0415
+
+    settings.KICAD_PROJECTS_ROOT = projects_root
 
     service = ComponentCatalogService(database_url=args.database_url or None)
     stats = PreviewStats()

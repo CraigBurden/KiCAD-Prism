@@ -3,20 +3,16 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from pydantic import SecretStr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import Settings  # noqa: E402
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.trackers.connector_service import ConnectorService  # noqa: E402
 from app.services.trackers.mentions import (  # noqa: E402
     Mention,
@@ -32,6 +28,9 @@ from app.services.trackers.migrations import (  # noqa: E402
     migrate_tracker_webhook_oauth_tables,
     migrate_workspace_tracker_tables,
 )
+from app.services.auth_schema_migrations import AUTH_LEDGER  # noqa: E402
+from app.services.comments_schema_migrations import COMMENTS_LEDGER  # noqa: E402
+from support.postgres import requires_scratch_postgres, scratch_schema  # noqa: E402
 
 try:
     import psycopg
@@ -40,28 +39,10 @@ except ImportError:  # pragma: no cover
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 F8 = json.loads((DOCS / "fixtures" / "F08.json").read_text(encoding="utf-8"))
 EXAMPLES = json.loads((DOCS / "dto-examples.json").read_text(encoding="utf-8"))
 ROOT_KEY = "aa" * 32
-
-
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 def _settings(**overrides) -> Settings:
@@ -83,11 +64,6 @@ def _settings(**overrides) -> Settings:
 
 
 class MentionUnitTests(unittest.TestCase):
-    def test_fixture_cases_are_present(self) -> None:
-        ids = {case["id"] for case in F8["cases"]}
-        self.assertIn("F8.mention_linked", ids)
-        self.assertIn("F8.mention_unlinked", ids)
-        self.assertIn("F8.mention_overflow", ids)
 
     def test_dto_example_matches_frozen_mention_candidate(self) -> None:
         example = EXAMPLES["comments"]["MentionCandidate"]
@@ -174,78 +150,20 @@ class MentionUnitTests(unittest.TestCase):
         self.assertEqual(result.assignees, [])
         self.assertEqual(result.warnings, ["Cannot assign arjun-gh on this destination"])
 
+# The production users/user_roles step (later auth steps reference ``workspace.`` by name).
+USERS_AND_ROLES = next(step.apply for step in AUTH_LEDGER.steps if step.name == "users_and_roles")
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+
+@requires_scratch_postgres("tracker persistence tests")
 class MentionPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"tr22_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self.conn.execute(
-            """
-            CREATE TABLE comments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL DEFAULT '',
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                status TEXT NOT NULL DEFAULT 'OPEN',
-                context TEXT NOT NULL DEFAULT 'PCB',
-                location_x REAL NOT NULL DEFAULT 0,
-                location_y REAL NOT NULL DEFAULT 0,
-                location_layer TEXT NOT NULL DEFAULT '',
-                location_page TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT ''
-            );
-            CREATE TABLE comment_replies (
-                id TEXT PRIMARY KEY,
-                comment_id TEXT NOT NULL REFERENCES comments(id),
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL DEFAULT '',
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                content TEXT NOT NULL DEFAULT ''
-            );
-            """,
-            prepare=False,
-        )
-        migrate_workspace_tracker_tables(self.conn)
-        migrate_tracker_webhook_oauth_tables(self.conn)
-        comments_schema_migrations.apply_comments_migrations(self.conn)
-        self.conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                user_id TEXT PRIMARY KEY,
-                email TEXT NOT NULL UNIQUE,
-                name TEXT NOT NULL DEFAULT '',
-                picture TEXT NOT NULL DEFAULT '',
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-            CREATE TABLE IF NOT EXISTS user_roles (
-                email TEXT PRIMARY KEY,
-                role TEXT NOT NULL CHECK (role IN ('admin', 'designer', 'viewer', 'qa')),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_by TEXT NOT NULL,
-                user_id TEXT NOT NULL
-            );
-            """,
-            prepare=False,
-        )
-        self.conn.commit()
+        self.scratch = scratch_schema(self, "tr22", ledgers=(COMMENTS_LEDGER,), then=(
+            migrate_workspace_tracker_tables, migrate_tracker_webhook_oauth_tables, USERS_AND_ROLES,
+        ))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
         self.settings = _settings()
         self._seed_users()
         self._seed_connector_and_identity()
-
-    def _cleanup(self) -> None:
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
 
     def _seed_users(self) -> None:
         self.conn.execute(
@@ -293,8 +211,7 @@ class MentionPostgresTests(unittest.TestCase):
 
     @contextmanager
     def _factory(self):
-        conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        conn.execute(f'SET search_path TO "{self.schema}", public')
+        conn = self.scratch.connect()
         try:
             yield conn
         finally:

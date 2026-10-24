@@ -2,6 +2,7 @@
  * Panel API client — typed fetch helpers for the remote-provider endpoints.
  */
 
+import { ApiHttpError, apiErrorFrom } from "@/lib/api";
 import { loadAssetText, type AssetTextRequest } from "@/lib/ecad-renderer";
 import { normalizePanelPageSize, PANEL_PAGE_SIZE } from "@/panel/lib/panel-page";
 
@@ -33,6 +34,25 @@ export interface PanelComponent {
   footprint_preview_url: string;
   manifest_url: string;
   inline_url: string;
+  /** The revision this payload describes (provider 0.4.0). */
+  revision_id?: string;
+  /** Released revisions placement may serve, newest first (detail only, provider 0.4.0). */
+  released_revisions?: PanelReleasedRevision[];
+}
+
+export interface PanelReleasedRevision {
+  revision_id: string;
+  version: number;
+  released_at: string;
+}
+
+/** `?representation=…&revision=…` with only the parts that are set. */
+function placementQuery(representationId: string, revisionId: string): string {
+  const params = new URLSearchParams();
+  if (representationId) params.set("representation", representationId);
+  if (revisionId) params.set("revision", revisionId);
+  const query = params.toString();
+  return query ? `?${query}` : "";
 }
 
 export interface PanelSupplySource {
@@ -94,12 +114,11 @@ export interface PanelCategory {
   count: number;
 }
 
-export class PanelApiError extends Error {
-  status: number;
-  constructor(status: number, message: string) {
-    super(message);
+/** The panel's transport error: the shared `ApiHttpError` (status 0 = network failure). */
+export class PanelApiError extends ApiHttpError {
+  constructor(status: number, message: string, code?: string, payload: Record<string, unknown> = {}) {
+    super(status, message, code, payload);
     this.name = "PanelApiError";
-    this.status = status;
   }
 }
 
@@ -134,6 +153,11 @@ export function loadPanelAssetText(url: string): Promise<string> {
   return loadAssetText(url, panelAssetTextRequest(url));
 }
 
+/**
+ * The panel's adapter at the transport seam: a bearer token instead of the
+ * session cookie, and no session-expired event (KiCad hosts the panel).
+ * Error bodies are read by the shared parser in `@/lib/api`.
+ */
 async function panelFetch<T>(url: string, signal?: AbortSignal): Promise<T> {
   const headers: Record<string, string> = {};
   if (apiToken) {
@@ -147,14 +171,8 @@ async function panelFetch<T>(url: string, signal?: AbortSignal): Promise<T> {
     throw new PanelApiError(0, `Network error: ${(err as Error).message}`);
   }
   if (!response.ok) {
-    let detail = `Request failed (${response.status})`;
-    try {
-      const payload = await response.json();
-      detail = payload.detail || payload.message || detail;
-    } catch {
-      /* ignore */
-    }
-    throw new PanelApiError(response.status, detail);
+    const error = await apiErrorFrom(response, `Request failed (${response.status})`);
+    throw new PanelApiError(error.status, error.message, error.code, error.payload);
   }
   return (await response.json()) as T;
 }
@@ -243,13 +261,11 @@ export async function getComponentsByCategory(
 export async function getComponent(
   componentId: string,
   signal?: AbortSignal,
-  representationId = ""
+  representationId = "",
+  revisionId = "",
 ): Promise<PanelComponent> {
-  const params = new URLSearchParams();
-  if (representationId) params.set("representation", representationId);
-  const query = params.toString();
   return panelFetch<PanelComponent>(
-    `/api/remote-provider/components/${componentId}${query ? `?${query}` : ""}`,
+    `/api/remote-provider/components/${componentId}${placementQuery(representationId, revisionId)}`,
     signal
   );
 }
@@ -258,10 +274,10 @@ export async function getPartManifest(
   partId: string,
   representationId = "",
   signal?: AbortSignal,
+  revisionId = "",
 ): Promise<Record<string, unknown>> {
-  const query = representationId ? `?representation=${encodeURIComponent(representationId)}` : "";
   return panelFetch<Record<string, unknown>>(
-    `/api/remote-provider/parts/${partId}${query}`, signal,
+    `/api/remote-provider/parts/${partId}${placementQuery(representationId, revisionId)}`, signal,
   );
 }
 
@@ -269,9 +285,9 @@ export async function getInlineBundle(
   componentId: string,
   representationId = "",
   signal?: AbortSignal,
+  revisionId = "",
 ): Promise<Record<string, unknown>> {
-  const query = representationId ? `?representation=${encodeURIComponent(representationId)}` : "";
   return panelFetch<Record<string, unknown>>(
-    `/api/remote-provider/components/${componentId}/inline${query}`, signal,
+    `/api/remote-provider/components/${componentId}/inline${placementQuery(representationId, revisionId)}`, signal,
   );
 }

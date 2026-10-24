@@ -9,9 +9,9 @@ from unittest.mock import patch
 from fastapi import HTTPException
 
 from app.api import tracker_sync
-from app.api.comments import _with_permissions
 from app.core.security import AuthenticatedUser
-from app.services.comment_permissions import ActorIdentity
+from app.services.comment_capabilities import with_capabilities
+from app.services.comment_permissions import ActorIdentity, CommentPermissionError
 from app.services.trackers.publication_policy import PublicationDenied
 
 
@@ -31,31 +31,27 @@ class TrackerPromotionApiTests(unittest.IsolatedAsyncioTestCase):
         projection = {"id": "comment-1", "tracker": {"syncState": "pending"}}
         with patch.object(tracker_sync, "get_project_for_role_or_404", return_value=self.project), \
              patch.object(tracker_sync, "_actor", return_value=self.actor), \
-             patch.object(tracker_sync, "_promote_min_role", return_value="designer"), \
              patch.object(tracker_sync.comments_store, "promote_comment", return_value=projection) as promote:
             result = await tracker_sync.promote_comment_to_tracker("project-1", "comment-1", self.user)
         self.assertEqual(result, projection)
         args = promote.call_args.args
-        self.assertEqual(args[:3], ("project-1", "/tmp/test-project", "comment-1"))
-        self.assertEqual((args[3].user_id, args[3].role, args[3].kind), ("user-1", "designer", "user"))
+        self.assertEqual(args, ("project-1", "/tmp/test-project", "comment-1", self.actor))
 
-    async def test_guest_cannot_queue_forge_writes(self) -> None:
-        guest = ActorIdentity(
-            actor_id="guest:local", actor_kind="guest", display_name="Guest",
-            role="admin", auth_type="session",
-        )
+    async def test_store_refusal_is_a_403(self) -> None:
+        # The store authorizes inside its transaction (guests never publish:
+        # tests/test_comment_write.py); the route only renders the refusal.
         with patch.object(tracker_sync, "get_project_for_role_or_404", return_value=self.project), \
-             patch.object(tracker_sync, "_actor", return_value=guest), \
-             patch.object(tracker_sync, "_promote_min_role", return_value="designer"), \
-             patch.object(tracker_sync.comments_store, "promote_comment") as promote:
+             patch.object(tracker_sync, "_actor", return_value=self.actor), \
+             patch.object(tracker_sync.comments_store, "promote_comment", side_effect=CommentPermissionError(
+                 "publication_required", "Guest identity cannot publish to the tracker",
+             )):
             response = await tracker_sync.promote_comment_to_tracker("project-1", "comment-1", self.user)
         self.assertEqual(response.status_code, 403)
-        promote.assert_not_called()
+        self.assertIn(b"publication_required", response.body)
 
     async def test_missing_thread_is_not_silently_acknowledged(self) -> None:
         with patch.object(tracker_sync, "get_project_for_role_or_404", return_value=self.project), \
              patch.object(tracker_sync, "_actor", return_value=self.actor), \
-             patch.object(tracker_sync, "_promote_min_role", return_value="designer"), \
              patch.object(tracker_sync.comments_store, "promote_comment", return_value=None):
             with self.assertRaises(HTTPException) as raised:
                 await tracker_sync.promote_comment_to_tracker("project-1", "missing", self.user)
@@ -64,7 +60,6 @@ class TrackerPromotionApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_unconfigured_destination_reports_actionable_denial(self) -> None:
         with patch.object(tracker_sync, "get_project_for_role_or_404", return_value=self.project), \
              patch.object(tracker_sync, "_actor", return_value=self.actor), \
-             patch.object(tracker_sync, "_promote_min_role", return_value="designer"), \
              patch.object(tracker_sync.comments_store, "promote_comment", side_effect=PublicationDenied(
                  "publication_required", "Choose a tracker destination first",
              )):
@@ -78,11 +73,11 @@ class TrackerPromotionApiTests(unittest.IsolatedAsyncioTestCase):
             "anchor": {"state": "pinned"}, "replies": [],
             "tracker": {"linkState": None, "promoteMinRole": "designer"},
         }
-        self.assertTrue(_with_permissions(dict(comment), self.actor)["permissions"]["canPublish"])
+        self.assertTrue(with_capabilities(dict(comment), self.actor)["permissions"]["canPublish"])
         unpinned = {**comment, "anchor": {"state": "unpinned"}}
-        self.assertFalse(_with_permissions(unpinned, self.actor)["permissions"]["canPublish"])
+        self.assertFalse(with_capabilities(unpinned, self.actor)["permissions"]["canPublish"])
         linked = {**comment, "tracker": {"linkState": "linked", "promoteMinRole": "designer"}}
-        self.assertFalse(_with_permissions(linked, self.actor)["permissions"]["canPublish"])
+        self.assertFalse(with_capabilities(linked, self.actor)["permissions"]["canPublish"])
 
 
 if __name__ == "__main__":

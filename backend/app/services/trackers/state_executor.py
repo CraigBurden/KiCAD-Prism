@@ -20,10 +20,8 @@ from app.services.trackers.state_mutations import (
     target_state_for_op,
     version_payload,
 )
-from app.services.trackers.create_executor import (
-    _issue_adapter,
-    _load_execution_context,
-)
+from app.services.trackers.connector_runtime import connector_runtime
+from app.services.trackers.create_executor import load_execution_context
 
 
 @dataclass(frozen=True)
@@ -41,7 +39,7 @@ def _event_to_state(event_name: str) -> str:
 def execute_set_state_op(op: Mapping[str, Any], conn: Any) -> None:
     """Run one claimed ``set_state`` op inside the caller connection."""
 
-    ctx = _load_execution_context(conn, op)
+    ctx = load_execution_context(conn, op)
     ops = OpStore(conn)
     op_id = str(op["id"])
     fence = int(op["fence"])
@@ -56,7 +54,7 @@ def execute_set_state_op(op: Mapping[str, Any], conn: Any) -> None:
         local_revision=op.get("local_revision"),
     )
 
-    adapter = _issue_adapter(ctx.connector)
+    adapter = connector_runtime().issue_adapter(ctx.connector)
     caps = adapter.capabilities()
     issue_ref = str(thread.get("external_number") or thread.get("external_id") or "")
     fetched = adapter.get_issue(ctx.destination, issue_ref, etag=None)

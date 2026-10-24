@@ -14,11 +14,13 @@ function routingChange(overrides: Partial<ChangeItem> = {}): ChangeItem {
         category: "nets",
         classification: "primary",
         label: "USB_DP",
-        object_kind: "track",
+        objectKind: "track",
         net: "USB_DP",
         reasons: ["content-changed"],
-        base_item: { source_id: "a", layers: ["F.Cu"] },
-        compare_item: { source_id: "a", layers: ["F.Cu"] },
+        fields: {},
+        details: {},
+        base: { sourceId: "a", documentPath: "board.kicad_pcb", layers: ["F.Cu"] },
+        head: { sourceId: "a", documentPath: "board.kicad_pcb", layers: ["F.Cu"] },
         ...overrides,
     };
 }
@@ -27,8 +29,8 @@ describe("comparison layer focus", () => {
     it("derives each revision's copper independently", () => {
         const focus = layerFocusForChanges([
             routingChange({
-                base_item: { source_id: "a", layers: ["F.Cu"] },
-                compare_item: { source_id: "a", layers: ["B.Cu"] },
+                base: { sourceId: "a", documentPath: "board.kicad_pcb", layers: ["F.Cu"] },
+                head: { sourceId: "a", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
                 reasons: ["layer-changed"],
             }),
         ]);
@@ -43,18 +45,18 @@ describe("comparison layer focus", () => {
 
     it("ignores via spans while a track or arc defines the route", () => {
         const focus = layerFocusForChanges([
-            routingChange({ id: "t", object_kind: "track" }),
+            routingChange({ id: "t", objectKind: "track" }),
             routingChange({
                 id: "a",
-                object_kind: "arc",
-                base_item: { source_id: "b", layers: ["F.Cu"] },
-                compare_item: { source_id: "b", layers: ["F.Cu"] },
+                objectKind: "arc",
+                base: { sourceId: "b", documentPath: "board.kicad_pcb", layers: ["F.Cu"] },
+                head: { sourceId: "b", documentPath: "board.kicad_pcb", layers: ["F.Cu"] },
             }),
             routingChange({
                 id: "v",
-                object_kind: "via",
-                base_item: { source_id: "c", layers: ["F.Cu", "In2.Cu"] },
-                compare_item: { source_id: "c", layers: ["F.Cu", "In2.Cu"] },
+                objectKind: "via",
+                base: { sourceId: "c", documentPath: "board.kicad_pcb", layers: ["F.Cu", "In2.Cu"] },
+                head: { sourceId: "c", documentPath: "board.kicad_pcb", layers: ["F.Cu", "In2.Cu"] },
             }),
         ]);
 
@@ -67,9 +69,9 @@ describe("comparison layer focus", () => {
         const focus = layerFocusForChanges([
             routingChange({
                 id: "v",
-                object_kind: "via",
-                base_item: { source_id: "c", layers: ["F.Cu", "In1.Cu"] },
-                compare_item: { source_id: "c", layers: ["F.Cu", "B.Cu"] },
+                objectKind: "via",
+                base: { sourceId: "c", documentPath: "board.kicad_pcb", layers: ["F.Cu", "In1.Cu"] },
+                head: { sourceId: "c", documentPath: "board.kicad_pcb", layers: ["F.Cu", "B.Cu"] },
             }),
         ]);
 
@@ -78,10 +80,10 @@ describe("comparison layer focus", () => {
         expect(focus?.comparison).toEqual(["B.Cu", "F.Cu"]);
     });
 
-    it("normalizes the parser's segment and arc_segment kinds", () => {
+    it("focuses tracks and arcs on their own layer", () => {
         const focus = layerFocusForChanges([
-            routingChange({ object_kind: "segment" }),
-            routingChange({ id: "b", object_kind: "arc_segment" }),
+            routingChange({ objectKind: "track" }),
+            routingChange({ id: "b", objectKind: "arc" }),
         ]);
 
         expect(focus?.reference).toEqual(["F.Cu"]);
@@ -91,8 +93,8 @@ describe("comparison layer focus", () => {
         const focus = layerFocusForChanges([
             routingChange({
                 kind: "removed",
-                base_item: { source_id: "a", layers: ["In1.Cu"] },
-                compare_item: null,
+                base: { sourceId: "a", documentPath: "board.kicad_pcb", layers: ["In1.Cu"] },
+                head: undefined,
             }),
         ]);
 
@@ -103,8 +105,8 @@ describe("comparison layer focus", () => {
     it("reads a single layer field when no layer list is present", () => {
         const focus = layerFocusForChanges([
             routingChange({
-                base_item: { source_id: "a", layer: "F.Cu" },
-                compare_item: { source_id: "a", layer: "B.Cu" },
+                base: { sourceId: "a", documentPath: "board.kicad_pcb", layers: [], layer: "F.Cu" },
+                head: { sourceId: "a", documentPath: "board.kicad_pcb", layers: [], layer: "B.Cu" },
             }),
         ]);
 
@@ -115,8 +117,8 @@ describe("comparison layer focus", () => {
     it("shows every layer the selection occupies, copper or not", () => {
         const focus = layerFocusForChanges([
             routingChange({
-                base_item: { source_id: "a", layers: ["F.Cu", "F.Mask"] },
-                compare_item: { source_id: "a", layers: ["F.Cu", "F.Mask"] },
+                base: { sourceId: "a", documentPath: "board.kicad_pcb", layers: ["F.Cu", "F.Mask"] },
+                head: { sourceId: "a", documentPath: "board.kicad_pcb", layers: ["F.Cu", "F.Mask"] },
             }),
         ]);
 
@@ -126,9 +128,9 @@ describe("comparison layer focus", () => {
     it("keeps the relevant outer copper as orientation context", () => {
         const focus = layerFocusForChanges([
             routingChange({
-                object_kind: "graphic",
-                base_item: { source_id: "a", layers: ["F.SilkS"] },
-                compare_item: { source_id: "a", layers: ["B.Fab"] },
+                objectKind: "graphic",
+                base: { sourceId: "a", documentPath: "board.kicad_pcb", layers: ["F.SilkS"] },
+                head: { sourceId: "a", documentPath: "board.kicad_pcb", layers: ["B.Fab"] },
             }),
         ])!;
 
@@ -147,18 +149,18 @@ describe("comparison layer focus", () => {
         const focus = layerFocusForChanges([
             routingChange({
                 category: "components",
-                object_kind: "footprint",
+                objectKind: "footprint",
                 net: undefined,
-                base_item: { source_id: "r52", layers: ["B.Cu"] },
-                compare_item: { source_id: "r52", layers: ["B.Cu"] },
+                base: { sourceId: "r52", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
+                head: { sourceId: "r52", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
             }),
             routingChange({
                 id: "text",
                 category: "components",
-                object_kind: "footprint_text",
+                objectKind: "footprint_text",
                 net: undefined,
-                base_item: { source_id: "r52t", layers: ["B.Fab"] },
-                compare_item: { source_id: "r52t", layers: ["B.Fab"] },
+                base: { sourceId: "r52t", documentPath: "board.kicad_pcb", layers: ["B.Fab"] },
+                head: { sourceId: "r52t", documentPath: "board.kicad_pcb", layers: ["B.Fab"] },
             }),
         ]);
 
@@ -174,16 +176,16 @@ describe("comparison layer focus", () => {
             layerFocusForChanges([
                 routingChange({
                     category: "rules",
-                    object_kind: "rule",
-                    base_item: { source_id: "r" },
-                    compare_item: { source_id: "r" },
+                    objectKind: "rule",
+                    base: { sourceId: "r", documentPath: "board.kicad_pcb", layers: [] },
+                    head: { sourceId: "r", documentPath: "board.kicad_pcb", layers: [] },
                 }),
             ]),
         ).toBeNull();
         // Layer visibility is a PCB idea; a schematic selection never touches it.
         expect(
             layerFocusForChanges([
-                routingChange({ domain: "schematic", object_kind: "track" }),
+                routingChange({ domain: "schematic", objectKind: "track" }),
             ]),
         ).toBeNull();
     });
@@ -194,9 +196,9 @@ describe("comparison layer focus", () => {
             routingChange({
                 id: "rule",
                 category: "rules",
-                object_kind: "rule",
-                base_item: { source_id: "r" },
-                compare_item: { source_id: "r" },
+                objectKind: "rule",
+                base: { sourceId: "r", documentPath: "board.kicad_pcb", layers: [] },
+                head: { sourceId: "r", documentPath: "board.kicad_pcb", layers: [] },
             }),
         ]);
 
@@ -211,10 +213,10 @@ describe("comparison layer focus", () => {
         const focus = layerFocusForChanges([
             routingChange({
                 category: "components",
-                object_kind: "footprint",
+                objectKind: "footprint",
                 label: "R52",
-                base_item: { source_id: "r52", layers: ["B.Cu"] },
-                compare_item: { source_id: "r52", layers: ["B.Cu"] },
+                base: { sourceId: "r52", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
+                head: { sourceId: "r52", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
             }),
         ]);
 
@@ -227,9 +229,9 @@ describe("comparison layer focus", () => {
         const focus = layerFocusForChanges([
             routingChange({
                 category: "components",
-                object_kind: "pad",
-                base_item: { source_id: "p", layers: ["F.Cu"] },
-                compare_item: { source_id: "p", layers: ["B.Cu"] },
+                objectKind: "pad",
+                base: { sourceId: "p", documentPath: "board.kicad_pcb", layers: ["F.Cu"] },
+                head: { sourceId: "p", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
             }),
         ]);
 
@@ -242,15 +244,15 @@ describe("comparison layer focus", () => {
     it("focuses a part and the routing selected with it together", () => {
         const focus = layerFocusForChanges([
             routingChange({
-                base_item: { source_id: "t", layers: ["F.Cu"] },
-                compare_item: { source_id: "t", layers: ["F.Cu"] },
+                base: { sourceId: "t", documentPath: "board.kicad_pcb", layers: ["F.Cu"] },
+                head: { sourceId: "t", documentPath: "board.kicad_pcb", layers: ["F.Cu"] },
             }),
             routingChange({
                 id: "pad",
                 category: "components",
-                object_kind: "pad",
-                base_item: { source_id: "p", layers: ["B.Cu"] },
-                compare_item: { source_id: "p", layers: ["B.Cu"] },
+                objectKind: "pad",
+                base: { sourceId: "p", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
+                head: { sourceId: "p", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
             }),
         ]);
 
@@ -260,7 +262,7 @@ describe("comparison layer focus", () => {
     it("does not focus when no layer could be resolved", () => {
         expect(
             layerFocusForChanges([
-                routingChange({ base_item: null, compare_item: null }),
+                routingChange({ base: undefined, head: undefined }),
             ]),
         ).toBeNull();
     });
@@ -268,8 +270,8 @@ describe("comparison layer focus", () => {
     it("keeps the board outline visible alongside the focused copper", () => {
         const focus = layerFocusForChanges([
             routingChange({
-                base_item: { source_id: "a", layers: ["F.Cu"] },
-                compare_item: { source_id: "a", layers: ["B.Cu"] },
+                base: { sourceId: "a", documentPath: "board.kicad_pcb", layers: ["F.Cu"] },
+                head: { sourceId: "a", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
             }),
         ])!;
 
@@ -297,15 +299,15 @@ describe("comparison layer focus", () => {
             routingChange({
                 kind: "removed",
                 reasons: ["object-removed"],
-                base_item: { source_id: "a", layers: ["F.Cu"] },
-                compare_item: { source_id: "a", layers: [] },
+                base: { sourceId: "a", documentPath: "board.kicad_pcb", layers: ["F.Cu"] },
+                head: { sourceId: "a", documentPath: "board.kicad_pcb", layers: [] },
             }),
             routingChange({
                 id: "change-2",
                 kind: "removed",
                 reasons: ["object-removed"],
-                base_item: { source_id: "b", layers: ["B.Cu"] },
-                compare_item: { source_id: "b", layers: [] },
+                base: { sourceId: "b", documentPath: "board.kicad_pcb", layers: ["B.Cu"] },
+                head: { sourceId: "b", documentPath: "board.kicad_pcb", layers: [] },
             }),
         ])!;
 

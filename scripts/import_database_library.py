@@ -5,11 +5,9 @@ import argparse
 import json
 import os
 import re
-import shutil
 import sqlite3
 import sys
 import time
-import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -22,22 +20,20 @@ for candidate in (REPO_ROOT / "backend", REPO_ROOT):
         sys.path.insert(0, str(candidate))
         break
 
-from app.services.catalog.metadata_normalization import metadata_keywords, metadata_search_document, normalize_metadata  # noqa: E402
-from app.services.catalog.metadata_schema import CatalogMetadataSchema  # noqa: E402
+from app.services.catalog.metadata_normalization import normalize_metadata  # noqa: E402
 
 ComponentCatalogService: Any = None
+build_import_writer: Any = None
 _discover_footprint_name_in_text: Any = None
 _sanitize_name: Any = None
 _utc_now_iso: Any = None
-_slugify: Any = None
-REVISION_MANIFEST_A3 = "prism.revision_manifest_a3"
 MAX_REPORTED_ERRORS = 100
 
 
 def _load_catalog_runtime() -> None:
-    global ComponentCatalogService
+    global ComponentCatalogService, build_import_writer
     global _discover_footprint_name_in_text, _sanitize_name
-    global _utc_now_iso, _slugify
+    global _utc_now_iso
 
     try:
         from app.services.catalog.asset_files import (  # noqa: PLC0415
@@ -46,9 +42,12 @@ def _load_catalog_runtime() -> None:
         from app.services.component_catalog_service_postgres import (  # noqa: PLC0415
             ComponentCatalogPostgresService,
         )
+        from app.services.catalog.collaborators import (  # noqa: PLC0415
+            build_library_import_writer as loaded_import_writer,
+        )
+        from app.services.catalog.locking import PostgresCatalogLocks  # noqa: PLC0415
         from app.services.catalog.normalization import (  # noqa: PLC0415
             sanitize_name as loaded_sanitize_name,
-            slugify as loaded_slugify,
             utc_now_iso as loaded_utc_now_iso,
         )
     except ModuleNotFoundError as exc:
@@ -58,9 +57,11 @@ def _load_catalog_runtime() -> None:
         ) from exc
 
     ComponentCatalogService = ComponentCatalogPostgresService
+
+    def build_import_writer(runtime: Any) -> Any:
+        return loaded_import_writer(runtime, catalog_locks=PostgresCatalogLocks())
     _discover_footprint_name_in_text = loaded_discover_footprint_name
     _sanitize_name = loaded_sanitize_name
-    _slugify = loaded_slugify
     _utc_now_iso = loaded_utc_now_iso
 
 
@@ -156,6 +157,8 @@ class ImportStats:
     provisional_groups: int = 0
     hard_conflicts: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    release_refused: list[dict[str, Any]] = field(default_factory=list)  # kept as drafts by a release gate
+    skipped_missing_fields: list[dict[str, Any]] = field(default_factory=list)  # {"key", "missing": [labels]}
 
 
 # Actor recorded on revisions this importer creates. Downstream tooling uses it
@@ -241,31 +244,6 @@ def _clean_extra_value(column: str, value: str) -> str:
 
 # Truncate order is irrelevant under CASCADE; list every catalog table that holds
 # imported component/asset state so --replace-catalog clears the Postgres schema.
-CATALOG_TRUNCATE_TABLES = (
-    "asset_validation_findings",
-    "asset_validation_runs",
-    "revision_validation_evidence_links",
-    "revision_preview_outputs",
-    "revision_previews",
-    "asset_preview_versions",
-    "asset_previews",
-    "revision_assets",
-    "revision_representations",
-    "inventory_levels",
-    "component_release_records",
-    "component_review_decisions",
-    "catalog_audit_events",
-    "catalog_metadata_batch_items",
-    "catalog_metadata_batches",
-    "component_usage",
-    "project_component_import_proposals",
-    "project_component_import_sessions",
-    "component_heads",
-    "component_revisions",
-    "components",
-    "assets",
-    "catalog_meta",
-)
 
 
 def _read_text(path: Path) -> str:
@@ -276,21 +254,13 @@ def _same_bytes(path: Path, payload: bytes) -> bool:
     return path.is_file() and path.read_bytes() == payload
 
 
-def _write_or_copy(destination: Path, source: Path | None, payload: bytes | None, *, overwrite: bool) -> Path:
-    destination.parent.mkdir(parents=True, exist_ok=True)
+def _write_or_copy(service: Any, destination: Path, source: Path | None, payload: bytes | None, *, overwrite: bool) -> Path:
     data = payload if payload is not None else source.read_bytes() if source else b""
-    if destination.exists():
-        if _same_bytes(destination, data):
-            return destination
-        if not overwrite:
-            raise ValueError(f"Canonical asset conflict at {destination}")
-    if payload is not None:
-        destination.write_bytes(payload)
-    elif source is not None:
-        shutil.copy2(source, destination)
-    else:
-        destination.write_bytes(data)
-    return destination
+    if destination.exists() and not _same_bytes(destination, data) and not overwrite:
+        raise ValueError(f"Canonical asset conflict at {destination}")
+    # Never rewrite an existing canonical file: revisions already linked to it keep
+    # their bytes, and changed content goes to an immutable revisions/<sha256>/ path.
+    return service.asset_files.write_canonical_file(service.runtime, destination, data)
 
 
 def _normalize_lookup(value: str) -> str:
@@ -374,17 +344,6 @@ def _record_error(stats: ImportStats, message: str) -> None:
         stats.errors.append(message)
 
 
-def _unique_slug_local(used_slugs: set[str], base: str) -> str:
-    slug = _slugify(base or "component")
-    candidate = slug
-    counter = 2
-    while candidate in used_slugs:
-        candidate = f"{slug}-{counter}"
-        counter += 1
-    used_slugs.add(candidate)
-    return candidate
-
-
 def _symbol_payload_cached(
     cache: dict[tuple[str, str], bytes],
     library: SymbolLibrary,
@@ -396,193 +355,6 @@ def _symbol_payload_cached(
         payload = _symbol_payload_from_index(library, selected_symbol)
         cache[key] = payload
     return payload
-
-
-def _link_asset_fast(conn: Any, revision_id: str, asset: dict[str, Any], *, required: bool, now: str) -> None:
-    conn.execute(
-        """
-        INSERT INTO revision_assets (revision_id, asset_type, asset_id, required, created_at, updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s)
-        ON CONFLICT (revision_id, asset_id)
-        DO UPDATE SET required = excluded.required, updated_at = excluded.updated_at
-        """,
-        (revision_id, asset["asset_type"], asset["id"], 1 if required else 0, now, now),
-    )
-    if asset["asset_type"] in {"symbol", "footprint"}:
-        conn.execute(
-            """
-            INSERT INTO revision_preview_outputs (revision_id, asset_id, kind, preview_id, generated_at)
-            SELECT %s, latest.asset_id, latest.kind, latest.id, %s
-            FROM (
-                SELECT DISTINCT ON (asset_id, kind) id, asset_id, kind
-                FROM asset_preview_versions
-                WHERE asset_id = %s AND status = 'ready'
-                ORDER BY asset_id, kind, created_at DESC, id DESC
-            ) latest
-            ON CONFLICT (revision_id, asset_id, kind)
-            DO UPDATE SET preview_id = EXCLUDED.preview_id, generated_at = EXCLUDED.generated_at
-            """,
-            (revision_id, now, asset["id"]),
-        )
-
-
-def _release_component_fast(
-    service: Any,
-    conn: Any,
-    *,
-    component_id: str,
-    revision_id: str,
-    now: str,
-) -> None:
-    manifest_hash = service.revisions.revision_manifest_hash(conn, revision_id)
-    conn.execute(
-        """
-        UPDATE component_revisions
-        SET manifest_hash = %s, release_status = 'released', updated_at = %s
-        WHERE id = %s
-        """,
-        (manifest_hash, now, revision_id),
-    )
-    conn.execute(
-        "UPDATE components SET released_revision_id = %s, updated_at = %s WHERE id = %s",
-        (revision_id, now, component_id),
-    )
-    conn.execute(
-        """
-        INSERT INTO component_release_records (
-            id, component_id, revision_id, release_label, manifest_hash, released_by,
-            approval_decision_id, validation_json, policy_json, created_at
-        ) VALUES (%s, %s, %s, %s, %s, %s, '', '{}', %s, %s)
-        ON CONFLICT(component_id, revision_id, manifest_hash) DO NOTHING
-        """,
-        (
-            str(uuid.uuid4()), component_id, revision_id, "database-library-import",
-            manifest_hash, DATABASE_LIBRARY_IMPORT_ACTOR,
-            json.dumps({"trusted_import": True}, sort_keys=True, separators=(",", ":")), now,
-        ),
-    )
-    service.revisions.append_audit_event(
-        conn,
-        component_id=component_id,
-        revision_id=revision_id,
-        event_type="component.released",
-        actor=DATABASE_LIBRARY_IMPORT_ACTOR,
-        details={"manifest_hash": manifest_hash, "trusted_import": True},
-    )
-
-
-def _finalize_import_component_fast(
-    service: Any,
-    conn: Any,
-    *,
-    component_id: str,
-    revision_id: str,
-    now: str,
-) -> str:
-    manifest_hash = service.revisions.revision_manifest_hash(conn, revision_id)
-    conn.execute(
-        "UPDATE component_revisions SET manifest_hash = %s, updated_at = %s WHERE id = %s",
-        (manifest_hash, now, revision_id),
-    )
-    service.revisions.append_audit_event(
-        conn,
-        component_id=component_id,
-        revision_id=revision_id,
-        event_type="component.created",
-        actor=DATABASE_LIBRARY_IMPORT_ACTOR,
-        details={
-            "change_kind": "import",
-            "change_summary": "Imported grouped database-library component",
-            "manifest_hash": manifest_hash,
-        },
-    )
-    return manifest_hash
-
-
-def _insert_import_component(
-    service: Any,
-    conn: Any,
-    *,
-    metadata: dict[str, Any],
-    slug: str,
-    now: str,
-) -> tuple[str, str]:
-    component_id = str(uuid.uuid4())
-    revision_id = str(uuid.uuid4())
-    conn.execute(
-        """
-        INSERT INTO components (
-            id, slug, identity_kind, identity_source, normalized_manufacturer,
-            normalized_part_number, source, external_source, external_id, is_active, current_revision_id,
-            released_revision_id, created_at, updated_at
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, 'import', %s, %s, 1, %s, '', %s, %s)
-        """,
-        (
-            component_id,
-            slug,
-            metadata["identity_kind"],
-            metadata["identity_source"] if metadata["identity_kind"] == "provisional_ipn" else "",
-            metadata["normalized_manufacturer"] if metadata["identity_kind"] == "mpn" else "",
-            metadata["normalized_part_number"],
-            CERN_EXTERNAL_SOURCE,
-            metadata["import_source_namespace"],
-            revision_id,
-            now,
-            now,
-        ),
-    )
-    conn.execute(
-        """
-        INSERT INTO component_revisions (
-            id, component_id, version, parent_revision_id, change_kind, change_summary, created_by,
-            manifest_hash, manifest_schema, release_status, name, value, description, datasheet_url,
-            manufacturer, mpn, normalized_manufacturer, normalized_mpn, mpn_source,
-            category, package_name, vendor, vendor_part_number, mass_g,
-            rqjc_c_w, rqjc_top_c_w, temp_max_c, temp_min_c, power_dissipation_w, rate, sap_code,
-            summary, keywords, extra_fields, search_document, created_at, updated_at
-        )
-        VALUES (
-            %s, %s, 1, '', 'import', 'Imported from database library', %s,
-            '', %s, 'open', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s
-        )
-        """,
-        (
-            revision_id,
-            component_id,
-            DATABASE_LIBRARY_IMPORT_ACTOR,
-            REVISION_MANIFEST_A3,
-            metadata["name"],
-            metadata["value"],
-            metadata["description"],
-            metadata["datasheet_url"],
-            metadata["manufacturer"],
-            metadata["mpn"],
-            metadata["normalized_manufacturer"],
-            metadata["normalized_mpn"],
-            metadata["mpn_source"],
-            metadata["category"],
-            metadata["package_name"],
-            metadata["vendor"],
-            metadata["vendor_part_number"],
-            metadata["mass_g"],
-            metadata["rqjc_c_w"],
-            metadata["rqjc_top_c_w"],
-            metadata["temp_max_c"],
-            metadata["temp_min_c"],
-            metadata["power_dissipation_w"],
-            metadata["rate"],
-            metadata["sap_code"],
-            metadata["summary"],
-            json.dumps(metadata_keywords(metadata), separators=(",", ":")),
-            json.dumps(metadata["extra_fields"], sort_keys=True, separators=(",", ":")),
-            metadata_search_document(metadata),
-            now,
-            now,
-        ),
-    )
-    return component_id, revision_id
 
 
 def _collect_import_plans(
@@ -900,6 +672,7 @@ def _register_planned_assets(
     plans: list[ImportRowPlan],
     *,
     service: Any,
+    writer: Any,
     target_conn: Any,
     stats: ImportStats,
     overwrite_assets: bool,
@@ -926,7 +699,7 @@ def _register_planned_assets(
         if pending <= 0:
             return
         target_conn.commit()
-        _begin_import_transaction(target_conn)
+        writer.begin_batch(target_conn)
         elapsed = max(time.perf_counter() - started, 0.001)
         print(
             f"{label}: registered {stats.symbol_assets_registered} symbols, "
@@ -942,9 +715,8 @@ def _register_planned_assets(
             continue
         payload = _symbol_payload_cached(symbol_payload_cache, library, symbol_name)
         destination = service.asset_files.symbol_destination(service.runtime, target_library, symbol_name)
-        canonical = _write_or_copy(destination, None, payload, overwrite=overwrite_assets)
-        asset = _register_asset(
-            service,
+        canonical = _write_or_copy(service, destination, None, payload, overwrite=overwrite_assets)
+        asset = writer.register_asset(
             target_conn,
             asset_type="symbol",
             canonical_path=canonical,
@@ -968,9 +740,8 @@ def _register_planned_assets(
         if key in footprint_asset_cache:
             continue
         destination = service.asset_files.footprint_destination(service.runtime, target_library, target_name)
-        canonical = _write_or_copy(destination, footprint.path, None, overwrite=overwrite_assets)
-        asset = _register_asset(
-            service,
+        canonical = _write_or_copy(service, destination, footprint.path, None, overwrite=overwrite_assets)
+        asset = writer.register_asset(
             target_conn,
             asset_type="footprint",
             canonical_path=canonical,
@@ -995,7 +766,7 @@ def _register_planned_assets(
 def _import_groups(
     groups: list[ComponentGroupPlan],
     *,
-    service: Any,
+    writer: Any,
     target_conn: Any,
     stats: ImportStats,
     symbol_asset_cache: dict[tuple[str, str], dict[str, Any]],
@@ -1003,7 +774,6 @@ def _import_groups(
     release_imported: bool,
     commit_batch: int,
 ) -> None:
-    used_slugs: set[str] = set()
     imported_since_commit = 0
     started = time.perf_counter()
 
@@ -1012,7 +782,7 @@ def _import_groups(
         if not force and imported_since_commit < max(1, commit_batch):
             return
         target_conn.commit()
-        _begin_import_transaction(target_conn)
+        writer.begin_batch(target_conn)
         imported_since_commit = 0
         elapsed = max(time.perf_counter() - started, 0.001)
         print(
@@ -1025,40 +795,32 @@ def _import_groups(
     def _recover_import_transaction() -> None:
         nonlocal imported_since_commit
         target_conn.rollback()
-        _begin_import_transaction(target_conn)
+        writer.begin_batch(target_conn)
         imported_since_commit = 0
 
-    # Components are inserted with raw SQL, which bypasses the service path that
-    # normally registers discovered fields. Register them once up front so the
-    # preserved database columns appear as labelled fields rather than as opaque
-    # keys in the extra-fields blob.
-    discovered_keys = {
-        key
-        for group in groups
-        for key in group.metadata.get("extra_fields", {})
-    }
+    # Register the preserved database columns once up front so they appear as
+    # labelled fields rather than as opaque keys in the extra-fields blob.
+    discovered_keys = {key for group in groups for key in group.metadata.get("extra_fields", {})}
     if discovered_keys:
-        CatalogMetadataSchema().ensure_extra_field_definitions(
-            target_conn,
-            sorted(discovered_keys),
-            actor=DATABASE_LIBRARY_IMPORT_ACTOR,
-        )
+        writer.register_extra_fields(target_conn, discovered_keys, actor=DATABASE_LIBRARY_IMPORT_ACTOR)
 
     for group in groups:
         try:
+            # A custom required field the row leaves blank skips it, as import acceptance refuses it.
+            if missing := writer.missing_custom_fields(target_conn, group.metadata):
+                stats.skipped_rows += 1
+                stats.skipped_missing_fields.append({"key": list(group.key), "missing": missing})
+                continue
             now = _utc_now_iso()
-            slug = _unique_slug_local(
-                used_slugs,
-                group.metadata["mpn"]
-                or group.metadata["name"]
-                or group.metadata["value"],
-            )
-            component_id, revision_id = _insert_import_component(
-                service,
+            component_id, revision_id = writer.insert_component(
                 target_conn,
-                metadata=group.metadata,
-                slug=slug,
+                group.metadata,
+                slug_base=group.metadata["mpn"] or group.metadata["name"] or group.metadata["value"],
                 now=now,
+                actor=DATABASE_LIBRARY_IMPORT_ACTOR,
+                change_summary="Imported from database library",
+                external_source=CERN_EXTERNAL_SOURCE,
+                external_id=group.metadata["import_source_namespace"],
             )
             stats.components_created += 1
 
@@ -1070,7 +832,9 @@ def _import_groups(
                     symbol_asset = symbol_asset_cache[
                         (representation.symbol_library.target_library, representation.symbol_name)
                     ]
-                    _link_asset_fast(target_conn, revision_id, symbol_asset, required=True, now=now)
+                    writer.link_asset(
+                        target_conn, revision_id, symbol_asset, required=True, now=now, bind_ready_previews=True
+                    )
                     stats.symbol_links_created += 1
                 if representation.footprint_asset:
                     footprint_asset = footprint_asset_cache[
@@ -1079,60 +843,47 @@ def _import_groups(
                             representation.footprint_asset.target_name,
                         )
                     ]
-                    _link_asset_fast(target_conn, revision_id, footprint_asset, required=True, now=now)
+                    writer.link_asset(
+                        target_conn, revision_id, footprint_asset, required=True, now=now, bind_ready_previews=True
+                    )
                     stats.footprint_links_created += 1
-                target_conn.execute(
-                    """
-                    INSERT INTO revision_representations (
-                        id, revision_id, label, symbol_asset_id, footprint_asset_id, is_default,
-                        display_order, source_internal_part_number, provenance_json, created_at, updated_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        str(uuid.uuid4()),
-                        revision_id,
-                        representation.label,
-                        symbol_asset["id"] if symbol_asset else None,
-                        footprint_asset["id"] if footprint_asset else None,
-                        1 if representation.is_default else 0,
-                        display_order,
-                        representation.source_ipns[0] if representation.source_ipns else "",
-                        json.dumps(
-                            {
-                                "source_ipns": representation.source_ipns,
-                                "rows": representation.provenance,
-                            },
-                            sort_keys=True,
-                            separators=(",", ":"),
-                        ),
-                        now,
-                        now,
-                    ),
+                writer.add_representation(
+                    target_conn,
+                    revision_id,
+                    label=representation.label,
+                    symbol_asset_id=symbol_asset["id"] if symbol_asset else None,
+                    footprint_asset_id=footprint_asset["id"] if footprint_asset else None,
+                    is_default=representation.is_default,
+                    display_order=display_order,
+                    source_internal_part_number=representation.source_ipns[0] if representation.source_ipns else "",
+                    provenance={"source_ipns": representation.source_ipns, "rows": representation.provenance},
+                    now=now,
                 )
                 if representation.is_default:
                     default_complete = bool(symbol_asset and footprint_asset)
 
-            _finalize_import_component_fast(
-                service,
+            writer.seal(
                 target_conn,
                 component_id=component_id,
                 revision_id=revision_id,
                 now=now,
+                actor=DATABASE_LIBRARY_IMPORT_ACTOR,
+                change_summary="Imported grouped database-library component",
             )
 
-            if (
-                release_imported
-                and group.identity_kind == "mpn"
-                and default_complete
-            ):
-                _release_component_fast(
-                    service,
-                    target_conn,
-                    component_id=component_id,
-                    revision_id=revision_id,
-                    now=now,
-                )
-                stats.components_released += 1
+            if release_imported and group.identity_kind == "mpn" and default_complete:
+                try:
+                    writer.release_trusted(
+                        target_conn,
+                        component_id=component_id,
+                        revision_id=revision_id,
+                        now=now,
+                        actor=DATABASE_LIBRARY_IMPORT_ACTOR,
+                        release_label="database-library-import",
+                    )
+                    stats.components_released += 1
+                except ValueError as exc:
+                    stats.release_refused.append({"key": list(group.key), "reason": str(exc)})
 
             imported_since_commit += 1
             _commit_import_batch()
@@ -1360,57 +1111,6 @@ def _metadata_from_row(
     }
 
 
-def _runtime_path(local_path: Path, local_store_root: Path, runtime_store_root: Path | None) -> str:
-    if runtime_store_root is None:
-        return str(local_path.resolve())
-    relative = local_path.resolve().relative_to(local_store_root.resolve())
-    return str((runtime_store_root / relative).as_posix())
-
-
-def _register_asset(
-    service: Any,
-    conn: Any,
-    *,
-    asset_type: str,
-    canonical_path: Path,
-    target_library: str,
-    target_name: str,
-    source_group: str,
-    runtime_store_root: Path | None,
-) -> dict[str, Any]:
-    local_path = canonical_path.resolve()
-    asset = service.asset_registry.register_asset(
-        service.runtime, conn,
-        asset_type=asset_type,
-        canonical_path=local_path,
-        target_library=target_library,
-        target_name=target_name,
-        source_group=source_group,
-    )
-    runtime_canonical_path = _runtime_path(local_path, service.store_root, runtime_store_root)
-    if str(asset["canonical_path"]) != runtime_canonical_path:
-        conn.execute(
-            "UPDATE assets SET canonical_path = %s WHERE id = %s",
-            (runtime_canonical_path, asset["id"]),
-        )
-        asset = dict(asset)
-        asset["canonical_path"] = runtime_canonical_path
-    return asset
-
-
-def _clear_catalog(conn: Any) -> None:
-    tables = ", ".join(f'"{table}"' for table in CATALOG_TRUNCATE_TABLES)
-    conn.execute(f"TRUNCATE TABLE {tables} RESTART IDENTITY CASCADE")
-
-
-def _enable_catalog_migration(conn: Any) -> None:
-    conn.execute("SET LOCAL prism.catalog_migration = 'on'")
-
-
-def _begin_import_transaction(conn: Any) -> None:
-    _enable_catalog_migration(conn)
-
-
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -1427,7 +1127,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--runtime-store-root", type=Path, default=None, help="Canonical store root to write into DB paths, e.g. /app/projects/.kicad-prism/components.")
     parser.add_argument("--database-url", default=os.environ.get("PRISM_DATABASE_URL", ""), help="Target Prism PostgreSQL URL.")
     parser.add_argument("--replace-catalog", action="store_true", help="Delete existing Prism catalog component/asset rows before importing.")
-    parser.add_argument("--overwrite-assets", action="store_true", help="Overwrite canonical asset files when content differs.")
+    parser.add_argument("--overwrite-assets", action="store_true", help="Store changed asset content as a new immutable file instead of refusing.")
     parser.add_argument("--allow-missing-assets", action="store_true", help="Create metadata rows even when symbol or footprint refs cannot be resolved.")
     parser.add_argument("--no-release", action="store_true", help="Keep imported rows open instead of directly marking complete rows released.")
     parser.add_argument("--generate-previews", action="store_true", help="Generate symbol and footprint SVG previews. This can be slow for large libraries.")
@@ -1466,6 +1166,7 @@ def main() -> int:
         return 2
 
     service = ComponentCatalogService(store_root=args.store_root, database_url=args.database_url or None)
+    writer = build_import_writer(service.runtime)
     stats = ImportStats()
     runtime_store_root = args.runtime_store_root
     include_tables = set(args.include_table or [])
@@ -1524,17 +1225,18 @@ def main() -> int:
             service.initialize()
             target_conn_context = service.connection()
             target_conn = target_conn_context.__enter__()
-            _begin_import_transaction(target_conn)
+            writer.begin_batch(target_conn)
             if args.replace_catalog:
                 print("Clearing existing Prism catalog rows ...", flush=True)
-                _clear_catalog(target_conn)
+                writer.clear_catalog(target_conn)
                 target_conn.commit()
-                _begin_import_transaction(target_conn)
+                writer.begin_batch(target_conn)
 
             print("Registering canonical symbol and footprint assets ...", flush=True)
             _register_planned_assets(
                 plans,
                 service=service,
+                writer=writer,
                 target_conn=target_conn,
                 stats=stats,
                 overwrite_assets=args.overwrite_assets,
@@ -1549,7 +1251,7 @@ def main() -> int:
             print("Importing component metadata and release records ...", flush=True)
             _import_groups(
                 groups,
-                service=service,
+                writer=writer,
                 target_conn=target_conn,
                 stats=stats,
                 symbol_asset_cache=symbol_asset_cache,
@@ -1557,7 +1259,7 @@ def main() -> int:
                 release_imported=not args.no_release,
                 commit_batch=max(50, args.commit_batch),
             )
-            if stats.components_created != len(groups):
+            if stats.components_created + len(stats.skipped_missing_fields) != len(groups):
                 fatal_error = True
                 _record_error(
                     stats,

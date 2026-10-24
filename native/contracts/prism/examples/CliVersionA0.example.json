@@ -1,0 +1,68 @@
+{
+  "schema": "prism.cli.version.a0",
+  "crate_version": "0.1.0",
+  "engine_version": "2026.9.7",
+  "hlr_procedure": {
+    "geometer_version": "2026.9.19",
+    "options": "assembly-hlr-a0"
+  },
+  "kicad_file_formats": {
+    "board": 20260206,
+    "schematic": 20260306
+  },
+  "kicad_version": "10.0.6",
+  "member_schemas": [
+    {
+      "path": "bundle.json",
+      "schema": "prism.bundle.manifest.a3"
+    },
+    {
+      "path": "design.json",
+      "schema": "kicad_monkey.design.a0"
+    },
+    {
+      "path": "materialization/board.kmpack",
+      "schema": "kicad_monkey.materialization.a0"
+    },
+    {
+      "path": "models/assembly-hlr.json",
+      "schema": "prism.assembly_hlr.a0"
+    },
+    {
+      "path": "projections/board-objects.json",
+      "schema": "prism.board_objects.a0"
+    },
+    {
+      "path": "projections/occurrences.json",
+      "schema": "prism.occurrences.a0"
+    },
+    {
+      "path": "projections/placements.json",
+      "schema": "prism.placements.a1"
+    },
+    {
+      "path": "projections/project.json",
+      "schema": "prism.project.a0"
+    },
+    {
+      "path": "projections/route-metrics.json",
+      "schema": "prism.route_metrics.a0"
+    },
+    {
+      "path": "projections/semantic-index.json",
+      "schema": "prism.semantic_index.a2"
+    },
+    {
+      "path": "projections/stackup.json",
+      "schema": "prism.stackup.a0"
+    },
+    {
+      "path": "projections/system-interface.json",
+      "schema": "prism.system_interface.v1"
+    }
+  ],
+  "models_procedure": "kicad-cli-glb-a0",
+  "pack_format_version": 0,
+  "refill_procedure": "pcbnew-zone-filler-a0",
+  "upgrade_procedure": "kicad-seeded-upgrade-a0"
+}

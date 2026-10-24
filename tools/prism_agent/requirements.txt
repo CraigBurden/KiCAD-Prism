@@ -1,0 +1,7 @@
+# Tray agent only. The KiCad plugin deliberately has NO dependencies beyond the
+# stdlib and KiCad's bundled wxPython, because installing packages into KiCad's
+# embedded Python is painful and fragile.
+pystray>=0.19
+Pillow>=10.0
+# HTTPS verification through the OS certificate store (see __main__._use_os_trust_store).
+truststore>=0.10

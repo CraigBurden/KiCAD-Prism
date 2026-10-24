@@ -1,0 +1,20 @@
+{
+ "schema": "prism.parity.oracle_known.a0",
+ "known": [
+  {
+   "case": "*",
+   "check": "netlist-net-names",
+   "reason": "Same nets, same nodes, other names. KiCad 10.0.6's netlister names an unconnected pin's net with the pin name, unconnected-(R1-~-Pad1), and keeps '/' in pin names, Net-(U3-ADJ/NC). Today's kicad_monkey 2026.9.7 writes unconnected-(R1-Pad1) and Net-(U3-ADJ{slash}NC). The goldens keep today's names, which are what Prism shows. 70 of 1280 netlist nets on 9 fixtures (measured 2026-10-16). Whether P1 follows KiCad is a divergence for P1 to propose in divergences/semantic-index.md."
+  },
+  {
+   "case": "dv-kicad11_tokens",
+   "check": "netlist",
+   "reason": "KiCad 10.0.6 refuses the KiCad 11 tokens this fixture exists to carry (backend/tests/fixtures/design_variants/README.md, F5): 'Failed to load schematic'."
+  },
+  {
+   "case": "dv-kicad11_tokens",
+   "check": "stats",
+   "reason": "KiCad 10.0.6 refuses the KiCad 11 tokens on the board too (design_variants F5)."
+  }
+ ]
+}

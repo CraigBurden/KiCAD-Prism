@@ -1,0 +1,3691 @@
+{
+ "schema": "prism.placements.a1",
+ "footprints": [
+  {
+   "uuid": "0a68adf0-7cdc-46be-ae5f-e6c0b6455579",
+   "reference": "R15",
+   "libId": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 129500000,
+    "yNm": 122000000
+   },
+   "rotationDeg": 180,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 130412500,
+      "yNm": 122000000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 128587500,
+      "yNm": 122000000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 2016,
+    "lengthBytes": 5186
+   }
+  },
+  {
+   "uuid": "0aef2900-5b76-47c3-a213-e7b22a3034c3",
+   "reference": "Q1",
+   "libId": "Pixxel_MOSFETs:IRF9358TRPBFSOIC127P600X175-8N",
+   "side": "front",
+   "positionNm": {
+    "xNm": 130700000,
+    "yNm": 111300000
+   },
+   "rotationDeg": -90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -3725000,
+     "yNm": -2750000
+    },
+    "maxNm": {
+     "xNm": 3725000,
+     "yNm": 2750000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 132605000,
+      "yNm": 108588000
+     },
+     "size": {
+      "xNm": 700000,
+      "yNm": 1525000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 131335000,
+      "yNm": 108588000
+     },
+     "size": {
+      "xNm": 700000,
+      "yNm": 1525000
+     }
+    },
+    {
+     "number": "3",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 130065000,
+      "yNm": 108588000
+     },
+     "size": {
+      "xNm": 700000,
+      "yNm": 1525000
+     }
+    },
+    {
+     "number": "4",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 128795000,
+      "yNm": 108588000
+     },
+     "size": {
+      "xNm": 700000,
+      "yNm": 1525000
+     }
+    },
+    {
+     "number": "5",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 128795000,
+      "yNm": 114012000
+     },
+     "size": {
+      "xNm": 700000,
+      "yNm": 1525000
+     }
+    },
+    {
+     "number": "6",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 130065000,
+      "yNm": 114012000
+     },
+     "size": {
+      "xNm": 700000,
+      "yNm": 1525000
+     }
+    },
+    {
+     "number": "7",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 131335000,
+      "yNm": 114012000
+     },
+     "size": {
+      "xNm": 700000,
+      "yNm": 1525000
+     }
+    },
+    {
+     "number": "8",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 132605000,
+      "yNm": 114012000
+     },
+     "size": {
+      "xNm": 700000,
+      "yNm": 1525000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "kicad-embed://IRF9358TRPBF.stp",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 7204,
+    "lengthBytes": 8888
+   }
+  },
+  {
+   "uuid": "0d1ade47-5557-4371-bafc-b429b5fb3b77",
+   "reference": "R3",
+   "libId": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 113700000,
+    "yNm": 106600000
+   },
+   "rotationDeg": 180,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 114612500,
+      "yNm": 106600000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 112787500,
+      "yNm": 106600000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 16094,
+    "lengthBytes": 5181
+   }
+  },
+  {
+   "uuid": "0fe3d08e-86fc-4dd5-bd2f-bcbc5d801a5d",
+   "reference": "R6",
+   "libId": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 115000000,
+    "yNm": 100712500
+   },
+   "rotationDeg": -90,
+   "dnp": true,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 115000000,
+      "yNm": 99800000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 115000000,
+      "yNm": 101625000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 21277,
+    "lengthBytes": 5195
+   }
+  },
+  {
+   "uuid": "16e2cd98-c278-46ff-8a34-c235107a9e22",
+   "reference": "D3",
+   "libId": "Diode_SMD:D_0603_1608Metric_Pad1.05x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 135200000,
+    "yNm": 117200000
+   },
+   "rotationDeg": 90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 135200000,
+      "yNm": 118075000
+     },
+     "size": {
+      "xNm": 1050000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 135200000,
+      "yNm": 116325000
+     },
+     "size": {
+      "xNm": 1050000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Diode_SMD.3dshapes/D_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 26474,
+    "lengthBytes": 5715
+   }
+  },
+  {
+   "uuid": "1fee74a6-d5b0-4736-90b3-10f410e0ef72",
+   "reference": "R19",
+   "libId": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 137400000,
+    "yNm": 117200000
+   },
+   "rotationDeg": 90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 137400000,
+      "yNm": 118112500
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 137400000,
+      "yNm": 116287500
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 32191,
+    "lengthBytes": 5170
+   }
+  },
+  {
+   "uuid": "21727be1-337f-407c-b580-722dde93e672",
+   "reference": "C8",
+   "libId": "Capacitor_SMD:C_1210_3225Metric_Pad1.33x2.70mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 137900000,
+    "yNm": 112500000
+   },
+   "rotationDeg": 90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -2480000,
+     "yNm": -1600000
+    },
+    "maxNm": {
+     "xNm": 2480000,
+     "yNm": 1600000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 137900000,
+      "yNm": 114062500
+     },
+     "size": {
+      "xNm": 1325000,
+      "yNm": 2700000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 137900000,
+      "yNm": 110937500
+     },
+     "size": {
+      "xNm": 1325000,
+      "yNm": 2700000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_1210_3225Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 37363,
+    "lengthBytes": 5186
+   }
+  },
+  {
+   "uuid": "23b177b3-8090-40bb-9e81-e7c8260aabd0",
+   "reference": "R2",
+   "libId": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 118800000,
+    "yNm": 115300000
+   },
+   "rotationDeg": -90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 118800000,
+      "yNm": 114387500
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 118800000,
+      "yNm": 116212500
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 42551,
+    "lengthBytes": 5178
+   }
+  },
+  {
+   "uuid": "2e50ead5-fc7e-49c9-99e2-61b27e344f00",
+   "reference": "R14",
+   "libId": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 123000000,
+    "yNm": 100712500
+   },
+   "rotationDeg": 90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 123000000,
+      "yNm": 101625000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 123000000,
+      "yNm": 99800000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 47731,
+    "lengthBytes": 5183
+   }
+  },
+  {
+   "uuid": "30407c37-87cf-4214-b9f4-e845c6688071",
+   "reference": "J2",
+   "libId": "Pixxel_Connectors:796638-2",
+   "side": "front",
+   "positionNm": {
+    "xNm": 142369000,
+    "yNm": 117350000
+   },
+   "rotationDeg": 90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -3700000,
+     "yNm": -2250000
+    },
+    "maxNm": {
+     "xNm": 8780000,
+     "yNm": 10250000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "thru_hole",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 142369000,
+      "yNm": 117350000
+     },
+     "size": {
+      "xNm": 2100000,
+      "yNm": 2100000
+     }
+    },
+    {
+     "number": "2",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 142369000,
+      "yNm": 112270000
+     },
+     "size": {
+      "xNm": 2100000,
+      "yNm": 2100000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KIPRJMOD}/packages3D/796638-2.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 2310000,
+      "yNm": -10000000,
+      "zNm": 4000000
+     },
+     "rotation": {
+      "xDeg": -90,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 52916,
+    "lengthBytes": 6206
+   }
+  },
+  {
+   "uuid": "5a230e78-dd12-4c7a-99d4-be1b5d6474db",
+   "reference": "R12",
+   "libId": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 119800000,
+    "yNm": 100712500
+   },
+   "rotationDeg": 90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 119800000,
+      "yNm": 101625000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 119800000,
+      "yNm": 99800000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 59124,
+    "lengthBytes": 5178
+   }
+  },
+  {
+   "uuid": "5ff23ac1-fcf9-4d14-bebc-4d3e8022205f",
+   "reference": "C4",
+   "libId": "Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 123100000,
+    "yNm": 106512500
+   },
+   "rotationDeg": -90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 123100000,
+      "yNm": 105650000
+     },
+     "size": {
+      "xNm": 1075000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 123100000,
+      "yNm": 107375000
+     },
+     "size": {
+      "xNm": 1075000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 64304,
+    "lengthBytes": 5165
+   }
+  },
+  {
+   "uuid": "70159a46-b7a2-4026-b49f-6e60b12705ba",
+   "reference": "D1",
+   "libId": "Diode_SMD:D_SOD-123",
+   "side": "front",
+   "positionNm": {
+    "xNm": 130600000,
+    "yNm": 104000000
+   },
+   "rotationDeg": 180,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -2350000,
+     "yNm": -1150000
+    },
+    "maxNm": {
+     "xNm": 2350000,
+     "yNm": 1150000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 132250000,
+      "yNm": 104000000
+     },
+     "size": {
+      "xNm": 900000,
+      "yNm": 1200000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 128950000,
+      "yNm": 104000000
+     },
+     "size": {
+      "xNm": 900000,
+      "yNm": 1200000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Diode_SMD.3dshapes/D_SOD-123.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 69471,
+    "lengthBytes": 6182
+   }
+  },
+  {
+   "uuid": "8a050c98-7474-422a-835d-1fa485b64064",
+   "reference": "J1",
+   "libId": "Pixxel_Connectors:USB4056-03-A",
+   "side": "front",
+   "positionNm": {
+    "xNm": 110102500,
+    "yNm": 114810000
+   },
+   "rotationDeg": -90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -5175000,
+     "yNm": -7590000
+    },
+    "maxNm": {
+     "xNm": 5175000,
+     "yNm": 2780000
+    }
+   },
+   "pads": [
+    {
+     "number": "",
+     "type": "np_thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 115742500,
+      "yNm": 111210000
+     },
+     "size": {
+      "xNm": 650000,
+      "yNm": 650000
+     }
+    },
+    {
+     "number": "",
+     "type": "np_thru_hole",
+     "shape": "oval",
+     "positionNm": {
+      "xNm": 115742500,
+      "yNm": 118410000
+     },
+     "size": {
+      "xNm": 950000,
+      "yNm": 650000
+     }
+    },
+    {
+     "number": "A1",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 116302500,
+      "yNm": 112060000
+     },
+     "size": {
+      "xNm": 300000,
+      "yNm": 900000
+     }
+    },
+    {
+     "number": "A2",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 116302500,
+      "yNm": 112560000
+     },
+     "size": {
+      "xNm": 300000,
+      "yNm": 900000
+     }
+    },
+    {
+     "number": "A3",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 116302500,
+      "yNm": 113060000
+     },
+     "size": {
+      "xNm": 300000,
+      "yNm": 900000
+     }
+    },
+    {
+     "number": "A4",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 116302500,
+      "yNm": 113560000
+     },
+     "size": {
+      "xNm": 300000,
+      "yNm": 900000
+     }
+    },
+    {
+     "number": "A5",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 116302500,
+      "yNm": 114060000
+     },
+     "size": {
+      "xNm": 300000,
+      "yNm": 900000
+     }
+    },
+    {
+     "number": "A6",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 116302500,
+      "yNm": 114560000
+     },
+     "size": {
+      "xNm": 300000,
+      "yNm": 900000
+     }
+    },
+    {
+     "number": "A7",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 116302500,
+      "yNm": 115060000
+     },
+     "size": {
+      "xNm": 300000,
+      "yNm": 900000
+     }
+    },
+    {
+     "number": "A8",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 116302500,
+      "yNm": 115560000
+     },
+     "size": {
+      "xNm": 300000,
+      "yNm": 900000
+     }
+    },
+    {
+     "number": "A9",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 116302500,
+      "yNm": 116060000
+     },
+     "size": {
+      "xNm": 300000,
+      "yNm": 900000
+     }
+    },
+    {
+     "number": "A10",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 116302500,
+      "yNm": 116560000
+     },
+     "size": {
+      "xNm": 300000,
+      "yNm": 900000
+     }
+    },
+    {
+     "number": "A11",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 116302500,
+      "yNm": 117060000
+     },
+     "size": {
+      "xNm": 300000,
+      "yNm": 900000
+     }
+    },
+    {
+     "number": "A12",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 116302500,
+      "yNm": 117560000
+     },
+     "size": {
+      "xNm": 300000,
+      "yNm": 900000
+     }
+    },
+    {
+     "number": "B1",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 115092500,
+      "yNm": 117610000
+     },
+     "size": {
+      "xNm": 600000,
+      "yNm": 600000
+     }
+    },
+    {
+     "number": "B2",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 114392500,
+      "yNm": 117210000
+     },
+     "size": {
+      "xNm": 600000,
+      "yNm": 600000
+     }
+    },
+    {
+     "number": "B3",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 114392500,
+      "yNm": 116410000
+     },
+     "size": {
+      "xNm": 600000,
+      "yNm": 600000
+     }
+    },
+    {
+     "number": "B4",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 115092500,
+      "yNm": 116010000
+     },
+     "size": {
+      "xNm": 600000,
+      "yNm": 600000
+     }
+    },
+    {
+     "number": "B5",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 114392500,
+      "yNm": 115610000
+     },
+     "size": {
+      "xNm": 600000,
+      "yNm": 600000
+     }
+    },
+    {
+     "number": "B6",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 115092500,
+      "yNm": 115210000
+     },
+     "size": {
+      "xNm": 600000,
+      "yNm": 600000
+     }
+    },
+    {
+     "number": "B7",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 115092500,
+      "yNm": 114410000
+     },
+     "size": {
+      "xNm": 600000,
+      "yNm": 600000
+     }
+    },
+    {
+     "number": "B8",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 114392500,
+      "yNm": 114010000
+     },
+     "size": {
+      "xNm": 600000,
+      "yNm": 600000
+     }
+    },
+    {
+     "number": "B9",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 115092500,
+      "yNm": 113610000
+     },
+     "size": {
+      "xNm": 600000,
+      "yNm": 600000
+     }
+    },
+    {
+     "number": "B10",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 114392500,
+      "yNm": 113210000
+     },
+     "size": {
+      "xNm": 600000,
+      "yNm": 600000
+     }
+    },
+    {
+     "number": "B11",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 114392500,
+      "yNm": 112410000
+     },
+     "size": {
+      "xNm": 600000,
+      "yNm": 600000
+     }
+    },
+    {
+     "number": "B12",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 115092500,
+      "yNm": 112010000
+     },
+     "size": {
+      "xNm": 600000,
+      "yNm": 600000
+     }
+    },
+    {
+     "number": "S1",
+     "type": "thru_hole",
+     "shape": "oval",
+     "positionNm": {
+      "xNm": 114502500,
+      "yNm": 110680000
+     },
+     "size": {
+      "xNm": 800000,
+      "yNm": 1400000
+     }
+    },
+    {
+     "number": "S2",
+     "type": "thru_hole",
+     "shape": "oval",
+     "positionNm": {
+      "xNm": 114502500,
+      "yNm": 118940000
+     },
+     "size": {
+      "xNm": 800000,
+      "yNm": 1400000
+     }
+    },
+    {
+     "number": "S3",
+     "type": "thru_hole",
+     "shape": "oval",
+     "positionNm": {
+      "xNm": 110102500,
+      "yNm": 110320000
+     },
+     "size": {
+      "xNm": 800000,
+      "yNm": 1400000
+     }
+    },
+    {
+     "number": "S4",
+     "type": "thru_hole",
+     "shape": "oval",
+     "positionNm": {
+      "xNm": 110102500,
+      "yNm": 119300000
+     },
+     "size": {
+      "xNm": 800000,
+      "yNm": 1400000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KIPRJMOD}/packages3D/USB4056-03-A_REVA2.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": -90,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 75655,
+    "lengthBytes": 21302
+   }
+  },
+  {
+   "uuid": "8af121fe-702a-4e38-b536-ba4f9254d2c6",
+   "reference": "C6",
+   "libId": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 134900000,
+    "yNm": 113037500
+   },
+   "rotationDeg": 90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1880000,
+     "yNm": -980000
+    },
+    "maxNm": {
+     "xNm": 1880000,
+     "yNm": 980000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 134900000,
+      "yNm": 114075000
+     },
+     "size": {
+      "xNm": 1175000,
+      "yNm": 1450000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 134900000,
+      "yNm": 112000000
+     },
+     "size": {
+      "xNm": 1175000,
+      "yNm": 1450000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0805_2012Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 96959,
+    "lengthBytes": 5308
+   }
+  },
+  {
+   "uuid": "8ea1ed23-3f8f-42ce-8c56-16f2acc6ed03",
+   "reference": "Q3",
+   "libId": "Pixxel_MOSFETs:BSL308PE-SOT95P250X110-6N",
+   "side": "front",
+   "positionNm": {
+    "xNm": 130250000,
+    "yNm": 117400000
+   },
+   "rotationDeg": 90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1900000,
+     "yNm": -1800000
+    },
+    "maxNm": {
+     "xNm": 1900000,
+     "yNm": 1800000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 129300000,
+      "yNm": 118600000
+     },
+     "size": {
+      "xNm": 550000,
+      "yNm": 900000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 130250000,
+      "yNm": 118600000
+     },
+     "size": {
+      "xNm": 550000,
+      "yNm": 900000
+     }
+    },
+    {
+     "number": "3",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 131200000,
+      "yNm": 118600000
+     },
+     "size": {
+      "xNm": 550000,
+      "yNm": 900000
+     }
+    },
+    {
+     "number": "4",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 131200000,
+      "yNm": 116200000
+     },
+     "size": {
+      "xNm": 550000,
+      "yNm": 900000
+     }
+    },
+    {
+     "number": "5",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 130250000,
+      "yNm": 116200000
+     },
+     "size": {
+      "xNm": 550000,
+      "yNm": 900000
+     }
+    },
+    {
+     "number": "6",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 129300000,
+      "yNm": 116200000
+     },
+     "size": {
+      "xNm": 550000,
+      "yNm": 900000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "kicad-embed://BSL308PE.stp",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 102269,
+    "lengthBytes": 8199
+   }
+  },
+  {
+   "uuid": "9402ba55-b21b-40ce-8e46-4bdb172a3f60",
+   "reference": "R4",
+   "libId": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 126600000,
+    "yNm": 112400000
+   },
+   "rotationDeg": 90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 126600000,
+      "yNm": 113312500
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 126600000,
+      "yNm": 111487500
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 110470,
+    "lengthBytes": 5179
+   }
+  },
+  {
+   "uuid": "95afd87e-b1e6-4ff7-b16a-020a66ee0fe6",
+   "reference": "Q2",
+   "libId": "Package_TO_SOT_SMD:SOT-23",
+   "side": "front",
+   "positionNm": {
+    "xNm": 122100000,
+    "yNm": 120200000
+   },
+   "rotationDeg": 90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1930000,
+     "yNm": -1700000
+    },
+    "maxNm": {
+     "xNm": 1930000,
+     "yNm": 1700000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 121150000,
+      "yNm": 121137500
+     },
+     "size": {
+      "xNm": 1475000,
+      "yNm": 600000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 123050000,
+      "yNm": 121137500
+     },
+     "size": {
+      "xNm": 1475000,
+      "yNm": 600000
+     }
+    },
+    {
+     "number": "3",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 122100000,
+      "yNm": 119262500
+     },
+     "size": {
+      "xNm": 1475000,
+      "yNm": 600000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Package_TO_SOT_SMD.3dshapes/SOT-23.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 115651,
+    "lengthBytes": 7288
+   }
+  },
+  {
+   "uuid": "9794cc5c-cbdc-4bd7-89e2-9585639f22c2",
+   "reference": "C5",
+   "libId": "Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 124800000,
+    "yNm": 106512500
+   },
+   "rotationDeg": -90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 124800000,
+      "yNm": 105650000
+     },
+     "size": {
+      "xNm": 1075000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 124800000,
+      "yNm": 107375000
+     },
+     "size": {
+      "xNm": 1075000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 122941,
+    "lengthBytes": 5163
+   }
+  },
+  {
+   "uuid": "a1431be3-b88f-4ae1-ba7e-7ea933021c96",
+   "reference": "R5",
+   "libId": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 116600000,
+    "yNm": 100712500
+   },
+   "rotationDeg": -90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 116600000,
+      "yNm": 99800000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 116600000,
+      "yNm": 101625000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 128106,
+    "lengthBytes": 5193
+   }
+  },
+  {
+   "uuid": "a503cfc7-8a0b-4f8b-b2d3-3df05615663e",
+   "reference": "R18",
+   "libId": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 129500000,
+    "yNm": 120300000
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 128587500,
+      "yNm": 120300000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 130412500,
+      "yNm": 120300000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 133301,
+    "lengthBytes": 5165
+   }
+  },
+  {
+   "uuid": "a5b7d383-4c0d-4a1a-a69e-f66119c1e7dc",
+   "reference": "R10",
+   "libId": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 129900000,
+    "yNm": 106000000
+   },
+   "rotationDeg": 180,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 130812500,
+      "yNm": 106000000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 128987500,
+      "yNm": 106000000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 138468,
+    "lengthBytes": 5179
+   }
+  },
+  {
+   "uuid": "a6ce23eb-8479-49c0-9948-fc9dd668ce14",
+   "reference": "C3",
+   "libId": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 124200000,
+    "yNm": 103612500
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1880000,
+     "yNm": -980000
+    },
+    "maxNm": {
+     "xNm": 1880000,
+     "yNm": 980000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 123162500,
+      "yNm": 103612500
+     },
+     "size": {
+      "xNm": 1175000,
+      "yNm": 1450000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 125237500,
+      "yNm": 103612500
+     },
+     "size": {
+      "xNm": 1175000,
+      "yNm": 1450000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0805_2012Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 143649,
+    "lengthBytes": 5280
+   }
+  },
+  {
+   "uuid": "b64bcf6b-ce32-4895-9a4c-f7e8ff0a12ad",
+   "reference": "R8",
+   "libId": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 111700000,
+    "yNm": 100712500
+   },
+   "rotationDeg": -90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 111700000,
+      "yNm": 99800000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 111700000,
+      "yNm": 101625000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 148931,
+    "lengthBytes": 5193
+   }
+  },
+  {
+   "uuid": "bfaf6784-4023-4263-ab4d-6a5cddda2e52",
+   "reference": "R16",
+   "libId": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 122100000,
+    "yNm": 123000000
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 121187500,
+      "yNm": 123000000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 123012500,
+      "yNm": 123000000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 154126,
+    "lengthBytes": 5154
+   }
+  },
+  {
+   "uuid": "c297cb91-83c4-4970-923d-bcdce1537d98",
+   "reference": "R9",
+   "libId": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 129900000,
+    "yNm": 101800000
+   },
+   "rotationDeg": 180,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 130812500,
+      "yNm": 101800000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 128987500,
+      "yNm": 101800000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 159282,
+    "lengthBytes": 5185
+   }
+  },
+  {
+   "uuid": "c808dffa-6774-4a04-a5ec-73bba0bb760d",
+   "reference": "TP1",
+   "libId": "TestPoint:TestPoint_Pad_D1.0mm",
+   "side": "front",
+   "positionNm": {
+    "xNm": 122200000,
+    "yNm": 110700000
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": true,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1000000,
+     "yNm": -1000000
+    },
+    "maxNm": {
+     "xNm": 1000000,
+     "yNm": 1000000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 122200000,
+      "yNm": 110700000
+     },
+     "size": {
+      "xNm": 1000000,
+      "yNm": 1000000
+     }
+    }
+   ],
+   "models": [],
+   "sourceSpan": {
+    "offsetBytes": 164469,
+    "lengthBytes": 5150
+   }
+  },
+  {
+   "uuid": "deb246bc-03f6-4133-a6eb-c874a4b69417",
+   "reference": "C2",
+   "libId": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 124400000,
+    "yNm": 112237500
+   },
+   "rotationDeg": 90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1880000,
+     "yNm": -980000
+    },
+    "maxNm": {
+     "xNm": 1880000,
+     "yNm": 980000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 124400000,
+      "yNm": 113275000
+     },
+     "size": {
+      "xNm": 1175000,
+      "yNm": 1450000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 124400000,
+      "yNm": 111200000
+     },
+     "size": {
+      "xNm": 1175000,
+      "yNm": 1450000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0805_2012Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 169621,
+    "lengthBytes": 5308
+   }
+  },
+  {
+   "uuid": "e197273d-9659-4fdb-87e0-39a667228b0f",
+   "reference": "R13",
+   "libId": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 121400000,
+    "yNm": 100712500
+   },
+   "rotationDeg": 90,
+   "dnp": true,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 121400000,
+      "yNm": 101625000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 121400000,
+      "yNm": 99800000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 174931,
+    "lengthBytes": 5188
+   }
+  },
+  {
+   "uuid": "e5105dc1-4e6a-4ad8-aab5-92d5e635d85f",
+   "reference": "C7",
+   "libId": "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 126700000,
+    "yNm": 106712500
+   },
+   "rotationDeg": -90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1880000,
+     "yNm": -980000
+    },
+    "maxNm": {
+     "xNm": 1880000,
+     "yNm": 980000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 126700000,
+      "yNm": 105675000
+     },
+     "size": {
+      "xNm": 1175000,
+      "yNm": 1450000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 126700000,
+      "yNm": 107750000
+     },
+     "size": {
+      "xNm": 1175000,
+      "yNm": 1450000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0805_2012Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 180121,
+    "lengthBytes": 5298
+   }
+  },
+  {
+   "uuid": "e89b1ed6-a54d-41a2-a14c-8a925bb672a4",
+   "reference": "C1",
+   "libId": "Capacitor_SMD:C_1210_3225Metric_Pad1.33x2.70mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 121500000,
+    "yNm": 115400000
+   },
+   "rotationDeg": -90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -2480000,
+     "yNm": -1600000
+    },
+    "maxNm": {
+     "xNm": 2480000,
+     "yNm": 1600000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 121500000,
+      "yNm": 113837500
+     },
+     "size": {
+      "xNm": 1325000,
+      "yNm": 2700000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 121500000,
+      "yNm": 116962500
+     },
+     "size": {
+      "xNm": 1325000,
+      "yNm": 2700000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_1210_3225Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 185421,
+    "lengthBytes": 5195
+   }
+  },
+  {
+   "uuid": "e90f7738-99b2-4e9e-8c05-60192001c2ae",
+   "reference": "R17",
+   "libId": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 125700000,
+    "yNm": 120300000
+   },
+   "rotationDeg": 180,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 126612500,
+      "yNm": 120300000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 124787500,
+      "yNm": 120300000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 190618,
+    "lengthBytes": 5176
+   }
+  },
+  {
+   "uuid": "f3d566cb-1632-4efa-90bd-e0d6cafa637b",
+   "reference": "R7",
+   "libId": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 113300000,
+    "yNm": 100712500
+   },
+   "rotationDeg": -90,
+   "dnp": true,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 113300000,
+      "yNm": 99800000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 113300000,
+      "yNm": 101625000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 195796,
+    "lengthBytes": 5195
+   }
+  },
+  {
+   "uuid": "f46f6ad8-370d-4255-bc07-304f2ea2bccb",
+   "reference": "R1",
+   "libId": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 113700000,
+    "yNm": 108400000
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 112787500,
+      "yNm": 108400000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 114612500,
+      "yNm": 108400000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 200993,
+    "lengthBytes": 5153
+   }
+  },
+  {
+   "uuid": "f63ed382-7ffd-49f9-85cb-f1627653dc89",
+   "reference": "R11",
+   "libId": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 118200000,
+    "yNm": 100712500
+   },
+   "rotationDeg": 90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 118200000,
+      "yNm": 101625000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 118200000,
+      "yNm": 99800000
+     },
+     "size": {
+      "xNm": 975000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 206148,
+    "lengthBytes": 5190
+   }
+  },
+  {
+   "uuid": "fab9ea7a-7645-4bbf-8ffa-c7005fe98543",
+   "reference": "U1",
+   "libId": "Package_DFN_QFN:QFN-24-1EP_4x4mm_P0.5mm_EP2.75x2.75mm",
+   "side": "front",
+   "positionNm": {
+    "xNm": 119025000,
+    "yNm": 106362500
+   },
+   "rotationDeg": -90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -2630000,
+     "yNm": -2630000
+    },
+    "maxNm": {
+     "xNm": 2630000,
+     "yNm": 2630000
+    }
+   },
+   "pads": [
+    {
+     "number": "",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 119715000,
+      "yNm": 105672500
+     },
+     "size": {
+      "xNm": 1110000,
+      "yNm": 1110000
+     }
+    },
+    {
+     "number": "",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 118335000,
+      "yNm": 105672500
+     },
+     "size": {
+      "xNm": 1110000,
+      "yNm": 1110000
+     }
+    },
+    {
+     "number": "",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 119715000,
+      "yNm": 107052500
+     },
+     "size": {
+      "xNm": 1110000,
+      "yNm": 1110000
+     }
+    },
+    {
+     "number": "",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 118335000,
+      "yNm": 107052500
+     },
+     "size": {
+      "xNm": 1110000,
+      "yNm": 1110000
+     }
+    },
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 120275000,
+      "yNm": 104387500
+     },
+     "size": {
+      "xNm": 800000,
+      "yNm": 250000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 119775000,
+      "yNm": 104387500
+     },
+     "size": {
+      "xNm": 800000,
+      "yNm": 250000
+     }
+    },
+    {
+     "number": "3",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 119275000,
+      "yNm": 104387500
+     },
+     "size": {
+      "xNm": 800000,
+      "yNm": 250000
+     }
+    },
+    {
+     "number": "4",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 118775000,
+      "yNm": 104387500
+     },
+     "size": {
+      "xNm": 800000,
+      "yNm": 250000
+     }
+    },
+    {
+     "number": "5",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 118275000,
+      "yNm": 104387500
+     },
+     "size": {
+      "xNm": 800000,
+      "yNm": 250000
+     }
+    },
+    {
+     "number": "6",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 117775000,
+      "yNm": 104387500
+     },
+     "size": {
+      "xNm": 800000,
+      "yNm": 250000
+     }
+    },
+    {
+     "number": "7",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 117050000,
+      "yNm": 105112500
+     },
+     "size": {
+      "xNm": 250000,
+      "yNm": 800000
+     }
+    },
+    {
+     "number": "8",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 117050000,
+      "yNm": 105612500
+     },
+     "size": {
+      "xNm": 250000,
+      "yNm": 800000
+     }
+    },
+    {
+     "number": "9",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 117050000,
+      "yNm": 106112500
+     },
+     "size": {
+      "xNm": 250000,
+      "yNm": 800000
+     }
+    },
+    {
+     "number": "10",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 117050000,
+      "yNm": 106612500
+     },
+     "size": {
+      "xNm": 250000,
+      "yNm": 800000
+     }
+    },
+    {
+     "number": "11",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 117050000,
+      "yNm": 107112500
+     },
+     "size": {
+      "xNm": 250000,
+      "yNm": 800000
+     }
+    },
+    {
+     "number": "12",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 117050000,
+      "yNm": 107612500
+     },
+     "size": {
+      "xNm": 250000,
+      "yNm": 800000
+     }
+    },
+    {
+     "number": "13",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 117775000,
+      "yNm": 108337500
+     },
+     "size": {
+      "xNm": 800000,
+      "yNm": 250000
+     }
+    },
+    {
+     "number": "14",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 118275000,
+      "yNm": 108337500
+     },
+     "size": {
+      "xNm": 800000,
+      "yNm": 250000
+     }
+    },
+    {
+     "number": "15",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 118775000,
+      "yNm": 108337500
+     },
+     "size": {
+      "xNm": 800000,
+      "yNm": 250000
+     }
+    },
+    {
+     "number": "16",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 119275000,
+      "yNm": 108337500
+     },
+     "size": {
+      "xNm": 800000,
+      "yNm": 250000
+     }
+    },
+    {
+     "number": "17",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 119775000,
+      "yNm": 108337500
+     },
+     "size": {
+      "xNm": 800000,
+      "yNm": 250000
+     }
+    },
+    {
+     "number": "18",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 120275000,
+      "yNm": 108337500
+     },
+     "size": {
+      "xNm": 800000,
+      "yNm": 250000
+     }
+    },
+    {
+     "number": "19",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 121000000,
+      "yNm": 107612500
+     },
+     "size": {
+      "xNm": 250000,
+      "yNm": 800000
+     }
+    },
+    {
+     "number": "20",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 121000000,
+      "yNm": 107112500
+     },
+     "size": {
+      "xNm": 250000,
+      "yNm": 800000
+     }
+    },
+    {
+     "number": "21",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 121000000,
+      "yNm": 106612500
+     },
+     "size": {
+      "xNm": 250000,
+      "yNm": 800000
+     }
+    },
+    {
+     "number": "22",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 121000000,
+      "yNm": 106112500
+     },
+     "size": {
+      "xNm": 250000,
+      "yNm": 800000
+     }
+    },
+    {
+     "number": "23",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 121000000,
+      "yNm": 105612500
+     },
+     "size": {
+      "xNm": 250000,
+      "yNm": 800000
+     }
+    },
+    {
+     "number": "24",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 121000000,
+      "yNm": 105112500
+     },
+     "size": {
+      "xNm": 250000,
+      "yNm": 800000
+     }
+    },
+    {
+     "number": "25",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 119025000,
+      "yNm": 106362500
+     },
+     "size": {
+      "xNm": 2750000,
+      "yNm": 2750000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KIPRJMOD}/packages3D/CYPD3177-24LQXQT.stp",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 211340,
+    "lengthBytes": 15808
+   }
+  },
+  {
+   "uuid": "fe16d25e-e5a0-49e0-aa02-1cdd5069c768",
+   "reference": "D2",
+   "libId": "Diode_SMD:D_0603_1608Metric_Pad1.05x0.95mm_HandSolder",
+   "side": "front",
+   "positionNm": {
+    "xNm": 124800000,
+    "yNm": 117600000
+   },
+   "rotationDeg": 90,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1650000,
+     "yNm": -730000
+    },
+    "maxNm": {
+     "xNm": 1650000,
+     "yNm": 730000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 124800000,
+      "yNm": 118475000
+     },
+     "size": {
+      "xNm": 1050000,
+      "yNm": 950000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "roundrect",
+     "positionNm": {
+      "xNm": 124800000,
+      "yNm": 116725000
+     },
+     "size": {
+      "xNm": 1050000,
+      "yNm": 950000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD9_3DMODEL_DIR}/Diode_SMD.3dshapes/D_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 227150,
+    "lengthBytes": 5713
+   }
+  }
+ ],
+ "designators": [
+  "C1",
+  "C2",
+  "C3",
+  "C4",
+  "C5",
+  "C6",
+  "C7",
+  "C8",
+  "D1",
+  "D2",
+  "D3",
+  "J1",
+  "J2",
+  "Q1",
+  "Q2",
+  "Q3",
+  "R1",
+  "R10",
+  "R11",
+  "R12",
+  "R13",
+  "R14",
+  "R15",
+  "R16",
+  "R17",
+  "R18",
+  "R19",
+  "R2",
+  "R3",
+  "R4",
+  "R5",
+  "R6",
+  "R7",
+  "R8",
+  "R9",
+  "TP1",
+  "U1"
+ ],
+ "outlineBounds": {
+  "minNm": {
+   "xNm": 108600000,
+   "yNm": 95600000
+  },
+  "maxNm": {
+   "xNm": 146600000,
+   "yNm": 125500000
+  }
+ }
+}

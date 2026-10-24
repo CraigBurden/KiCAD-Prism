@@ -1,0 +1,35 @@
+{
+ "case": "rs-usb-pd",
+ "bundle": "/private/tmp/claude-503/-Users-Swaroop-Personal-Projects/f336681f-9155-4f00-80ce-4ac48096d8c0/scratchpad/c3/bundles/rs-usb-pd.prism",
+ "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+ "bundleSha256": "7905050f6771e7c876cba2424787904d2d39650cecd35ce578b1d7c7d63278f5",
+ "config": "/Users/Swaroop/Personal-Projects/KiCAD-Platform/.worktrees/c3-d/backend/app/release_studio/documents/pcb-svg.config.json",
+ "configSha256": "846654369b1c27d95c885c7534f96c073b274887c85bffdb5f04d87aa9f32f64",
+ "views": [
+  "assembly_top_view",
+  "assembly_bottom_view"
+ ],
+ "argv": [
+  "pcb-svg",
+  "/private/tmp/claude-503/-Users-Swaroop-Personal-Projects/f336681f-9155-4f00-80ce-4ac48096d8c0/scratchpad/c3/hlr-golden/rs-usb-pd/USB-PD-Trigger-Board.kicad_pcb",
+  "--config",
+  "/Users/Swaroop/Personal-Projects/KiCAD-Platform/.worktrees/c3-d/backend/app/release_studio/documents/pcb-svg.config.json",
+  "--views",
+  "assembly_top_view,assembly_bottom_view",
+  "--output",
+  "/private/tmp/claude-503/-Users-Swaroop-Personal-Projects/f336681f-9155-4f00-80ce-4ac48096d8c0/scratchpad/c3/hlr-golden/rs-usb-pd-views"
+ ],
+ "kicadCruncherVersion": "2026.9.7",
+ "geometerVersion": "2026.9.7",
+ "geometerAbi": 20260907,
+ "rustGeometerVersion": "2026.9.13",
+ "modelDirs": {
+  "KICAD6_3DMODEL_DIR": "/Applications/KiCad/KiCad.app/Contents/SharedSupport/3dmodels",
+  "KICAD9_3DMODEL_DIR": "/Applications/KiCad/KiCad.app/Contents/SharedSupport/3dmodels",
+  "KICAD10_3DMODEL_DIR": "/Applications/KiCad/KiCad.app/Contents/SharedSupport/3dmodels"
+ },
+ "footprints": 36,
+ "statuses": {
+  "projected": 36
+ }
+}

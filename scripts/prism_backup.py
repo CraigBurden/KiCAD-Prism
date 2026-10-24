@@ -43,6 +43,24 @@ MANIFEST_NAME = "manifest.json"
 MANIFEST_SCHEMA = "prism.backup.a1"
 DUMP_NAME = "postgres.dump"
 
+# A rollback restores an older archive over a database a newer release has
+# migrated. `pg_restore --clean` drops only the objects the archive knows, so a
+# newer table with a foreign key onto one of them makes the restore fail. Drop
+# every schema but `public` first, in the same transaction as the restore, so
+# the database ends up holding exactly the archive's content.
+DROP_SCHEMAS_QUERY = (
+    "SELECT format('DROP SCHEMA IF EXISTS %I CASCADE;', nspname) FROM pg_namespace "
+    "WHERE nspname NOT LIKE 'pg\\_%' AND nspname NOT IN ('information_schema', 'public')"
+)
+RESTORE_SCRIPT = """\
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+cat > "$work/dump"
+pg_restore --clean --if-exists -f "$work/restore.sql" "$work/dump"
+psql -U "$1" -d "$2" -tA -c "$3" > "$work/drop.sql"
+cat "$work/drop.sql" "$work/restore.sql" | psql -U "$1" -d "$2" -q -v ON_ERROR_STOP=1 --single-transaction
+"""
+
 # Everything here is authoritative: losing it means losing work. Each payload
 # is the host directory the backend service bind-mounts at the given container
 # path; where that directory lives is read from the selected Compose
@@ -652,7 +670,7 @@ def restore(args: argparse.Namespace) -> int:
             incoming.append((destination, unpacked, relative))
 
         # Stage 1: the database, as one transaction. Without
-        # --single-transaction pg_restore keeps going past a failed object and
+        # --single-transaction a restore keeps going past a failed object and
         # leaves a database that is neither the old one nor the archive's;
         # with it, the first error rolls everything back and the live
         # database is exactly what it was.
@@ -662,11 +680,8 @@ def restore(args: argparse.Namespace) -> int:
         with (staging / DUMP_NAME).open("rb") as handle:
             result = subprocess.run(
                 compose
-                + [
-                    "exec", "-T", "postgres",
-                    "pg_restore", "-U", user, "-d", database,
-                    "--clean", "--if-exists", "--single-transaction",
-                ],
+                + ["exec", "-T", "-e", "PGOPTIONS=-c client_min_messages=warning", "postgres",
+                   "sh", "-ec", RESTORE_SCRIPT, "restore", user, database, DROP_SCHEMAS_QUERY],
                 cwd=root,
                 stdin=handle,
                 check=False,

@@ -87,6 +87,30 @@ A commit-file endpoint is confined to the project's own subtree so one subprojec
 Branch and commit query parameters can pin the design source being viewed.
 Share commit-pinned links when a review must refer to an immutable revision.
 
+## Design data
+
+Prism reads each revision of a project once, in the background, and keeps the
+result as that revision's design data (a design bundle, built by the
+`prism-kicad` worker job). The project card, the viewers, the 3D tab, BOM,
+variants, Design Comparison, catalog imports and Release Studio all read it.
+
+- **Prepared ahead.** After an import or a sync, Prism prepares the newest
+  commits of each branch and every tagged commit before anyone opens them. A
+  commit that leaves the design files unchanged reuses the previous design
+  data instead of being read again.
+- **Preparing design data…** A screen that opens a revision without design
+  data shows this while the data is built, then fills in. A large board takes
+  a few minutes the first time, most of it KiCad's zone refill; later opens are
+  immediate. The 3D tab follows the same three stages, and the board can appear
+  before its parts do.
+- **Design data could not be built.** The screen shows KiCad's or Prism's error
+  with **Retry**. Without a retry, the first open after an hour tries again. A
+  file KiCad cannot read stays failed until it is fixed in Git or retried.
+- **Project Settings → Design data** shows how many revisions are ready,
+  building, queued or failed, and how much storage they use. Maintainers can
+  **Rebuild for HEAD**, or **Rebuild all** to drop and rebuild every revision
+  of the project.
+
 ## Cross-probe
 
 When semantic identities are available, selecting a schematic symbol, PCB
@@ -112,6 +136,44 @@ The selection panel lists the highlighted set, and 3D emphasizes that set.
 The PCB inspector also shows per-net routing statistics. Treat these as review
 measurements from the parsed board, not a replacement for KiCad DRC or routing
 sign-off.
+
+## Insets
+
+An inset shows a live view of the other document without leaving the one you are reading:
+hover a schematic pin to see the PCB around its footprint, or hover a PCB pad to see the
+schematic around its symbol. A dashed leader joins the pin or pad to its counterpart in the
+inset.
+
+- **Turn on inset mode** with `I` or the **Insets** button in the viewer controls rail. With
+  inset mode off, hold `Alt` (`⌥` on macOS) to peek; releasing it closes the peek.
+- **Hover** a pin or pad to open a preview, drawn with a dashed border. Moving away closes it,
+  unless the pointer is on the preview.
+- **Click** the pin or pad to pin its inset. Pinned insets stay until you close them.
+- **Hover a pin or pad inside an inset** to open the other document from there. Insets chain
+  (schematic → PCB → schematic …), and each chained inset names its parent in its header.
+  Closing an inset also closes the insets chained from it.
+- **Bottom-side** footprints open mirrored, with the back copper on top and a **BOT** badge.
+  Large parts, such as BGAs and FPGA symbols, open on the neighbourhood of the pin or pad
+  instead of the whole part.
+- **Insets follow the main view:** layer visibility, highlighted nets, the selection and the
+  design variant all appear in open insets.
+
+| Key | With the pointer over an inset |
+|---|---|
+| `R` / `⇧R` | Rotate +15° / −15° (`⇧` + wheel rotates freely) |
+| `M` | Mirror |
+| `L` | Lens (circular) shape |
+| `Home` | Refit |
+| `P` | Pin |
+| `X` | Close |
+| `Esc` | Close the preview, then all insets; the next `Esc` clears the selection |
+
+Drag an inset's header to move it, its corner to resize it, and its canvas to pan; the wheel
+zooms. At most eight insets stay open; opening another closes the least recently used one.
+Insets belong to their tab: switching tabs closes unpinned previews and keeps pinned insets.
+
+The PCB viewer loads the first time inset mode turns on, so the first PCB inset on a large
+board can take a moment to appear.
 
 ## Design variants
 
@@ -165,6 +227,22 @@ misleading marker. Reviewers can reattach an unresolved anchor on a revision;
 legacy threads without provenance remain visibly unpinned. Comparison comments
 retain the base and compare SHAs.
 
+The composer is WYSIWYG: bold, italic, code, lists, quotes and links, with
+`@email` mentions. Paste a screenshot (Ctrl/⌘+V), drop a file, or use the
+paperclip to attach images (PNG, JPEG, WebP, GIF), PDF, ZIP or UTF-8 text, up
+to `COMMENT_ATTACHMENT_MAX_BYTES` each. Images are re-encoded on upload and
+render inline; other files render as downloads. Attachments are stored under
+`COMMENT_ATTACHMENT_ROOT`, never in the project repository, and are served only
+to project members.
+A project's attachments are capped in total by
+`COMMENT_ATTACHMENT_PROJECT_QUOTA_BYTES` (2 GiB by default, `0` for no limit).
+
+Each message carries emoji reactions, an "edited" marker once its text has
+changed, and actions to quote it into a reply or (for its author) edit it in
+place. The comments panel lists every snip in the review in one gallery and
+marks threads with activity since you last opened them; unread state is kept
+per browser. Reactions are not exported to the `.comments/` bundle.
+
 Threads and replies update live across viewers. After a disconnection, the
 client replays changes or refreshes the HTTP snapshot; HTTP polling provides a
 fallback when the socket is unavailable. See the
@@ -176,7 +254,13 @@ publish a thread as a GitHub or GitLab issue. The rail shows the linked issue
 and synchronization/retry state; local discussion remains available during a
 forge outage. Configure this through [GitHub setup](GITHUB_APP_SETUP.md),
 [GitLab setup](GITLAB_SETUP.md), and [tracker operations](TRACKER_INTEGRATION.md).
-Exporting `.comments/comments.json` is explicit and does not push a Git commit.
+Exporting comments is explicit and does not push a Git commit. It writes a
+`.comments/` bundle: `comments.json`, `attachments/` with every file
+a live comment references, and `threads/<id>.md`, which forges render with
+images. Importing a repository that carries a bundle restores formatting and
+attachments; files from the repository are re-validated like uploads. A
+comparison's discussion can be downloaded from its rail as Markdown plus
+attachments.
 
 ## Design Comparison
 
@@ -184,15 +268,19 @@ From History, select two revisions and open Design Comparison. Prism prepares
 schematic, PCB, BOM, and other supported domain changes in a queued job.
 
 Comparison provides side-by-side and synchronized presentation, change groups,
-cross-probe where supported, and commit-pinned discussions. Large boards can
-take time to prepare; repeated comparisons may reuse generated caches.
+cross-probe where supported, and commit-pinned discussions. When both
+revisions already have [design data](#design-data), the comparison itself takes
+a few seconds; fabrication (Gerber) comparison runs KiCad and takes longer. A
+revision without design data is read from its source files, which takes longer
+on a large board.
 
-The default `Auto` presentation follows the selected change: Composite for
-simple schematic additions/removals, Side-by-side for connectivity, geometry,
-and fabrication changes, and Old/New for clean content or constraint review.
-A manual presentation choice applies to the selected change. Selecting another
-change hands the decision back to `Auto`; an explicit URL choice can still seed
-the presentation for the change it names. See the
+The toolbar offers **Composite**, **Side by side** and **Old / New**. Selecting
+a change applies the recommended presentation: Composite for simple schematic
+additions and removals, Side by side for connectivity, geometry and fabrication
+changes, and Old / New for content or constraint review. Choosing another mode
+overrides it for the selected change; selecting another change applies that
+change's recommendation again. An explicit URL choice can still seed the
+presentation for the change it names. See the
 [reviewer presentation policy](design-comparison/reviewer-presentation-policy.md)
 for the complete schematic and PCB map.
 
@@ -228,5 +316,6 @@ so the final decision should remain in the team's existing system of record.
 ## Project metadata
 
 Designers can override a discovered display name, description, paths, thumbnail,
-README, and jobset through project properties and `.prism.json`. See
-[Configuration](CONFIGURATION.md).
+README, and jobset through project properties (stored by Prism, never written
+into the checkout) or a committed `.prism.json`. Settings stored in Prism win.
+See [Configuration](CONFIGURATION.md).

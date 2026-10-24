@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
+import tempfile
 import unittest
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
-from urllib.parse import urlsplit
 
 from fastapi import HTTPException
 
@@ -25,31 +23,19 @@ except ImportError:  # pragma: no cover - dependency guard for host-only checks
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
+from app.core.errors import DomainError  # noqa: E402
+from app.services.workspace_schema_migrations import WORKSPACE_LEDGER  # noqa: E402
+from support.postgres import (  # noqa: E402
+    requires_scratch_postgres, scratch_schema, seed_job, seed_project, seed_repository,
+)
 from app.services.workspace_service import (  # noqa: E402
     ProjectHasSignedReleasesError,
     WorkspaceService,
 )
 
 
-TEST_POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
-
-
-def _database_identity(url: str) -> tuple[str, str, int | None, str]:
-    parsed = urlsplit(url)
-    return (
-        parsed.username or "",
-        (parsed.hostname or "").lower(),
-        parsed.port,
-        parsed.path.lstrip("/"),
-    )
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    TEST_POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _database_identity(TEST_POSTGRES_URL) == _database_identity(APPLICATION_POSTGRES_URL)
-)
+# A route refuses with an HTTPException or a typed domain error (rendered by the app handler).
+ROUTE_ERRORS = (HTTPException, DomainError)
 
 
 def _run(coro):
@@ -64,54 +50,17 @@ class _User:
         self.auth_type = "session"
 
 
-@unittest.skipIf(psycopg is None, "psycopg is required")
-@unittest.skipIf(not TEST_POSTGRES_URL, "TEST_POSTGRES_URL must point at an isolated database")
-@unittest.skipIf(
-    SHARED_APPLICATION_DATABASE,
-    "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL",
-)
+@requires_scratch_postgres("workspace delete tests")
 class WorkspaceDeleteProjectTests(unittest.TestCase):
     def setUp(self) -> None:
-        from app.services.workspace_schema_migrations import apply_workspace_migrations
-
-        self.schema = f"ws_del_{uuid.uuid4().hex[:10]}"
-        self.conn = psycopg.connect(TEST_POSTGRES_URL, row_factory=dict_row)
-        self.addCleanup(self.conn.close)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self.conn.execute(
-            """
-            CREATE TABLE ws_repositories (id TEXT PRIMARY KEY);
-            CREATE TABLE ws_folders (id TEXT PRIMARY KEY);
-            CREATE TABLE ws_projects (
-                id TEXT PRIMARY KEY,
-                repo_id TEXT NOT NULL REFERENCES ws_repositories(id)
-            );
-            CREATE TABLE ws_project_portfolio (
-                project_id TEXT PRIMARY KEY REFERENCES ws_projects(id) ON DELETE CASCADE
-            );
-            CREATE TABLE ws_jobs (
-                id TEXT PRIMARY KEY, kind TEXT NOT NULL, status TEXT NOT NULL,
-                message TEXT NOT NULL DEFAULT '', percent REAL NOT NULL DEFAULT 0,
-                payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-            """,
-            prepare=False,
-        )
-        apply_workspace_migrations(self.conn)
-        self.conn.commit()
-        self.addCleanup(self._drop)
+        self.scratch = scratch_schema(self, "ws_del", ledgers=(WORKSPACE_LEDGER,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
 
         service = WorkspaceService()
-        schema = self.schema
-
         @contextmanager
         def _connect():
-            conn = psycopg.connect(TEST_POSTGRES_URL, row_factory=dict_row)
+            conn = self.scratch.connect()
             try:
-                conn.execute(f'SET search_path TO "{schema}", public')
                 yield conn
                 if not conn.closed:
                     conn.rollback()
@@ -121,20 +70,12 @@ class WorkspaceDeleteProjectTests(unittest.TestCase):
         self.service = service
         self.service._connect = _connect  # type: ignore[method-assign]
 
-    def _drop(self) -> None:
-        self.conn.rollback()
-        self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-        self.conn.commit()
-
     def _seed_unsigned_history(self) -> str:
         suffix = uuid.uuid4().hex[:8]
         project_id = f"prj_{suffix}"
         repo_id = f"repo_{suffix}"
-        self.conn.execute("INSERT INTO ws_repositories(id) VALUES (%s)", (repo_id,))
-        self.conn.execute(
-            "INSERT INTO ws_projects(id, repo_id) VALUES (%s, %s)",
-            (project_id, repo_id),
-        )
+        seed_repository(self.conn, repo_id)
+        seed_project(self.conn, project_id, repo_id)
         self.conn.execute(
             """
             INSERT INTO ws_release_candidates(
@@ -187,15 +128,9 @@ class WorkspaceDeleteProjectTests(unittest.TestCase):
             "key": f"key_{suffix}",
             "record": f"rel_{suffix}",
         }
-        self.conn.execute("INSERT INTO ws_repositories(id) VALUES (%s)", (ids["repository"],))
-        self.conn.execute(
-            "INSERT INTO ws_projects(id, repo_id) VALUES (%s, %s)",
-            (ids["project"], ids["repository"]),
-        )
-        self.conn.execute(
-            "INSERT INTO ws_jobs(id, kind, status) VALUES (%s, 'release-build', 'queued')",
-            (ids["job"],),
-        )
+        seed_repository(self.conn, ids["repository"])
+        seed_project(self.conn, ids["project"], ids["repository"])
+        seed_job(self.conn, ids["job"], "release-build", "queued")
         for artifact_id, kind in (
             (ids["artifact_dossier"], "release-dossier"),
             (ids["artifact_evidence"], "release-evidence"),
@@ -365,14 +300,14 @@ class DeleteProjectEndpointTests(unittest.TestCase):
     def test_designer_is_blocked_when_signed_releases_exist(self) -> None:
         from app.api import projects as api
 
-        with patch.object(api, "get_project_for_role_or_404", return_value=SimpleNamespace(path="/tmp/p")), \
+        with patch.object(api, "authorized_project", return_value={"id": "prj_1"}), \
              patch.object(api.workspace, "get_project_by_id", return_value={"repo_id": "repo", "import_type": "single", "parent_repo_path": "/tmp/p"}), \
              patch.object(
                  api.workspace,
                  "delete_project",
                  side_effect=ProjectHasSignedReleasesError("prj_1", 1),
              ):
-            with self.assertRaises(HTTPException) as caught:
+            with self.assertRaises(ROUTE_ERRORS) as caught:
                 _run(api.delete_project_endpoint("prj_1", user=_User("designer")))
 
         self.assertEqual(caught.exception.status_code, 409)
@@ -381,10 +316,10 @@ class DeleteProjectEndpointTests(unittest.TestCase):
     def test_admin_delete_passes_force_true(self) -> None:
         from app.api import projects as api
 
-        with patch.object(api, "get_project_for_role_or_404", return_value=SimpleNamespace(path="/tmp/p")), \
+        with patch.object(api, "authorized_project", return_value={"id": "prj_1"}), \
              patch.object(api.workspace, "get_project_by_id", return_value={"repo_id": "repo", "import_type": "single", "parent_repo_path": "/tmp/p"}), \
              patch.object(api.workspace, "delete_project", return_value=True) as delete_project, \
-             patch.object(api.comments_store, "delete_project_comments"), \
+             patch.object(api.project_deletion.comments_store, "delete_project_comments"), \
              patch.object(api.workspace, "get_projects_by_repo", return_value=[]), \
              patch.object(api.workspace, "delete_repository"), \
              patch.object(api.project_service, "PROJECTS_ROOT", "/tmp"):
@@ -392,6 +327,50 @@ class DeleteProjectEndpointTests(unittest.TestCase):
 
         delete_project.assert_called_once_with("prj_1", force=True)
         self.assertEqual(result["message"], "Project deleted successfully")
+
+
+class ProjectDeletionServiceTests(unittest.TestCase):
+    def _delete(self, root: Path, row: dict, remaining: list) -> object:
+        from app.services import project_deletion
+
+        with patch.object(project_deletion.workspace, "get_project_by_id", return_value=row), \
+             patch.object(project_deletion.workspace, "delete_project", return_value=True), \
+             patch.object(project_deletion.workspace, "get_projects_by_repo", return_value=remaining), \
+             patch.object(project_deletion.workspace, "delete_repository") as delete_repository, \
+             patch.object(project_deletion.comments_store, "delete_project_comments"), \
+             patch.object(project_deletion.project_service, "PROJECTS_ROOT", str(root)):
+            result = project_deletion.delete_project("prj_1", force=False)
+        self.delete_repository = delete_repository
+        return result
+
+    def test_monorepo_subproject_keeps_a_clone_its_siblings_still_use(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            clone = root / "type2" / "mono"
+            (clone / "boards" / "a").mkdir(parents=True)
+            row = {
+                "repo_id": "repo",
+                "import_type": "multi",
+                "parent_repo_path": str(clone),
+                "path": str(clone / "boards" / "a"),
+            }
+            result = self._delete(root, row, remaining=[{"id": "prj_2"}])
+            self.assertTrue(clone.is_dir())
+        self.assertFalse(result.repository_deleted)
+        self.assertFalse(result.removed_files)
+        self.delete_repository.assert_not_called()
+
+    def test_last_project_removes_the_clone_inside_the_projects_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            clone = root / "type1" / "board"
+            clone.mkdir(parents=True)
+            row = {"repo_id": "repo", "import_type": "single", "parent_repo_path": str(clone), "path": str(clone)}
+            result = self._delete(root, row, remaining=[])
+            self.assertFalse(clone.exists())
+        self.assertTrue(result.repository_deleted)
+        self.assertTrue(result.removed_files)
+        self.delete_repository.assert_called_once_with("repo")
 
 
 if __name__ == "__main__":

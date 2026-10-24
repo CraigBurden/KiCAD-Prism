@@ -14,14 +14,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { fetchJson } from "@/lib/api";
+import { listMetadataFields, patchComponent } from "./catalog-client";
+import { isFieldRequired } from "@/lib/catalog-field-rules";
 import type { CatalogComponent, CatalogMetadataField } from "@/types/catalog";
 
 import { MetadataFieldControl } from "./library-component-metadata-fields";
 import {
   activeMetadataFields,
   buildMetadataPatch,
-  isFieldRequired,
   isMetadataFormComplete,
   metadataFormErrors,
   parseUnknownExtraJson,
@@ -78,7 +78,7 @@ export function MetadataEditDialog({
     let cancelled = false;
     const loadFields = async () => {
       try {
-        const payload = await fetchJson<{ items: CatalogMetadataField[] }>("/api/catalog/metadata/fields");
+        const payload = await listMetadataFields();
         if (!aliveRef.current || cancelled) return;
         const nextFields = activeMetadataFields(payload.items ?? []);
         setFields(nextFields);
@@ -107,16 +107,12 @@ export function MetadataEditDialog({
     if (!parsed.ok) return;
     setSubmitting(true);
     try {
-      await fetchJson<CatalogComponent>(`/api/catalog/components/${encodeURIComponent(session.componentId)}`, {
-        method: "PATCH",
-        body: JSON.stringify(buildMetadataPatch({
-          values,
-          fields,
-          unknownExtras: parsed.extras,
-          changeSummary,
-          expectedRevisionId: session.expectedRevisionId,
-        })),
-      });
+      await patchComponent(session.componentId, buildMetadataPatch({
+        values,
+        fields,
+        unknownExtras: parsed.extras,
+        changeSummary,
+      }), session.expectedRevisionId);
       if (!aliveRef.current) return;
       toast.success("Metadata saved as a new revision.");
       onSuccess();
@@ -133,7 +129,7 @@ export function MetadataEditDialog({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Edit component metadata</DialogTitle>
-          <DialogDescription>Saving creates a new immutable revision. The current revision ID is checked to prevent overwriting concurrent work.</DialogDescription>
+          <DialogDescription className="sr-only">Saving creates a new revision</DialogDescription>
         </DialogHeader>
         {session.identityKind === "provisional_ipn" ? (
           <p className="border border-border bg-muted/50 p-3 text-sm text-muted-foreground">

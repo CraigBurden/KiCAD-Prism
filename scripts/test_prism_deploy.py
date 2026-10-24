@@ -15,12 +15,18 @@ from pathlib import Path
 
 from prism_deploy import render
 from prism_deploy.apply import load_existing_env, write_text
+from prism_deploy.build_identity import compose_environment, source_build_identity
 from prism_deploy.__main__ import load_answers
 from prism_deploy.schemes import (
     DNS_01, DNS_PROVIDERS, EXTERNAL_PROXY, HTTP_01, INTERNAL_CA, PLAIN_HTTP, TAILSCALE, SCHEMES,
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+STATIC_CADDYFILES = tuple(
+    f"{folder}/{name}"
+    for folder in ("deploy", "deploy/release")
+    for name in ("Caddyfile", "Caddyfile.internal", "Caddyfile.dns-01")
+)
 ENV_EXAMPLE = (REPOSITORY_ROOT / ".env.example").read_text(encoding="utf-8")
 
 BASE_ANSWERS = {
@@ -320,6 +326,40 @@ class CaddyfileTests(unittest.TestCase):
         self.assertIn("header_up X-Forwarded-Proto https", config)
 
 
+class StaticCaddyfileTests(unittest.TestCase):
+    """The deploy/ and deploy/release/ templates come from the installer's site block."""
+
+    def test_every_static_caddyfile_forwards_the_scheme(self) -> None:
+        for name in STATIC_CADDYFILES:
+            with self.subTest(name=name):
+                text = (REPOSITORY_ROOT / name).read_text(encoding="utf-8")
+                self.assertIn("header_up X-Forwarded-Proto ", text)
+
+    def test_static_caddyfiles_are_rendered_from_the_installer_template(self) -> None:
+        from prism_deploy import static_caddyfiles
+
+        rendered = static_caddyfiles.render_static_caddyfiles()
+        self.assertEqual(sorted(rendered), sorted(STATIC_CADDYFILES))
+        for name, text in rendered.items():
+            with self.subTest(name=name):
+                committed = (REPOSITORY_ROOT / name).read_text(encoding="utf-8")
+                self.assertEqual(
+                    committed, text,
+                    f"{name} drifted; run python3 -m scripts.prism_deploy.static_caddyfiles --write",
+                )
+
+    def test_static_site_block_matches_the_installer_output(self) -> None:
+        from prism_deploy import static_caddyfiles
+
+        rendered = static_caddyfiles.render_static_caddyfiles()
+        for name, scheme in (("deploy/Caddyfile", HTTP_01), ("deploy/Caddyfile.internal", INTERNAL_CA)):
+            with self.subTest(name=name):
+                installer = render.render_caddyfile(answers_for(scheme, acme_staging=False))
+                site = installer[installer.index("prism.example.com {"):]
+                hostname = "prism.example.com" if scheme == HTTP_01 else "kicad-prism.corp.internal"
+                self.assertIn(site.replace("prism.example.com", hostname, 1), rendered[name])
+
+
 class ComposeTests(unittest.TestCase):
     def test_ports_are_overridden_not_appended(self) -> None:
         # A plain merge would leave docker-compose.yml's 0.0.0.0 bindings in
@@ -495,6 +535,46 @@ class WriteTests(unittest.TestCase):
             target = Path(directory) / ".env"
             write_text(target, "# comment\nA=1\nB=two words\n\n")
             self.assertEqual(load_existing_env(target), {"A": "1", "B": "two words"})
+
+
+
+class BuildIdentityTests(unittest.TestCase):
+    """Images built from a checkout must name the commit they came from."""
+
+    def test_checkout_identity_names_the_commit(self) -> None:
+        import subprocess
+        from datetime import datetime, timezone
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            git = ["git", "-C", directory, "-c", "user.email=t@example.com", "-c", "user.name=t"]
+            subprocess.run(git + ["init", "-q"], check=True)
+            (root / "README").write_text("x", encoding="utf-8")
+            subprocess.run(git + ["add", "README"], check=True)
+            subprocess.run(git + ["commit", "-q", "-m", "init"], check=True)
+            subprocess.run(git + ["tag", "v9.9.9"], check=True)
+            head = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+
+            identity = source_build_identity(root, now=datetime(2026, 9, 27, 10, 0, tzinfo=timezone.utc))
+
+        self.assertEqual(identity, {
+            "PRISM_RELEASE": "v9.9.9",
+            "PRISM_REVISION": head,
+            "PRISM_BUILD_DATE": "2026-09-27T10:00:00Z",
+        })
+
+    def test_outside_a_checkout_only_the_date_is_set(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            identity = source_build_identity(Path(directory))
+        self.assertEqual(set(identity), {"PRISM_BUILD_DATE"})
+
+    def test_operator_exported_values_win(self) -> None:
+        from unittest import mock
+
+        with mock.patch.dict("os.environ", {"PRISM_RELEASE": "custom-build"}):
+            environment = compose_environment(REPOSITORY_ROOT)
+        self.assertEqual(environment["PRISM_RELEASE"], "custom-build")
+        self.assertIn("PATH", environment)
 
 
 if __name__ == "__main__":
@@ -694,3 +774,19 @@ class PromoteTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as ctx:
                 promote(Path(directory), assume_yes=True, dry_run=True)
             self.assertIn("Run the installer first", str(ctx.exception))
+
+
+class FrontendNginxTests(unittest.TestCase):
+    def test_backend_route_prefixes_are_proxied(self):
+        # A prefix missing here falls through to the SPA and returns index.html.
+        config = (REPOSITORY_ROOT / "frontend" / "nginx.conf").read_text(encoding="utf-8")
+        for prefix in ("/api/", "/git/", "/oauth/", "/remote-provider/"):
+            with self.subTest(prefix=prefix):
+                self.assertIn(f"location {prefix} {{", config)
+
+    def test_git_location_streams_pack_data(self):
+        config = (REPOSITORY_ROOT / "frontend" / "nginx.conf").read_text(encoding="utf-8")
+        block = config.split("location /git/ {", 1)[1].split("}", 1)[0]
+        for directive in ("proxy_request_buffering off;", "proxy_buffering off;", "client_max_body_size"):
+            with self.subTest(directive=directive):
+                self.assertIn(directive, block)

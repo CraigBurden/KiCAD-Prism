@@ -11,8 +11,8 @@ from __future__ import annotations
 from xml.sax.saxutils import escape
 
 from app.release_studio.documents.fonts import (
+    StrokeTextBatch,
     is_newstroke,
-    newstroke_polylines,
     newstroke_width,
     svg_font_css,
 )
@@ -25,6 +25,7 @@ from app.release_studio.documents.layout import (
     Sheet,
     Text,
     fmt,
+    stroke_text_batch,
 )
 
 _FONT_FAMILY = {
@@ -34,16 +35,27 @@ _FONT_FAMILY = {
 }
 
 
-def render_svg(sheet: Sheet) -> str:
-    """Serialize *sheet* to a standalone SVG document."""
+def render_svg(sheet: Sheet, *, stroke_text: StrokeTextBatch | None = None) -> str:
+    """Serialize *sheet* to a standalone SVG document.
 
+    *stroke_text* is the batch the caller already rendered for the document;
+    without one this sheet's runs are batched here.
+    """
+
+    if stroke_text is None:
+        stroke_text = stroke_text_batch([sheet])
     font_css = svg_font_css(sheet.typography)
+    style_attr = (
+        f' data-sheet-style="{escape(sheet.style)}"'
+        if sheet.style != "kicad"
+        else ""
+    )
     parts: list[str] = [
         '<svg xmlns="http://www.w3.org/2000/svg" '
         'xmlns:xlink="http://www.w3.org/1999/xlink" '
         f'width="{fmt(sheet.width)}mm" height="{fmt(sheet.height)}mm" '
         f'viewBox="0 0 {fmt(sheet.width)} {fmt(sheet.height)}" '
-        f'data-typography="{escape(sheet.typography)}">',
+        f'data-typography="{escape(sheet.typography)}"{style_attr}>',
         # A title is content, not metadata: it survives canonicalization and
         # identifies the sheet to anyone opening the file directly.
         f"<title>{escape(sheet.title)}</title>",
@@ -52,12 +64,12 @@ def render_svg(sheet: Sheet) -> str:
         'fill="#ffffff"/>',
     ]
     for element in sheet.elements:
-        parts.append(_render_element(element, sheet.typography))
+        parts.append(_render_element(element, sheet.typography, stroke_text))
     parts.append("</svg>")
     return "\n".join(parts) + "\n"
 
 
-def _render_element(element, typography: str) -> str:
+def _render_element(element, typography: str, stroke_text: StrokeTextBatch) -> str:
     if isinstance(element, Line):
         return (
             f'<line x1="{fmt(element.x1)}" y1="{fmt(element.y1)}" '
@@ -74,7 +86,7 @@ def _render_element(element, typography: str) -> str:
         )
     if isinstance(element, Text):
         if is_newstroke(typography):
-            return _render_newstroke_text(element, typography)
+            return _render_newstroke_text(element, typography, stroke_text)
         weight_value = 400 if element.family == "display" else (600 if element.bold else 400)
         weight = f' font-weight="{weight_value}"'
         transform = (
@@ -102,7 +114,9 @@ def _render_element(element, typography: str) -> str:
     raise TypeError(f"unrenderable sheet element: {type(element).__name__}")
 
 
-def _render_newstroke_text(element: Text, typography: str) -> str:
+def _render_newstroke_text(
+    element: Text, typography: str, stroke_text: StrokeTextBatch
+) -> str:
     """Emit visible KiCad NewStroke geometry with accessible source text."""
 
     escaped = escape(element.value, {'"': "&quot;"})
@@ -120,7 +134,7 @@ def _render_newstroke_text(element: Text, typography: str) -> str:
     ]
     width = newstroke_width(element.size, bold=element.bold)
     for row_index, row in enumerate(rows):
-        polylines = newstroke_polylines(
+        polylines = stroke_text.polylines(
             row,
             x=element.x,
             y=baseline_y + row_index * element.size * 1.2,
@@ -165,10 +179,21 @@ def _render_artwork(artwork: Artwork) -> str:
     rect = artwork.rect
     clip_id = f"clip-{artwork.source_digest[:16]}"
     body = artwork.svg_body or ""
-    return "\n".join(
+    border = (
+        f'<rect x="{fmt(rect.x)}" y="{fmt(rect.y)}" '
+        f'width="{fmt(rect.width)}" height="{fmt(rect.height)}" fill="none" '
+        f'stroke="{artwork.border_colour}" stroke-width="0.2"/>'
+        if artwork.border_colour
+        else None
+    )
+    parts = [
+        f'<clipPath id="{clip_id}"><rect x="{fmt(rect.x)}" y="{fmt(rect.y)}" '
+        f'width="{fmt(rect.width)}" height="{fmt(rect.height)}"/></clipPath>',
+    ]
+    if border is not None:
+        parts.append(border)
+    parts.extend(
         [
-            f'<clipPath id="{clip_id}"><rect x="{fmt(rect.x)}" y="{fmt(rect.y)}" '
-            f'width="{fmt(rect.width)}" height="{fmt(rect.height)}"/></clipPath>',
             f'<g clip-path="url(#{clip_id})">',
             f'<g transform="translate({fmt(artwork.offset_x)},{fmt(artwork.offset_y)}) '
             f'scale({fmt(artwork.scale)})">',
@@ -176,3 +201,4 @@ def _render_artwork(artwork: Artwork) -> str:
             "</g></g>",
         ]
     )
+    return "\n".join(parts)

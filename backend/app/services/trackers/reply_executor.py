@@ -12,14 +12,15 @@ from __future__ import annotations
 
 import logging
 import uuid
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Iterator, Mapping
+from typing import Any, Mapping
 
 from app.core.config import settings
+from app.services import comment_write
 from app.services.trackers.contracts import Destination, RemoteComment
 from app.services.trackers.drafts import escape_generated_text, guard_generated_text_no_email
+from app.services.trackers import attachment_links
 from app.services.trackers.errors import ProviderError
 from app.services.trackers.executor_support import (
     NON_CONSUMING_ERROR_CLASSES,
@@ -36,28 +37,12 @@ from app.services.trackers.markers import build_marker
 from app.services.trackers.op_store import EXECUTE_DISPATCH, RECOVERY_DISPATCH, OpStore
 from app.services.trackers.promotion import DispatchPause, PublicationDenied, evaluate_dispatch
 from app.services.trackers.provenance import body_hash, stored_hash_matches
-from app.services.trackers.providers import comment_adapter_for, comment_page_fetcher_for
+from app.services.trackers.connector_runtime import connector_runtime
+from app.services.trackers.providers import comment_web_url
 from app.services.trackers.reply_mutations import REPLY_OPS, decode_reply_target
 from app.services.trackers.store import TrackerStore, issue_number_for_api
 
 logger = logging.getLogger(__name__)
-
-_mounted = False
-_connect_factory: Callable[[], Any] | None = None
-
-
-def github_comment_url(
-    container_path: str,
-    issue_number: int | str,
-    comment_id: int | str,
-) -> str:
-    """Human-facing GitHub comment URL keyed by repo issue number (R2-H1)."""
-
-    path = (container_path or "").strip().strip("/")
-    if path.count("/") != 1:
-        raise ValueError("container_path must be owner/repo")
-    owner, repo = path.split("/", 1)
-    return f"https://github.com/{owner}/{repo}/issues/{issue_number}#issuecomment-{comment_id}"
 
 
 @dataclass(frozen=True)
@@ -95,53 +80,11 @@ def build_reply_body(
     return "\n\n".join(blocks)
 
 
-def set_connect_factory(factory: Callable[[], Any] | None) -> None:
-    global _connect_factory
-    _connect_factory = factory
-
-
-@contextmanager
-def _default_connect() -> Iterator[Any]:
-    if _connect_factory is not None:
-        with _connect_factory() as conn:
-            yield conn
-        return
-    from app.services.postgres_database import database
-
-    with database.connection() as conn:
-        conn.execute("SET search_path TO comments, workspace, public")
-        yield conn
-
-
-def mount_reply_executor() -> None:
-    """Register reply ops on the composition dispatch table."""
-
-    global _mounted
-    if _mounted:
-        return
-    from app.services.trackers.composition import mount_outbound_executor, register_outbound_op
-
-    for kind in REPLY_OPS:
-        register_outbound_op(kind, execute=execute_reply_claimed_op, recover=recover_reply_op)
-    mount_outbound_executor()
-    _mounted = True
-
-
-def unmount_reply_executor() -> None:
-    global _mounted
-    if not _mounted:
-        return
-    from app.services.trackers.composition import unregister_outbound_ops
-
-    unregister_outbound_ops(*REPLY_OPS)
-    _mounted = False
-
-
 def execute_reply_claimed_op(claimed: Mapping[str, Any]) -> str | None:
     """Dispatch one claimed reply op. Confirms in-DB when complete."""
 
     dispatch = str(claimed.get("dispatch") or EXECUTE_DISPATCH)
-    with _default_connect() as conn:
+    with connector_runtime().connection() as conn:
         ops = OpStore(conn)
         op_id = str(claimed["id"])
         fence = int(claimed["fence"])
@@ -173,16 +116,6 @@ def recover_reply_op(conn: Any, op: Mapping[str, Any]) -> None:
     if kind == "delete_comment":
         _recover_delete(conn, op, ops)
         return
-
-
-
-
-def _comment_adapter(connector: Mapping[str, Any], *, http: Any | None = None) -> Any:
-    from app.services.trackers.create_executor import _issue_adapter
-
-    return comment_adapter_for(connector, _issue_adapter(connector, http=http))
-
-
 
 
 def _load_reply_context(conn: Any, op: Mapping[str, Any]) -> _ReplyContext:
@@ -263,6 +196,7 @@ def _load_reply_context(conn: Any, op: Mapping[str, Any]) -> _ReplyContext:
     reply = {
         "id": str(reply_row["id"]),
         "content": reply_row.get("content") or "",
+        "contentFormat": reply_row.get("content_format") or "plain",
         "revision": int(reply_row.get("revision") or 1),
         "author": reply_row.get("author") or "",
         "origin": reply_row.get("origin") or "prism",
@@ -346,6 +280,7 @@ def _confirm_reply_link(
     op_id: str,
     fence: int,
     ops: OpStore,
+    connector: Mapping[str, Any],
     container_path: str,
     issue_number: str,
 ) -> None:
@@ -362,11 +297,7 @@ def _confirm_reply_link(
             remote_author_id=remote.author.id,
             remote_author_login=remote.author.login,
         )
-    url = remote.url or github_comment_url(
-        container_path,
-        issue_number,
-        remote.externalCommentId,
-    )
+    url = remote.url or comment_web_url(connector, container_path, issue_number, remote.externalCommentId)
     conn.execute(
         """
         UPDATE tracked_replies
@@ -375,10 +306,9 @@ def _confirm_reply_link(
         """,
         (url, reply_id),
     )
-    conn.execute(
-        "UPDATE comment_replies SET sync_state = NULL WHERE id = %s",
-        (reply_id,),
-    )
+    # Streamed by this transaction's link rows and the op confirm below,
+    # through the tracker projection trigger.
+    comment_write.set_reply_sync_state(conn, reply_id=reply_id, state=None, streamed_by_caller=True)
     ops.confirm(op_id, fence, external_result_id=str(remote.externalCommentId))
 
 
@@ -416,8 +346,27 @@ def _execute_reply(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
         return
     body: str | None = None
     if kind in ("add_comment", "edit_comment"):
+        try:
+            content = attachment_links.render_outbound(
+                conn, str(ctx.reply.get("content") or ""), str(ctx.reply.get("contentFormat") or "plain"),
+                project_id=ctx.project_id, destination=ctx.destination,
+                # Uploads are a project capability; the issue adapter owns them.
+                adapter_factory=lambda: connector_runtime().issue_adapter(ctx.connector),
+            )
+        except ProviderError as exc:
+            apply_provider_error(
+                conn,
+                ops,
+                op=op,
+                fence=fence,
+                exc=exc,
+                connector_id=str(ctx.connector["id"]),
+                remote_container_id=str(ctx.destination.remoteContainerId),
+                pre_io=True,
+            )
+            return
         body = build_reply_body(
-            content=str(ctx.reply.get("content") or ""),
+            content=content,
             connector_id=ctx.destination.connectorId,
             container_id=ctx.destination.remoteContainerId,
             reply_id=ctx.reply_id,
@@ -429,7 +378,7 @@ def _execute_reply(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
         ops.record_expected_body_hash(op_id, fence, body_hash(body))
     try:
         conn.commit()
-        adapter = _comment_adapter(ctx.connector)
+        adapter = connector_runtime().comment_adapter(ctx.connector)
         issue_ref = issue_number_for_api(ctx.thread)
         if kind == "add_comment":
             assert body is not None
@@ -449,6 +398,7 @@ def _execute_reply(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
                 op_id=op_id,
                 fence=fence,
                 ops=ops,
+                connector=ctx.connector,
                 container_path=str(ctx.policy.get("container_path") or ""),
                 issue_number=issue_ref,
             )
@@ -489,7 +439,7 @@ def _recover_add(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
     if link is not None:
         ops.confirm(op_id, fence, external_result_id=str(link["external_comment_id"]))
         return
-    adapter = _comment_adapter(ctx.connector)
+    adapter = connector_runtime().comment_adapter(ctx.connector)
     issue_ref = issue_number_for_api(ctx.thread)
     marker_text = build_marker(
         connector_id=ctx.destination.connectorId,
@@ -516,6 +466,7 @@ def _recover_add(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
             op_id=op_id,
             fence=fence,
             ops=ops,
+            connector=ctx.connector,
             container_path=str(ctx.policy.get("container_path") or ""),
             issue_number=issue_ref,
         )
@@ -527,7 +478,7 @@ def _recover_add(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
         op,
         dest=ctx.destination,
         reply_id=ctx.reply_id,
-        fetch_page=comment_page_fetcher_for(adapter, ctx.destination, issue_ref),
+        fetch_page=adapter.recovery_comment_pages(ctx.destination, issue_ref),
         bot_user_id=str(ctx.connector.get("bot_forge_user_id") or ""),
     )
     if outcome.kind == RecoveryKind.FOUND and outcome.match is not None:
@@ -542,6 +493,7 @@ def _recover_add(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
                 op_id=op_id,
                 fence=fence,
                 ops=ops,
+                connector=ctx.connector,
                 container_path=str(ctx.policy.get("container_path") or ""),
                 issue_number=issue_ref,
             )
@@ -581,7 +533,7 @@ def _recover_edit(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
     if link is None:
         ops.fail(op_id, fence, error={"class": "invalid_request", "message": "reply is not linked"})
         return
-    adapter = _comment_adapter(ctx.connector)
+    adapter = connector_runtime().comment_adapter(ctx.connector)
     result = adapter.get_comment(ctx.destination, str(link["external_comment_id"]), etag=None)
     if isinstance(result, RemoteComment):
         expected = str(op.get("expected_body_hash") or "")
@@ -613,7 +565,7 @@ def _recover_delete(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
     if link is None:
         ops.confirm(op_id, fence)
         return
-    adapter = _comment_adapter(ctx.connector)
+    adapter = connector_runtime().comment_adapter(ctx.connector)
     result = adapter.get_comment(ctx.destination, str(link["external_comment_id"]), etag=None)
     from app.services.trackers.contracts import GoneConfirmed
 
@@ -637,9 +589,5 @@ def _recover_delete(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
 __all__ = [
     "build_reply_body",
     "execute_reply_claimed_op",
-    "github_comment_url",
-    "mount_reply_executor",
     "recover_reply_op",
-    "set_connect_factory",
-    "unmount_reply_executor",
 ]

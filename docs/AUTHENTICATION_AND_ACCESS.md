@@ -85,13 +85,29 @@ Each user currently has exactly one role:
 
 | Role | Project access | Project mutations | Catalog access | Project releases |
 | --- | --- | --- | --- | --- |
-| `viewer` | browse and review | none | none | inspect |
+| `viewer` | browse and review; write comments | none | browse | inspect |
 | `designer` | browse and review | import, sync, comments, workflows, organization | create and edit drafts; Released after QA | start builds, Designer sign-off, publish after dual sign-off |
-| `qa` | browse and review | none | QA review actions | QA sign-off, publish after dual sign-off |
+| `qa` | browse and review; write comments | none | browse; QA review actions | QA sign-off, publish after dual sign-off |
 | `admin` | full | full | full | either sign-off with a written override, publish |
 
 This is not a composable permission model. `designer` covers both project work
 and catalog authoring. Independent QA still requires a separate `qa` account.
+
+Every role may create comments, reply, and edit or delete its own. Resolving,
+reopening, and publishing a thread to a tracker need `designer` (or the
+project's publication role); deleting someone else's comment needs `admin`.
+
+One module decides all of this: `backend/app/core/policy.py`. Each action
+(read, comment, design, release, admin, the catalog actions, remote-symbol
+reads) is a rule naming the roles that may act, the scope a bearer token needs,
+and whether a KiCad provider token may act at all. The API dependencies, the
+folder-visibility SQL, and the frontend role matrix
+(`frontend/src/lib/role-matrix.generated.ts`, written by
+`scripts/export_role_matrix.py`) are all generated from or delegate to it;
+`backend/tests/test_caller_policy.py` holds the full table and fails when the
+generated matrix is stale. Owner checks compare email addresses
+case-insensitively, and a record with no recorded owner belongs to nobody but
+admins.
 
 Use `BOOTSTRAP_ADMIN_USERS_STR` only to establish initial administrators. After
 first login, manage ordinary assignments in Settings. `DEFAULT_VIEWER_DOMAINS_STR`
@@ -135,7 +151,24 @@ Use the narrowest scope:
 - `api:read` for links, lookups, and synchronization reads;
 - `api:write` only for an integration that genuinely needs supported mutations.
 
-Do not reuse KiCad provider tokens as general API credentials.
+Do not reuse KiCad provider tokens as general API credentials. Prism refuses
+them everywhere except the `/api/remote-provider/*` routes KiCad and its panel
+call (the signed asset download and `/oauth/*` take no Prism credential).
+
+Bearer tokens need `api:read` for every read (projects, comments, systems,
+release studio, catalog, Git clone, the live comment stream) and `api:write`
+for every mutation. `api:write` implies `api:read`, and `*` holds every scope.
+Browser sessions carry no scopes and need none. Token issuers:
+
+- KiCad agent tokens: `api:read api:write` by default, or a subset the agent
+  asks for; every subset can read.
+- Service clients: the scopes an administrator gave the client (default
+  `api:read`), or a subset requested at issuance. A client created with
+  neither `api:read` nor `api:write` cannot read; give it `api:read`.
+- External JWTs: the scopes in `OAUTH_EXTERNAL_JWT_SCOPES_CLAIM`. The identity
+  provider must issue `api:read` (or `api:write`) for the token to read.
+- KiCad provider tokens: `remote_symbols.read` only, accepted on
+  `/api/remote-provider/*` and nowhere else.
 
 Prism can also validate externally issued JWTs when issuer, audience, role
 claim, and scope claim settings are configured. Audience validation is

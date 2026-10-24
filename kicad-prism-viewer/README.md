@@ -1,68 +1,54 @@
-# KiCad 3D Viz Dev
+# KiCad Prism viewer
 
-WebGPU-first, CAD-neutral visualisation prototype inspired by Wavenumber's
-public 3D visualisation architecture.
+The WebGPU board viewer Prism serves as `<prism-semantic-viewer>`. It draws a
+board from its design bundle's analytic model (ADR amendment V2): the
+`kicad_monkey` materialization pack, lowered to slices in workers by the
+`prism-kicad` WASM build, the stackup projection, and the parts' GLB.
 
-This directory intentionally stands apart from KiCAD-Prism. Prism integration
-is a future adapter; the runtime is a standards-based semantic glTF scene.
+With `mode="system"` it draws every board of a system scene at once, each from
+its own analytic bundle, placed by the host's `prism.system_scene.a0`
+descriptor, with board labels, per-board layers and stackup separation, net
+emphasis across boards, an assembly explode and a move gizmo. No Prism page uses
+`mode="system"` since System Builder was removed (2026-10-23); it stays for its
+re-scope on `feature/system-builder-v3`.
+
+The mesh pipeline that came before it (the Python topology compiler, its
+semantic glTF tiles and the standalone viewer page) was removed at System
+Builder v2's stage 0 (`docs/architecture/adr-system-builder-v2.md`).
 
 ## Layout
 
-- `references/`: cloned Wavenumber repositories for local code/reference.
-- `pipeline/`: Python topology compiler, semantic glTF scene writer, and HTML
-  exporter.
-- `viewer/`: WebGPU viewer and bundled standards-based glTF loader.
-- `samples/`: generated project topology, semantic glTF tiles, and standalone HTML.
-- `tests/`: Python contract/unit tests.
-- `docs/`: implementation notes and reference repository SHAs.
+- `viewer/src/`: the element (`prism-semantic-viewer-element.js`), the board
+  view (`main.js`), the analytic renderer and its worker, and unit tests
+  (`*.test.mjs`).
+- `viewer/vendor/prism-kicad-wasm/`: the analytic WASM build the element loads.
+- `tests/browser/`: browser checks: the pixel-diff and frame-time harness
+  (`pixel-diff/`), inset views, shader variants and analytic runs.
+- `docs/`: implementation notes.
 
-## Quick Start
-
-Generate the USB-PD fixture and standalone viewer:
+## Build and test
 
 ```bash
-bash scripts/build_usb_pd_sample.sh
+npm ci
+npm run test:viewer
+npm run test:harness
+npm run build
 ```
 
-Open `samples/usb-pd-trigger-board/viewer.html` through a local server in a
-browser with WebGPU support. WebGPU is the only production renderer.
+`npm run build` writes `dist/` and synchronizes the element, its lowering
+worker and the WASM into `frontend/public/`, updating the element's digest in
+`frontend/index.html`. Commit those generated files with the source change.
 
-Run tests:
+Renderer changes must leave the 3D view pixel-identical unless the change is
+meant to alter it. Check this with the headless pixel-diff harness (Node 24 and
+a local Chrome; see `tests/browser/pixel-diff/README.md`).
+
+New render features never edit a base shader. They plug into the hook markers
+in each shader source as feature variants (`viewer/src/shader-variants.js`,
+`Renderer.setShaderFeatures`). With no feature on, the shaders stay
+byte-identical; `viewer/src/shader-variants.test.mjs` pins their hashes. Check
+that variants compile on a real GPU with:
 
 ```bash
-/Users/Swaroop/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \
-  -m unittest discover -s tests
+node tests/browser/shader-variants/check.mjs
 ```
-
-Install the JavaScript tooling and rebuild the embedded viewer after
-dependency changes:
-
-```bash
-npm install
-npm run build:viewer
-```
-
-## Current Scope
-
-Implemented now:
-
-- `topology_model_a0` backed by `kicad_monkey`, including real board stackup.
-- semantic copper generation from `KiCadDesign.to_pcb_ir()` with saved-zone
-  validation and analytic track, arc, pad, via, and zone contours.
-- tiled `prism.semantic_gltf_a0` GLBs using `EXT_mesh_features`,
-  `EXT_meshopt_compression`, and `KHR_mesh_quantization`.
-- `_FEATURE_ID_0` net ownership and `_FEATURE_ID_1` source-object ownership.
-- progressive WebGPU loading of selected copper layers.
-- exact click-to-net picking for tracks, zones, pads, vias, and plated barrels.
-- perspective orbit, board-drag pan, damped navigation, axis views, and fit.
-- synchronized multi-layer comparison using scissored WebGPU viewports.
-- material-preserving component rendering with batched material draws.
-- quadratic exploded-stackup controls with stretched conductive barrels.
-- render-bundle caching for large stable draw sets.
-
-KiCad GLB is used only for board context and component models. Copper
-ownership is assigned from PCB IR before tessellation; no aggregate or per-net
-copper GLB is generated. Surface copper is the production render LOD at its
-real stackup height. Via and plated-hole records provide authoritative
-conductive spans for later solid inspection and FEM meshing. Build inputs are
-cached under `samples/.cache/`.

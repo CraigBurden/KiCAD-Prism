@@ -1,0 +1,65 @@
+{
+ "schema": "prism.parity.capture.a0",
+ "case": "dv-malformed",
+ "kind": "fixture",
+ "sourceRoot": "backend/tests/fixtures/design_variants/malformed",
+ "project": "broken.kicad_pro",
+ "inputs": [
+  {
+   "path": "broken.kicad_pcb",
+   "sha256": "1e81b1f4bf86a0b732bd593c46bdcd5202f0a44a59ef517eb464a008979641b0"
+  },
+  {
+   "path": "broken.kicad_pro",
+   "sha256": "41eee78536b07d3ff81dbf62e186402272afbeb12362793965489d50e729eed6"
+  },
+  {
+   "path": "broken.kicad_sch",
+   "sha256": "8be1f0272a62ebe5604a0bc442b4652c5ed2b368a64549e9fa9198d47fc13521"
+  }
+ ],
+ "producers": {
+  "todayCommit": "88db84f0ad098df7637d67b21a80def1e6109310",
+  "todayDirty": false,
+  "referenceCommit": "6c67ef387cc8df56a532e8dc01abda2e29406865",
+  "kicadMonkey": "2026.9.7",
+  "kicad": "10.0.6",
+  "python": "3.12.13",
+  "node": "24.22.0",
+  "platform": "darwin-arm64"
+ },
+ "members": {
+  "semantic-index": {
+   "status": "today-failed",
+   "reason": "build_semantic_index raised SexprTreeError: Unbalanced opening parenthesis at line 1, column 1"
+  },
+  "board-objects": {
+   "status": "stage-parse-fails",
+   "reason": "malformed design, stage parse fails (no member): broken.kicad_sch: unclosed '(' at line 1, column 1 (today's parser accepts it)"
+  },
+  "occurrences": {
+   "status": "today-failed",
+   "reason": "KiCadDesign.from_project_file raised SexprTreeError: Unbalanced opening parenthesis at line 1, column 1"
+  },
+  "stackup": {
+   "status": "today-failed",
+   "reason": "stage parse fails: broken.kicad_sch does not parse (SexprTreeError: Unbalanced opening parenthesis at line 1, column 1); today's parsers reject it too"
+  },
+  "route-metrics": {
+   "status": "stage-parse-fails",
+   "reason": "malformed design, stage parse fails (no member): broken.kicad_sch: unclosed '(' at line 1, column 1 (today's parser accepts it)"
+  },
+  "placements": {
+   "status": "today-failed",
+   "reason": "stage parse fails: broken.kicad_sch does not parse (SexprTreeError: Unbalanced opening parenthesis at line 1, column 1); today's parsers reject it too"
+  },
+  "project": {
+   "status": "today-failed",
+   "reason": "project producer raised SexprTreeError: Unbalanced opening parenthesis at line 1, column 1"
+  },
+  "system-interface": {
+   "status": "today-failed",
+   "reason": "extract_interface raised SexprTreeError: Unbalanced opening parenthesis at line 1, column 1"
+  }
+ }
+}

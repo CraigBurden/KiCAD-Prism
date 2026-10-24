@@ -5,6 +5,7 @@ import { FolderTreeItem, Project } from "@/types/project";
 import { Checkbox } from "@/components/ui/checkbox";
 
 import { FolderActionMenu, ProjectActionMenu } from "./workspace-action-menus";
+import { projectLastUpdated } from "@/lib/project-dates";
 
 interface WorkspaceListViewProps {
   isSearching: boolean;
@@ -139,7 +140,7 @@ export function WorkspaceListView({
               <p className="truncate text-sm text-muted-foreground">
                 {resolveProjectLocation(project, isSearching, currentFolderId, breadcrumbs)}
               </p>
-              <p className="truncate text-sm text-muted-foreground">{project.last_modified}</p>
+              <p className="truncate text-sm text-muted-foreground">{projectLastUpdated(project)}</p>
               <div
                 className="flex justify-end"
                 onClick={(event) => event.stopPropagation()}

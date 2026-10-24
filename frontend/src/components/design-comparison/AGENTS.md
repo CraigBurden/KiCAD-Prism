@@ -32,14 +32,32 @@ per-slot host state (`composite`, `base`, `compare`) — use it rather than addi
 parallel `useState` for viewer readiness.
 
 **Data in** — `use-design-compare-job.ts`, `comparison-result-loader.ts`,
-`revision-sources.ts`, `types.ts`.
+`revision-sources.ts`, `types.ts`, `design-compare-result.ts`,
+`legacy-v3-result.ts`.
+The tabs read `prism.design_compare.result.a1`, the review document
+`prism-kicad compare` writes (`design-compare-result.ts` mirrors
+`native/src/tsp/prism/design-compare-a1.tsp`; its test ties the two). Lengths
+and positions are nanometres; convert to millimetres only for display. The
+backend no longer writes `prism.semantic_comparison_v3`; `legacy-v3-result.ts`
+reads results stored before the C2r switch into a1 on load, and nothing else
+may read a v3 field.
 
-**Review shaping** — `comparison-review-groups.ts`, `comparison-review-noise.ts`,
-`comparison-review-policy.ts`, `comparison-review-queue.ts`,
-`comparison-review-report.ts`, `comparison-change-facts.ts`,
-`comparison-change-vocabulary.ts`.
+**Review shaping** — `comparison-change-kinds.ts`, `comparison-review-groups.ts`,
+`comparison-review-noise.ts`, `comparison-review-policy.ts`,
+`comparison-review-queue.ts`, `comparison-review-report.ts`,
+`comparison-change-facts.ts`, `comparison-change-vocabulary.ts`.
 This is where "what counts as one change" is decided. Grouping and noise
-suppression are the subtlest logic in the directory.
+suppression are the subtlest logic in the directory. `compare` sends changes
+ungrouped and sorted by id; grouping, and the order the list reads in
+(`reviewOrder`), happen here only.
+
+**Object kinds** live in one table, `comparison-change-kinds.ts`: each kind's
+domain, reviewer noun and traits (wiring, copper, via span, component child,
+rule, …). The other review modules derive their kind sets from it, so a new
+kind is one row plus the producer (see
+`.agents/skills/prism-comparison-change-kind/SKILL.md`). Kinds arrive as the
+board-objects member spells them (`sheet-pin`, `footprint-graphic`); never add
+another spelling here.
 
 **Presentation** — `comparison-presentation-shell.tsx`,
 `design-comparison-workspace.tsx`, `differences-pane.tsx`,

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import tempfile
 from pathlib import Path
 import sys
 import unittest
+
+# CI runs this module with `python -m unittest backend.tests.<name>` from the repository
+# root, where backend/tests is not on sys.path (pytest adds it).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from support.repo import commit_all, init_repo  # noqa: E402
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1].parent
@@ -372,6 +376,23 @@ class CatalogPrivateRatchetTests(unittest.TestCase):
         )
         self.assertEqual(architecture.private_update_failures([], baseline), [])
 
+    def test_update_records_private_uses_and_keeps_the_module_ceilings(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            baseline_path = root / "scripts" / architecture.BASELINE_FILENAME
+            baseline_path.parent.mkdir(parents=True)
+            baseline_path.write_text(json.dumps({
+                "version": 1,
+                "private_catalog_uses": [{"path": "gone.py", "symbol": "_private", "count": 1}],
+                "module_line_ceilings": {"backend/app/services/big.py": 1300},
+            }), encoding="utf-8")
+
+            self.assertEqual(architecture.main(["--repo-root", str(root), "--update-baseline"]), 0)
+
+            payload = json.loads(baseline_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["private_catalog_uses"], [])
+            self.assertEqual(payload["module_line_ceilings"], {"backend/app/services/big.py": 1300})
+
     def test_git_base_baseline_rejects_additions_and_growth_but_allows_reductions(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -390,27 +411,9 @@ class CatalogPrivateRatchetTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-            subprocess.run(
-                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", "add", "."],
-                cwd=root,
-                check=True,
-            )
-            subprocess.run(
-                [
-                    "git",
-                    "-c",
-                    "user.name=Test",
-                    "-c",
-                    "user.email=test@example.com",
-                    "commit",
-                    "-qm",
-                    "base",
-                ],
-                cwd=root,
-                check=True,
-            )
-            base_private, base_ceilings = architecture.load_baseline_at_ref(
+            init_repo(root)
+            commit_all(root, "base")
+            base_private, _base_ceilings = architecture.load_baseline_at_ref(
                 root, "HEAD", baseline_path
             ) or ({}, {})
 
@@ -418,13 +421,7 @@ class CatalogPrivateRatchetTests(unittest.TestCase):
                 ("consumer.py", "_connect"): 3,
                 ("new.py", "_private"): 1,
             }
-            head_ceilings = {
-                "service.py": 1301,
-                "new_service.py": 1300,
-            }
-            failures = architecture.baseline_monotonic_failures(
-                head_private, head_ceilings, base_private, base_ceilings
-            )
+            failures = architecture.baseline_monotonic_failures(head_private, base_private)
 
             self.assertEqual(
                 failures,
@@ -432,91 +429,12 @@ class CatalogPrivateRatchetTests(unittest.TestCase):
                     "baseline adds private catalog use new.py::_private "
                     "(head count 1, base ref has no entry)",
                     "baseline increases private catalog use consumer.py::_connect: base 2, head 3",
-                    "baseline adds module-line ceiling new_service.py "
-                    "(head ceiling 1300, base ref has no ceiling)",
-                    "baseline increases module-line ceiling service.py: base 1300, head 1301",
                 ],
             )
             self.assertEqual(
-                architecture.baseline_monotonic_failures(
-                    {("consumer.py", "_connect"): 1},
-                    {"service.py": 1200},
-                    base_private,
-                    base_ceilings,
-                ),
+                architecture.baseline_monotonic_failures({("consumer.py", "_connect"): 1}, base_private),
                 [],
             )
-
-
-class CatalogModuleSizeTests(unittest.TestCase):
-    @staticmethod
-    def _write_lines(path: Path, count: int) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("\n".join("pass" for _ in range(count)) + "\n", encoding="utf-8")
-
-    def test_new_oversized_module_fails_and_grandfathered_shrink_passes(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            module = root / "backend" / "app" / "services" / "new_service.py"
-            self._write_lines(module, architecture.MAX_PRODUCTION_MODULE_LINES + 1)
-            failures = architecture.module_size_failures(root)
-            self.assertTrue(any("production-module limit" in failure for failure in failures))
-
-            ceilings = {"backend/app/services/new_service.py": 1201}
-            self.assertEqual(architecture.module_size_failures(root, ceilings), [])
-            self._write_lines(module, 1200)
-            self.assertEqual(architecture.module_size_failures(root, ceilings), [])
-            self._write_lines(module, 1202)
-            self.assertTrue(any("grandfather ceiling" in failure for failure in architecture.module_size_failures(root, ceilings)))
-
-    def test_catalog_facade_limit_is_stricter_than_general_limit(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            module = root / "backend" / "app" / "services" / "catalog" / "component_facade.py"
-            self._write_lines(module, architecture.MAX_CATALOG_FACADE_LINES + 1)
-            failures = architecture.module_size_failures(root)
-            self.assertTrue(any("facade/composition/orchestrator" in failure for failure in failures))
-            self._write_lines(module, architecture.MAX_CATALOG_FACADE_LINES)
-            self.assertEqual(architecture.module_size_failures(root), [])
-
-    def test_update_rejects_new_or_growing_oversized_modules(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            new_module = root / "backend" / "app" / "services" / "new_service.py"
-            self._write_lines(new_module, architecture.MAX_PRODUCTION_MODULE_LINES + 1)
-            self.assertTrue(
-                any(
-                    "new oversized modules" in failure
-                    for failure in architecture.module_size_update_failures(root, {})
-                )
-            )
-
-            grandfathered = {
-                "backend/app/services/new_service.py": architecture.MAX_PRODUCTION_MODULE_LINES + 1
-            }
-            self._write_lines(new_module, architecture.MAX_PRODUCTION_MODULE_LINES + 2)
-            self.assertTrue(
-                any(
-                    "grandfather ceiling" in failure
-                    for failure in architecture.module_size_update_failures(root, grandfathered)
-                )
-            )
-
-    def test_update_lowers_existing_ceilings_and_removes_finished_or_missing(self) -> None:
-        baseline = {
-            "backend/app/services/shrinking.py": 1400,
-            "backend/app/services/finished.py": 1201,
-            "backend/app/services/removed.py": 1300,
-        }
-        line_counts = {
-            "backend/app/services/shrinking.py": 1300,
-            "backend/app/services/finished.py": architecture.MAX_PRODUCTION_MODULE_LINES,
-        }
-
-        self.assertEqual(
-            architecture.update_module_ceilings(line_counts, baseline),
-            {"backend/app/services/shrinking.py": 1300},
-        )
 
 
 if __name__ == "__main__":

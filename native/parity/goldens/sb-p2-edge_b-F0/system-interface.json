@@ -1,0 +1,362 @@
+{
+ "schema": "prism.system_interface.v1",
+ "hasPcb": true,
+ "boardThicknessMm": 1.6,
+ "boardOutlineMm": {
+  "minMm": [
+   100.0,
+   -130.0
+  ],
+  "maxMm": [
+   140.0,
+   -100.0
+  ],
+  "source": "edge_cuts"
+ },
+ "components": [
+  {
+   "portKey": "/6575bf28-d238-5208-9e0f-bc5b1fc0cd7f/ef8032c9-b453-5a09-a17e-3578b2864f8a",
+   "memberKeys": [
+    "/6575bf28-d238-5208-9e0f-bc5b1fc0cd7f/ef8032c9-b453-5a09-a17e-3578b2864f8a"
+   ],
+   "reference": "J1",
+   "libId": "PrismFixture:Socket_1x04_V",
+   "footprint": "Connector_PinSocket_2.54mm:PinSocket_1x04_P2.54mm_Vertical",
+   "value": "Socket_1x04_V",
+   "mpn": null,
+   "dnp": false,
+   "candidate": true,
+   "candidateReason": "refdes",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "/E1"
+     ],
+     "pcbNets": [
+      "/E1"
+     ],
+     "pinNames": [
+      "Pin_1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "/E1"
+     ],
+     "pcbNets": [
+      "/E1"
+     ],
+     "pinNames": [
+      "Pin_2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "3",
+     "nets": [
+      "/E3"
+     ],
+     "pcbNets": [
+      "/E3"
+     ],
+     "pinNames": [
+      "Pin_3"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "4",
+     "nets": [
+      "/E3"
+     ],
+     "pcbNets": [
+      "/E3"
+     ],
+     "pinNames": [
+      "Pin_4"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     110.0,
+     -106.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "PinSocket_1x04_P2.54mm_Vertical",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       110.0,
+       -106.0
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "rect",
+      "tht": true
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       110.0,
+       -108.54
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "3",
+      "positionMm": [
+       110.0,
+       -111.08
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "4",
+      "positionMm": [
+       110.0,
+       -113.62
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.77,
+      -9.39
+     ],
+     "maxMm": [
+      1.77,
+      1.77
+     ]
+    },
+    "model": {
+     "path": "${KICAD10_3DMODEL_DIR}/Connector_PinSocket_2.54mm.3dshapes/PinSocket_1x04_P2.54mm_Vertical.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/6575bf28-d238-5208-9e0f-bc5b1fc0cd7f/c542cab8-c38a-5a49-88f9-e840ed77b534",
+   "memberKeys": [
+    "/6575bf28-d238-5208-9e0f-bc5b1fc0cd7f/c542cab8-c38a-5a49-88f9-e840ed77b534"
+   ],
+   "reference": "J2",
+   "libId": "PrismFixture:Header_1x04_RA",
+   "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Horizontal",
+   "value": "Header_1x04_RA",
+   "mpn": null,
+   "dnp": false,
+   "candidate": true,
+   "candidateReason": "refdes",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [
+      "/C1"
+     ],
+     "pcbNets": [
+      "/C1"
+     ],
+     "pinNames": [
+      "Pin_1"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [
+      "/C1"
+     ],
+     "pcbNets": [
+      "/C1"
+     ],
+     "pinNames": [
+      "Pin_2"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "3",
+     "nets": [
+      "/C3"
+     ],
+     "pcbNets": [
+      "/C3"
+     ],
+     "pinNames": [
+      "Pin_3"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "4",
+     "nets": [
+      "/C3"
+     ],
+     "pcbNets": [
+      "/C3"
+     ],
+     "pinNames": [
+      "Pin_4"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     105.0,
+     -118.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "PinHeader_1x04_P2.54mm_Horizontal",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       105.0,
+       -118.0
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "rect",
+      "tht": true
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       105.0,
+       -120.54
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "3",
+      "positionMm": [
+       105.0,
+       -123.08
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     },
+     {
+      "pad": "4",
+      "positionMm": [
+       105.0,
+       -125.62
+      ],
+      "sizeMm": [
+       1.7,
+       1.7
+      ],
+      "shape": "circle",
+      "tht": true
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.77,
+      -9.39
+     ],
+     "maxMm": [
+      10.54,
+      1.77
+     ]
+    },
+    "model": {
+     "path": "${KICAD10_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x04_P2.54mm_Horizontal.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  }
+ ],
+ "diagnostics": [],
+ "digest": "sha256:82a0a646873f7317e4183eb4a51963e7a8f2099020a752e7e2f8e2a07c6388ad"
+}

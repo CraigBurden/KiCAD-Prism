@@ -1,0 +1,60 @@
+{
+ "_comment": "SB2-21 goldens, written by hand. Stack and body heights come from Samtec's drawings (sources below); the frames from the footprints' own geometry (README, 'Expected frames'); board thickness and positions are fixture choices. Nothing here is computed by Prism.",
+ "sources": {
+  "parts": "ADM6-30-03.5-L-4-0-A-TR terminals (base) and ADF6-30-03.5-L-4-0-A-TR sockets (top): the JTYU OBC-to-CMBD pair",
+  "matedHeight": "Samtec ADX6 MATED VIEWS rev E, Table 1: ADM6 lead style -03.5 with ADF6 lead style -03.5, \"A\" = 7.00 mm nominal, 7.46 max (dimensions for Samtec's recommended PCB layouts)",
+  "terminalBodyHeight": "Samtec ADM6-XXX-XX.X-XXX-4-X-X-XR rev AA, Table 3, lead style -03.5: \"G\" = 4.900 mm",
+  "socketBodyHeight": "Samtec ADF6-XXX-XX.X-XXX-4-X-X-XR rev Y, Table 7, lead style -03.5: \"K\" = 3.230 mm",
+  "footprints": "Samtec recommended PCB layouts ADM6-XXX-XX.X-XXX-X-X-X-FOOTPRINT rev G and ADF6-XXX-XX.X-XXX-X-X-X-FOOTPRINT rev H, sheet 1: 0.635 mm pitch; rows A-D 3.50 and B-C 1.58 apart; pads 0.356 mm; -30 envelope 23.77 x 5.00 mm; -A NPTHs 0.950 mm, 21.22 mm apart, one 1.27 mm off the centreline"
+ },
+ "boardThicknessMm": 1.6,
+ "mezzanine": {
+  "base": "mezz_base/F0",
+  "top": "mezz_top/F0",
+  "pairs": [["J1", "J1"], ["J2", "J2"]],
+  "matedHeightMm": 7.0,
+  "topPoseInBaseFrame": {
+   "_comment": "Board frames of CONTRACTS_P2 §14 (z = 0 at the mid-plane). The top board sits directly over the base, unflipped (its sockets are on its bottom side): 0.8 (half the base) + 7.0 (mated height) + 0.8 (half the top).",
+   "translationMm": [0.0, 0.0, 8.6],
+   "rotation": [0.0, 0.0, 0.0, 1.0]
+  },
+  "residualMm": {"J1": 0.0, "J2": 0.0},
+  "clearance": {
+   "_comment": "CONTRACTS_P2 §14.5 fallback with the datasheet body heights (sources: terminalBodyHeight G, socketBodyHeight K) over the courtyards: 4.90 + 3.23 + 5.00 margin = 13.13; the top board at 0.8 + 13.13 + 0.8. With no bodies at all the courtyards stand 5.00 mm each: 5 + 5 + 5 = 15.00, top at 16.60.",
+   "terminalBodyHeightMm": 4.9,
+   "socketBodyHeightMm": 3.23,
+   "stackHeightMm": 13.13,
+   "topPoseZMm": 14.73,
+   "assumedStackHeightMm": 15.0,
+   "assumedTopPoseZMm": 16.6
+  }
+ },
+ "mezzanineShifted": {
+  "top": "mezz_top/F1",
+  "_comment": "The next commit of mezz_top moves J2 +1.5 mm in X. Posed from J1, pair J2 misses by 1.5 mm (SYS-V11, M4).",
+  "moved": {"reference": "J2", "deltaMm": [1.5, 0.0]},
+  "residualMm": {"J1": 0.0, "J2": 1.5}
+ },
+ "frames": {
+  "mezz_base/F0": {"J1": "top", "J2": "top"},
+  "mezz_top/F0": {"J1": "bottom", "J2": "bottom"},
+  "mezz_top/F1": {"J1": "bottom", "J2": "bottom"},
+  "edge_a/F0": {"J1": "+x", "J2": "-x"},
+  "edge_b/F0": {"J1": "top", "J2": "+x"},
+  "ambiguous/F0": {"J1": null}
+ },
+ "frameConfidence": {
+  "_comment": "CONTRACTS_P2 §15.1. The Samtec footprints, like JTYU's, name no orientation, so their frames come from the body over the pads (medium); the stock 2.54 mm parts say _Vertical or _Horizontal (high).",
+  "mezz_base/F0": {"J1": "medium", "J2": "medium"},
+  "mezz_top/F0": {"J1": "medium", "J2": "medium"},
+  "mezz_top/F1": {"J1": "medium", "J2": "medium"},
+  "edge_a/F0": {"J1": "high", "J2": "high"},
+  "edge_b/F0": {"J1": "high", "J2": "high"},
+  "ambiguous/F0": {"J1": "low"}
+ },
+ "pairs": {
+  "_comment": "Which connectors mate. edge_a J1 (right-angle header) into edge_b J1 (vertical socket) is the orthogonal assembly; edge_a J2 (right-angle socket) with edge_b J2 (right-angle header) is the coplanar one. KiCad's generic 2.54 mm parts have no manufacturer drawing, so their poses are not goldens here.",
+  "orthogonal": [["edge_a/F0", "J1"], ["edge_b/F0", "J1"]],
+  "coplanar": [["edge_a/F0", "J2"], ["edge_b/F0", "J2"]]
+ }
+}

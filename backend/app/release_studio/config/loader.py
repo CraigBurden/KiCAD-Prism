@@ -65,13 +65,22 @@ def list_configuration_keys(checkout_root: Path | str) -> list[str]:
     return sorted(keys)
 
 
-def list_configuration_keys_at_commit(repo_root: Path | str, commit: str) -> list[str]:
-    """List configuration keys present in *commit* via ``git ls-tree``."""
+def list_configuration_keys_at_commit(
+    repo_root: Path | str, commit: str, *, project_path: str = ""
+) -> list[str]:
+    """List configuration keys present in *commit* for the project at *project_path*.
 
+    Only the project's own folder is listed, as the Settings registry does.
+    """
+
+    prefix = _project_prefix(project_path)
+    return sorted(set(_keys_in_tree(repo_root, commit, _config_dir(prefix))))
+
+
+def _keys_in_tree(repo_root: Path | str, commit: str, directory: str) -> list[str]:
     root = _checkout_root(repo_root)
     if not commit or commit.startswith("-") or any(ch.isspace() for ch in commit):
         raise ConfigLoadError(f"invalid commit ref: {commit!r}")
-    directory = CONFIG_DIR.as_posix()
     result = subprocess.run(
         [
             "git",
@@ -184,16 +193,57 @@ def load_configuration_at_commit(
     repo_root: Path | str,
     commit: str,
     config_key: str,
+    *,
+    project_path: str = "",
 ) -> dict[str, Any]:
-    """Load a configuration as it existed at *commit* via ``git show``."""
+    """Load a configuration as it existed at *commit* via ``git show``.
+
+    The location rule, the same one Settings saves by: a project's
+    configurations live in ``<project_path>/.prism/release-studio/``, and the
+    files they name are relative to the project folder. They are returned as
+    repository paths, because a build's closure is the whole repository. A
+    subproject never reads the repository root's configurations.
+    """
 
     root = _checkout_root(repo_root)
-    rel = configuration_relpath(config_key)
-    text = _git_show(root, commit, rel.as_posix())
-    config = parse_configuration_yaml(text, source=f"{commit}:{rel.as_posix()}")
+    prefix = _project_prefix(project_path)
+    rel = configuration_relpath(config_key).as_posix()
+    path = f"{prefix}/{rel}" if prefix else rel
+    text = _git_show(root, commit, path)
+    config = parse_configuration_yaml(text, source=f"{commit}:{path}")
+    if prefix:
+        config = _rebased(config, prefix)
     _validate_referenced_commit_paths(root, commit, config)
-    _load_referenced_policy_at_commit(root, commit, config, source=rel.as_posix())
+    _load_referenced_policy_at_commit(root, commit, config, source=path)
     return config
+
+
+def _project_prefix(project_path: str | None) -> str:
+    text = str(project_path or "").replace("\\", "/").strip().strip("/")
+    if text in {"", "."}:
+        return ""
+    return _normalize_repository_path(text, source="project", kind="project folder")
+
+
+def _config_dir(prefix: str) -> str:
+    return f"{prefix}/{CONFIG_DIR.as_posix()}" if prefix else CONFIG_DIR.as_posix()
+
+
+def _rebased(config: dict[str, Any], prefix: str) -> dict[str, Any]:
+    """A subproject configuration's file references as repository paths."""
+
+    rebased = dict(config)
+    for field in ("board", "schematic", "jobset", "template"):
+        if rebased.get(field):
+            rebased[field] = f"{prefix}/{rebased[field]}"
+    if rebased.get("sheets"):
+        rebased["sheets"] = [f"{prefix}/{path}" for path in rebased["sheets"]]
+    policy = rebased.get("policy")
+    if isinstance(policy, str) and not policy.startswith("org:"):
+        rebased["policy"] = f"{prefix}/{policy}"
+    elif isinstance(policy, Mapping) and policy.get("path"):
+        rebased["policy"] = {**policy, "path": f"{prefix}/{policy['path']}"}
+    return rebased
 
 
 def load_policy_for_configuration_at_commit(

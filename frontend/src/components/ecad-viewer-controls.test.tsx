@@ -1,7 +1,17 @@
-import { fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { ECadViewerElement, EcadPcbViewState } from "@/types/ecad-viewer";
+import { EcadViewer } from "@/lib/ecad-viewer";
+import { fakeEcadViewer, type FakeEcadViewerOptions } from "@/test/fake-ecad-viewer";
+import type { EcadPcbViewState } from "@/types/ecad-viewer";
 import { EcadViewerControls, SchematicPageTree } from "./ecad-viewer-controls";
+
+/** The adapter over a fake element, as the Visualizer holds it. */
+function adapted(view: "sch" | "pcb", options: FakeEcadViewerOptions) {
+  const element = fakeEcadViewer(options);
+  const viewer = new EcadViewer(view);
+  viewer.attach(element);
+  return { element, viewer };
+}
 
 /**
  * The slice of <ecad-viewer> the PCB objects tab talks to: a state snapshot,
@@ -23,17 +33,8 @@ function stubPcbViewer(overrides: Partial<EcadPcbViewState["objectVisibility"]> 
     },
     highlightTracks: true,
   };
-  const setPcbObjectVisibility = vi.fn((kind: keyof EcadPcbViewState["objectVisibility"], visible: boolean) => {
-    state.objectVisibility[kind] = visible;
-  });
-  const viewer = {
-    // Like the element, hand out a fresh snapshot each time.
-    getPcbViewState: () => ({ ...state, objectVisibility: { ...state.objectVisibility } }),
-    setPcbObjectVisibility,
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-  } as unknown as ECadViewerElement;
-  return { viewer, state, setPcbObjectVisibility };
+  const { element, viewer } = adapted("pcb", { pcb: state });
+  return { viewer, state, setPcbObjectVisibility: element.setPcbObjectVisibility };
 }
 
 describe("EcadViewerControls PCB objects tab", () => {
@@ -66,6 +67,18 @@ describe("EcadViewerControls PCB objects tab", () => {
 });
 
 describe("SchematicPageTree", () => {
+  it("lists a viewer's pages and switches the element's page", () => {
+    const pages = [
+      { projectPath: "/root", sheetPath: "/", filename: "root.kicad_sch", name: "Root", depth: 0, active: true },
+      { projectPath: "/root/power", sheetPath: "/power", filename: "power.kicad_sch", name: "Power",
+        parentProjectPath: "/root", depth: 1, active: false },
+    ];
+    const { element, viewer } = adapted("sch", { pages });
+    const view = render(<EcadViewerControls context="SCH" viewer={viewer} />);
+    fireEvent.click(view.getByRole("button", { name: /Power/ }));
+    expect(element.switchPage).toHaveBeenCalledWith("/root/power");
+  });
+
   it("emits the resolved parent page for controlled navigation", () => {
     const onNavigate = vi.fn();
     const root = {
@@ -87,7 +100,6 @@ describe("SchematicPageTree", () => {
     };
     const view = render(
       <SchematicPageTree
-        viewer={null}
         pages={[root, child]}
         onNavigate={onNavigate}
       />,
@@ -109,7 +121,7 @@ describe("SchematicPageTree", () => {
       active: index === 0,
     }));
     const view = render(
-      <SchematicPageTree viewer={null} pages={pages} />,
+      <SchematicPageTree pages={pages} />,
     );
 
     const list = view.getByLabelText("Schematic page list");
@@ -126,5 +138,31 @@ describe("SchematicPageTree", () => {
     fireEvent.click(view.getByRole("button", { name: "Clear page search" }));
     expect(view.getByText("3/3")).toBeTruthy();
     expect(view.getByRole("button", { name: /Power/ })).toBeTruthy();
+  });
+});
+
+describe("EcadViewerControls inset toggle", () => {
+  it("reflects the viewer's inset mode and toggles it", () => {
+    const { element, viewer } = adapted("sch", { insets: true });
+    const view = render(<EcadViewerControls context="SCH" viewer={viewer} />);
+    const toggle = view.getByRole("button", { name: "Insets" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(toggle.getAttribute("title")).toBe("Insets · I");
+    fireEvent.click(toggle);
+    expect(element.setInsetMode).toHaveBeenCalledWith(true);
+    expect(view.getByRole("button", { name: "Insets" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("follows a mode change made with the I key", () => {
+    const { element, viewer } = adapted("pcb", { insets: true, pcb: null });
+    const view = render(<EcadViewerControls context="PCB" viewer={viewer} />);
+    act(() => element.setInsetMode!(true));
+    expect(view.getByRole("button", { name: "Insets" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("is hidden for a viewer without insets", () => {
+    const { viewer } = stubPcbViewer();
+    const view = render(<EcadViewerControls context="PCB" viewer={viewer} />);
+    expect(view.queryByRole("button", { name: "Insets" })).toBeNull();
   });
 });

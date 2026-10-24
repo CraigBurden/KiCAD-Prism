@@ -26,18 +26,39 @@ a general alpha compatibility guarantee. Read the release notes for the exact
 release before relying on an image-only rollback; if the release changed data
 incompatibly, restoring the matching backup is required.
 
-Workspace, catalog, and comment schemas carry numbered ledgers applied at
-startup under an advisory lock:
+Every schema Prism owns carries a numbered ledger. One module,
+[`schema_ledger.py`](../backend/app/services/schema_ledger.py), runs them all: it
+takes the schema's advisory lock, applies the steps a database has not recorded,
+renumbers branch-era rows and adopts legacy markers. At startup
+[`schema_head.py`](../backend/app/services/schema_head.py) brings every ledger to
+head in dependency order:
 
 | Schema | Ledger | Migrations |
 | --- | --- | --- |
 | `workspace` | `workspace.ws_schema_migrations` | [`workspace_schema_migrations.py`](../backend/app/services/workspace_schema_migrations.py) (registry), bodies under [`workspace_migrations/`](../backend/app/services/workspace_migrations/) |
+| `workspace` (auth tables) | `workspace.auth_schema_migrations` | [`auth_schema_migrations.py`](../backend/app/services/auth_schema_migrations.py) |
 | `comments` | `comments.comment_schema_migrations` | [`comments_schema_migrations.py`](../backend/app/services/comments_schema_migrations.py) |
 | `catalog` | `catalog.catalog_schema_versions` | [`catalog_schema_migrations.py`](../backend/app/services/catalog_schema_migrations.py) |
+| `operations` | `operations.artifact_schema_migrations` | [`artifact_schema_migrations.py`](../backend/app/services/artifact_schema_migrations.py) |
+
+The auth and artifact ledgers, and step 0 of the workspace and comments ledgers,
+hold DDL that earlier releases ran on every start outside any ledger. Each of
+those steps is safe on a database that already has it, so an existing
+installation runs them once on upgrade and records them; no manual step is
+needed.
+
+The catalog's baseline (base tables, epoch row, metadata registry and its
+built-in field seed, the first install of the head projections) is step 0 of
+the catalog ledger. Earlier releases reconciled it on every start; an existing
+installation runs it once on upgrade, where it changes nothing, and records it.
+From then on the catalog is forward-only: a later change to any of it ships as a
+new step, and rolling back to a release from before the ledger is not supported
+(see below).
 
 Derived state sits outside those ledgers on purpose. Component-head projections,
 search indexes and integrity guards are rebuilt whenever their definition version
-changes, which a run-once ledger cannot express. They rebuild from authoritative
+changes, which a run-once ledger cannot express, and the catalog's epoch guard
+still refuses a populated pre-epoch-2 catalog on every start. They rebuild from authoritative
 data, so they are not schema-migrated and are omitted from the standard
 `prism_backup.py` archive. Include them separately when faster recovery is worth
 the additional storage.
@@ -57,8 +78,9 @@ Four things hold state you cannot recreate:
 component store and every component in the catalog exists, with a broken
 reference to its files. The two have to travel together.
 
-Everything else under `.kicad-prism` — job artifacts, semantic 3D bundles,
-KiCad database-library exports, validation runs — rebuilds on demand. On a
+Everything else under `.kicad-prism` — job artifacts, design bundles and their
+unpacked caches, KiCad database-library exports, validation runs — rebuilds on
+demand. On a
 working installation that is most of the bytes, and `prism_backup.py` leaves it
 out.
 
@@ -283,6 +305,306 @@ Requirements:
 To drop something, ship the code that stops using it first. Remove the column a
 release later.
 
+## Project settings move out of the checkout
+
+Earlier releases wrote project-property edits (name, description, paths) into
+the checkout's `.prism.json`. A tracked file changed that way made the checkout
+dirty, and Sync stopped fast-forwarding the project.
+
+These settings now live in the workspace database (migration 55,
+`project_path_settings`). On the first start after upgrading, Prism reads each
+checkout's `.prism.json` once. If the file is untracked, or a tracked file
+differs from `HEAD`, the values that differ are copied into the database.
+
+Once those values are stored, Prism restores a tracked file it dirtied to the
+committed version, so Sync fast-forwards again without a manual step. A file
+that supplied no values, and an untracked file (which never blocks Sync), are
+left in place. To share the settings with the team, commit them upstream.
+
+## DBL footprints reference bundled 3D models
+
+Earlier DBL exports wrote footprints whose model paths pointed at
+`${KIPRJMOD}/RemoteLibrary/remote_3d/...`, which exists only where the Remote
+Symbol Provider placed the same part. The export now ships the models under
+`3DModels/` and footprints reference `${PRISM_LIB_DIR}/3DModels/...`. Boards
+that placed DBL footprints before this change keep the old paths; run "Update
+footprints from library" once to pick up the new ones. There is no automatic
+migration.
+
+## DBL keys no longer depend on export order
+
+Earlier exports gave components that share a DBL key (`Part Number Nocolon`,
+for example the same manufacturer part number from two manufacturers, or parts
+keyed by an identical value) suffixes `_2`, `_3`, ... in export order, so a key
+could move to another part between exports. Now the oldest component keeps the
+bare key and each other one gets `_` plus the first eight characters of its
+component id ([key rule](LIBRARY_MANAGER.md#kicad-dbl-export)). Each affected
+part changes key once, at the first export after the upgrade; keys without a
+collision are unchanged.
+
+Designs that placed a part under an `_N` key must be re-pointed to the new key.
+To find them:
+
+1. Before the first new export, keep a copy of the current bundle's
+   `Prism.sqlite` and list the old suffixed keys, for each table:
+   `sqlite3 Prism.sqlite 'SELECT "Part Number Nocolon", "Manufacturer", "Manufacturer Part Number" FROM "<category>"'`,
+   keeping the keys that end in `_<digits>`.
+2. Run the export and read the same columns from the new `Prism.sqlite` to map
+   each manufacturer and part number to its new key.
+3. Search the projects for the old keys:
+   `grep -rnE '"Part Number" "[^"]*_[0-9]+"' --include='*.kicad_sch' <projects>`
+   (the DBL copies the key into each placed symbol's `Part Number` field), and
+   change those symbols in KiCad to the new key ("Change Symbol" from the
+   `Prism` library).
+
+A key that only looks suffixed (an MPN that really ends in `_2`) is unaffected;
+step 1 shows which keys were generated.
+
+## Release Studio configurations in a monorepo subproject
+
+Earlier releases read a monorepo subproject's committed Release Studio
+configurations from the repository root's `.prism/release-studio/configurations/`
+at a commit, with repository-relative file references. A subproject now reads
+only its own folder, `<subproject>/.prism/release-studio/configurations/`, where
+Settings saves it, with references relative to the subproject. Root-level files
+no longer show for a subproject. A candidate that already captured its
+configuration snapshot keeps building from that snapshot.
+
+To keep such a configuration, move it into the subproject and make its
+references relative to the subproject folder:
+
+```sh
+git mv .prism/release-studio/configurations/release.yaml \
+       alpha/.prism/release-studio/configurations/release.yaml
+# edit: board: alpha/board.kicad_pcb  ->  board: board.kicad_pcb
+```
+
+Or open it in Settings for the subproject and save it again. A project at the
+repository root is unaffected.
+
+## Placed symbols carry a catalog revision stamp
+
+Remote placement (part manifest, inline bundle, and signed asset download) now
+adds two hidden properties to every symbol it serves: `Prism_Component` and
+`Prism_Revision`, the catalog component and released revision ids (see
+[Remote Symbol Provider](REMOTE_SYMBOL_PROVIDER.md#placed-symbol-provenance)).
+Three things change once:
+
+- **Symbol bytes and manifest hashes.** Every served symbol's bytes, and so its
+  `sha256` in the placement manifest, change on the first request after the
+  upgrade. Output is byte-stable again from then on. The manifest and bundle
+  shapes do not change; `provider_version` `0.4.0` records the change (see
+  below). A client that caches by hash downloads each symbol once more.
+- **Reserved field keys.** `prism_component` and `prism_revision` become
+  reserved custom field keys, matched after key canonicalization (`Prism
+  Revision` and `prism-revision` count, `prismrevision` does not). Creating a
+  field with either key is refused. A field created earlier under one of them
+  keeps its catalog values, but placement no longer writes it into symbols:
+  the stamp replaces it. To keep such a value in KiCad, move it to a field with
+  another key. Project imports treat the two properties as per-placement
+  context, not part metadata.
+- **BOM columns.** Parts placed after the upgrade carry the two properties, so
+  a KiCad BOM that exports all symbol fields gains `Prism_Component` and
+  `Prism_Revision` columns. A BOM preset that lists its fields is unaffected.
+
+The DBL export does not stamp symbols; its files are unchanged.
+
+### Library usage of each synced commit
+
+Catalog step 12 (`project_catalog_placements`) adds `project_catalog_scans`
+and `project_catalog_placements`. After every successful sync the catalog
+worker scans the new `HEAD`'s schematics (`project_catalog_usage` job) and
+records the catalog revision each part placed, from the stamp or, for parts
+placed before it, by inference. Existing projects are scanned on their next
+sync, or with `POST /api/projects/{id}/catalog-usage/scan`.
+
+## Placed footprints embed their 3D models
+
+KiCad placements now carry 3D models inside the footprint as KiCad embedded
+files (see [3D models](REMOTE_SYMBOL_PROVIDER.md#3d-models)). After upgrading:
+
+- Each placed part can add up to 4 MiB to the board file, since the board
+  stores the embedded (compressed) model data.
+- The placed footprint's bytes change, so its `sha256` in the part manifest
+  changes once for every component with a 3D model.
+- Embedded models leave the manifest and inline bundle as separate `3dmodel`
+  entries; models that are not embedded are still listed.
+
+Set `REMOTE_PROVIDER_EMBED_3D_MODELS=false` to keep the previous behaviour.
+
+### Larger embed cap and kept compressed copies
+
+The per-footprint embed cap is now a setting,
+`REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES`, counted in compressed bytes with
+a default of 16 MiB (it was about 3 MiB of compressed data, a fixed 4 MiB of
+footprint text). Models between the two caps now embed, so their placed
+footprints change once and a board can grow by up to about 21 MiB per such
+part. The 64 MiB raw-model ceiling is unchanged. Set the cap to `3145728` to
+keep the previous limit.
+
+Placement now keeps each embedded model's compressed copy under
+`embedded-models/` in the catalog store and reuses it, so a later `zstandard`
+upgrade does not change placed bytes. Back it up with the rest of the store; a
+missing copy is recreated on the next placement. Boards placed before
+embedding are not changed; `scripts/report_unpinned_board_models.py` lists
+their unpinned models.
+
+## Remote provider 0.4.0: placing an earlier released revision
+
+Discovery metadata now reports `provider_version` `0.4.0`. It records the
+stamped symbols and embedded footprint models above, and adds an optional
+`revision` parameter to the component detail, part manifest and inline bundle
+so a released project can place the exact released revision it used
+(`released_revisions` in the detail lists them). Clients that ignore the new
+fields keep getting the current release. Drafts and archived revisions are
+never served (404 `revision_not_released`). See
+[Placing an earlier released revision](REMOTE_SYMBOL_PROVIDER.md#placing-an-earlier-released-revision).
+
+## Bulk import overwrite flags keep existing files
+
+`--overwrite-assets` (`scripts/import_database_library.py`,
+`scripts/import_footprint_library.py`) and `--overwrite`
+(`scripts/import_kicad_library_assets.py`) no longer rewrite a canonical asset
+file whose content changed. The file at its familiar path, for example
+`footprints/<Library>.pretty/<Name>.kicad_mod`, keeps its old bytes, because
+revisions already linked to it, released ones included, record those bytes'
+sha256. The changed content is written to `revisions/<sha256>/<same relative
+path>` under the catalog store, and the rows this import creates point there.
+Identical content is still reused in place.
+
+The asset browser lists only the familiar paths, so it keeps offering the old
+file there. Picking it links the old content, not the imported one; to use the
+new content, link the asset the import created or upload the file to the part.
+
+Two modes leave files no row describes:
+
+- `--replace-catalog` (`import_database_library.py`) clears the rows first, so nothing links the old file at
+  the familiar path any more, but it stays on disk and in the browser, and the
+  new rows point at `revisions/<sha256>/`. To have the replacement land at the
+  familiar paths, take a backup and move the affected `symbols/`,
+  `footprints/`, and `3dmodels/` files out of the catalog store before the
+  import.
+- `--no-index-db` writes files only, so changed content under
+  `revisions/<sha256>/` is referenced by nothing. Run the same import again
+  without `--no-index-db` to register it, or delete those directories once
+  `SELECT canonical_path FROM catalog.assets WHERE canonical_path LIKE
+  '%/revisions/<sha256>/%'` returns no row for them.
+
+## Release Studio pins 3D models outside the closure
+
+Earlier releases recorded a board's 3D models outside the repository, such as
+the stock `${KICAD9_3DMODEL_DIR}` library, as advisory and left their bytes out
+of the input closure. The cover render and the assembly views open those
+models, so a release now resolves each one as KiCad does and hashes its bytes
+into the input closure digest.
+
+- **One new build key.** The first build of an existing board that uses stock or
+  other host models after the upgrade gets a new input closure digest, and so a
+  new candidate, even with an unchanged commit and configuration. Later builds
+  are stable again while the model files do not change.
+- **Non-hermetic where the variable is unset.** A worker without the variable
+  (for example no `KICAD9_3DMODEL_DIR` in its environment) cannot read those
+  models, so the build reports them as unreadable and itself as non-hermetic.
+  Set the variable on every worker to the same model library to keep builds
+  hermetic and their digests equal across workers.
+
+Only regular files are hashed, up to 256 MiB each, and only when both the
+written and the resolved name end in a suffix KiCad's 3D plugins load (`.step`,
+`.stp`, `.stpz`, `.stepz`, `.step.gz`, `.stp.gz`, `.igs`, `.iges`, `.wrl`,
+`.wrz`, `.x3d`, `.idf`, `.emn`). Any other host file, a device, a FIFO, a larger
+file, or a repository symlink that leads out of the repository is unreadable,
+and the build non-hermetic.
+
+## Release Studio acknowledges unpinned 3D models
+
+Migration 56 (`release_studio_model_inputs`) adds `ws_release_model_inputs`, a
+nullable `self_contained` on `ws_release_candidates`, and
+`acknowledged_models` on review decisions and publish records. Candidates made
+before it have no model rows and `self_contained` NULL.
+
+- **Approve and publish acknowledge unpinned models.** A build whose 3D models
+  include an unreadable one, or a missing `.wrl` KiCad may swap for a STEP
+  model, is still built, approved and published, but each approval and the
+  publish must name those models as acknowledged. The API takes them as
+  `acknowledged_models` (the `key` of each `approvals.unpinned_models` entry)
+  and answers 409 listing the ones missing. For an older candidate the list is
+  read from its non-hermetic reasons.
+- **One new build key for more model forms.** Relative model paths, `:alias:`
+  forms and `$(VAR)` / `$VAR` references are now resolved and pinned instead of
+  skipped, so a board that uses them gets a new input closure digest, and a new
+  candidate, on its first build after the upgrade.
+- **Staged host models.** The tools read a copy of each hashed host model made
+  under the build's staging directory, so a host file changed during a build
+  cannot reach the outputs.
+
+## Superseded draft STEP files wait in quarantine
+
+**Data-loss window.** From v3.0.0-alpha up to and including v4.0.0-alpha, and
+on `dev` until #684 (merged 2026-10-15), daily artifact maintenance
+(`CATALOG_RETENTION_ENABLED=true`) could delete the STEP file of a released
+revision: it kept only the models of each component's head, so opening a
+draft that replaced a model let the next run delete the released model.
+Placement of that part then fails with a missing file, and its audit chain
+reports `asset_content_mismatch`. Never-released draft models were deleted
+too, with no record, until the purge ledger (#691, catalog step 9). After
+upgrading from any release in that window:
+
+1. run `scripts/check_catalog_asset_files.py`; a non-empty `placement_broken`
+   or `history_broken` is a released model that was lost;
+2. restore those with `--restore --search DIR --apply` from a volume backup,
+   the source library checkout, or users' `RemoteLibrary/remote_3d/` folders;
+3. run `--record-legacy --apply` to record the never-released draft models
+   the old purge deleted, so their components' audit chains verify again.
+
+Catalog step 11 (`asset_file_purge_events`) adds `event`, `quarantine_path`
+and `quarantine_id` to the purge ledger; rows from step 9 become `purged`.
+From this release on, maintenance moves a superseded never-released draft STEP
+to `quarantine/` under the catalog store instead of deleting it, and deletes it
+only after `CATALOG_DRAFT_MODEL_QUARANTINE_DAYS` (default 30). Until then
+`--restore --apply` moves it back. Back up the catalog store's `quarantine/`
+directory with the rest of the store. Reads of a quarantined model answer 404
+`asset_quarantined` (`asset_purged` once it is deleted).
+
+## API clients
+
+Scripts and integrations that call the Prism API directly, as opposed to the
+browser and the KiCad panel, see these changes:
+
+- **Error bodies.** Every error is `{"detail": "<message>", "code": "<code>"}`,
+  sometimes with extra fields. `detail` is unchanged, so a reader of it keeps
+  working; match on `code` instead of parsing the message.
+- **Scopes.** A bearer token needs `api:read` for every read and `api:write`
+  for every write. A service client created without either can no longer read;
+  give it `api:read`. KiCad provider tokens work only on
+  `/api/remote-provider/*`. See [Authentication and access](AUTHENTICATION_AND_ACCESS.md).
+- **Guarded writes.** Comment, reply and catalog component edits take `If-Match`
+  with the ETag that was read. A stale one answers 412 with the current ETag;
+  where the precondition is required, a missing one answers 428.
+
+## System Builder data is dropped
+
+System Builder never shipped in a tagged release: v4.0.0-alpha has none of its
+tables or catalog kinds, so an upgrade from v4.0.0-alpha loses nothing here.
+An installation that ran `dev` between 2026-10-09 and 2026-10-23 did store
+System Builder data, and the first start of v5.0.0-alpha deletes it without a
+copy:
+
+| Ledger | Step | Drops |
+|---|---|---|
+| workspace | 123 `drop_system_builder_v1` | every `system_*` table (v1 systems, harnesses, reviews, snapshots, exports) |
+| workspace | 124 `drop_mesh_viewer_readiness` | `ws_webgpu_ready`; the 3D tab reads the design bundle instead |
+| workspace | 129 `drop_system_builder_v2` | `ws_systems` and the other `ws_system_*` / `ws_board_sub_port*` tables |
+| catalog | 13 `retire_module_and_assembly` | `module` and `assembly` components, `catalog_module_connectors` |
+| catalog | 16 `retire_system_entries` | `system` components and `system_entry` assets |
+
+The catalog deletes cascade to those components' revisions, asset links,
+audit records and mates. Parts are untouched.
+
+To keep that data, take the backup in step 2 before starting the new release;
+the code that reads it is kept at the tag `archive/system-builder-v2`. After
+the upgrade, `.kicad-prism/system-bundles/` and `.kicad-prism/system-steps/`
+under the projects root are no longer read and can be deleted.
+
 ## Why the catalog gate is gone
 
 Until [`catalog_schema_migrations.py`](../backend/app/services/catalog_schema_migrations.py)
@@ -297,11 +619,13 @@ had never fired, because the version had never been bumped — so the first
 release to change a catalog table would have discovered it on somebody's
 production database, mid-upgrade, after the old stack had been stopped.
 
-The ladder replaced it. The legacy version row is still written on every startup
-so that an older Prism, which treats that row as a hard precondition, can still
-open a database a newer V3 build has touched. That preserves the catalog
-rollback convention; it does not make a V2 SQLite installation or arbitrary
-alpha API changes backwards-compatible.
+The ladder replaced it. Until the baseline moved into the ledger (step 0), the
+legacy version row was still written on every startup so that an older Prism,
+which treats that row as a hard precondition, could open a database a newer
+build had touched. That row is no longer written: the catalog is forward-only,
+and a rollback to an older Prism needs the pre-upgrade backup. Existing
+databases keep the row they already have; a database created by this release
+never gets one.
 
 ## Catalog epoch 2 cutover
 

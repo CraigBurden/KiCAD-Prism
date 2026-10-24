@@ -8,9 +8,7 @@ import sys
 import tempfile
 import unittest
 import uuid
-from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urlsplit
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -24,35 +22,17 @@ except ImportError:  # pragma: no cover - dependency guard for host-only checks
 
 from app.services.job_artifact_service import JobArtifactService  # noqa: E402
 from app.services.job_service import JobService  # noqa: E402
-from app.services.workspace_schema_migrations import apply_workspace_migrations  # noqa: E402
-
-
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
-
-
-def _database_identity(url: str) -> tuple[str, str, int | None, str]:
-    parsed = urlsplit(url)
-    return (
-        parsed.username or "",
-        (parsed.hostname or "").lower(),
-        parsed.port,
-        parsed.path.lstrip("/"),
-    )
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _database_identity(POSTGRES_URL) == _database_identity(APPLICATION_POSTGRES_URL)
-)
+from app.services.object_store import ReferenceOwner  # noqa: E402
+from app.services.workspace_schema_migrations import WORKSPACE_LEDGER  # noqa: E402
+from support.postgres import requires_scratch_postgres, scratch_schema  # noqa: E402
 
 
 class TestDatabaseJobService(JobService):
     """Run the production JobService SQL against the isolated test database."""
 
-    def __init__(self, schema: str) -> None:
-        self.schema = schema
+    def __init__(self, scratch) -> None:
+        self.scratch = scratch
+        self.schema = scratch.name
 
     def initialize(self) -> None:
         # The fixture creates only the workspace tables needed by these methods.
@@ -62,86 +42,24 @@ class TestDatabaseJobService(JobService):
     def _set_workspace_search_path(self, conn) -> None:
         conn.execute(f'SET search_path TO "{self.schema}", public')
 
-    @contextmanager
     def _connect(self):
-        assert psycopg is not None
-        dsn = POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
-        with psycopg.connect(dsn, row_factory=dict_row) as conn:
-            conn.execute(f'SET search_path TO "{self.schema}", public')
-            yield conn
+        return self.scratch.connection()
 
 
-@unittest.skipUnless(
-    POSTGRES_URL,
-    "TEST_POSTGRES_URL is required for Release Studio retention tests",
-)
-@unittest.skipUnless(
-    psycopg is not None,
-    "psycopg is required for Release Studio retention tests",
-)
-@unittest.skipIf(
-    SHARED_APPLICATION_DATABASE,
-    "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL",
-)
+@requires_scratch_postgres("Release Studio retention tests")
 class ReleaseStudioRetentionPostgresTests(unittest.TestCase):
     """Exercise R9 against a disposable PostgreSQL workspace schema."""
 
     def setUp(self) -> None:
-        assert psycopg is not None
-        self.conn = psycopg.connect(
-            POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1),
-            row_factory=dict_row,
-        )
-        self.schema = f"release_r9_{uuid.uuid4().hex}"
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self._create_base_workspace_tables()
-        apply_workspace_migrations(self.conn)
-        self.conn.commit()
+        self.scratch = scratch_schema(self, "release_r9", ledgers=(WORKSPACE_LEDGER,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
 
-        self.service = TestDatabaseJobService(self.schema)
+        self.service = TestDatabaseJobService(self.scratch)
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
         self.artifacts = JobArtifactService(Path(self.tempdir.name))
         self.job_ids: list[str] = []
         self.artifact_ids: list[str] = []
-
-    def _create_base_workspace_tables(self) -> None:
-        self.conn.execute(
-            """
-            CREATE TABLE ws_repositories (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL DEFAULT ''
-            );
-            CREATE TABLE ws_folders (
-                id TEXT PRIMARY KEY
-            );
-            CREATE TABLE ws_projects (
-                id TEXT PRIMARY KEY,
-                repo_id TEXT NOT NULL REFERENCES ws_repositories(id)
-            );
-            CREATE TABLE ws_project_portfolio (
-                project_id TEXT PRIMARY KEY REFERENCES ws_projects(id)
-            );
-            CREATE TABLE ws_jobs (
-                id TEXT PRIMARY KEY,
-                kind TEXT NOT NULL,
-                status TEXT NOT NULL,
-                message TEXT NOT NULL DEFAULT '',
-                percent REAL NOT NULL DEFAULT 0,
-                payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            """
-        )
-
-    def tearDown(self) -> None:
-        self.conn.rollback()
-        self.conn.execute("SET search_path TO public")
-        self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-        self.conn.commit()
-        self.conn.close()
 
     def _artifact(
         self,
@@ -297,7 +215,7 @@ class ReleaseStudioRetentionPostgresTests(unittest.TestCase):
         self.assertNotIn(str(unpinned_path), referenced)
 
         result = self.artifacts.collect_unreferenced_objects(
-            service=self.service,
+            owners=[ReferenceOwner("jobs", self.service.referenced_object_paths)],
             grace_seconds=0,
         )
 

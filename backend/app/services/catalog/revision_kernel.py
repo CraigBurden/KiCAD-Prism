@@ -6,7 +6,7 @@ import json
 import uuid
 from typing import Any
 
-from app.services.catalog.conflicts import CatalogConflict
+from app.services.catalog.conflicts import revision_conflict
 from app.services.catalog.locking import CatalogLockOperations
 from app.services.catalog.normalization import (
     canonical_json,
@@ -26,6 +26,10 @@ REVISION_MANIFEST_A1 = "prism.revision_manifest_a1"
 REVISION_MANIFEST_A2 = "prism.revision_manifest_a2"
 REVISION_MANIFEST_A3 = "prism.revision_manifest_a3"
 
+
+
+# Revision columns added by later catalog migrations; see revision_manifest_hash.
+_LATE_REVISION_COLUMNS = ("interface_json", "source_ref_json")
 
 class CatalogRevisionKernel:
     """Persist revision, manifest, audit, and validation-link state.
@@ -138,6 +142,11 @@ class CatalogRevisionKernel:
             "created_by",
         }
         metadata = {key: revision[key] for key in sorted(revision) if key not in excluded}
+        # Columns added after revisions were hashed join the manifest only when
+        # set, so every existing revision keeps its recorded hash (migration 3).
+        for key in _LATE_REVISION_COLUMNS:
+            if metadata.get(key) in (None, "", "{}"):
+                metadata.pop(key, None)
         assets = [
             {
                 "asset_type": str(asset["asset_type"]),
@@ -195,10 +204,10 @@ class CatalogRevisionKernel:
         return sha256_text(canonical)
 
     @staticmethod
-    def assert_expected_revision(current_id: str, expected_revision_id: str = "") -> None:
+    def assert_expected_revision(current_id: str, expected_revision_id: str = "", *, component_id: str = "") -> None:
         # Empty expected_revision_id is the legacy skip used by older callers.
         if expected_revision_id and current_id != expected_revision_id:
-            raise CatalogConflict()
+            raise revision_conflict(component_id=component_id, current_revision_id=current_id)
 
     def clone_revision(
         self,
@@ -214,7 +223,7 @@ class CatalogRevisionKernel:
         component, current = self.active_revision_row(conn, component_id, released=False)
         if not component or not current:
             raise ValueError("Component not found")
-        self.assert_expected_revision(str(current["id"]), expected_revision_id)
+        self.assert_expected_revision(str(current["id"]), expected_revision_id, component_id=component_id)
 
         now = _utc_now_iso()
         next_version = int(
@@ -241,14 +250,15 @@ class CatalogRevisionKernel:
                 manufacturer, mpn, normalized_manufacturer, normalized_mpn, mpn_source,
                 category, package_name, vendor, vendor_part_number, mass_g,
                 rqjc_c_w, rqjc_top_c_w, temp_max_c, temp_min_c, power_dissipation_w, rate, sap_code,
-                summary, keywords, extra_fields, search_document, created_at, updated_at
+                summary, keywords, extra_fields, search_document, interface_json, source_ref_json,
+                created_at, updated_at
             )
             SELECT
                 %s, component_id, %s, id, %s, %s, %s, '', %s, %s, name, value, description, datasheet_url,
                 manufacturer, mpn, normalized_manufacturer, normalized_mpn, mpn_source,
                 category, package_name, vendor, vendor_part_number, mass_g,
                 rqjc_c_w, rqjc_top_c_w, temp_max_c, temp_min_c, power_dissipation_w, rate, sap_code,
-                summary, keywords, extra_fields, search_document, %s, %s
+                summary, keywords, extra_fields, search_document, interface_json, source_ref_json, %s, %s
             FROM component_revisions
             WHERE id = %s
             """,
@@ -265,6 +275,8 @@ class CatalogRevisionKernel:
                 current["id"],
             ),
         )
+        # Copies the head's links, and the STEP purge never deletes a head's
+        # model, so this needs no asset_files.lock_and_check_asset_bytes.
         conn.execute(
             """
             INSERT INTO revision_assets (revision_id, asset_type, asset_id, required, created_at, updated_at)

@@ -344,21 +344,58 @@ def validate_access_token(token: str) -> dict[str, Any]:
     return payload
 
 
-def build_bootstrap_nonce_url(base_url: str, access_token: str, next_url: str) -> str:
-    payload = validate_access_token(access_token)
+def _bootstrap_url_for(base_url: str, identity: dict[str, Any], next_url: str) -> str:
+    """A one-shot URL that turns a proven identity into a browser session.
+
+    Short-lived and single-use by construction: it expires in two minutes and its jti
+    is revoked the moment it is consumed, so the URL is worthless the instant after it
+    has been followed, and worthless anyway two minutes later.
+    """
     token = _encode_payload(
         {
             "type": "bootstrap",
-            "email": payload["email"],
-            "name": payload["name"],
-            "picture": payload.get("picture", ""),
-            "role": payload["role"],
+            "email": identity["email"],
+            "name": identity["name"],
+            "picture": identity.get("picture", ""),
+            "role": identity["role"],
             "next_url": next_url,
             "jti": secrets.token_urlsafe(12),
             "exp": _now() + 120,
         }
     )
     return f"{base_url.rstrip('/')}/oauth/bootstrap?token={token}"
+
+
+def build_bootstrap_nonce_url(base_url: str, access_token: str, next_url: str) -> str:
+    return _bootstrap_url_for(base_url, validate_access_token(access_token), next_url)
+
+
+def build_bootstrap_nonce_url_for_agent(
+    base_url: str, agent_token: str, next_url: str
+) -> tuple[str, str]:
+    """The same handoff, for a user the KiCad agent has already signed in.
+
+    THE security boundary of this path. The agent cannot vouch for itself: a
+    compromised one would simply claim to be signed in. So the backend, which issues
+    and revokes these tokens, is the only thing that decides whether one is good, and
+    a revoked, expired, forged or unknown token raises here.
+
+    The session this leads to is a NORMAL user session carrying the user's own role
+    and no agent scopes: this is the user signing in, by proving their identity with a
+    credential they already hold, not the agent acting on their behalf.
+
+    Returns the URL together with the email it was minted for, so the caller can name
+    the account before anyone commits to it. That email is the validated one, not a
+    claim the agent made about itself.
+    """
+    from app.services import agent_auth_service
+
+    payload = agent_auth_service.validate_agent_token(agent_token)
+    # D-P2-32: the browser session can do everything the user's role allows, so only an
+    # agent the user trusted to write may open one. A read-only agent signs in normally.
+    if not {"api:write", "*"} & set(str(payload.get("scope") or "").split()):
+        raise HTTPException(status_code=403, detail="A read-only agent cannot open a signed-in session")
+    return _bootstrap_url_for(base_url, payload, next_url), str(payload["email"])
 
 
 def consume_bootstrap_token(token: str) -> dict[str, Any]:

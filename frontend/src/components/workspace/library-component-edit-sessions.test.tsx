@@ -2,10 +2,16 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Every catalog read answers an empty list unless a test says otherwise; the
+// URL builders stay real.
+vi.mock("./catalog-client", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("./catalog-client")>();
+    return Object.fromEntries(Object.entries(actual).map(([name, value]) => [
+        name,
+        name.endsWith("Url") ? value : vi.fn(async () => ({ items: [] })),
+    ]));
+});
 vi.mock("@/lib/api", () => ({
-    fetchJson: vi.fn(),
-    fetchApi: vi.fn(),
-    readApiError: vi.fn(async () => "error"),
     ApiHttpError: class ApiHttpError extends Error {
         status: number;
         code?: string;
@@ -19,7 +25,8 @@ vi.mock("@/lib/api", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), message: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
 
-import { ApiHttpError, fetchJson } from "@/lib/api";
+import { ApiHttpError } from "@/lib/api";
+import { getComponent, importComponentAsset, listMetadataFields, patchComponent } from "./catalog-client";
 import type { CatalogComponent, CatalogMetadataField } from "@/types/catalog";
 import {
     AssetAttachDialog,
@@ -101,8 +108,8 @@ function builtinEditorFields(): CatalogMetadataField[] {
 }
 
 function patchCallBody() {
-    const request = vi.mocked(fetchJson).mock.calls.find((call) => call[1]?.method === "PATCH");
-    return JSON.parse(String(request?.[1]?.body)) as Record<string, unknown>;
+    const [, patch] = vi.mocked(patchComponent).mock.calls[0] ?? [];
+    return patch as Record<string, unknown>;
 }
 
 function mockMetadataRoutes(options?: {
@@ -111,18 +118,15 @@ function mockMetadataRoutes(options?: {
     delayFields?: () => Promise<{ items: CatalogMetadataField[] }>;
     delayPatch?: () => Promise<CatalogComponent>;
 }) {
-    vi.mocked(fetchJson).mockImplementation(async (input, init) => {
-        const url = String(input);
-        if (url === "/api/catalog/metadata/fields") {
-            if (options?.delayFields) return options.delayFields() as never;
-            return { items: options?.fields ?? builtinEditorFields() } as never;
-        }
-        if (url.startsWith("/api/catalog/components/") && init?.method === "PATCH") {
-            if (options?.delayPatch) return options.delayPatch() as never;
-            return (options?.component ?? catalogComponent()) as never;
-        }
-        if (url === "/api/catalog/components/comp-a") return (options?.component ?? catalogComponent()) as never;
-        return { items: [] } as never;
+    vi.mocked(listMetadataFields).mockImplementation(async () => (
+        options?.delayFields ? options.delayFields() : { items: options?.fields ?? builtinEditorFields() }
+    ));
+    vi.mocked(patchComponent).mockImplementation(async () => (
+        options?.delayPatch ? options.delayPatch() : options?.component ?? catalogComponent()
+    ));
+    vi.mocked(getComponent).mockImplementation(async (id) => {
+        if (id !== "comp-a") throw new Error(`unknown component: ${id}`);
+        return options?.component ?? catalogComponent();
     });
 }
 
@@ -135,7 +139,7 @@ function chooseFile(file: File) {
 
 describe("metadata edit session", () => {
     beforeEach(() => {
-        vi.mocked(fetchJson).mockReset();
+        vi.mocked(patchComponent).mockClear();
         mockMetadataRoutes();
     });
 
@@ -167,7 +171,7 @@ describe("metadata edit session", () => {
 
         fireEvent.click(await screen.findByRole("button", { name: /save new revision/i }));
         await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
-        expect(patchCallBody().expected_revision_id).toBe("rev-at-open");
+        expect(vi.mocked(patchComponent).mock.calls[0]?.[2]).toBe("rev-at-open");
     });
 
     it("renders a custom enum field from definitions and round-trips unknown extras", async () => {
@@ -322,23 +326,21 @@ describe("metadata edit session", () => {
                 metadataField({ key: "tolerance", label: "Tolerance", storage_key: "tolerance" }),
             ],
         });
-        await waitFor(() => expect(fetchJson).toHaveBeenCalled());
+        await waitFor(() => expect(listMetadataFields).toHaveBeenCalled());
         expect(screen.queryByLabelText("Tolerance")).not.toBeInTheDocument();
     });
 
     it("does not apply a delayed definitions payload to a later session", async () => {
         let finishFirst: ((value: { items: CatalogMetadataField[] }) => void) | undefined;
         let calls = 0;
-        vi.mocked(fetchJson).mockImplementation(async (input) => {
-            const url = String(input);
-            if (url !== "/api/catalog/metadata/fields") return { items: [] } as never;
+        vi.mocked(listMetadataFields).mockImplementation(async () => {
             calls += 1;
             if (calls === 1) {
                 return new Promise((resolve) => {
                     finishFirst = resolve;
                 });
             }
-            return { items: builtinEditorFields() } as never;
+            return { items: builtinEditorFields() };
         });
         const first = metadataEditSessionFrom(catalogComponent());
         const { rerender } = render(
@@ -374,7 +376,7 @@ describe("metadata edit session", () => {
         );
 
         fireEvent.click(await screen.findByRole("button", { name: /save new revision/i }));
-        await waitFor(() => expect(vi.mocked(fetchJson).mock.calls.some((call) => call[1]?.method === "PATCH")).toBe(true));
+        await waitFor(() => expect(patchComponent).toHaveBeenCalled());
         unmount();
         finish!(catalogComponent());
         await waitFor(() => expect(onSuccess).not.toHaveBeenCalled());
@@ -383,7 +385,7 @@ describe("metadata edit session", () => {
 
 describe("asset attach session", () => {
     beforeEach(() => {
-        vi.mocked(fetchJson).mockReset();
+        vi.mocked(importComponentAsset).mockReset();
     });
 
     it("drops a selected file when a new asset type session opens", async () => {
@@ -407,7 +409,7 @@ describe("asset attach session", () => {
     });
 
     it("does not keep a selection_required picker after cancel and reopen", async () => {
-        vi.mocked(fetchJson).mockResolvedValue({
+        vi.mocked(importComponentAsset).mockResolvedValue({
             mode: "selection_required",
             discovered_symbols: ["SYM_A", "SYM_B"],
         } as never);
@@ -431,7 +433,7 @@ describe("asset attach session", () => {
 
     it("ignores a delayed upload that completes after the session unmounts", async () => {
         let finish: ((value: { component: CatalogComponent }) => void) | undefined;
-        vi.mocked(fetchJson).mockImplementation(() => new Promise((resolve) => {
+        vi.mocked(importComponentAsset).mockImplementation(() => new Promise((resolve) => {
             finish = resolve;
         }));
         const onSuccess = vi.fn();
@@ -445,15 +447,13 @@ describe("asset attach session", () => {
         unmount();
         finish!({ component: catalogComponent() });
         await waitFor(() => expect(onSuccess).not.toHaveBeenCalled());
-        const request = vi.mocked(fetchJson).mock.calls[0];
-        expect(String(request?.[0])).toContain("/symbol-import");
-        const body = request?.[1]?.body as FormData;
-        expect(body.get("expected_revision_id")).toBe("comp-a-rev1");
+        const [componentId, assetType, , revisionId] = vi.mocked(importComponentAsset).mock.calls[0];
+        expect([componentId, assetType, revisionId]).toEqual(["comp-a", "symbol", "comp-a-rev1"]);
     });
 
     it("closes on revision_conflict so the next open recaptures the head", async () => {
-        vi.mocked(fetchJson).mockRejectedValue(
-            new ApiHttpError(409, "Refresh the component before saving.", "revision_conflict"),
+        vi.mocked(importComponentAsset).mockRejectedValue(
+            new ApiHttpError(412, "Refresh the component before saving.", "revision_conflict"),
         );
         const onClose = vi.fn();
         const onSuccess = vi.fn();
@@ -467,7 +467,7 @@ describe("asset attach session", () => {
     });
 
     it("keeps the session open on a non-revision 409", async () => {
-        vi.mocked(fetchJson).mockRejectedValue(
+        vi.mocked(importComponentAsset).mockRejectedValue(
             new ApiHttpError(409, "That asset is still referenced.", "asset_referenced"),
         );
         const onClose = vi.fn();
@@ -476,7 +476,7 @@ describe("asset attach session", () => {
 
         chooseFile(new File(["sym"], "part.kicad_sym"));
         fireEvent.click(screen.getByRole("button", { name: /attach file/i }));
-        await waitFor(() => expect(fetchJson).toHaveBeenCalled());
+        await waitFor(() => expect(importComponentAsset).toHaveBeenCalled());
         expect(onClose).not.toHaveBeenCalled();
         expect(screen.getByRole("heading", { name: "Add symbol" })).toBeInTheDocument();
     });

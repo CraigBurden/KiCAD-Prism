@@ -1,0 +1,136 @@
+{
+ "kicad": "10.0.6",
+ "converter": "geometer-2026.9.7",
+ "models": [
+  {
+   "label": "pin header",
+   "model": "Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x04_P2.54mm_Vertical.step",
+   "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+   "stepBytes": 145684,
+   "geometerBoundsMm": {
+    "minMm": [
+     -1.27,
+     -8.89,
+     -3.0
+    ],
+    "maxMm": [
+     1.27,
+     1.27,
+     8.54
+    ]
+   },
+   "glbBytes": 53672,
+   "materials": 2,
+   "convertSeconds": 0.18,
+   "kicadExtentsMm": [
+    2.54,
+    11.54,
+    10.16
+   ]
+  },
+  {
+   "label": "JST PH side entry",
+   "model": "Connector_JST.3dshapes/JST_PH_S4B-PH-K_1x04_P2.00mm_Horizontal.step",
+   "footprint": "Connector_JST:JST_PH_S4B-PH-K_1x04_P2.00mm_Horizontal",
+   "stepBytes": 286711,
+   "geometerBoundsMm": {
+    "minMm": [
+     -1.95,
+     -6.25,
+     -3.4
+    ],
+    "maxMm": [
+     7.95,
+     1.35,
+     4.85
+    ]
+   },
+   "glbBytes": 106172,
+   "materials": 2,
+   "convertSeconds": 0.17,
+   "kicadExtentsMm": [
+    9.9,
+    8.25,
+    7.6
+   ]
+  },
+  {
+   "label": "BNC",
+   "model": "Connector_Coaxial.3dshapes/BNC_Amphenol_B6252HB-NPP3G-50_Horizontal.step",
+   "footprint": "Connector_Coaxial:BNC_Amphenol_B6252HB-NPP3G-50_Horizontal",
+   "stepBytes": 959005,
+   "geometerBoundsMm": {
+    "minMm": [
+     -7.3500001,
+     -2.1200001,
+     -4.1
+    ],
+    "maxMm": [
+     7.3500001,
+     33.4800001,
+     13.1000001
+    ]
+   },
+   "glbBytes": 266804,
+   "materials": 3,
+   "convertSeconds": 0.49,
+   "kicadExtentsMm": [
+    14.7,
+    17.2,
+    35.6
+   ]
+  },
+  {
+   "label": "multi-colour RJ45",
+   "model": "Connector_RJ.3dshapes/RJ45_Amphenol_RJHSE538X.step",
+   "footprint": "Connector_RJ:RJ45_Amphenol_RJHSE538X",
+   "stepBytes": 267884,
+   "geometerBoundsMm": {
+    "minMm": [
+     -4.705,
+     -7.75,
+     -3.18
+    ],
+    "maxMm": [
+     11.805,
+     8.3,
+     15.4977354209
+    ]
+   },
+   "glbBytes": 134848,
+   "materials": 4,
+   "convertSeconds": 0.18,
+   "kicadExtentsMm": [
+    16.51,
+    18.6777,
+    16.05
+   ]
+  },
+  {
+   "label": "large multi-body FMC",
+   "model": "Connector_Samtec.3dshapes/Samtec_FMC_ASP-134602-01_10x40_P1.27mm_Vertical.step",
+   "footprint": "Connector_Samtec:Samtec_FMC_ASP-134602-01_10x40_P1.27mm_Vertical",
+   "stepBytes": 8877716,
+   "geometerBoundsMm": {
+    "minMm": [
+     -7.34,
+     -27.89,
+     -1.27
+    ],
+    "maxMm": [
+     7.34,
+     28.78,
+     5.97
+    ]
+   },
+   "glbBytes": 3790928,
+   "materials": 2,
+   "convertSeconds": 5.27,
+   "kicadExtentsMm": [
+    14.68,
+    7.24,
+    56.67
+   ]
+  }
+ ]
+}

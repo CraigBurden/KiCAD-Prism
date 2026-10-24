@@ -43,12 +43,12 @@ export async function runSemanticViewerReload(host, attempt, { owner, bundleUrl,
   try {
     host.renderLoading();
     const bundleStarted = now();
-    const { bundle, topology, semanticGeometry } = await loadBundle(bundleUrl, timings, signal);
+    const { bundle, topology, semanticGeometry, assetCache } = await loadBundle(bundleUrl, timings, signal);
     timings.bundle_group_total_ms = now() - bundleStarted;
     if (!isCurrent()) return;
     host.renderShell();
     const mountStarted = now();
-    const controller = await host.mountViewer({ topology, semanticGeometry, readiness: bundle.readiness, signal });
+    const controller = await host.mountViewer({ topology, semanticGeometry, readiness: bundle.readiness, assetCache, signal });
     if (!isCurrent()) {
       controller?.dispose?.();
       return;

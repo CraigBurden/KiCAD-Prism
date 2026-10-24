@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from app.services.catalog.metadata_normalization import normalize_metadata
+from app.services.catalog.component_writer import METADATA_PATCH_COLUMNS, merge_metadata_patch
 from app.services.catalog.normalization import json_loads
 
 
@@ -60,20 +60,30 @@ class CatalogMetadataBatchApplication:
     @staticmethod
     def prepare_revision(
         item: Mapping[str, Any],
+        component: Mapping[str, Any],
         revision: Mapping[str, Any],
         definitions: Mapping[str, Mapping[str, Any]],
     ) -> PreparedMetadataBatchApplication:
+        """Merge the item's patch the way a single-component PATCH would.
+
+        The component's identity travels with the merge, so a provisional part
+        keeps its identity (or is promoted when the patch supplies an MPN).
+        """
         patch = json_loads(item["patch_json"], {})
-        merged = {**revision, "extra_fields": json_loads(revision.get("extra_fields"), {})}
+        updates: dict[str, Any] = {}
+        extras = dict(json_loads(revision.get("extra_fields"), {}))
         for field_key, value in patch.items():
             field = definitions.get(field_key)
             if not field:
                 raise ValueError(f"Metadata field {field_key} is unavailable")
-            if field["storage_kind"] == "column":
-                merged[field["storage_key"]] = value
+            if field["storage_kind"] != "column":
+                extras[field["storage_key"]] = value
+                updates["extra_fields"] = extras
+            elif field["storage_key"] in METADATA_PATCH_COLUMNS:
+                updates[field["storage_key"]] = value
             else:
-                merged["extra_fields"][field["storage_key"]] = value
-        metadata = normalize_metadata(merged)
+                raise ValueError(f"Metadata field {field_key} is not writable")
+        metadata = merge_metadata_patch(dict(component), dict(revision), updates)
         parent_revision_id = str(revision["id"])
         change_summary = str(item["change_summary"])
         metadata_batch_id = str(item["metadata_batch_id"])

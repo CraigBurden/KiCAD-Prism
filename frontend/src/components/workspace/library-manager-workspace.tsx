@@ -2,8 +2,8 @@ import { lazy, Suspense } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Database, DownloadCloud, PackageCheck, Plug, Table2, type LucideIcon } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { StudioTabsList, StudioTabsTrigger } from "@/components/ui/studio-tabs";
+import { Tabs } from "@/components/ui/tabs";
 import type { User } from "@/types/auth";
 import type { Project } from "@/types/project";
 import { LibraryCatalogWorkspace } from "./library-catalog-workspace";
@@ -82,31 +82,29 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Ghost buttons in a row did not read as switchable sections. These use the
-          shadcn Tabs component in its "line" variant, so the selected section is
-          marked the same way tabs are marked everywhere else in the design system. */}
-      <Tabs
-        value={view}
-        onValueChange={(next) => setView(next as LibraryView)}
-        className="shrink-0 gap-0 border-b bg-card px-3"
-      >
-        <TabsList variant="line" className="h-10 gap-2" aria-label="Library Manager sections">
-          {(["catalog", "bulk-edit", "imports", "releases", "connectors"] as LibraryView[]).map((item) => {
-            const Icon = VIEW_ICONS[item];
-            return (
-              <TabsTrigger key={item} value={item} className="gap-2 px-2 text-sm">
-                <Icon className="h-4 w-4" />
-                {VIEW_LABELS[item]}
-                {item === "connectors" ? (
-                  <Badge variant="outline" className="px-1 text-[10px] font-normal text-muted-foreground">
-                    Coming soon
-                  </Badge>
-                ) : null}
-              </TabsTrigger>
-            );
-          })}
-        </TabsList>
-      </Tabs>
+      <header className="flex h-11 shrink-0 items-center overflow-x-auto border-b bg-card px-2">
+        {/* Manual activation, as in the studios: arrows move focus, a click or
+            Enter selects. */}
+        <Tabs value={view} activationMode="manual" className="shrink-0">
+          <StudioTabsList aria-label="Library Manager sections">
+            {(["catalog", "bulk-edit", "imports", "releases", "connectors"] as LibraryView[]).map((item) => {
+              const Icon = VIEW_ICONS[item];
+              return (
+                <StudioTabsTrigger
+                  key={item}
+                  value={item}
+                  className="gap-1.5"
+                  title={item === "connectors" ? "Coming soon" : undefined}
+                  onClick={() => setView(item)}
+                >
+                  <Icon className="size-3.5" aria-hidden />
+                  {VIEW_LABELS[item]}
+                </StudioTabsTrigger>
+              );
+            })}
+          </StudioTabsList>
+        </Tabs>
+      </header>
       <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading library workspace…</div>}>
       <div className="min-h-0 flex-1 overflow-hidden">
         {view === "catalog" && <LibraryCatalogWorkspace user={user} onOpenComponent={(id) => openComponent(id, "overview", "catalog")} />}
@@ -114,13 +112,9 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
         {view === "imports" && <LibraryImportCenter projects={projects} user={user} initialSessionId={searchParams.get("session") || undefined} />}
         {view === "releases" && <LibraryReleaseQueue onOpenComponent={(id) => openComponent(id, "review", "releases")} />}
         {view === "connectors" && (
-          <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
-            <Plug className="h-8 w-8 text-muted-foreground" />
-            <p className="text-sm font-medium">Connectors are not available yet</p>
-            <p className="max-w-md text-sm text-muted-foreground">
-              PLM and MRP integrations will be configured here. Machine access is already
-              possible today through OAuth2 service clients.
-            </p>
+          <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Plug className="size-4" aria-hidden />
+            Connectors are not available yet
           </div>
         )}
       </div>

@@ -9,9 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from app.api._helpers import get_project_for_role_or_404
+from app.core.errors import error_response
 from app.core.security import AuthenticatedUser, require_comment_writer, require_viewer
 from app.services import comment_permissions
-from app.services.comment_permissions import ActorIdentity, CommentAction, CommentPermissionError
+from app.services.comment_permissions import ActorIdentity, CommentPermissionError
 from app.services.comments_store_service import comments_store
 from app.services.trackers.health import aggregate_project_health
 from app.services.trackers.projections import (
@@ -22,7 +23,6 @@ from app.services.trackers.projections import (
     unlink_thread_sync,
 )
 from app.services.trackers.promotion import load_policy_row
-from app.services.trackers.promotion import PromotionActor
 from app.services.trackers.publication_policy import DispatchPause, PublicationDenied
 
 router = APIRouter(prefix="/api/projects", tags=["tracker-sync"])
@@ -48,28 +48,15 @@ def _promote_min_role(project_id: str) -> str:
 
 
 def _permission_response(exc: CommentPermissionError) -> JSONResponse:
-    body = {"detail": exc.detail, "code": exc.code}
-    if exc.required_role:
-        body["requiredRole"] = exc.required_role
-    return JSONResponse(status_code=exc.status_code, content=body)
+    return error_response(exc)
 
 
 def _publication_response(exc: PublicationDenied) -> JSONResponse:
-    return JSONResponse(
-        status_code=403,
-        content={
-            "detail": str(exc),
-            "code": exc.code,
-            "requiredRole": exc.required_role,
-        },
-    )
+    return error_response(exc)
 
 
 def _dispatch_response(exc: DispatchPause) -> JSONResponse:
-    return JSONResponse(
-        status_code=409,
-        content={"detail": str(exc), "code": exc.reason, "pausedReason": exc.reason},
-    )
+    return error_response(exc.refusal())
 
 
 def _live_thread_for_comment(conn, project_id: str, comment_id: str) -> dict | None:
@@ -135,15 +122,7 @@ async def promote_comment_to_tracker(
 
     def write() -> dict[str, Any]:
         project = get_project_for_role_or_404(project_id, user.role)
-        actor = _actor(user)
-        promote_min_role = _promote_min_role(project.id)
-        comment_permissions.authorize(
-            CommentAction.PROMOTE, actor, promote_min_role=promote_min_role,
-        )
-        promoted = comments_store.promote_comment(
-            project.id, project.path, comment_id,
-            PromotionActor(user_id=actor.actor_id, role=actor.role, kind=actor.actor_kind),
-        )
+        promoted = comments_store.promote_comment(project.id, project.path, comment_id, _actor(user))
         if promoted is None:
             raise HTTPException(status_code=404, detail="Comment not found")
         return promoted
@@ -172,16 +151,7 @@ async def share_reply_to_tracker(
 
     def write() -> dict[str, Any]:
         project = get_project_for_role_or_404(project_id, user.role)
-        actor = _actor(user)
-        if comments_store.get_reply(project.id, comment_id, reply_id) is None:
-            raise HTTPException(status_code=404, detail="Reply not found")
-        comment_permissions.authorize(
-            CommentAction.SHARE, actor, promote_min_role=_promote_min_role(project.id),
-        )
-        shared = comments_store.share_reply(
-            project.id, project.path, comment_id, reply_id,
-            PromotionActor(user_id=actor.actor_id, role=actor.role, kind=actor.actor_kind),
-        )
+        shared = comments_store.share_reply(project.id, project.path, comment_id, reply_id, _actor(user))
         if shared is None:
             raise HTTPException(status_code=404, detail="Reply not found")
         return shared

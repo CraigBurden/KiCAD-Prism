@@ -27,10 +27,12 @@ from app.services.trackers.contracts import (
     assert_no_owner_repo,
 )
 from app.services.trackers.errors import ProviderError
+from app.services.trackers.github_recovery import CommentPageFetcher, make_comment_page_fetcher
+from app.services.trackers.forge_client import ForgeClient, read_outcome
 from app.services.trackers.github_comments import comment_body_hash
 from app.services.trackers.gitlab_auth import GitLabBotAuth, web_root_for
 from app.services.trackers.gitlab_issues import _forge_user, project_ref
-from app.services.trackers.http import ForgeHttpResponse, TrackerHttp
+from app.services.trackers.http import TrackerHttp
 
 
 def comment_id(iid: str | int, note_id: str | int) -> str:
@@ -59,6 +61,7 @@ class GitLabCommentAdapter:
     ) -> None:
         self.auth = auth
         self.http = http or auth.http
+        self.client = ForgeClient(self.http, auth.bot_headers, forge="GitLab", noun="note")
         self.bot_user_id = (bot_user_id or "").strip()
         self.bot_login = (bot_login or "").strip()
 
@@ -72,32 +75,32 @@ class GitLabCommentAdapter:
         issue_id: str | None = None,
     ) -> RemoteComment:
         del op_id
-        response = self._request("POST", self._notes_url(dest, ext_id), json_body={"body": body})
-        return self._comment_from(self._json_object(response), dest, iid=str(ext_id), issue_id=issue_id)
+        response = self.client.request("POST", self._notes_url(dest, ext_id), json_body={"body": body})
+        return self._comment_from(self.client.json_object(response), dest, iid=str(ext_id), issue_id=issue_id)
 
     def edit_comment(self, dest: Destination, ext_cid: str, body: str) -> RemoteComment:
         current = self._require_comment(dest, ext_cid)
         self._require_own(current, action="edit")
         require_capability(self.auth.capabilities(), "canEditOwnComment")
         iid, note = split_comment_id(ext_cid)
-        response = self._request("PUT", self._notes_url(dest, iid, note), json_body={"body": body})
-        return self._comment_from(self._json_object(response), dest, iid=iid, issue_id=current.externalId or None)
+        response = self.client.request("PUT", self._notes_url(dest, iid, note), json_body={"body": body})
+        return self._comment_from(self.client.json_object(response), dest, iid=iid, issue_id=current.externalId or None)
 
     def delete_comment(self, dest: Destination, ext_cid: str) -> None:
         current = self._require_comment(dest, ext_cid)
         self._require_own(current, action="delete")
         require_capability(self.auth.capabilities(), "canDeleteOwnComment")
         iid, note = split_comment_id(ext_cid)
-        self._request("DELETE", self._notes_url(dest, iid, note))
+        self.client.request("DELETE", self._notes_url(dest, iid, note))
 
     def get_comment(self, dest: Destination, ext_cid: str, etag: Optional[str] = None) -> CommentRead:
         del etag
         iid, note = split_comment_id(ext_cid)
         try:
-            response = self._request("GET", self._notes_url(dest, iid, note))
+            response = self.client.request("GET", self._notes_url(dest, iid, note))
         except ProviderError as exc:
-            return _read_from_error(exc)
-        payload = self._json_object(response)
+            return read_outcome(exc, allow_moved=False)
+        payload = self.client.json_object(response)
         if payload.get("system"):
             # A system note is not a reply; to the runtime it does not exist.
             return UncertainAbsence(status=404)
@@ -117,16 +120,21 @@ class GitLabCommentAdapter:
             url = self._notes_url(dest, issue)
             params = {"sort": "asc", "order_by": "created_at", "per_page": 100}
         # A failed page raises; it is never an empty complete listing (C7).
-        response = self._request("GET", url, params=params)
+        response = self.client.request("GET", url, params=params)
         comments = [
             self._comment_from(item, dest, iid=str(issue), issue_id=issue_id)
-            for item in self._json_list(response)
+            for item in self.client.json_list(response)
             if isinstance(item, dict) and not item.get("system")
         ]
         next_page = response.next_page()
         if next_page:
             return comments, PageCursor(value=next_page, exhausted=False)
         return comments, PageCursor(value="", exhausted=True)
+
+    def recovery_comment_pages(self, dest: Destination, issue: str) -> CommentPageFetcher:
+        """Pages of the issue's comments for a reply recovery scan."""
+
+        return make_comment_page_fetcher(self, dest, issue)
 
     def find_comment_by_marker(
         self,
@@ -211,41 +219,6 @@ class GitLabCommentAdapter:
             raise ProviderError("invalid_request", "GitLab issues are addressed by their numeric iid.")
         suffix = f"/notes/{note}" if note else "/notes"
         return self.auth.url(f"/projects/{project_ref(dest)}/issues/{ref}{suffix}")
-
-    def _request(
-        self,
-        method: str,
-        url: str,
-        *,
-        json_body: dict[str, Any] | None = None,
-        params: dict[str, Any] | None = None,
-    ) -> ForgeHttpResponse:
-        response = self.http.request(
-            method, url, headers=self.auth.bot_headers(), json_body=json_body, params=params
-        )
-        return self.http.outcome(response)
-
-    def _json_object(self, response: ForgeHttpResponse) -> dict[str, Any]:
-        payload = response.json() if response.content else {}
-        if not isinstance(payload, dict):
-            raise ProviderError("transient", "GitLab returned a non-object note payload.")
-        return payload
-
-    def _json_list(self, response: ForgeHttpResponse) -> list[Any]:
-        payload = response.json() if response.content else []
-        if not isinstance(payload, list):
-            raise ProviderError("transient", "GitLab note listing was not a complete page.")
-        return payload
-
-
-def _read_from_error(exc: ProviderError) -> CommentRead:
-    if exc.class_ == "not_found_uncertain":
-        return UncertainAbsence(status=exc.status or 404)
-    if exc.class_ == "gone_confirmed":
-        return GoneConfirmed(status=exc.status or 410)
-    if exc.class_ == "forbidden":
-        return ForbiddenRead(status=exc.status or 403)
-    raise exc
 
 
 __all__ = ["GitLabCommentAdapter", "comment_id", "split_comment_id"]

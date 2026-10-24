@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.core.config import settings
+from app.services.auth_schema_migrations import AUTH_LEDGER
 from app.services.postgres_database import database
 
 _init_lock = threading.Lock()
@@ -38,6 +39,9 @@ class SessionRecord:
     expires_at: datetime
     last_seen_at: datetime
     user_id: str = ""
+    # The account's local password must be changed before anything else; read
+    # live from user_credentials so an administrator's reset applies at once.
+    password_change_required: bool = False
 
 
 def _now() -> datetime:
@@ -55,39 +59,7 @@ def initialize_session_store() -> None:
     with _init_lock:
         if _initialized:
             return
-        with database.connection() as connection:
-            connection.execute("CREATE SCHEMA IF NOT EXISTS workspace")
-            connection.execute("SET search_path TO workspace, public")
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS user_sessions (
-                    session_digest TEXT PRIMARY KEY,
-                    email TEXT NOT NULL,
-                    name TEXT NOT NULL DEFAULT '',
-                    picture TEXT NOT NULL DEFAULT '',
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    expires_at TIMESTAMPTZ NOT NULL,
-                    revoked_at TIMESTAMPTZ,
-                    revoked_reason TEXT NOT NULL DEFAULT '',
-                    user_agent TEXT NOT NULL DEFAULT '',
-                    client_ip TEXT NOT NULL DEFAULT ''
-                )
-                """
-            )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS user_sessions_email_idx ON user_sessions (email)"
-            )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS user_sessions_expires_idx ON user_sessions (expires_at)"
-            )
-            connection.execute(
-                "ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''"
-            )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS user_sessions_user_id_idx ON user_sessions (user_id)"
-            )
-            connection.commit()
+        AUTH_LEDGER.migrate(database.connection)
         _initialized = True
 
 
@@ -101,6 +73,7 @@ def _row_to_record(row: dict[str, Any], session_id: str) -> SessionRecord:
         expires_at=row["expires_at"],
         last_seen_at=row["last_seen_at"],
         user_id=str(row["user_id"] or ""),
+        password_change_required=bool(row.get("password_change_required")),
     )
 
 
@@ -155,9 +128,12 @@ def load_session(session_id: str) -> SessionRecord | None:
         connection.execute("SET search_path TO workspace, public")
         row = connection.execute(
             """
-            SELECT email, name, picture, created_at, last_seen_at, expires_at, revoked_at, user_id
-            FROM user_sessions
-            WHERE session_digest = %s
+            SELECT s.email, s.name, s.picture, s.created_at, s.last_seen_at, s.expires_at,
+                   s.revoked_at, s.user_id,
+                   COALESCE(c.must_change_password, FALSE) AS password_change_required
+            FROM user_sessions s
+            LEFT JOIN user_credentials c ON c.user_id = s.user_id AND s.user_id <> ''
+            WHERE s.session_digest = %s
             """,
             (session_id_digest(session_id),),
         ).fetchone()

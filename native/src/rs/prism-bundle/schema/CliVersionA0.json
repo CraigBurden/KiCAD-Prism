@@ -1,0 +1,188 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.cli.version:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.cli.version.a0",
+            "description": "Document schema id."
+        },
+        "crate_version": {
+            "$ref": "#/$defs/CliReleaseVersion",
+            "description": "Version of the `prism-kicad-cli` crate. Bumped whenever any member's\nbytes or any recorded stage outcome could change for the same inputs:\nthe core, a projection producer, the manifest or archive writer, or the\nGLB canonicalization (cli-spec.md §5.1.2)."
+        },
+        "engine_version": {
+            "$ref": "#/$defs/CliReleaseVersion",
+            "description": "Version of the parser core crate (`ENGINE_VERSION`, the fork's `kicad-monkey-core`, `prism-kicad-core` after WP-F2)."
+        },
+        "hlr_procedure": {
+            "$ref": "#/$defs/CliHlrProcedure",
+            "description": "The procedure stage `models` uses for `models/assembly-hlr.json`: the Geometer runtime and the HLR options (cli-spec.md §5.2.4)."
+        },
+        "kicad_file_formats": {
+            "$ref": "#/$defs/CliKicadFileFormats",
+            "description": "The current file formats of `kicad_version`: the `(version N)` KiCad\nwrites. Sources older than them are upgraded before stage `parse`\n(cli-spec.md §9.4), and the parser reads only these formats, so they\ndecide every parsed member's bytes. Raised with `kicad_version`."
+        },
+        "kicad_version": {
+            "$ref": "#/$defs/CliReleaseVersion",
+            "description": "KiCad version of the KiCad-produced members (the refilled board and\n`components.glb`), exactly as `kicad-cli version` prints it. It also\npins KiCad's stock 3D model library. `--refill-tool` and\n`--models-tool` must have its major.minor; patch releases are tolerated."
+        },
+        "member_schemas": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/CliVersionMemberSchema"
+            },
+            "minItems": 1,
+            "description": "Every member this generator writes with a schema (`bundle.json`,\n`design.json`, the materialization and every projection) and its schema\nid, sorted by `path` in code point order."
+        },
+        "models_procedure": {
+            "$ref": "#/$defs/CliModelsProcedure",
+            "description": "The procedure the backend must use to produce `--models-glb`."
+        },
+        "pack_format_version": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535,
+            "description": "Format version of the packed materialization encoding (`PACK_FORMAT_VERSION` of the materialization-pack crate), which the materialization schema id does not pin."
+        },
+        "refill_procedure": {
+            "$ref": "#/$defs/CliRefillProcedure",
+            "description": "The procedure the backend must use to produce `--refilled-board`."
+        },
+        "upgrade_procedure": {
+            "$ref": "#/$defs/CliUpgradeProcedure",
+            "description": "The procedure the backend must use to upgrade sources older than `kicad_version`'s file format before stage `parse` (cli-spec.md §9.4)."
+        }
+    },
+    "required": [
+        "schema",
+        "crate_version",
+        "engine_version",
+        "hlr_procedure",
+        "kicad_file_formats",
+        "kicad_version",
+        "member_schemas",
+        "models_procedure",
+        "pack_format_version",
+        "refill_procedure",
+        "upgrade_procedure"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "The generator id: the stdout of `prism-kicad version`. It states everything\nthat decides the bytes of a bundle besides the sources (ADR §5), and is\nbumped explicitly, never derived from binary or source bytes.\n\nFields are declared in canonical order: `schema` first, then the other keys\nin code point order, which is also the order inside every nested object.\nThe canonical bytes (cli-spec.md §5.1) are that compact serialization; the\ngenerator digest and the bundle key are SHA-256 over them.",
+    "title": "prism-kicad version a0",
+    "$defs": {
+        "CliReleaseVersion": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+            "description": "A release version of three dot-separated decimal numbers without leading\nzeros, for example `0.1.0` (SemVer), `2026.9.7` (the fork's CalVer) or\n`10.0.6` (KiCad, as `kicad-cli version` prints it). Printable ASCII only,\nwhich keeps the generator id's canonical form unambiguous (cli-spec.md §5.1)."
+        },
+        "CliHlrProcedure": {
+            "type": "object",
+            "properties": {
+                "geometer_version": {
+                    "$ref": "#/$defs/CliReleaseVersion",
+                    "description": "The Geometer runtime's release version, exactly as its welcome reports it, for example `2026.9.19`. `--geometer` must report this version or exit 7."
+                },
+                "options": {
+                    "$ref": "#/$defs/CliHlrOptionsProcedure",
+                    "description": "The HLR option set every projection used."
+                }
+            },
+            "required": [
+                "geometer_version",
+                "options"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The procedure stage `models` uses for `models/assembly-hlr.json`\n(cli-spec.md §5.2.4): the Geometer runtime release and the HLR option set.\nChanging either is a generator bump."
+        },
+        "CliKicadFileFormats": {
+            "type": "object",
+            "properties": {
+                "board": {
+                    "type": "integer",
+                    "minimum": 20000000,
+                    "maximum": 99991231,
+                    "description": "`.kicad_pcb`, for example `20260206`."
+                },
+                "schematic": {
+                    "type": "integer",
+                    "minimum": 20000000,
+                    "maximum": 99991231,
+                    "description": "`.kicad_sch`, for example `20260306`."
+                }
+            },
+            "required": [
+                "board",
+                "schematic"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "KiCad's current `(version N)` per source format, declared in code point order."
+        },
+        "CliVersionMemberSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "$ref": "#/$defs/ArchivePath",
+                    "description": "The member's archive path, for example `projections/stackup.json`."
+                },
+                "schema": {
+                    "$ref": "#/$defs/SchemaId",
+                    "description": "The schema id the member's content follows, for example `prism.stackup.a0`."
+                }
+            },
+            "required": [
+                "path",
+                "schema"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One member the generator writes with a schema, and that schema's id."
+        },
+        "CliModelsProcedure": {
+            "type": "string",
+            "enum": [
+                "kicad-cli-glb-a0"
+            ],
+            "description": "The component-model export the backend runs before stage `models`\n(cli-spec.md §9.3). Pinned in the generator id because its output is a\nbundle member."
+        },
+        "CliRefillProcedure": {
+            "type": "string",
+            "enum": [
+                "pcbnew-zone-filler-a0"
+            ],
+            "description": "The zone-refill procedure the backend runs before stage `board`\n(cli-spec.md §9.2). Pinned in the generator id because its output is a\nbundle member."
+        },
+        "CliUpgradeProcedure": {
+            "type": "string",
+            "enum": [
+                "kicad-seeded-upgrade-a0"
+            ],
+            "description": "The source-upgrade procedure the backend runs before stage `parse`\n(cli-spec.md §9.4). Pinned in the generator id because its output is the\nbytes of upgraded source members."
+        },
+        "CliHlrOptionsProcedure": {
+            "type": "string",
+            "enum": [
+                "assembly-hlr-a0"
+            ],
+            "description": "The HLR option set stage `models` passes to Geometer for every footprint\n(`models/assembly-hlr.json`'s `options`), as one versioned token: changing\nany option changes the token, and with it the generator id (cli-spec.md\n§5.2.4)."
+        },
+        "ArchivePath": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*$",
+            "description": "Path of a member inside a `.prism` bundle archive: `/`-separated, relative,\nno empty, `.` or `..` segment, no leading or trailing `/`, no backslash and\nno `:`. The same rule as manifest a1's ArchivePath and prism-bundle's\n`check_member_name`, without lookaround."
+        },
+        "SchemaId": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+\\.[av][0-9]+$",
+            "description": "Id of a JSON document schema, `<family>.<name>.<version>`: for example\n`prism.stackup.a0`, `prism.bundle.manifest.a2`, `prism.system_interface.v1`\nor `kicad_monkey.design.a0`. Lowercase, dot-separated, ending in the\nversion (`a<N>` while pre-stable, `v<N>` once stable)."
+        }
+    }
+}

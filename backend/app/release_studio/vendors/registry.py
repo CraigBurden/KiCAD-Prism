@@ -6,17 +6,13 @@ The HTTP surface and the inspect/sign UI list whatever is registered here.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Mapping, Protocol, Sequence
+from typing import Any, Mapping, Protocol
 
 from app.release_studio.steps import StepSpec
 
 DEFAULT_VENDORS: tuple[str, ...] = ("jlcpcb",)
 KNOWN_VENDOR_IDS: frozenset[str] = frozenset(DEFAULT_VENDORS)
-
-CruncherRunner = Callable[..., Any]
-
 
 class VendorProfile(Protocol):
     """One fab house's generator and pack layout."""
@@ -26,30 +22,19 @@ class VendorProfile(Protocol):
     pack_filename: str
     description: str
     required_pack_artifacts: tuple[str, ...]
+    #: The ``prism.vendor.<id>.config.a0`` schema ``vendor list`` declares.
+    config_schema: str
 
-    def generate(
+    def config_document(self) -> dict[str, Any]: ...
+
+    def config_bytes(self) -> bytes: ...
+
+    def pack_files(
         self,
         *,
-        cruncher_path: str,
-        design_file: Path,
+        files: Mapping[str, Path],
         output_root: Path,
-        variant: str = "",
-        runner: CruncherRunner | None = None,
-        timeout_seconds: int = 900,
-    ) -> VendorArtifacts: ...
-
-
-@dataclass(frozen=True, slots=True)
-class VendorArtifacts:
-    """Files one vendor generator produced, split by fingerprintability."""
-
-    canonical_files: Mapping[str, Path]
-    evidence_files: Mapping[str, Path] = field(default_factory=dict)
-    stdout: str = ""
-    stderr: str = ""
-    elapsed_ms: int = 0
-    returncode: int = 0
-    normalized_argv: tuple[str, ...] = ()
+    ) -> tuple[dict[str, Path], dict[str, Path]]: ...
 
 
 def vendor_step_spec(vendor_id: str) -> StepSpec:
@@ -115,7 +100,6 @@ def public_profile_payload() -> list[dict[str, Any]]:
 
 __all__ = [
     "DEFAULT_VENDORS",
-    "VendorArtifacts",
     "VendorProfile",
     "known_vendor_ids",
     "profile_by_id",

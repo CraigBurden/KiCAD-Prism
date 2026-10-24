@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 
 from app.services.comments_revisions import Editor, edit_root
+from app.services.trackers import attachment_links
 from app.services.trackers.drafts import (
     CONTEXT_BLOCK_END,
     CONTEXT_BLOCK_START,
@@ -355,7 +356,13 @@ def apply_inbound_root_prose(
     ).fetchone()
     if current is None:
         return "unchanged"
-    if str(current.get("content") or "") == blocks.prose:
+    # Images Prism sent come back as forge URLs; compare and store them as
+    # the attachment references they stand for.
+    prose = attachment_links.canonicalize_inbound(
+        conn, blocks.prose, project_id=project_id,
+        connector_id=str(thread.get("connector_id") or ""), container_id=str(thread.get("remote_container_id") or ""),
+    )
+    if str(current.get("content") or "") == prose:
         return "unchanged"
 
     editor = resolve_editor(actor_id=event_actor_id, actor_login=event_actor_login, provider=provider)
@@ -363,7 +370,8 @@ def apply_inbound_root_prose(
         conn,
         project_id=project_id,
         comment_id=comment_id,
-        content=blocks.prose,
+        content=prose,
+        content_format=attachment_links.inbound_format(prose),
         editor=editor,
         expected_revision=None,
     )

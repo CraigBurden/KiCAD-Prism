@@ -1,0 +1,8114 @@
+{
+ "schema": "prism.parity.bench.python.a0",
+ "host": {
+  "platform": "darwin-arm64",
+  "python": "3.12.13",
+  "kicadMonkey": "2026.9.7",
+  "cpus": 10,
+  "loadAverageAtStart": [
+   9.04052734375,
+   15.17822265625,
+   23.01611328125
+  ],
+  "loadAverageAtEnd": [
+   6.0224609375,
+   7.3544921875,
+   14.837890625
+  ]
+ },
+ "repeat": 3,
+ "results": [
+  {
+   "importsS": 0.6253537500742823,
+   "timesS": [
+    0.16006820800248533,
+    0.005518374964594841,
+    0.00515970797277987
+   ],
+   "phases": null,
+   "peakRssBytes": 80642048,
+   "error": null,
+   "case": "dv-case_fold",
+   "target": "prod:km-load",
+   "processS": 0.8778657909715548
+  },
+  {
+   "importsS": 0.316158292000182,
+   "timesS": [
+    0.22459870798047632,
+    0.012262708973139524,
+    0.012355959042906761
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 3791,
+     "cpuNs": 3000,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 41856459,
+     "cpuNs": 40096958,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 48678542,
+     "cpuNs": 47690667,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 28097584,
+     "cpuNs": 26458792,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 78074459,
+     "cpuNs": 63707375,
+     "metadata": {
+      "components": 2,
+      "nets": 4,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 178417,
+     "cpuNs": 178750,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 669125,
+     "cpuNs": 576167,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 128333,
+     "cpuNs": 127125,
+     "metadata": {
+      "components": 2
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 43292,
+     "cpuNs": 43375,
+     "metadata": {
+      "nets": 4,
+      "terminals": 4
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 28667,
+     "cpuNs": 28792,
+     "metadata": {
+      "components": 2,
+      "nets": 4,
+      "terminals": 4
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 13336458,
+     "cpuNs": 11287209,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 84951040,
+   "error": null,
+   "case": "dv-case_fold",
+   "target": "prod:semantic-index",
+   "processS": 0.6651971669634804
+  },
+  {
+   "importsS": 0.3568777919281274,
+   "timesS": [
+    0.008095583994872868,
+    0.0038653339724987745,
+    0.0035151250194758177
+   ],
+   "phases": null,
+   "peakRssBytes": 62046208,
+   "error": null,
+   "case": "dv-case_fold",
+   "target": "prod:variant-catalog",
+   "processS": 0.46586833300534636
+  },
+  {
+   "importsS": 0.3275807499885559,
+   "timesS": [
+    0.14547375007532537,
+    0.007446416886523366,
+    0.007547875051386654
+   ],
+   "phases": null,
+   "peakRssBytes": 80478208,
+   "error": null,
+   "case": "dv-case_fold",
+   "target": "prod:system-interface",
+   "processS": 0.5786328330868855
+  },
+  {
+   "importsS": 0.018668458913452923,
+   "timesS": [
+    0.5300855420064181,
+    0.010409209062345326,
+    0.010120708029717207
+   ],
+   "phases": null,
+   "peakRssBytes": 86097920,
+   "error": null,
+   "case": "dv-case_fold",
+   "target": "golden:semantic-index",
+   "processS": 0.6617184579372406
+  },
+  {
+   "importsS": 0.017210207995958626,
+   "timesS": [
+    0.45660662499722093,
+    0.007611416047438979,
+    0.007566125015728176
+   ],
+   "phases": null,
+   "peakRssBytes": 80756736,
+   "error": null,
+   "case": "dv-case_fold",
+   "target": "golden:system-interface",
+   "processS": 0.577315750066191
+  },
+  {
+   "importsS": 0.022635750006884336,
+   "timesS": [
+    0.4897696250118315,
+    0.3858934580348432,
+    0.3675769579131156
+   ],
+   "phases": null,
+   "peakRssBytes": 42893312,
+   "error": null,
+   "case": "dv-case_fold",
+   "target": "golden:project",
+   "processS": 1.328445167047903
+  },
+  {
+   "importsS": 0.02559829200617969,
+   "timesS": [
+    0.1538784169824794,
+    0.012491957983002067,
+    0.012291082995943725
+   ],
+   "phases": null,
+   "peakRssBytes": 45645824,
+   "error": null,
+   "case": "dv-case_fold",
+   "target": "golden:stackup",
+   "processS": 0.2758039579493925
+  },
+  {
+   "importsS": 0.025661792024038732,
+   "timesS": [
+    0.4206159169552848,
+    0.008458332973532379,
+    0.00830954103730619
+   ],
+   "phases": null,
+   "peakRssBytes": 65994752,
+   "error": null,
+   "case": "dv-case_fold",
+   "target": "golden:placements",
+   "processS": 0.5456322920508683
+  },
+  {
+   "importsS": 0.01818508398719132,
+   "timesS": [
+    0.7621927500003949,
+    0.12578062491957098,
+    0.12656075006816536
+   ],
+   "phases": null,
+   "peakRssBytes": 86622208,
+   "error": null,
+   "case": "dv-case_fold",
+   "target": "golden:occurrences",
+   "processS": 1.1300858329050243
+  },
+  {
+   "importsS": 0.02635587495751679,
+   "timesS": [
+    0.15338599996175617,
+    0.08463616692461073,
+    0.08561525004915893
+   ],
+   "phases": null,
+   "peakRssBytes": 59686912,
+   "error": null,
+   "case": "dv-case_fold",
+   "target": "golden:board-objects",
+   "processS": 0.4093702919781208
+  },
+  {
+   "importsS": 0.02721866697538644,
+   "timesS": [
+    0.41116533300373703,
+    0.09753016603644937,
+    0.08281525003258139
+   ],
+   "phases": null,
+   "peakRssBytes": 64339968,
+   "error": null,
+   "case": "dv-case_fold",
+   "target": "golden:route-metrics",
+   "processS": 0.7021333330776542
+  },
+  {
+   "importsS": 0.33888079097960144,
+   "timesS": [
+    0.16264016705099493,
+    0.0061879579443484545,
+    0.0066610840149223804
+   ],
+   "phases": null,
+   "peakRssBytes": 80789504,
+   "error": null,
+   "case": "dv-kicad11_tokens",
+   "target": "prod:km-load",
+   "processS": 0.6103509159293026
+  },
+  {
+   "importsS": 0.3119202909292653,
+   "timesS": [
+    0.20965816697571427,
+    0.008944125031121075,
+    0.008849874953739345
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 4000,
+     "cpuNs": 3292,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 42520958,
+     "cpuNs": 40501625,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 50044500,
+     "cpuNs": 48793083,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 26624042,
+     "cpuNs": 25174750,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 63562583,
+     "cpuNs": 62378334,
+     "metadata": {
+      "components": 1,
+      "nets": 2,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 166834,
+     "cpuNs": 167166,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 798458,
+     "cpuNs": 646125,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 85291,
+     "cpuNs": 85500,
+     "metadata": {
+      "components": 1
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 30750,
+     "cpuNs": 30750,
+     "metadata": {
+      "nets": 2,
+      "terminals": 2
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 28917,
+     "cpuNs": 29000,
+     "metadata": {
+      "components": 1,
+      "nets": 2,
+      "terminals": 2
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 12331708,
+     "cpuNs": 10234084,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 85065728,
+   "error": null,
+   "case": "dv-kicad11_tokens",
+   "target": "prod:semantic-index",
+   "processS": 0.6262682089582086
+  },
+  {
+   "importsS": 0.33404391701333225,
+   "timesS": [
+    0.0066512919729575515,
+    0.002114207949489355,
+    0.0020082920091226697
+   ],
+   "phases": null,
+   "peakRssBytes": 62406656,
+   "error": null,
+   "case": "dv-kicad11_tokens",
+   "target": "prod:variant-catalog",
+   "processS": 0.43005604099016637
+  },
+  {
+   "importsS": 0.3351024170406163,
+   "timesS": [
+    0.1447481249924749,
+    0.006348958006128669,
+    0.006587750045582652
+   ],
+   "phases": null,
+   "peakRssBytes": 80232448,
+   "error": null,
+   "case": "dv-kicad11_tokens",
+   "target": "prod:system-interface",
+   "processS": 0.5749479579972103
+  },
+  {
+   "importsS": 0.0180597499711439,
+   "timesS": [
+    0.5371376249240711,
+    0.0094427919248119,
+    0.00908424996305257
+   ],
+   "phases": null,
+   "peakRssBytes": 85737472,
+   "error": null,
+   "case": "dv-kicad11_tokens",
+   "target": "golden:semantic-index",
+   "processS": 0.666421249974519
+  },
+  {
+   "importsS": 0.017421833937987685,
+   "timesS": [
+    0.46421674999874085,
+    0.006714791990816593,
+    0.006303749978542328
+   ],
+   "phases": null,
+   "peakRssBytes": 80986112,
+   "error": null,
+   "case": "dv-kicad11_tokens",
+   "target": "golden:system-interface",
+   "processS": 0.5768311250722036
+  },
+  {
+   "importsS": 0.022353083011694252,
+   "timesS": [
+    0.49814104102551937,
+    0.3645289170090109,
+    0.3617200420703739
+   ],
+   "phases": null,
+   "peakRssBytes": 42565632,
+   "error": null,
+   "case": "dv-kicad11_tokens",
+   "target": "golden:project",
+   "processS": 1.3006255839718506
+  },
+  {
+   "importsS": 0.024077082984149456,
+   "timesS": [
+    0.1545838339952752,
+    0.010241582989692688,
+    0.011079750023782253
+   ],
+   "phases": null,
+   "peakRssBytes": 45744128,
+   "error": null,
+   "case": "dv-kicad11_tokens",
+   "target": "golden:stackup",
+   "processS": 0.26206662505865097
+  },
+  {
+   "importsS": 0.023090041941031814,
+   "timesS": [
+    0.3892292500240728,
+    0.006235542008653283,
+    0.005722624948248267
+   ],
+   "phases": null,
+   "peakRssBytes": 65929216,
+   "error": null,
+   "case": "dv-kicad11_tokens",
+   "target": "golden:placements",
+   "processS": 0.5056374579435214
+  },
+  {
+   "importsS": 0.018168041948229074,
+   "timesS": [
+    0.649867375032045,
+    0.11747874994762242,
+    0.14145295810885727
+   ],
+   "phases": null,
+   "peakRssBytes": 88244224,
+   "error": null,
+   "case": "dv-kicad11_tokens",
+   "target": "golden:occurrences",
+   "processS": 1.0303769999882206
+  },
+  {
+   "importsS": 0.027823457960039377,
+   "timesS": [
+    0.1611134170088917,
+    0.08306049997918308,
+    0.08224504196550697
+   ],
+   "phases": null,
+   "peakRssBytes": 53821440,
+   "error": null,
+   "case": "dv-kicad11_tokens",
+   "target": "golden:board-objects",
+   "processS": 0.41612395900301635
+  },
+  {
+   "importsS": 0.026115499902516603,
+   "timesS": [
+    0.411749791004695,
+    0.08505554194562137,
+    0.08299170900136232
+   ],
+   "phases": null,
+   "peakRssBytes": 64765952,
+   "error": null,
+   "case": "dv-kicad11_tokens",
+   "target": "golden:route-metrics",
+   "processS": 0.693561999942176
+  },
+  {
+   "importsS": 0.333608791930601,
+   "timesS": [
+    0.11315200000535697,
+    0.004230999969877303,
+    0.004180749994702637
+   ],
+   "phases": null,
+   "peakRssBytes": 78905344,
+   "error": null,
+   "case": "dv-legacy_in_bom",
+   "target": "prod:km-load",
+   "processS": 0.5400519999675453
+  },
+  {
+   "importsS": 0.36296645796392113,
+   "timesS": [
+    0.18240779207553715,
+    0.007829708978533745,
+    0.0073673330480232835
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 2958,
+     "cpuNs": 2500,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 42653291,
+     "cpuNs": 40047083,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 47100792,
+     "cpuNs": 45835875,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 1334,
+     "cpuNs": 1334,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 64351625,
+     "cpuNs": 63138417,
+     "metadata": {
+      "components": 2,
+      "nets": 4,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 196166,
+     "cpuNs": 196541,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 937208,
+     "cpuNs": 637500,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 125708,
+     "cpuNs": 125917,
+     "metadata": {
+      "components": 2
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 46000,
+     "cpuNs": 46042,
+     "metadata": {
+      "nets": 4,
+      "terminals": 4
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 292,
+     "cpuNs": 292,
+     "metadata": {
+      "components": 2,
+      "nets": 4,
+      "terminals": 4
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 12636084,
+     "cpuNs": 9220500,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 82477056,
+   "error": null,
+   "case": "dv-legacy_in_bom",
+   "target": "prod:semantic-index",
+   "processS": 0.6535259169759229
+  },
+  {
+   "importsS": 0.33117695804685354,
+   "timesS": [
+    0.007693624938838184,
+    0.00203820806927979,
+    0.002188708051107824
+   ],
+   "phases": null,
+   "peakRssBytes": 62128128,
+   "error": null,
+   "case": "dv-legacy_in_bom",
+   "target": "prod:variant-catalog",
+   "processS": 0.4296345409238711
+  },
+  {
+   "importsS": 0.3507530000060797,
+   "timesS": [
+    0.11865158309228718,
+    0.005905917030759156,
+    0.005441833985969424
+   ],
+   "phases": null,
+   "peakRssBytes": 79904768,
+   "error": null,
+   "case": "dv-legacy_in_bom",
+   "target": "prod:system-interface",
+   "processS": 0.5696292499778792
+  },
+  {
+   "importsS": 0.017375958967022598,
+   "timesS": [
+    0.4878000000026077,
+    0.007717374945059419,
+    0.007573624956421554
+   ],
+   "phases": null,
+   "peakRssBytes": 83017728,
+   "error": null,
+   "case": "dv-legacy_in_bom",
+   "target": "golden:semantic-index",
+   "processS": 0.6045141249196604
+  },
+  {
+   "importsS": 0.017532417085021734,
+   "timesS": [
+    0.4256093750009313,
+    0.006248791003599763,
+    0.005577916977927089
+   ],
+   "phases": null,
+   "peakRssBytes": 80363520,
+   "error": null,
+   "case": "dv-legacy_in_bom",
+   "target": "golden:system-interface",
+   "processS": 0.5365794999524951
+  },
+  {
+   "importsS": 0.021697791991755366,
+   "timesS": [
+    0.4355268750805408,
+    0.30617583298590034,
+    0.291737416991964
+   ],
+   "phases": null,
+   "peakRssBytes": 42582016,
+   "error": null,
+   "case": "dv-legacy_in_bom",
+   "target": "golden:project",
+   "processS": 1.1158967920346186
+  },
+  {
+   "importsS": 0.023268625023774803,
+   "timesS": [
+    0.016928166965954006,
+    0.001428874908015132,
+    0.0014434169279411435
+   ],
+   "phases": null,
+   "peakRssBytes": 29458432,
+   "error": null,
+   "case": "dv-legacy_in_bom",
+   "target": "golden:stackup",
+   "processS": 0.09622891701292247
+  },
+  {
+   "importsS": 0.02349562500603497,
+   "timesS": [
+    0.016638915985822678,
+    0.0014894589548930526,
+    0.0014474579365924
+   ],
+   "phases": null,
+   "peakRssBytes": 29638656,
+   "error": null,
+   "case": "dv-legacy_in_bom",
+   "target": "golden:placements",
+   "processS": 0.09685766708571464
+  },
+  {
+   "importsS": 0.017700625001452863,
+   "timesS": [
+    0.6081552500836551,
+    0.10139529092703015,
+    0.09903408295940608
+   ],
+   "phases": null,
+   "peakRssBytes": 84836352,
+   "error": null,
+   "case": "dv-legacy_in_bom",
+   "target": "golden:occurrences",
+   "processS": 0.9275198329705745
+  },
+  {
+   "importsS": 0.02923554100561887,
+   "timesS": [
+    0.1605290409643203,
+    0.07667362503707409,
+    0.0762869999743998
+   ],
+   "phases": null,
+   "peakRssBytes": 53035008,
+   "error": null,
+   "case": "dv-legacy_in_bom",
+   "target": "golden:board-objects",
+   "processS": 0.4052217919379473
+  },
+  {
+   "importsS": 0.026283874991349876,
+   "timesS": [
+    0.43718195892870426,
+    0.0829636660637334,
+    0.0839392909547314
+   ],
+   "phases": null,
+   "peakRssBytes": 64307200,
+   "error": null,
+   "case": "dv-legacy_in_bom",
+   "target": "golden:route-metrics",
+   "processS": 0.7119822090025991
+  },
+  {
+   "importsS": 0.3587142080068588,
+   "timesS": [],
+   "phases": null,
+   "peakRssBytes": 63782912,
+   "error": "SexprTreeError: Unbalanced opening parenthesis at line 1, column 1",
+   "case": "dv-malformed",
+   "target": "prod:km-load",
+   "processS": 0.4773427920881659
+  },
+  {
+   "importsS": 0.3138401659671217,
+   "timesS": [],
+   "phases": null,
+   "peakRssBytes": 62783488,
+   "error": "SexprTreeError: Unbalanced opening parenthesis at line 1, column 1",
+   "case": "dv-malformed",
+   "target": "prod:semantic-index",
+   "processS": 0.41359041701070964
+  },
+  {
+   "importsS": 0.3320265830261633,
+   "timesS": [
+    0.00821929203812033,
+    0.0026492499746382236,
+    0.0022088339319452643
+   ],
+   "phases": null,
+   "peakRssBytes": 62390272,
+   "error": null,
+   "case": "dv-malformed",
+   "target": "prod:variant-catalog",
+   "processS": 0.4312868749257177
+  },
+  {
+   "importsS": 0.31734837510157377,
+   "timesS": [],
+   "phases": null,
+   "peakRssBytes": 63225856,
+   "error": "SexprTreeError: Unbalanced opening parenthesis at line 1, column 1",
+   "case": "dv-malformed",
+   "target": "prod:system-interface",
+   "processS": 0.42598725005518645
+  },
+  {
+   "importsS": 0.01727404200937599,
+   "timesS": [
+    0.3344700000016019,
+    0.002017167047597468,
+    0.0021385829895734787
+   ],
+   "phases": null,
+   "peakRssBytes": 63193088,
+   "error": null,
+   "case": "dv-malformed",
+   "target": "golden:semantic-index",
+   "processS": 0.4315060420194641
+  },
+  {
+   "importsS": 0.018027834012173116,
+   "timesS": [
+    0.3425383339636028,
+    0.003398458007723093,
+    0.0036486659664660692
+   ],
+   "phases": null,
+   "peakRssBytes": 63307776,
+   "error": null,
+   "case": "dv-malformed",
+   "target": "golden:system-interface",
+   "processS": 0.451384500018321
+  },
+  {
+   "importsS": 0.022118167020380497,
+   "timesS": [
+    0.02060808299575001,
+    0.0015352501068264246,
+    0.0012825420126318932
+   ],
+   "phases": null,
+   "peakRssBytes": 30801920,
+   "error": null,
+   "case": "dv-malformed",
+   "target": "golden:project",
+   "processS": 0.09688366600312293
+  },
+  {
+   "importsS": 0.022916165995411575,
+   "timesS": [
+    0.0166046250378713,
+    0.0010831659892573953,
+    0.0009079999290406704
+   ],
+   "phases": null,
+   "peakRssBytes": 29327360,
+   "error": null,
+   "case": "dv-malformed",
+   "target": "golden:stackup",
+   "processS": 0.09353945904877037
+  },
+  {
+   "importsS": 0.024409333942458034,
+   "timesS": [
+    0.01905854104552418,
+    0.0012236250331625342,
+    0.0010722920997068286
+   ],
+   "phases": null,
+   "peakRssBytes": 29474816,
+   "error": null,
+   "case": "dv-malformed",
+   "target": "golden:placements",
+   "processS": 0.0976558750262484
+  },
+  {
+   "importsS": 0.018670958001166582,
+   "timesS": [
+    0.03570620797108859,
+    0.0013498750049620867,
+    0.0011761250207200646
+   ],
+   "phases": null,
+   "peakRssBytes": 31227904,
+   "error": null,
+   "case": "dv-malformed",
+   "target": "golden:occurrences",
+   "processS": 0.10865650000050664
+  },
+  {
+   "importsS": 0.02447058295365423,
+   "timesS": [
+    0.15401808393653482,
+    0.0817052919883281,
+    0.07695795898325741
+   ],
+   "phases": null,
+   "peakRssBytes": 54296576,
+   "error": null,
+   "case": "dv-malformed",
+   "target": "golden:board-objects",
+   "processS": 0.3961698750499636
+  },
+  {
+   "importsS": 0.025691542075946927,
+   "timesS": [
+    0.1525557499844581,
+    0.08649249991867691,
+    0.07772358297370374
+   ],
+   "phases": null,
+   "peakRssBytes": 53690368,
+   "error": null,
+   "case": "dv-malformed",
+   "target": "golden:route-metrics",
+   "processS": 0.4082521250238642
+  },
+  {
+   "importsS": 0.30924074992071837,
+   "timesS": [
+    0.140727375051938,
+    0.004626958048902452,
+    0.004439208074472845
+   ],
+   "phases": null,
+   "peakRssBytes": 80363520,
+   "error": null,
+   "case": "dv-no_variants",
+   "target": "prod:km-load",
+   "processS": 0.5443690839456394
+  },
+  {
+   "importsS": 0.30655387497972697,
+   "timesS": [
+    0.20710183400660753,
+    0.0076312500750645995,
+    0.008355166064575315
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 3584,
+     "cpuNs": 2334,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 41415334,
+     "cpuNs": 39247833,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 47942917,
+     "cpuNs": 46784709,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 28775125,
+     "cpuNs": 27274792,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 59249417,
+     "cpuNs": 58113792,
+     "metadata": {
+      "components": 1,
+      "nets": 2,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 206042,
+     "cpuNs": 206417,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 784458,
+     "cpuNs": 615333,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 86542,
+     "cpuNs": 86959,
+     "metadata": {
+      "components": 1
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 32375,
+     "cpuNs": 32334,
+     "metadata": {
+      "nets": 2,
+      "terminals": 2
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 23584,
+     "cpuNs": 23709,
+     "metadata": {
+      "components": 1,
+      "nets": 2,
+      "terminals": 2
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 15606125,
+     "cpuNs": 13834916,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 85049344,
+   "error": null,
+   "case": "dv-no_variants",
+   "target": "prod:semantic-index",
+   "processS": 0.6139049580087885
+  },
+  {
+   "importsS": 0.3101955000311136,
+   "timesS": [
+    0.006614624988287687,
+    0.0018889589700847864,
+    0.0018852079520002007
+   ],
+   "phases": null,
+   "peakRssBytes": 61931520,
+   "error": null,
+   "case": "dv-no_variants",
+   "target": "prod:variant-catalog",
+   "processS": 0.405327667016536
+  },
+  {
+   "importsS": 0.3185034579364583,
+   "timesS": [
+    0.1419738329714164,
+    0.005668291938491166,
+    0.005106625030748546
+   ],
+   "phases": null,
+   "peakRssBytes": 80429056,
+   "error": null,
+   "case": "dv-no_variants",
+   "target": "prod:system-interface",
+   "processS": 0.5563072079094127
+  },
+  {
+   "importsS": 0.01744433306157589,
+   "timesS": [
+    0.5286482920637354,
+    0.010188832995481789,
+    0.00824654195457697
+   ],
+   "phases": null,
+   "peakRssBytes": 85688320,
+   "error": null,
+   "case": "dv-no_variants",
+   "target": "golden:semantic-index",
+   "processS": 0.6526483340421692
+  },
+  {
+   "importsS": 0.01806274999398738,
+   "timesS": [
+    0.4504347500624135,
+    0.005959833040833473,
+    0.005525624961592257
+   ],
+   "phases": null,
+   "peakRssBytes": 80543744,
+   "error": null,
+   "case": "dv-no_variants",
+   "target": "golden:system-interface",
+   "processS": 0.5609505419852212
+  },
+  {
+   "importsS": 0.022630832972936332,
+   "timesS": [
+    0.47660437505692244,
+    0.35147833300288767,
+    0.35281045793090016
+   ],
+   "phases": null,
+   "peakRssBytes": 42582016,
+   "error": null,
+   "case": "dv-no_variants",
+   "target": "golden:project",
+   "processS": 1.263537292019464
+  },
+  {
+   "importsS": 0.02379312494304031,
+   "timesS": [
+    0.15464766591321677,
+    0.010007667005993426,
+    0.009438749984838068
+   ],
+   "phases": null,
+   "peakRssBytes": 45580288,
+   "error": null,
+   "case": "dv-no_variants",
+   "target": "golden:stackup",
+   "processS": 0.2653033750830218
+  },
+  {
+   "importsS": 0.024492874974384904,
+   "timesS": [
+    0.43864483397919685,
+    0.005774582969024777,
+    0.0053776249988004565
+   ],
+   "phases": null,
+   "peakRssBytes": 66060288,
+   "error": null,
+   "case": "dv-no_variants",
+   "target": "golden:placements",
+   "processS": 0.558494915952906
+  },
+  {
+   "importsS": 0.018027707934379578,
+   "timesS": [
+    0.6431551249697804,
+    0.11537241702899337,
+    0.11471508303657174
+   ],
+   "phases": null,
+   "peakRssBytes": 86310912,
+   "error": null,
+   "case": "dv-no_variants",
+   "target": "golden:occurrences",
+   "processS": 0.9911458339774981
+  },
+  {
+   "importsS": 0.025448541971854866,
+   "timesS": [
+    0.14707537495996803,
+    0.08025025005917996,
+    0.084128083079122
+   ],
+   "phases": null,
+   "peakRssBytes": 53903360,
+   "error": null,
+   "case": "dv-no_variants",
+   "target": "golden:board-objects",
+   "processS": 0.39762629196047783
+  },
+  {
+   "importsS": 0.02660574996843934,
+   "timesS": [
+    0.40558149991557,
+    0.0788617500802502,
+    0.07655366603285074
+   ],
+   "phases": null,
+   "peakRssBytes": 64618496,
+   "error": null,
+   "case": "dv-no_variants",
+   "target": "golden:route-metrics",
+   "processS": 0.6671912500169128
+  },
+  {
+   "importsS": 0.31372654205188155,
+   "timesS": [
+    0.1637829999672249,
+    0.026790958014316857,
+    0.028007333050481975
+   ],
+   "phases": null,
+   "peakRssBytes": 80445440,
+   "error": null,
+   "case": "dv-oracle",
+   "target": "prod:km-load",
+   "processS": 0.6143306660233065
+  },
+  {
+   "importsS": 0.3036207080585882,
+   "timesS": [
+    0.24617420905269682,
+    0.042879916029050946,
+    0.04975400003604591
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 3792,
+     "cpuNs": 3000,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 54620250,
+     "cpuNs": 51989292,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 51109750,
+     "cpuNs": 49856584,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 38225292,
+     "cpuNs": 36430209,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 67200125,
+     "cpuNs": 65820959,
+     "metadata": {
+      "components": 13,
+      "nets": 29,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 557750,
+     "cpuNs": 558084,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 2218375,
+     "cpuNs": 1726250,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 505875,
+     "cpuNs": 506125,
+     "metadata": {
+      "components": 13
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 217375,
+     "cpuNs": 217583,
+     "metadata": {
+      "nets": 29,
+      "terminals": 29
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 104500,
+     "cpuNs": 104583,
+     "metadata": {
+      "components": 13,
+      "nets": 29,
+      "terminals": 41
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 17109000,
+     "cpuNs": 14178292,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 86294528,
+   "error": null,
+   "case": "dv-oracle",
+   "target": "prod:semantic-index",
+   "processS": 0.7278612920781597
+  },
+  {
+   "importsS": 0.3149435840314254,
+   "timesS": [
+    0.009746833937242627,
+    0.005458791041746736,
+    0.0048701249761506915
+   ],
+   "phases": null,
+   "peakRssBytes": 62259200,
+   "error": null,
+   "case": "dv-oracle",
+   "target": "prod:variant-catalog",
+   "processS": 0.4144364589592442
+  },
+  {
+   "importsS": 0.31852616695687175,
+   "timesS": [
+    0.17144608404487371,
+    0.03263154102023691,
+    0.03090666700154543
+   ],
+   "phases": null,
+   "peakRssBytes": 80674816,
+   "error": null,
+   "case": "dv-oracle",
+   "target": "prod:system-interface",
+   "processS": 0.642844625050202
+  },
+  {
+   "importsS": 0.01685224997345358,
+   "timesS": [
+    0.5460341670550406,
+    0.04417920799460262,
+    0.05648645805194974
+   ],
+   "phases": null,
+   "peakRssBytes": 87343104,
+   "error": null,
+   "case": "dv-oracle",
+   "target": "golden:semantic-index",
+   "processS": 0.7477362919598818
+  },
+  {
+   "importsS": 0.017108374973759055,
+   "timesS": [
+    0.47603762499056756,
+    0.031878083012998104,
+    0.030332499998621643
+   ],
+   "phases": null,
+   "peakRssBytes": 81805312,
+   "error": null,
+   "case": "dv-oracle",
+   "target": "golden:system-interface",
+   "processS": 0.6403872920200229
+  },
+  {
+   "importsS": 0.02093420794699341,
+   "timesS": [
+    0.7031687080161646,
+    0.5829731669509783,
+    0.573594709043391
+   ],
+   "phases": null,
+   "peakRssBytes": 44597248,
+   "error": null,
+   "case": "dv-oracle",
+   "target": "golden:project",
+   "processS": 1.9393983330810443
+  },
+  {
+   "importsS": 0.023806540993973613,
+   "timesS": [
+    0.19656658300664276,
+    0.056192000047303736,
+    0.049709875020198524
+   ],
+   "phases": null,
+   "peakRssBytes": 46612480,
+   "error": null,
+   "case": "dv-oracle",
+   "target": "golden:stackup",
+   "processS": 0.38880445901304483
+  },
+  {
+   "importsS": 0.02377845800947398,
+   "timesS": [
+    0.4029484170023352,
+    0.04192204098217189,
+    0.05232925002928823
+   ],
+   "phases": null,
+   "peakRssBytes": 68026368,
+   "error": null,
+   "case": "dv-oracle",
+   "target": "golden:placements",
+   "processS": 0.6025382910156623
+  },
+  {
+   "importsS": 0.018317334004677832,
+   "timesS": [
+    0.7999264589743689,
+    0.29905041598249227,
+    0.29184633295517415
+   ],
+   "phases": null,
+   "peakRssBytes": 89735168,
+   "error": null,
+   "case": "dv-oracle",
+   "target": "golden:occurrences",
+   "processS": 1.5022112919250503
+  },
+  {
+   "importsS": 0.024694958003237844,
+   "timesS": [
+    0.1833875000011176,
+    0.12275766697712243,
+    0.12256816704757512
+   ],
+   "phases": null,
+   "peakRssBytes": 68403200,
+   "error": null,
+   "case": "dv-oracle",
+   "target": "golden:board-objects",
+   "processS": 0.5134674169821665
+  },
+  {
+   "importsS": 0.02847200003452599,
+   "timesS": [
+    0.4417123750317842,
+    0.10853558301459998,
+    0.10187816608231515
+   ],
+   "phases": null,
+   "peakRssBytes": 68517888,
+   "error": null,
+   "case": "dv-oracle",
+   "target": "golden:route-metrics",
+   "processS": 0.7664469591109082
+  },
+  {
+   "importsS": 0.3184560000663623,
+   "timesS": [
+    0.15685174998361617,
+    0.02778670797124505,
+    0.028604374965652823
+   ],
+   "phases": null,
+   "peakRssBytes": 79970304,
+   "error": null,
+   "case": "dv-oracle_rev2",
+   "target": "prod:km-load",
+   "processS": 0.6225680420175195
+  },
+  {
+   "importsS": 0.3124645419884473,
+   "timesS": [
+    0.23381908296141773,
+    0.044270292040891945,
+    0.053465791046619415
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 3083,
+     "cpuNs": 2541,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 49817167,
+     "cpuNs": 47503250,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 47792792,
+     "cpuNs": 46642250,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 35372834,
+     "cpuNs": 33586708,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 68009584,
+     "cpuNs": 66744084,
+     "metadata": {
+      "components": 13,
+      "nets": 29,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 554000,
+     "cpuNs": 554209,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 2030417,
+     "cpuNs": 1736750,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 493334,
+     "cpuNs": 493583,
+     "metadata": {
+      "components": 13
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 220041,
+     "cpuNs": 220250,
+     "metadata": {
+      "nets": 29,
+      "terminals": 29
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 103250,
+     "cpuNs": 103375,
+     "metadata": {
+      "components": 13,
+      "nets": 29,
+      "terminals": 41
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 16299875,
+     "cpuNs": 13407917,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 86556672,
+   "error": null,
+   "case": "dv-oracle_rev2",
+   "target": "prod:semantic-index",
+   "processS": 0.7340513330418617
+  },
+  {
+   "importsS": 0.31838349997997284,
+   "timesS": [
+    0.010629500029608607,
+    0.0047123749973252416,
+    0.004864291986450553
+   ],
+   "phases": null,
+   "peakRssBytes": 62062592,
+   "error": null,
+   "case": "dv-oracle_rev2",
+   "target": "prod:variant-catalog",
+   "processS": 0.4182852499652654
+  },
+  {
+   "importsS": 0.3132237079553306,
+   "timesS": [
+    0.16570799995679408,
+    0.030140249989926815,
+    0.029335125000216067
+   ],
+   "phases": null,
+   "peakRssBytes": 80117760,
+   "error": null,
+   "case": "dv-oracle_rev2",
+   "target": "prod:system-interface",
+   "processS": 0.6217837079893798
+  },
+  {
+   "importsS": 0.017802500049583614,
+   "timesS": [
+    0.5604334999807179,
+    0.04349395807366818,
+    0.054954541963525116
+   ],
+   "phases": null,
+   "peakRssBytes": 86261760,
+   "error": null,
+   "case": "dv-oracle_rev2",
+   "target": "golden:semantic-index",
+   "processS": 0.7607397499959916
+  },
+  {
+   "importsS": 0.01702787505928427,
+   "timesS": [
+    0.4956574169918895,
+    0.03071216691751033,
+    0.030745250056497753
+   ],
+   "phases": null,
+   "peakRssBytes": 81510400,
+   "error": null,
+   "case": "dv-oracle_rev2",
+   "target": "golden:system-interface",
+   "processS": 0.6641860830131918
+  },
+  {
+   "importsS": 0.0225271659437567,
+   "timesS": [
+    0.7009047500323504,
+    0.603343416005373,
+    0.5960573749616742
+   ],
+   "phases": null,
+   "peakRssBytes": 44777472,
+   "error": null,
+   "case": "dv-oracle_rev2",
+   "target": "golden:project",
+   "processS": 1.9853319999529049
+  },
+  {
+   "importsS": 0.026094708940945566,
+   "timesS": [
+    0.20406145800370723,
+    0.05667133303359151,
+    0.050968916970305145
+   ],
+   "phases": null,
+   "peakRssBytes": 46448640,
+   "error": null,
+   "case": "dv-oracle_rev2",
+   "target": "golden:stackup",
+   "processS": 0.40410266700200737
+  },
+  {
+   "importsS": 0.027464749990031123,
+   "timesS": [
+    0.41681629209779203,
+    0.04135879105888307,
+    0.05138249997980893
+   ],
+   "phases": null,
+   "peakRssBytes": 68452352,
+   "error": null,
+   "case": "dv-oracle_rev2",
+   "target": "golden:placements",
+   "processS": 0.6189278750680387
+  },
+  {
+   "importsS": 0.01939462497830391,
+   "timesS": [
+    1.0072390839923173,
+    0.3143184999935329,
+    0.31138137506786734
+   ],
+   "phases": null,
+   "peakRssBytes": 90423296,
+   "error": null,
+   "case": "dv-oracle_rev2",
+   "target": "golden:occurrences",
+   "processS": 1.7496523750014603
+  },
+  {
+   "importsS": 0.025933791999705136,
+   "timesS": [
+    0.19414620799943805,
+    0.11973037500865757,
+    0.11960595799610019
+   ],
+   "phases": null,
+   "peakRssBytes": 68255744,
+   "error": null,
+   "case": "dv-oracle_rev2",
+   "target": "golden:board-objects",
+   "processS": 0.5192753330338746
+  },
+  {
+   "importsS": 0.02867120795417577,
+   "timesS": [
+    0.4501798750134185,
+    0.11196720891166478,
+    0.1061781250173226
+   ],
+   "phases": null,
+   "peakRssBytes": 68419584,
+   "error": null,
+   "case": "dv-oracle_rev2",
+   "target": "golden:route-metrics",
+   "processS": 0.7884514579782262
+  },
+  {
+   "importsS": 0.3355853339890018,
+   "timesS": [
+    0.11758658301550895,
+    0.004235542030073702,
+    0.00392495805863291
+   ],
+   "phases": null,
+   "peakRssBytes": 80068608,
+   "error": null,
+   "case": "dv-rule_area",
+   "target": "prod:km-load",
+   "processS": 0.5522517909994349
+  },
+  {
+   "importsS": 0.3320523329311982,
+   "timesS": [
+    0.1817996660247445,
+    0.007071875035762787,
+    0.006863374961540103
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 4750,
+     "cpuNs": 4167,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 43743667,
+     "cpuNs": 41687042,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 47726458,
+     "cpuNs": 46474750,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 1250,
+     "cpuNs": 1250,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 63749292,
+     "cpuNs": 62424250,
+     "metadata": {
+      "components": 2,
+      "nets": 4,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 170250,
+     "cpuNs": 170541,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 727583,
+     "cpuNs": 569083,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 145208,
+     "cpuNs": 145333,
+     "metadata": {
+      "components": 2
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 53583,
+     "cpuNs": 52667,
+     "metadata": {
+      "nets": 4,
+      "terminals": 4
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 334,
+     "cpuNs": 334,
+     "metadata": {
+      "components": 2,
+      "nets": 4,
+      "terminals": 4
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 11711958,
+     "cpuNs": 10010250,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 83869696,
+   "error": null,
+   "case": "dv-rule_area",
+   "target": "prod:semantic-index",
+   "processS": 0.619480875087902
+  },
+  {
+   "importsS": 0.3206942080287263,
+   "timesS": [
+    0.007521791034378111,
+    0.001781625091098249,
+    0.0021230840357020497
+   ],
+   "phases": null,
+   "peakRssBytes": 61964288,
+   "error": null,
+   "case": "dv-rule_area",
+   "target": "prod:variant-catalog",
+   "processS": 0.41257499996572733
+  },
+  {
+   "importsS": 0.35073099995497614,
+   "timesS": [
+    0.11818387499079108,
+    0.004711291985586286,
+    0.004521417082287371
+   ],
+   "phases": null,
+   "peakRssBytes": 79642624,
+   "error": null,
+   "case": "dv-rule_area",
+   "target": "prod:system-interface",
+   "processS": 0.5638357499847189
+  },
+  {
+   "importsS": 0.01844762498512864,
+   "timesS": [
+    0.48443950002547354,
+    0.008071708027273417,
+    0.007037542061880231
+   ],
+   "phases": null,
+   "peakRssBytes": 85082112,
+   "error": null,
+   "case": "dv-rule_area",
+   "target": "golden:semantic-index",
+   "processS": 0.6060739579843357
+  },
+  {
+   "importsS": 0.017419292009435594,
+   "timesS": [
+    0.431116666062735,
+    0.005406625103205442,
+    0.005480790976434946
+   ],
+   "phases": null,
+   "peakRssBytes": 80117760,
+   "error": null,
+   "case": "dv-rule_area",
+   "target": "golden:system-interface",
+   "processS": 0.5532916670199484
+  },
+  {
+   "importsS": 0.023143958998844028,
+   "timesS": [
+    0.4276755419559777,
+    0.31219462491571903,
+    0.3064589580753818
+   ],
+   "phases": null,
+   "peakRssBytes": 42991616,
+   "error": null,
+   "case": "dv-rule_area",
+   "target": "golden:project",
+   "processS": 1.1325529160676524
+  },
+  {
+   "importsS": 0.022687083925120533,
+   "timesS": [
+    0.01957470807246864,
+    0.0013577499194070697,
+    0.0012583750067278743
+   ],
+   "phases": null,
+   "peakRssBytes": 29589504,
+   "error": null,
+   "case": "dv-rule_area",
+   "target": "golden:stackup",
+   "processS": 0.09898804104886949
+  },
+  {
+   "importsS": 0.023202084004878998,
+   "timesS": [
+    0.017262250068597496,
+    0.0013998330105096102,
+    0.0015855840174481273
+   ],
+   "phases": null,
+   "peakRssBytes": 29491200,
+   "error": null,
+   "case": "dv-rule_area",
+   "target": "golden:placements",
+   "processS": 0.09385629207827151
+  },
+  {
+   "importsS": 0.019669833942316473,
+   "timesS": [
+    0.6011038339929655,
+    0.10244766704272479,
+    0.09647062502335757
+   ],
+   "phases": null,
+   "peakRssBytes": 84312064,
+   "error": null,
+   "case": "dv-rule_area",
+   "target": "golden:occurrences",
+   "processS": 0.9063203330151737
+  },
+  {
+   "importsS": 0.024231041898019612,
+   "timesS": [
+    0.1428769170306623,
+    0.07986558298580348,
+    0.07704258302692324
+   ],
+   "phases": null,
+   "peakRssBytes": 53067776,
+   "error": null,
+   "case": "dv-rule_area",
+   "target": "golden:board-objects",
+   "processS": 0.38393866596743464
+  },
+  {
+   "importsS": 0.026164707960560918,
+   "timesS": [
+    0.3988799169892445,
+    0.07232841709628701,
+    0.07499458396341652
+   ],
+   "phases": null,
+   "peakRssBytes": 64438272,
+   "error": null,
+   "case": "dv-rule_area",
+   "target": "golden:route-metrics",
+   "processS": 0.6545993329491466
+  },
+  {
+   "importsS": 0.32384525006636977,
+   "timesS": [
+    0.10978720802813768,
+    0.0033494579838588834,
+    0.003422208013944328
+   ],
+   "phases": null,
+   "peakRssBytes": 79822848,
+   "error": null,
+   "case": "dv-sch_only",
+   "target": "prod:km-load",
+   "processS": 0.516975583974272
+  },
+  {
+   "importsS": 0.3128287500003353,
+   "timesS": [
+    0.18128754198551178,
+    0.007177666062489152,
+    0.005572041962295771
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 3625,
+     "cpuNs": 2958,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 43420125,
+     "cpuNs": 41233042,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 48161458,
+     "cpuNs": 46887542,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 1584,
+     "cpuNs": 1583,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 64083209,
+     "cpuNs": 62913791,
+     "metadata": {
+      "components": 1,
+      "nets": 2,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 197166,
+     "cpuNs": 197500,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 706125,
+     "cpuNs": 520375,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 101833,
+     "cpuNs": 91042,
+     "metadata": {
+      "components": 1
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 35291,
+     "cpuNs": 35333,
+     "metadata": {
+      "nets": 2,
+      "terminals": 2
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 542,
+     "cpuNs": 542,
+     "metadata": {
+      "components": 1,
+      "nets": 2,
+      "terminals": 2
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 11352417,
+     "cpuNs": 9488458,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 83001344,
+   "error": null,
+   "case": "dv-sch_only",
+   "target": "prod:semantic-index",
+   "processS": 0.5953222499229014
+  },
+  {
+   "importsS": 0.3171268330188468,
+   "timesS": [
+    0.0067844579461961985,
+    0.0022192909382283688,
+    0.0022148749558255076
+   ],
+   "phases": null,
+   "peakRssBytes": 61997056,
+   "error": null,
+   "case": "dv-sch_only",
+   "target": "prod:variant-catalog",
+   "processS": 0.4106213329359889
+  },
+  {
+   "importsS": 0.33112654206342995,
+   "timesS": [
+    0.11612308293115348,
+    0.004781457944773138,
+    0.0038277499843388796
+   ],
+   "phases": null,
+   "peakRssBytes": 80232448,
+   "error": null,
+   "case": "dv-sch_only",
+   "target": "prod:system-interface",
+   "processS": 0.5365913340356201
+  },
+  {
+   "importsS": 0.017808500095270574,
+   "timesS": [
+    0.485627582995221,
+    0.0068739589769393206,
+    0.007737666019238532
+   ],
+   "phases": null,
+   "peakRssBytes": 82984960,
+   "error": null,
+   "case": "dv-sch_only",
+   "target": "golden:semantic-index",
+   "processS": 0.6022192920790985
+  },
+  {
+   "importsS": 0.017718458897434175,
+   "timesS": [
+    0.4252089580986649,
+    0.005059375078417361,
+    0.004295957973226905
+   ],
+   "phases": null,
+   "peakRssBytes": 80445440,
+   "error": null,
+   "case": "dv-sch_only",
+   "target": "golden:system-interface",
+   "processS": 0.5336039169924334
+  },
+  {
+   "importsS": 0.021366290980949998,
+   "timesS": [
+    0.42741574998945,
+    0.30352337507065386,
+    0.29685266700107604
+   ],
+   "phases": null,
+   "peakRssBytes": 42549248,
+   "error": null,
+   "case": "dv-sch_only",
+   "target": "golden:project",
+   "processS": 1.1110703750746325
+  },
+  {
+   "importsS": 0.02389858302194625,
+   "timesS": [
+    0.016489667003042996,
+    0.0010132499737665057,
+    0.0009277909994125366
+   ],
+   "phases": null,
+   "peakRssBytes": 29458432,
+   "error": null,
+   "case": "dv-sch_only",
+   "target": "golden:stackup",
+   "processS": 0.09037754195742309
+  },
+  {
+   "importsS": 0.02349799999501556,
+   "timesS": [
+    0.017680709017440677,
+    0.0009994169231504202,
+    0.0009833750082179904
+   ],
+   "phases": null,
+   "peakRssBytes": 29589504,
+   "error": null,
+   "case": "dv-sch_only",
+   "target": "golden:placements",
+   "processS": 0.09311066707596183
+  },
+  {
+   "importsS": 0.018126875045709312,
+   "timesS": [
+    0.5970248749945313,
+    0.09334183402825147,
+    0.10366095905192196
+   ],
+   "phases": null,
+   "peakRssBytes": 85344256,
+   "error": null,
+   "case": "dv-sch_only",
+   "target": "golden:occurrences",
+   "processS": 0.906428916961886
+  },
+  {
+   "importsS": 0.024024207959882915,
+   "timesS": [
+    0.14557095803320408,
+    0.07420383300632238,
+    0.0765294999582693
+   ],
+   "phases": null,
+   "peakRssBytes": 53231616,
+   "error": null,
+   "case": "dv-sch_only",
+   "target": "golden:board-objects",
+   "processS": 0.38368470896966755
+  },
+  {
+   "importsS": 0.025483791949227452,
+   "timesS": [
+    0.4185897500719875,
+    0.08392837492283434,
+    0.07847720792051405
+   ],
+   "phases": null,
+   "peakRssBytes": 64258048,
+   "error": null,
+   "case": "dv-sch_only",
+   "target": "golden:route-metrics",
+   "processS": 0.6865813750773668
+  },
+  {
+   "importsS": 0.33937066700309515,
+   "timesS": [
+    3.5171616250881925,
+    3.3543213749071583,
+    3.45211458299309
+   ],
+   "phases": null,
+   "peakRssBytes": 402980864,
+   "error": null,
+   "case": "rs-cynthion",
+   "target": "prod:km-load",
+   "processS": 10.756046375026926
+  },
+  {
+   "importsS": 0.37610216601751745,
+   "timesS": [
+    3.9290704999584705,
+    3.795294542098418,
+    3.775453208014369
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 3333,
+     "cpuNs": 2708,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 838765583,
+     "cpuNs": 818129208,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 178554500,
+     "cpuNs": 177088750,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 2381606542,
+     "cpuNs": 2372713125,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 303788875,
+     "cpuNs": 297046000,
+     "metadata": {
+      "components": 348,
+      "nets": 453,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 5622625,
+     "cpuNs": 5577417,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 60264750,
+     "cpuNs": 57643541,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 12020666,
+     "cpuNs": 11998375,
+     "metadata": {
+      "components": 348
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 10445000,
+     "cpuNs": 10412500,
+     "metadata": {
+      "nets": 453,
+      "terminals": 1342
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 6723584,
+     "cpuNs": 6712167,
+     "metadata": {
+      "components": 348,
+      "nets": 427,
+      "terminals": 1343
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 52948125,
+     "cpuNs": 47486000,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 421068800,
+   "error": null,
+   "case": "rs-cynthion",
+   "target": "prod:semantic-index",
+   "processS": 11.97580570797436
+  },
+  {
+   "importsS": 0.35866237501613796,
+   "timesS": [
+    0.027295625070109963,
+    0.022555582923814654,
+    0.02158158295787871
+   ],
+   "phases": null,
+   "peakRssBytes": 81444864,
+   "error": null,
+   "case": "rs-cynthion",
+   "target": "prod:variant-catalog",
+   "processS": 0.5101192499278113
+  },
+  {
+   "importsS": 0.32807354198303074,
+   "timesS": [
+    3.590573583962396,
+    3.7545989580685273,
+    3.685537082958035
+   ],
+   "phases": null,
+   "peakRssBytes": 404848640,
+   "error": null,
+   "case": "rs-cynthion",
+   "target": "prod:system-interface",
+   "processS": 11.449557124986313
+  },
+  {
+   "importsS": 0.021597207989543676,
+   "timesS": [
+    4.485730833024718,
+    3.909069332992658,
+    4.123204750008881
+   ],
+   "phases": null,
+   "peakRssBytes": 418856960,
+   "error": null,
+   "case": "rs-cynthion",
+   "target": "golden:semantic-index",
+   "processS": 12.646070540999062
+  },
+  {
+   "importsS": 0.02256050007417798,
+   "timesS": [
+    4.234104625065811,
+    3.6871627499349415,
+    3.636058875010349
+   ],
+   "phases": null,
+   "peakRssBytes": 401260544,
+   "error": null,
+   "case": "rs-cynthion",
+   "target": "golden:system-interface",
+   "processS": 11.675490957917646
+  },
+  {
+   "importsS": 0.02401329204440117,
+   "timesS": [
+    15.404617124935612,
+    14.969451290904544,
+    15.014831917011179
+   ],
+   "phases": null,
+   "peakRssBytes": 370016256,
+   "error": null,
+   "case": "rs-cynthion",
+   "target": "golden:project",
+   "processS": 45.485447332961485
+  },
+  {
+   "importsS": 0.031968874973244965,
+   "timesS": [
+    8.692437374964356,
+    8.520897916983813,
+    8.543534416006878
+   ],
+   "phases": null,
+   "peakRssBytes": 373342208,
+   "error": null,
+   "case": "rs-cynthion",
+   "target": "golden:stackup",
+   "processS": 25.87586458399892
+  },
+  {
+   "importsS": 0.025550499907694757,
+   "timesS": [
+    7.745446042041294,
+    7.504820375004783,
+    7.45217608299572
+   ],
+   "phases": null,
+   "peakRssBytes": 436666368,
+   "error": null,
+   "case": "rs-cynthion",
+   "target": "golden:placements",
+   "processS": 22.817893416970037
+  },
+  {
+   "importsS": 0.02357541606761515,
+   "timesS": [
+    25.19957512500696,
+    24.865984750096686,
+    24.903032916015945
+   ],
+   "phases": null,
+   "peakRssBytes": 520159232,
+   "error": null,
+   "case": "rs-cynthion",
+   "target": "golden:occurrences",
+   "processS": 75.1128785420442
+  },
+  {
+   "importsS": 0.03213975008111447,
+   "timesS": [
+    3.1581685000564903,
+    3.07505766605027,
+    3.285474583040923
+   ],
+   "phases": null,
+   "peakRssBytes": 435290112,
+   "error": null,
+   "case": "rs-cynthion",
+   "target": "golden:board-objects",
+   "processS": 9.632042874931358
+  },
+  {
+   "importsS": 0.029584457981400192,
+   "timesS": [
+    1.6729686670005322,
+    1.2194333750521764,
+    1.2088644169270992
+   ],
+   "phases": null,
+   "peakRssBytes": 423919616,
+   "error": null,
+   "case": "rs-cynthion",
+   "target": "golden:route-metrics",
+   "processS": 4.221489665913396
+  },
+  {
+   "importsS": 0.3311799999792129,
+   "timesS": [
+    0.16177149990107864,
+    0.007680041948333383,
+    0.007620083051733673
+   ],
+   "phases": null,
+   "peakRssBytes": 80838656,
+   "error": null,
+   "case": "rs-synthetic",
+   "target": "prod:km-load",
+   "processS": 0.599265250028111
+  },
+  {
+   "importsS": 0.3289363330695778,
+   "timesS": [
+    0.23760970891453326,
+    0.014215833973139524,
+    0.013577915960922837
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 3583,
+     "cpuNs": 2875,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 45796750,
+     "cpuNs": 43422625,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 52791375,
+     "cpuNs": 51606208,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 33457334,
+     "cpuNs": 31662125,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 74942625,
+     "cpuNs": 68714750,
+     "metadata": {
+      "components": 2,
+      "nets": 4,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 168417,
+     "cpuNs": 168833,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 951834,
+     "cpuNs": 828083,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 163208,
+     "cpuNs": 163500,
+     "metadata": {
+      "components": 2
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 51042,
+     "cpuNs": 51167,
+     "metadata": {
+      "nets": 4,
+      "terminals": 4
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 149375,
+     "cpuNs": 149583,
+     "metadata": {
+      "components": 2,
+      "nets": 3,
+      "terminals": 6
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 14855416,
+     "cpuNs": 12477875,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 85475328,
+   "error": null,
+   "case": "rs-synthetic",
+   "target": "prod:semantic-index",
+   "processS": 0.6906818749848753
+  },
+  {
+   "importsS": 0.3654465420404449,
+   "timesS": [
+    0.008071875083260238,
+    0.0030357500072568655,
+    0.002722166944295168
+   ],
+   "phases": null,
+   "peakRssBytes": 62095360,
+   "error": null,
+   "case": "rs-synthetic",
+   "target": "prod:variant-catalog",
+   "processS": 0.4649296250427142
+  },
+  {
+   "importsS": 0.3714064590167254,
+   "timesS": [
+    0.15710512502118945,
+    0.009352958993986249,
+    0.009426958044059575
+   ],
+   "phases": null,
+   "peakRssBytes": 80248832,
+   "error": null,
+   "case": "rs-synthetic",
+   "target": "prod:system-interface",
+   "processS": 0.6285877499030903
+  },
+  {
+   "importsS": 0.02021425007842481,
+   "timesS": [
+    0.566661832970567,
+    0.015513000078499317,
+    0.015210750047117472
+   ],
+   "phases": null,
+   "peakRssBytes": 86016000,
+   "error": null,
+   "case": "rs-synthetic",
+   "target": "golden:semantic-index",
+   "processS": 0.7209659169893712
+  },
+  {
+   "importsS": 0.01787324994802475,
+   "timesS": [
+    0.5020021670497954,
+    0.009458750020712614,
+    0.009253584081307054
+   ],
+   "phases": null,
+   "peakRssBytes": 80084992,
+   "error": null,
+   "case": "rs-synthetic",
+   "target": "golden:system-interface",
+   "processS": 0.6246185419149697
+  },
+  {
+   "importsS": 0.02366466703824699,
+   "timesS": [
+    0.6723388340324163,
+    0.5268771249102429,
+    0.49564920901320875
+   ],
+   "phases": null,
+   "peakRssBytes": 43204608,
+   "error": null,
+   "case": "rs-synthetic",
+   "target": "golden:project",
+   "processS": 1.7821318750502542
+  },
+  {
+   "importsS": 0.028442749986425042,
+   "timesS": [
+    0.1827040839707479,
+    0.016637666965834796,
+    0.017778709065169096
+   ],
+   "phases": null,
+   "peakRssBytes": 45694976,
+   "error": null,
+   "case": "rs-synthetic",
+   "target": "golden:stackup",
+   "processS": 0.3202186250127852
+  },
+  {
+   "importsS": 0.028541250037960708,
+   "timesS": [
+    0.42476316599640995,
+    0.011389666004106402,
+    0.011460290988907218
+   ],
+   "phases": null,
+   "peakRssBytes": 66256896,
+   "error": null,
+   "case": "rs-synthetic",
+   "target": "golden:placements",
+   "processS": 0.5693268340546638
+  },
+  {
+   "importsS": 0.021413207985460758,
+   "timesS": [
+    0.7417887499323115,
+    0.15340791700873524,
+    0.16460212494712323
+   ],
+   "phases": null,
+   "peakRssBytes": 87293952,
+   "error": null,
+   "case": "rs-synthetic",
+   "target": "golden:occurrences",
+   "processS": 1.1845438330201432
+  },
+  {
+   "importsS": 0.026416084030643106,
+   "timesS": [
+    0.1658337500412017,
+    0.09004191705025733,
+    0.09288933302741498
+   ],
+   "phases": null,
+   "peakRssBytes": 60915712,
+   "error": null,
+   "case": "rs-synthetic",
+   "target": "golden:board-objects",
+   "processS": 0.43694758298806846
+  },
+  {
+   "importsS": 0.028336499934084713,
+   "timesS": [
+    0.42281670903321356,
+    0.0825957499910146,
+    0.08929633302614093
+   ],
+   "phases": null,
+   "peakRssBytes": 65093632,
+   "error": null,
+   "case": "rs-synthetic",
+   "target": "golden:route-metrics",
+   "processS": 0.7187116249697283
+  },
+  {
+   "importsS": 0.36454241699539125,
+   "timesS": [
+    0.42300979199353606,
+    0.2589773330837488,
+    0.25794741604477167
+   ],
+   "phases": null,
+   "peakRssBytes": 102088704,
+   "error": null,
+   "case": "rs-usb-pd",
+   "target": "prod:km-load",
+   "processS": 1.469681499991566
+  },
+  {
+   "importsS": 0.3498835419304669,
+   "timesS": [
+    0.5038209169870242,
+    0.2902592499740422,
+    0.2888642919715494
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 3834,
+     "cpuNs": 3416,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 122801042,
+     "cpuNs": 119316625,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 54359583,
+     "cpuNs": 53202500,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 186017458,
+     "cpuNs": 181253750,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 76197083,
+     "cpuNs": 74467625,
+     "metadata": {
+      "components": 37,
+      "nets": 45,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 346084,
+     "cpuNs": 346541,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 8476166,
+     "cpuNs": 7357083,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 1257083,
+     "cpuNs": 1257375,
+     "metadata": {
+      "components": 37
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 798541,
+     "cpuNs": 798833,
+     "metadata": {
+      "nets": 45,
+      "terminals": 133
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 464042,
+     "cpuNs": 464166,
+     "metadata": {
+      "components": 37,
+      "nets": 45,
+      "terminals": 133
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 33507916,
+     "cpuNs": 29941750,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 105693184,
+   "error": null,
+   "case": "rs-usb-pd",
+   "target": "prod:semantic-index",
+   "processS": 1.5321675000013784
+  },
+  {
+   "importsS": 0.351396374986507,
+   "timesS": [
+    0.01933233393356204,
+    0.017684458987787366,
+    0.014754624920897186
+   ],
+   "phases": null,
+   "peakRssBytes": 65110016,
+   "error": null,
+   "case": "rs-usb-pd",
+   "target": "prod:variant-catalog",
+   "processS": 0.4870297081070021
+  },
+  {
+   "importsS": 0.35047004208900034,
+   "timesS": [
+    0.4280921670142561,
+    0.23856083396822214,
+    0.24504824995528907
+   ],
+   "phases": null,
+   "peakRssBytes": 102481920,
+   "error": null,
+   "case": "rs-usb-pd",
+   "target": "prod:system-interface",
+   "processS": 1.3550871670013294
+  },
+  {
+   "importsS": 0.021701999939978123,
+   "timesS": [
+    0.9675017500994727,
+    0.292838666937314,
+    0.3085182079812512
+   ],
+   "phases": null,
+   "peakRssBytes": 102793216,
+   "error": null,
+   "case": "rs-usb-pd",
+   "target": "golden:semantic-index",
+   "processS": 1.6972746669780463
+  },
+  {
+   "importsS": 0.02030583401210606,
+   "timesS": [
+    0.8370262500829995,
+    0.25520683301147074,
+    0.23816979199182242
+   ],
+   "phases": null,
+   "peakRssBytes": 103645184,
+   "error": null,
+   "case": "rs-usb-pd",
+   "target": "golden:system-interface",
+   "processS": 1.4542502500116825
+  },
+  {
+   "importsS": 0.027655249927192926,
+   "timesS": [
+    2.2075883749639615,
+    2.0284538329578936,
+    2.04018654092215
+   ],
+   "phases": null,
+   "peakRssBytes": 73924608,
+   "error": null,
+   "case": "rs-usb-pd",
+   "target": "golden:project",
+   "processS": 6.383883290924132
+  },
+  {
+   "importsS": 0.02935950004030019,
+   "timesS": [
+    0.74838266603183,
+    0.6211560419760644,
+    0.628567292005755
+   ],
+   "phases": null,
+   "peakRssBytes": 66846720,
+   "error": null,
+   "case": "rs-usb-pd",
+   "target": "golden:stackup",
+   "processS": 2.1031548749888316
+  },
+  {
+   "importsS": 0.02998975000809878,
+   "timesS": [
+    1.0043007918866351,
+    0.5343182500218973,
+    0.5299750419799238
+   ],
+   "phases": null,
+   "peakRssBytes": 93356032,
+   "error": null,
+   "case": "rs-usb-pd",
+   "target": "golden:placements",
+   "processS": 2.2050487080123276
+  },
+  {
+   "importsS": 0.021006833063438535,
+   "timesS": [
+    2.4040742920478806,
+    1.76274533290416,
+    1.722107374924235
+   ],
+   "phases": null,
+   "peakRssBytes": 116948992,
+   "error": null,
+   "case": "rs-usb-pd",
+   "target": "golden:occurrences",
+   "processS": 6.007971499930136
+  },
+  {
+   "importsS": 0.07459895801730454,
+   "timesS": [
+    0.4472802500240505,
+    0.37945000000763685,
+    0.38631691702175885
+   ],
+   "phases": null,
+   "peakRssBytes": 119488512,
+   "error": null,
+   "case": "rs-usb-pd",
+   "target": "golden:board-objects",
+   "processS": 1.3775482500204816
+  },
+  {
+   "importsS": 0.029005749966017902,
+   "timesS": [
+    0.5778364590369165,
+    0.23530604096595198,
+    0.22804162499960512
+   ],
+   "phases": null,
+   "peakRssBytes": 122355712,
+   "error": null,
+   "case": "rs-usb-pd",
+   "target": "golden:route-metrics",
+   "processS": 1.1575213338946924
+  },
+  {
+   "importsS": 0.33259512507356703,
+   "timesS": [
+    0.14916941709816456,
+    0.008068541996181011,
+    0.008438416989520192
+   ],
+   "phases": null,
+   "peakRssBytes": 80625664,
+   "error": null,
+   "case": "sb-p2-ambiguous-F0",
+   "target": "prod:km-load",
+   "processS": 0.5919885420007631
+  },
+  {
+   "importsS": 0.3347372090211138,
+   "timesS": [
+    0.22176916699390858,
+    0.013297541998326778,
+    0.012773917056620121
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 4500,
+     "cpuNs": 3958,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 46430042,
+     "cpuNs": 43914709,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 50761666,
+     "cpuNs": 49403042,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 29866167,
+     "cpuNs": 28122791,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 62051916,
+     "cpuNs": 60415875,
+     "metadata": {
+      "components": 1,
+      "nets": 5,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 160084,
+     "cpuNs": 160417,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 985958,
+     "cpuNs": 779042,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 77250,
+     "cpuNs": 77375,
+     "metadata": {
+      "components": 1
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 84125,
+     "cpuNs": 84209,
+     "metadata": {
+      "nets": 5,
+      "terminals": 10
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 55584,
+     "cpuNs": 55709,
+     "metadata": {
+      "components": 1,
+      "nets": 5,
+      "terminals": 10
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 16785333,
+     "cpuNs": 14392375,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 85164032,
+   "error": null,
+   "case": "sb-p2-ambiguous-F0",
+   "target": "prod:semantic-index",
+   "processS": 0.6841353749623522
+  },
+  {
+   "importsS": 0.33986233302857727,
+   "timesS": [
+    0.00930599996354431,
+    0.002634541946463287,
+    0.002571041928604245
+   ],
+   "phases": null,
+   "peakRssBytes": 62029824,
+   "error": null,
+   "case": "sb-p2-ambiguous-F0",
+   "target": "prod:variant-catalog",
+   "processS": 0.4402092080563307
+  },
+  {
+   "importsS": 0.3415541669819504,
+   "timesS": [
+    0.15201429196167737,
+    0.008693709038197994,
+    0.008945750072598457
+   ],
+   "phases": null,
+   "peakRssBytes": 80019456,
+   "error": null,
+   "case": "sb-p2-ambiguous-F0",
+   "target": "prod:system-interface",
+   "processS": 0.6052862089127302
+  },
+  {
+   "importsS": 0.019437249982729554,
+   "timesS": [
+    0.5456900410354137,
+    0.014386208029463887,
+    0.013549790950492024
+   ],
+   "phases": null,
+   "peakRssBytes": 85327872,
+   "error": null,
+   "case": "sb-p2-ambiguous-F0",
+   "target": "golden:semantic-index",
+   "processS": 0.6924487079959363
+  },
+  {
+   "importsS": 0.017297124955803156,
+   "timesS": [
+    0.47235008399002254,
+    0.009952833061106503,
+    0.009125499986112118
+   ],
+   "phases": null,
+   "peakRssBytes": 79970304,
+   "error": null,
+   "case": "sb-p2-ambiguous-F0",
+   "target": "golden:system-interface",
+   "processS": 0.6013337079202756
+  },
+  {
+   "importsS": 0.024094625026918948,
+   "timesS": [
+    0.9673541670199484,
+    0.7682593339122832,
+    0.7498133750632405
+   ],
+   "phases": null,
+   "peakRssBytes": 42860544,
+   "error": null,
+   "case": "sb-p2-ambiguous-F0",
+   "target": "golden:project",
+   "processS": 2.5777771250577644
+  },
+  {
+   "importsS": 0.026657082955352962,
+   "timesS": [
+    0.18185845797415823,
+    0.01642854092642665,
+    0.01515995804220438
+   ],
+   "phases": null,
+   "peakRssBytes": 45924352,
+   "error": null,
+   "case": "sb-p2-ambiguous-F0",
+   "target": "golden:stackup",
+   "processS": 0.30575495795346797
+  },
+  {
+   "importsS": 0.23532325006090105,
+   "timesS": [
+    0.48815541598014534,
+    0.01059441699180752,
+    0.010438667028211057
+   ],
+   "phases": null,
+   "peakRssBytes": 64684032,
+   "error": null,
+   "case": "sb-p2-ambiguous-F0",
+   "target": "golden:placements",
+   "processS": 0.8408459580969065
+  },
+  {
+   "importsS": 0.022314958041533828,
+   "timesS": [
+    0.7649430830497295,
+    0.15460166591219604,
+    0.1494281250052154
+   ],
+   "phases": null,
+   "peakRssBytes": 86622208,
+   "error": null,
+   "case": "sb-p2-ambiguous-F0",
+   "target": "golden:occurrences",
+   "processS": 1.2158812088891864
+  },
+  {
+   "importsS": 0.02724354190286249,
+   "timesS": [
+    0.21992358402349055,
+    0.09707733301911503,
+    0.09575670794583857
+   ],
+   "phases": null,
+   "peakRssBytes": 60702720,
+   "error": null,
+   "case": "sb-p2-ambiguous-F0",
+   "target": "golden:board-objects",
+   "processS": 0.5085630000103265
+  },
+  {
+   "importsS": 0.029074208927340806,
+   "timesS": [
+    0.47551641694735736,
+    0.09226379101164639,
+    0.08968624996487051
+   ],
+   "phases": null,
+   "peakRssBytes": 64569344,
+   "error": null,
+   "case": "sb-p2-ambiguous-F0",
+   "target": "golden:route-metrics",
+   "processS": 0.7863714590203017
+  },
+  {
+   "importsS": 0.34919116692617536,
+   "timesS": [
+    0.16231391590554267,
+    0.01594045793171972,
+    0.015430542058311403
+   ],
+   "phases": null,
+   "peakRssBytes": 80691200,
+   "error": null,
+   "case": "sb-p2-edge_a-F0",
+   "target": "prod:km-load",
+   "processS": 0.6407914160517976
+  },
+  {
+   "importsS": 0.3679703329689801,
+   "timesS": [
+    0.26938154199160635,
+    0.02383241697680205,
+    0.019510749960318208
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 4500,
+     "cpuNs": 3917,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 60939458,
+     "cpuNs": 50759792,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 63718458,
+     "cpuNs": 55011375,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 46953625,
+     "cpuNs": 35566083,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 64830959,
+     "cpuNs": 61964583,
+     "metadata": {
+      "components": 2,
+      "nets": 4,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 222958,
+     "cpuNs": 223416,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 1167833,
+     "cpuNs": 975666,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 129791,
+     "cpuNs": 130083,
+     "metadata": {
+      "components": 2
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 74333,
+     "cpuNs": 74375,
+     "metadata": {
+      "nets": 4,
+      "terminals": 8
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 43416,
+     "cpuNs": 43458,
+     "metadata": {
+      "components": 2,
+      "nets": 4,
+      "terminals": 8
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 16455375,
+     "cpuNs": 14706417,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 86622208,
+   "error": null,
+   "case": "sb-p2-edge_a-F0",
+   "target": "prod:semantic-index",
+   "processS": 0.7758859999012202
+  },
+  {
+   "importsS": 0.37575379107147455,
+   "timesS": [
+    0.009981750044971704,
+    0.004922291962429881,
+    0.0037580420030280948
+   ],
+   "phases": null,
+   "peakRssBytes": 62111744,
+   "error": null,
+   "case": "sb-p2-edge_a-F0",
+   "target": "prod:variant-catalog",
+   "processS": 0.4893724590074271
+  },
+  {
+   "importsS": 0.35611625004094094,
+   "timesS": [
+    0.17314025002997369,
+    0.01689954102039337,
+    0.018093499937094748
+   ],
+   "phases": null,
+   "peakRssBytes": 80756736,
+   "error": null,
+   "case": "sb-p2-edge_a-F0",
+   "target": "prod:system-interface",
+   "processS": 0.6548168750014156
+  },
+  {
+   "importsS": 0.019813416991382837,
+   "timesS": [
+    0.5646763329859823,
+    0.02172266598790884,
+    0.021641166997142136
+   ],
+   "phases": null,
+   "peakRssBytes": 86687744,
+   "error": null,
+   "case": "sb-p2-edge_a-F0",
+   "target": "golden:semantic-index",
+   "processS": 0.7231553751043975
+  },
+  {
+   "importsS": 0.02000116603448987,
+   "timesS": [
+    0.5394047920126468,
+    0.01886187493801117,
+    0.017012834083288908
+   ],
+   "phases": null,
+   "peakRssBytes": 80805888,
+   "error": null,
+   "case": "sb-p2-edge_a-F0",
+   "target": "golden:system-interface",
+   "processS": 0.717302417033352
+  },
+  {
+   "importsS": 0.025707166991196573,
+   "timesS": [
+    0.927343292045407,
+    0.8486941669834778,
+    0.9122716669226065
+   ],
+   "phases": null,
+   "peakRssBytes": 44302336,
+   "error": null,
+   "case": "sb-p2-edge_a-F0",
+   "target": "golden:project",
+   "processS": 2.7793390839360654
+  },
+  {
+   "importsS": 0.028240457992069423,
+   "timesS": [
+    0.2024347500409931,
+    0.0431346669793129,
+    0.039946625009179115
+   ],
+   "phases": null,
+   "peakRssBytes": 46235648,
+   "error": null,
+   "case": "sb-p2-edge_a-F0",
+   "target": "golden:stackup",
+   "processS": 0.38040674990043044
+  },
+  {
+   "importsS": 0.039521917002275586,
+   "timesS": [
+    0.44237824995070696,
+    0.0312984170159325,
+    0.040715458104386926
+   ],
+   "phases": null,
+   "peakRssBytes": 67420160,
+   "error": null,
+   "case": "sb-p2-edge_a-F0",
+   "target": "golden:placements",
+   "processS": 0.6652790000662208
+  },
+  {
+   "importsS": 0.02048758405726403,
+   "timesS": [
+    0.8581505001056939,
+    0.21455841604620218,
+    0.21923195803537965
+   ],
+   "phases": null,
+   "peakRssBytes": 89440256,
+   "error": null,
+   "case": "sb-p2-edge_a-F0",
+   "target": "golden:occurrences",
+   "processS": 1.4158062919741496
+  },
+  {
+   "importsS": 0.028953916975297034,
+   "timesS": [
+    0.1802132499869913,
+    0.10688062501139939,
+    0.11000612494535744
+   ],
+   "phases": null,
+   "peakRssBytes": 62439424,
+   "error": null,
+   "case": "sb-p2-edge_a-F0",
+   "target": "golden:board-objects",
+   "processS": 0.4976894169813022
+  },
+  {
+   "importsS": 0.027511333930306137,
+   "timesS": [
+    0.4703485840000212,
+    0.09982725000008941,
+    0.09210054099094123
+   ],
+   "phases": null,
+   "peakRssBytes": 64897024,
+   "error": null,
+   "case": "sb-p2-edge_a-F0",
+   "target": "golden:route-metrics",
+   "processS": 0.7780260829022154
+  },
+  {
+   "importsS": 0.34028849995229393,
+   "timesS": [
+    0.1511352499946952,
+    0.013045624946244061,
+    0.013274082913994789
+   ],
+   "phases": null,
+   "peakRssBytes": 80740352,
+   "error": null,
+   "case": "sb-p2-edge_b-F0",
+   "target": "prod:km-load",
+   "processS": 0.6118860420538113
+  },
+  {
+   "importsS": 0.35549350001383573,
+   "timesS": [
+    0.22859429195523262,
+    0.016980750020593405,
+    0.020367083023302257
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 4167,
+     "cpuNs": 3458,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 46089917,
+     "cpuNs": 44113209,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 49434083,
+     "cpuNs": 48324708,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 34432459,
+     "cpuNs": 32546500,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 63711917,
+     "cpuNs": 62211042,
+     "metadata": {
+      "components": 2,
+      "nets": 4,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 148000,
+     "cpuNs": 148250,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 1170208,
+     "cpuNs": 936750,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 170875,
+     "cpuNs": 171458,
+     "metadata": {
+      "components": 2
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 81292,
+     "cpuNs": 81459,
+     "metadata": {
+      "nets": 4,
+      "terminals": 8
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 53917,
+     "cpuNs": 54000,
+     "metadata": {
+      "components": 2,
+      "nets": 4,
+      "terminals": 8
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 17932084,
+     "cpuNs": 15932208,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 86212608,
+   "error": null,
+   "case": "sb-p2-edge_b-F0",
+   "target": "prod:semantic-index",
+   "processS": 0.7197188750142232
+  },
+  {
+   "importsS": 0.3529938330175355,
+   "timesS": [
+    0.007783916080370545,
+    0.0025675420183688402,
+    0.0021360829705372453
+   ],
+   "phases": null,
+   "peakRssBytes": 62324736,
+   "error": null,
+   "case": "sb-p2-edge_b-F0",
+   "target": "prod:variant-catalog",
+   "processS": 0.45450808305758983
+  },
+  {
+   "importsS": 0.4141351250000298,
+   "timesS": [
+    0.19033541600219905,
+    0.01543874992057681,
+    0.014758583041839302
+   ],
+   "phases": null,
+   "peakRssBytes": 81018880,
+   "error": null,
+   "case": "sb-p2-edge_b-F0",
+   "target": "prod:system-interface",
+   "processS": 0.7362958750454709
+  },
+  {
+   "importsS": 0.0266389170428738,
+   "timesS": [
+    0.6770777920028195,
+    0.0233802079455927,
+    0.02196058293338865
+   ],
+   "phases": null,
+   "peakRssBytes": 85737472,
+   "error": null,
+   "case": "sb-p2-edge_b-F0",
+   "target": "golden:semantic-index",
+   "processS": 0.8683290410554036
+  },
+  {
+   "importsS": 0.022044916986487806,
+   "timesS": [
+    0.6782571250805631,
+    0.015502415946684778,
+    0.014758000033907592
+   ],
+   "phases": null,
+   "peakRssBytes": 80576512,
+   "error": null,
+   "case": "sb-p2-edge_b-F0",
+   "target": "golden:system-interface",
+   "processS": 0.8421269590035081
+  },
+  {
+   "importsS": 0.034522458096034825,
+   "timesS": [
+    0.9296851659892127,
+    0.8716022080043331,
+    0.8292892500758171
+   ],
+   "phases": null,
+   "peakRssBytes": 44187648,
+   "error": null,
+   "case": "sb-p2-edge_b-F0",
+   "target": "golden:project",
+   "processS": 2.7521273751044646
+  },
+  {
+   "importsS": 0.02713683305773884,
+   "timesS": [
+    0.1872604169184342,
+    0.03130508400499821,
+    0.037178165977820754
+   ],
+   "phases": null,
+   "peakRssBytes": 45727744,
+   "error": null,
+   "case": "sb-p2-edge_b-F0",
+   "target": "golden:stackup",
+   "processS": 0.35194774996489286
+  },
+  {
+   "importsS": 0.02675666694995016,
+   "timesS": [
+    0.42543037503492087,
+    0.023405040963552892,
+    0.023543415940366685
+   ],
+   "phases": null,
+   "peakRssBytes": 66764800,
+   "error": null,
+   "case": "sb-p2-edge_b-F0",
+   "target": "golden:placements",
+   "processS": 0.6036672500194982
+  },
+  {
+   "importsS": 0.021158791962079704,
+   "timesS": [
+    0.7645359589951113,
+    0.18886150000616908,
+    0.1713534169830382
+   ],
+   "phases": null,
+   "peakRssBytes": 87343104,
+   "error": null,
+   "case": "sb-p2-edge_b-F0",
+   "target": "golden:occurrences",
+   "processS": 1.2528132089646533
+  },
+  {
+   "importsS": 0.025855959043838084,
+   "timesS": [
+    0.1789309160085395,
+    0.1006856249878183,
+    0.1002624579705298
+   ],
+   "phases": null,
+   "peakRssBytes": 62062592,
+   "error": null,
+   "case": "sb-p2-edge_b-F0",
+   "target": "golden:board-objects",
+   "processS": 0.47230204194784164
+  },
+  {
+   "importsS": 0.02915095805656165,
+   "timesS": [
+    0.44974166702013463,
+    0.10220291605219245,
+    0.09440850000828505
+   ],
+   "phases": null,
+   "peakRssBytes": 64847872,
+   "error": null,
+   "case": "sb-p2-edge_b-F0",
+   "target": "golden:route-metrics",
+   "processS": 0.7718975839670748
+  },
+  {
+   "importsS": 0.35345841594971716,
+   "timesS": [
+    0.2132657499751076,
+    0.07488158298656344,
+    0.06475891603622586
+   ],
+   "phases": null,
+   "peakRssBytes": 83640320,
+   "error": null,
+   "case": "sb-p2-mezz_base-F0",
+   "target": "prod:km-load",
+   "processS": 0.8019365000072867
+  },
+  {
+   "importsS": 0.4103711670031771,
+   "timesS": [
+    0.32292666693683714,
+    0.11209054198116064,
+    0.11229133396409452
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 5375,
+     "cpuNs": 4375,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 78136458,
+     "cpuNs": 74886542,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 65536500,
+     "cpuNs": 62482125,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 54198083,
+     "cpuNs": 52479958,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 83458500,
+     "cpuNs": 81858000,
+     "metadata": {
+      "components": 2,
+      "nets": 120,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 314250,
+     "cpuNs": 314625,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 2436375,
+     "cpuNs": 2203209,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 160416,
+     "cpuNs": 160792,
+     "metadata": {
+      "components": 2
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 1633792,
+     "cpuNs": 1622500,
+     "metadata": {
+      "nets": 120,
+      "terminals": 240
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 445583,
+     "cpuNs": 445833,
+     "metadata": {
+      "components": 2,
+      "nets": 120,
+      "terminals": 240
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 17864125,
+     "cpuNs": 15601125,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 86556672,
+   "error": null,
+   "case": "sb-p2-mezz_base-F0",
+   "target": "prod:semantic-index",
+   "processS": 1.0582007500343025
+  },
+  {
+   "importsS": 0.361539583071135,
+   "timesS": [
+    0.01227412500884384,
+    0.004194708075374365,
+    0.003069708007387817
+   ],
+   "phases": null,
+   "peakRssBytes": 62046208,
+   "error": null,
+   "case": "sb-p2-mezz_base-F0",
+   "target": "prod:variant-catalog",
+   "processS": 0.47294295800384134
+  },
+  {
+   "importsS": 0.371731249964796,
+   "timesS": [
+    0.22371041600126773,
+    0.08834625000599772,
+    0.0685265000211075
+   ],
+   "phases": null,
+   "peakRssBytes": 83410944,
+   "error": null,
+   "case": "sb-p2-mezz_base-F0",
+   "target": "prod:system-interface",
+   "processS": 0.8584562499308959
+  },
+  {
+   "importsS": 0.02251587505452335,
+   "timesS": [
+    0.7356018329737708,
+    0.12839241698384285,
+    0.12013670906890184
+   ],
+   "phases": null,
+   "peakRssBytes": 88031232,
+   "error": null,
+   "case": "sb-p2-mezz_base-F0",
+   "target": "golden:semantic-index",
+   "processS": 1.1270350000122562
+  },
+  {
+   "importsS": 0.02107166696805507,
+   "timesS": [
+    0.6024927080143243,
+    0.08303462492767721,
+    0.06928820803295821
+   ],
+   "phases": null,
+   "peakRssBytes": 82706432,
+   "error": null,
+   "case": "sb-p2-mezz_base-F0",
+   "target": "golden:system-interface",
+   "processS": 0.8732399169821292
+  },
+  {
+   "importsS": 0.02568020799662918,
+   "timesS": [
+    1.270495583070442,
+    1.0232316249748692,
+    1.0445801670430228
+   ],
+   "phases": null,
+   "peakRssBytes": 47218688,
+   "error": null,
+   "case": "sb-p2-mezz_base-F0",
+   "target": "golden:project",
+   "processS": 3.4292026669718325
+  },
+  {
+   "importsS": 0.026666791061870754,
+   "timesS": [
+    0.2787455840734765,
+    0.11971845803782344,
+    0.12148450000677258
+   ],
+   "phases": null,
+   "peakRssBytes": 49283072,
+   "error": null,
+   "case": "sb-p2-mezz_base-F0",
+   "target": "golden:stackup",
+   "processS": 0.6187092079780996
+  },
+  {
+   "importsS": 0.02727945800870657,
+   "timesS": [
+    0.5416379160014912,
+    0.09701520798262209,
+    0.10731083294376731
+   ],
+   "phases": null,
+   "peakRssBytes": 70631424,
+   "error": null,
+   "case": "sb-p2-mezz_base-F0",
+   "target": "golden:placements",
+   "processS": 0.8666086660232395
+  },
+  {
+   "importsS": 0.020410957979038358,
+   "timesS": [
+    1.2229207080090418,
+    0.5166763749439269,
+    0.5317997090751305
+   ],
+   "phases": null,
+   "peakRssBytes": 94126080,
+   "error": null,
+   "case": "sb-p2-mezz_base-F0",
+   "target": "golden:occurrences",
+   "processS": 2.380786083987914
+  },
+  {
+   "importsS": 0.02693104196805507,
+   "timesS": [
+    0.23635129095055163,
+    0.17293404194060713,
+    0.1623847500886768
+   ],
+   "phases": null,
+   "peakRssBytes": 74481664,
+   "error": null,
+   "case": "sb-p2-mezz_base-F0",
+   "target": "golden:board-objects",
+   "processS": 0.6660034999949858
+  },
+  {
+   "importsS": 0.0295763339381665,
+   "timesS": [
+    0.47270949999801815,
+    0.12351558392401785,
+    0.12620483408682048
+   ],
+   "phases": null,
+   "peakRssBytes": 74252288,
+   "error": null,
+   "case": "sb-p2-mezz_base-F0",
+   "target": "golden:route-metrics",
+   "processS": 0.8482270839158446
+  },
+  {
+   "importsS": 0.32181316695641726,
+   "timesS": [
+    0.20391895796637982,
+    0.0752853750018403,
+    0.06336729100439698
+   ],
+   "phases": null,
+   "peakRssBytes": 83935232,
+   "error": null,
+   "case": "sb-p2-mezz_top-F0",
+   "target": "prod:km-load",
+   "processS": 0.7648229580372572
+  },
+  {
+   "importsS": 0.35865475004538894,
+   "timesS": [
+    0.3027963329805061,
+    0.1010956660611555,
+    0.10561800003051758
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 4167,
+     "cpuNs": 3792,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 70758500,
+     "cpuNs": 68138125,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 59113417,
+     "cpuNs": 57937708,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 55201792,
+     "cpuNs": 50847458,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 81816833,
+     "cpuNs": 79962167,
+     "metadata": {
+      "components": 2,
+      "nets": 120,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 263667,
+     "cpuNs": 263875,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 2199958,
+     "cpuNs": 2029834,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 153583,
+     "cpuNs": 154000,
+     "metadata": {
+      "components": 2
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 1505166,
+     "cpuNs": 1499666,
+     "metadata": {
+      "nets": 120,
+      "terminals": 240
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 496125,
+     "cpuNs": 481000,
+     "metadata": {
+      "components": 2,
+      "nets": 120,
+      "terminals": 240
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 16081625,
+     "cpuNs": 15327417,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 89571328,
+   "error": null,
+   "case": "sb-p2-mezz_top-F0",
+   "target": "prod:semantic-index",
+   "processS": 0.9555847500450909
+  },
+  {
+   "importsS": 0.3502653749892488,
+   "timesS": [
+    0.007599083008244634,
+    0.002982750069350004,
+    0.0028554999735206366
+   ],
+   "phases": null,
+   "peakRssBytes": 62242816,
+   "error": null,
+   "case": "sb-p2-mezz_top-F0",
+   "target": "prod:variant-catalog",
+   "processS": 0.44586904195602983
+  },
+  {
+   "importsS": 0.44190345890820026,
+   "timesS": [
+    0.21459404099732637,
+    0.07823887502308935,
+    0.06536612496711314
+   ],
+   "phases": null,
+   "peakRssBytes": 83361792,
+   "error": null,
+   "case": "sb-p2-mezz_top-F0",
+   "target": "prod:system-interface",
+   "processS": 0.895095125073567
+  },
+  {
+   "importsS": 0.01779187493957579,
+   "timesS": [
+    0.6214413329726085,
+    0.10751329094637185,
+    0.10492562502622604
+   ],
+   "phases": null,
+   "peakRssBytes": 90128384,
+   "error": null,
+   "case": "sb-p2-mezz_top-F0",
+   "target": "golden:semantic-index",
+   "processS": 0.9443047500681132
+  },
+  {
+   "importsS": 0.01871829095762223,
+   "timesS": [
+    0.5580189580796286,
+    0.0812342909630388,
+    0.06927104108035564
+   ],
+   "phases": null,
+   "peakRssBytes": 84459520,
+   "error": null,
+   "case": "sb-p2-mezz_top-F0",
+   "target": "golden:system-interface",
+   "processS": 0.8134443750604987
+  },
+  {
+   "importsS": 0.024408500059507787,
+   "timesS": [
+    1.1151312500005588,
+    0.9124528329120949,
+    0.9382572500035167
+   ],
+   "phases": null,
+   "peakRssBytes": 47464448,
+   "error": null,
+   "case": "sb-p2-mezz_top-F0",
+   "target": "golden:project",
+   "processS": 3.056281959055923
+  },
+  {
+   "importsS": 0.02550324995536357,
+   "timesS": [
+    0.27429583307821304,
+    0.12324187497142702,
+    0.11714091594330966
+   ],
+   "phases": null,
+   "peakRssBytes": 49430528,
+   "error": null,
+   "case": "sb-p2-mezz_top-F0",
+   "target": "golden:stackup",
+   "processS": 0.6089162499411032
+  },
+  {
+   "importsS": 0.02549262496177107,
+   "timesS": [
+    0.5109979590633884,
+    0.09490650007501245,
+    0.10422733309678733
+   ],
+   "phases": null,
+   "peakRssBytes": 70926336,
+   "error": null,
+   "case": "sb-p2-mezz_top-F0",
+   "target": "golden:placements",
+   "processS": 0.819055209052749
+  },
+  {
+   "importsS": 0.02083099994342774,
+   "timesS": [
+    1.2094845829997212,
+    0.558373250067234,
+    0.5509781669825315
+   ],
+   "phases": null,
+   "peakRssBytes": 93143040,
+   "error": null,
+   "case": "sb-p2-mezz_top-F0",
+   "target": "golden:occurrences",
+   "processS": 2.4406315829837695
+  },
+  {
+   "importsS": 0.02740395802538842,
+   "timesS": [
+    0.234220499987714,
+    0.17046108306385577,
+    0.1748370840214193
+   ],
+   "phases": null,
+   "peakRssBytes": 74629120,
+   "error": null,
+   "case": "sb-p2-mezz_top-F0",
+   "target": "golden:board-objects",
+   "processS": 0.668019458069466
+  },
+  {
+   "importsS": 0.028246458969078958,
+   "timesS": [
+    0.468966249958612,
+    0.13300737494137138,
+    0.1359875419875607
+   ],
+   "phases": null,
+   "peakRssBytes": 74694656,
+   "error": null,
+   "case": "sb-p2-mezz_top-F0",
+   "target": "golden:route-metrics",
+   "processS": 0.8435678749810904
+  },
+  {
+   "importsS": 0.3422920829616487,
+   "timesS": [
+    0.21485049999319017,
+    0.0801974170608446,
+    0.06397791695781052
+   ],
+   "phases": null,
+   "peakRssBytes": 83902464,
+   "error": null,
+   "case": "sb-p2-mezz_top-F1",
+   "target": "prod:km-load",
+   "processS": 0.7924760000314564
+  },
+  {
+   "importsS": 0.35278920794371516,
+   "timesS": [
+    0.3003921250347048,
+    0.1051831670338288,
+    0.10565379203762859
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 4000,
+     "cpuNs": 3208,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 71953583,
+     "cpuNs": 68776209,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 56762667,
+     "cpuNs": 55754250,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 51274334,
+     "cpuNs": 49697666,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 82562250,
+     "cpuNs": 81154916,
+     "metadata": {
+      "components": 2,
+      "nets": 120,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 275833,
+     "cpuNs": 276041,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 2450708,
+     "cpuNs": 2169375,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 137708,
+     "cpuNs": 138000,
+     "metadata": {
+      "components": 2
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 1524125,
+     "cpuNs": 1524458,
+     "metadata": {
+      "nets": 120,
+      "terminals": 240
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 402375,
+     "cpuNs": 402500,
+     "metadata": {
+      "components": 2,
+      "nets": 120,
+      "terminals": 240
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 17590792,
+     "cpuNs": 14699917,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 90505216,
+   "error": null,
+   "case": "sb-p2-mezz_top-F1",
+   "target": "prod:semantic-index",
+   "processS": 0.9574635840253904
+  },
+  {
+   "importsS": 0.33475741697475314,
+   "timesS": [
+    0.01037458295468241,
+    0.003028040984645486,
+    0.0029708329821005464
+   ],
+   "phases": null,
+   "peakRssBytes": 62636032,
+   "error": null,
+   "case": "sb-p2-mezz_top-F1",
+   "target": "prod:variant-catalog",
+   "processS": 0.4389460840029642
+  },
+  {
+   "importsS": 0.3487923329230398,
+   "timesS": [
+    0.21284879196900874,
+    0.07875991694163531,
+    0.06912537489552051
+   ],
+   "phases": null,
+   "peakRssBytes": 84197376,
+   "error": null,
+   "case": "sb-p2-mezz_top-F1",
+   "target": "prod:system-interface",
+   "processS": 0.8037954170722514
+  },
+  {
+   "importsS": 0.02022254199255258,
+   "timesS": [
+    0.7159899170510471,
+    0.14899441704619676,
+    0.11276583303697407
+   ],
+   "phases": null,
+   "peakRssBytes": 90112000,
+   "error": null,
+   "case": "sb-p2-mezz_top-F1",
+   "target": "golden:semantic-index",
+   "processS": 1.0937474999809638
+  },
+  {
+   "importsS": 0.01838170795235783,
+   "timesS": [
+    0.5959316249936819,
+    0.08447620796505362,
+    0.06985424994491041
+   ],
+   "phases": null,
+   "peakRssBytes": 83968000,
+   "error": null,
+   "case": "sb-p2-mezz_top-F1",
+   "target": "golden:system-interface",
+   "processS": 0.8646128340624273
+  },
+  {
+   "importsS": 0.02424754190724343,
+   "timesS": [
+    1.1315326659241691,
+    0.9875312499934807,
+    0.9045436249580234
+   ],
+   "phases": null,
+   "peakRssBytes": 47611904,
+   "error": null,
+   "case": "sb-p2-mezz_top-F1",
+   "target": "golden:project",
+   "processS": 3.1131056249141693
+  },
+  {
+   "importsS": 0.026406208984553814,
+   "timesS": [
+    0.27192833297885954,
+    0.12620037491433322,
+    0.12052895803935826
+   ],
+   "phases": null,
+   "peakRssBytes": 49414144,
+   "error": null,
+   "case": "sb-p2-mezz_top-F1",
+   "target": "golden:stackup",
+   "processS": 0.610389000037685
+  },
+  {
+   "importsS": 0.026304875034838915,
+   "timesS": [
+    0.5237875829916447,
+    0.09704958298243582,
+    0.10746079206001014
+   ],
+   "phases": null,
+   "peakRssBytes": 70746112,
+   "error": null,
+   "case": "sb-p2-mezz_top-F1",
+   "target": "golden:placements",
+   "processS": 0.8394072919618338
+  },
+  {
+   "importsS": 0.020310834050178528,
+   "timesS": [
+    1.22086749994196,
+    0.5170416670152918,
+    0.5445509169949219
+   ],
+   "phases": null,
+   "peakRssBytes": 94175232,
+   "error": null,
+   "case": "sb-p2-mezz_top-F1",
+   "target": "golden:occurrences",
+   "processS": 2.3962049579713494
+  },
+  {
+   "importsS": 0.027397083002142608,
+   "timesS": [
+    0.23465541703626513,
+    0.1708479590015486,
+    0.1626175839919597
+   ],
+   "phases": null,
+   "peakRssBytes": 74645504,
+   "error": null,
+   "case": "sb-p2-mezz_top-F1",
+   "target": "golden:board-objects",
+   "processS": 0.6580876660300419
+  },
+  {
+   "importsS": 0.02882512507494539,
+   "timesS": [
+    0.4686698750592768,
+    0.13040183403063565,
+    0.12905945908278227
+   ],
+   "phases": null,
+   "peakRssBytes": 74203136,
+   "error": null,
+   "case": "sb-p2-mezz_top-F1",
+   "target": "golden:route-metrics",
+   "processS": 0.848931165994145
+  },
+  {
+   "importsS": 0.3390863749664277,
+   "timesS": [
+    0.15388366591650993,
+    0.019607875030487776,
+    0.018513457966037095
+   ],
+   "phases": null,
+   "peakRssBytes": 80363520,
+   "error": null,
+   "case": "sb-mini_obc-F0",
+   "target": "prod:km-load",
+   "processS": 0.6206570409704
+  },
+  {
+   "importsS": 0.33620058302767575,
+   "timesS": [
+    0.2485439160373062,
+    0.031590749975293875,
+    0.02965837495867163
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 9417,
+     "cpuNs": 8750,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 54263541,
+     "cpuNs": 51332875,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 53376083,
+     "cpuNs": 51773459,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 41917958,
+     "cpuNs": 39585250,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 66043292,
+     "cpuNs": 64604625,
+     "metadata": {
+      "components": 6,
+      "nets": 24,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 286959,
+     "cpuNs": 287292,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 1766125,
+     "cpuNs": 1504583,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 318833,
+     "cpuNs": 319250,
+     "metadata": {
+      "components": 6
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 255000,
+     "cpuNs": 255000,
+     "metadata": {
+      "nets": 24,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 83416,
+     "cpuNs": 83458,
+     "metadata": {
+      "components": 6,
+      "nets": 24,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 15852041,
+     "cpuNs": 14199166,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 85442560,
+   "error": null,
+   "case": "sb-mini_obc-F0",
+   "target": "prod:semantic-index",
+   "processS": 0.7413903750712052
+  },
+  {
+   "importsS": 0.33755987498443574,
+   "timesS": [
+    0.007405124953947961,
+    0.0025630000745877624,
+    0.002473750035278499
+   ],
+   "phases": null,
+   "peakRssBytes": 62226432,
+   "error": null,
+   "case": "sb-mini_obc-F0",
+   "target": "prod:variant-catalog",
+   "processS": 0.43345729203429073
+  },
+  {
+   "importsS": 0.33031366602517664,
+   "timesS": [
+    0.17167591699399054,
+    0.02122091595083475,
+    0.02225804200861603
+   ],
+   "phases": null,
+   "peakRssBytes": 80838656,
+   "error": null,
+   "case": "sb-mini_obc-F0",
+   "target": "prod:system-interface",
+   "processS": 0.6392677499679849
+  },
+  {
+   "importsS": 0.0190769579494372,
+   "timesS": [
+    0.5607585420366377,
+    0.03089449997060001,
+    0.029963542008772492
+   ],
+   "phases": null,
+   "peakRssBytes": 86769664,
+   "error": null,
+   "case": "sb-mini_obc-F0",
+   "target": "golden:semantic-index",
+   "processS": 0.7274405839852989
+  },
+  {
+   "importsS": 0.018414083984680474,
+   "timesS": [
+    0.4758389169583097,
+    0.02304454194381833,
+    0.022660624934360385
+   ],
+   "phases": null,
+   "peakRssBytes": 81231872,
+   "error": null,
+   "case": "sb-mini_obc-F0",
+   "target": "golden:system-interface",
+   "processS": 0.6283779590157792
+  },
+  {
+   "importsS": 0.023235000087879598,
+   "timesS": [
+    0.6544992499984801,
+    0.5431982090231031,
+    0.5584114999510348
+   ],
+   "phases": null,
+   "peakRssBytes": 43450368,
+   "error": null,
+   "case": "sb-mini_obc-F0",
+   "target": "golden:project",
+   "processS": 1.844736292026937
+  },
+  {
+   "importsS": 0.026679708040319383,
+   "timesS": [
+    0.1732530411100015,
+    0.026967250043526292,
+    0.031554958899505436
+   ],
+   "phases": null,
+   "peakRssBytes": 45776896,
+   "error": null,
+   "case": "sb-mini_obc-F0",
+   "target": "golden:stackup",
+   "processS": 0.3230460829799995
+  },
+  {
+   "importsS": 0.025468082982115448,
+   "timesS": [
+    0.4051166250137612,
+    0.0212247499730438,
+    0.02116287499666214
+   ],
+   "phases": null,
+   "peakRssBytes": 66797568,
+   "error": null,
+   "case": "sb-mini_obc-F0",
+   "target": "golden:placements",
+   "processS": 0.5530613749288023
+  },
+  {
+   "importsS": 0.018264500075019896,
+   "timesS": [
+    0.7906124590663239,
+    0.22117229201830924,
+    0.23754020791966468
+   ],
+   "phases": null,
+   "peakRssBytes": 88227840,
+   "error": null,
+   "case": "sb-mini_obc-F0",
+   "target": "golden:occurrences",
+   "processS": 1.35746620898135
+  },
+  {
+   "importsS": 0.02656262496020645,
+   "timesS": [
+    0.18400720902718604,
+    0.10477441607508808,
+    0.10697324993088841
+   ],
+   "phases": null,
+   "peakRssBytes": 62046208,
+   "error": null,
+   "case": "sb-mini_obc-F0",
+   "target": "golden:board-objects",
+   "processS": 0.48460770794190466
+  },
+  {
+   "importsS": 0.02901387505698949,
+   "timesS": [
+    0.44590545806568116,
+    0.10605808300897479,
+    0.09466349997092038
+   ],
+   "phases": null,
+   "peakRssBytes": 64897024,
+   "error": null,
+   "case": "sb-mini_obc-F0",
+   "target": "golden:route-metrics",
+   "processS": 0.7663333750097081
+  },
+  {
+   "importsS": 0.3305145000340417,
+   "timesS": [
+    0.16419312497600913,
+    0.019444792065769434,
+    0.020013790926896036
+   ],
+   "phases": null,
+   "peakRssBytes": 80969728,
+   "error": null,
+   "case": "sb-mini_obc-F1",
+   "target": "prod:km-load",
+   "processS": 0.6221556250238791
+  },
+  {
+   "importsS": 0.33079254091717303,
+   "timesS": [
+    0.24732645798940212,
+    0.030157541972585022,
+    0.030459415982477367
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 6167,
+     "cpuNs": 5500,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 52453958,
+     "cpuNs": 50141875,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 51984208,
+     "cpuNs": 50812208,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 37268917,
+     "cpuNs": 35192375,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 70654125,
+     "cpuNs": 66647209,
+     "metadata": {
+      "components": 6,
+      "nets": 25,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 264375,
+     "cpuNs": 264708,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 1712291,
+     "cpuNs": 1487125,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 282000,
+     "cpuNs": 282250,
+     "metadata": {
+      "components": 6
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 284083,
+     "cpuNs": 284292,
+     "metadata": {
+      "nets": 25,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 86084,
+     "cpuNs": 86250,
+     "metadata": {
+      "components": 6,
+      "nets": 25,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 18108125,
+     "cpuNs": 15813916,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 86392832,
+   "error": null,
+   "case": "sb-mini_obc-F1",
+   "target": "prod:semantic-index",
+   "processS": 0.7379144579172134
+  },
+  {
+   "importsS": 0.33848099992610514,
+   "timesS": [
+    0.00728575000539422,
+    0.0020228750072419643,
+    0.0023046249989420176
+   ],
+   "phases": null,
+   "peakRssBytes": 61980672,
+   "error": null,
+   "case": "sb-mini_obc-F1",
+   "target": "prod:variant-catalog",
+   "processS": 0.43050641706213355
+  },
+  {
+   "importsS": 0.35823270794935524,
+   "timesS": [
+    0.1729004579829052,
+    0.023483292083255947,
+    0.02380195795558393
+   ],
+   "phases": null,
+   "peakRssBytes": 81543168,
+   "error": null,
+   "case": "sb-mini_obc-F1",
+   "target": "prod:system-interface",
+   "processS": 0.6682388340122998
+  },
+  {
+   "importsS": 0.018394957995042205,
+   "timesS": [
+    0.560406667063944,
+    0.03162683290429413,
+    0.030457167071290314
+   ],
+   "phases": null,
+   "peakRssBytes": 85360640,
+   "error": null,
+   "case": "sb-mini_obc-F1",
+   "target": "golden:semantic-index",
+   "processS": 0.7429559580050409
+  },
+  {
+   "importsS": 0.017628957983106375,
+   "timesS": [
+    0.5025087499525398,
+    0.022683374932967126,
+    0.021952084032818675
+   ],
+   "phases": null,
+   "peakRssBytes": 81674240,
+   "error": null,
+   "case": "sb-mini_obc-F1",
+   "target": "golden:system-interface",
+   "processS": 0.6601471250178292
+  },
+  {
+   "importsS": 0.02289124997332692,
+   "timesS": [
+    0.6682998749893159,
+    0.5517454169457778,
+    0.5537704590242356
+   ],
+   "phases": null,
+   "peakRssBytes": 43565056,
+   "error": null,
+   "case": "sb-mini_obc-F1",
+   "target": "golden:project",
+   "processS": 1.8600701249670237
+  },
+  {
+   "importsS": 0.02479695901274681,
+   "timesS": [
+    0.18372433295007795,
+    0.0282462079776451,
+    0.03167070902418345
+   ],
+   "phases": null,
+   "peakRssBytes": 46022656,
+   "error": null,
+   "case": "sb-mini_obc-F1",
+   "target": "golden:stackup",
+   "processS": 0.3332113749347627
+  },
+  {
+   "importsS": 0.023883417015895247,
+   "timesS": [
+    0.4302722499705851,
+    0.02189420792274177,
+    0.022617624956183136
+   ],
+   "phases": null,
+   "peakRssBytes": 66797568,
+   "error": null,
+   "case": "sb-mini_obc-F1",
+   "target": "golden:placements",
+   "processS": 0.5906363750109449
+  },
+  {
+   "importsS": 0.019948708009906113,
+   "timesS": [
+    0.8207012919010594,
+    0.2254803340183571,
+    0.23837174999061972
+   ],
+   "phases": null,
+   "peakRssBytes": 87867392,
+   "error": null,
+   "case": "sb-mini_obc-F1",
+   "target": "golden:occurrences",
+   "processS": 1.393038458074443
+  },
+  {
+   "importsS": 0.025878958054818213,
+   "timesS": [
+    0.18537016701884568,
+    0.11020533298142254,
+    0.11084416694939137
+   ],
+   "phases": null,
+   "peakRssBytes": 62750720,
+   "error": null,
+   "case": "sb-mini_obc-F1",
+   "target": "golden:board-objects",
+   "processS": 0.49401708401273936
+  },
+  {
+   "importsS": 0.02763270807918161,
+   "timesS": [
+    0.4557862499495968,
+    0.09784400009084493,
+    0.1274298750795424
+   ],
+   "phases": null,
+   "peakRssBytes": 64798720,
+   "error": null,
+   "case": "sb-mini_obc-F1",
+   "target": "golden:route-metrics",
+   "processS": 0.808173416997306
+  },
+  {
+   "importsS": 0.35267887508962303,
+   "timesS": [
+    0.16864387493114918,
+    0.019758999929763377,
+    0.01987933402415365
+   ],
+   "phases": null,
+   "peakRssBytes": 81035264,
+   "error": null,
+   "case": "sb-mini_obc-F2",
+   "target": "prod:km-load",
+   "processS": 0.6605157910380512
+  },
+  {
+   "importsS": 0.3389420419698581,
+   "timesS": [
+    0.2414952920516953,
+    0.030320749967359006,
+    0.03020537504926324
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 3542,
+     "cpuNs": 3125,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 53568875,
+     "cpuNs": 50989709,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 52043167,
+     "cpuNs": 50902208,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 33332541,
+     "cpuNs": 31837833,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 67295875,
+     "cpuNs": 65390750,
+     "metadata": {
+      "components": 6,
+      "nets": 24,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 290625,
+     "cpuNs": 290916,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 2048292,
+     "cpuNs": 1714458,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 331833,
+     "cpuNs": 332125,
+     "metadata": {
+      "components": 6
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 318709,
+     "cpuNs": 318958,
+     "metadata": {
+      "nets": 24,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 130458,
+     "cpuNs": 130542,
+     "metadata": {
+      "components": 6,
+      "nets": 24,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 17051541,
+     "cpuNs": 15454959,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 86786048,
+   "error": null,
+   "case": "sb-mini_obc-F2",
+   "target": "prod:semantic-index",
+   "processS": 0.7474737919401377
+  },
+  {
+   "importsS": 0.36277466593310237,
+   "timesS": [
+    0.05120895802974701,
+    0.005687874974682927,
+    0.005814375006593764
+   ],
+   "phases": null,
+   "peakRssBytes": 62619648,
+   "error": null,
+   "case": "sb-mini_obc-F2",
+   "target": "prod:variant-catalog",
+   "processS": 0.5761073749745265
+  },
+  {
+   "importsS": 0.365259625017643,
+   "timesS": [
+    0.16809033299796283,
+    0.022748791961930692,
+    0.021878208965063095
+   ],
+   "phases": null,
+   "peakRssBytes": 81641472,
+   "error": null,
+   "case": "sb-mini_obc-F2",
+   "target": "prod:system-interface",
+   "processS": 0.6755769160808995
+  },
+  {
+   "importsS": 0.01961879199370742,
+   "timesS": [
+    0.554405584000051,
+    0.03181004209909588,
+    0.03033795894589275
+   ],
+   "phases": null,
+   "peakRssBytes": 85934080,
+   "error": null,
+   "case": "sb-mini_obc-F2",
+   "target": "golden:semantic-index",
+   "processS": 0.7280441250186414
+  },
+  {
+   "importsS": 0.01900495809968561,
+   "timesS": [
+    0.5564490000251681,
+    0.023161666933447123,
+    0.021929792012088
+   ],
+   "phases": null,
+   "peakRssBytes": 81657856,
+   "error": null,
+   "case": "sb-mini_obc-F2",
+   "target": "golden:system-interface",
+   "processS": 0.7196044169832021
+  },
+  {
+   "importsS": 0.02406841702759266,
+   "timesS": [
+    0.7196042499272153,
+    0.5321284160017967,
+    0.5214219579938799
+   ],
+   "phases": null,
+   "peakRssBytes": 43630592,
+   "error": null,
+   "case": "sb-mini_obc-F2",
+   "target": "golden:project",
+   "processS": 1.8634312499780208
+  },
+  {
+   "importsS": 0.024613208952359855,
+   "timesS": [
+    0.18165962502826005,
+    0.03007645800244063,
+    0.033115666010417044
+   ],
+   "phases": null,
+   "peakRssBytes": 46170112,
+   "error": null,
+   "case": "sb-mini_obc-F2",
+   "target": "golden:stackup",
+   "processS": 0.3299013329669833
+  },
+  {
+   "importsS": 0.02802245900966227,
+   "timesS": [
+    0.4216756249079481,
+    0.022395750042051077,
+    0.022360957926139235
+   ],
+   "phases": null,
+   "peakRssBytes": 66879488,
+   "error": null,
+   "case": "sb-mini_obc-F2",
+   "target": "golden:placements",
+   "processS": 0.5864308750024065
+  },
+  {
+   "importsS": 0.020187542075291276,
+   "timesS": [
+    0.8249452089658007,
+    0.214817582978867,
+    0.23375204205513
+   ],
+   "phases": null,
+   "peakRssBytes": 88948736,
+   "error": null,
+   "case": "sb-mini_obc-F2",
+   "target": "golden:occurrences",
+   "processS": 1.39762629091274
+  },
+  {
+   "importsS": 0.024358458002097905,
+   "timesS": [
+    0.17746595898643136,
+    0.10281370801385492,
+    0.10488541703671217
+   ],
+   "phases": null,
+   "peakRssBytes": 62423040,
+   "error": null,
+   "case": "sb-mini_obc-F2",
+   "target": "golden:board-objects",
+   "processS": 0.472722916980274
+  },
+  {
+   "importsS": 0.02676274999976158,
+   "timesS": [
+    0.4389198749559,
+    0.09613916696980596,
+    0.09777587500866503
+   ],
+   "phases": null,
+   "peakRssBytes": 64815104,
+   "error": null,
+   "case": "sb-mini_obc-F2",
+   "target": "golden:route-metrics",
+   "processS": 0.75169599999208
+  },
+  {
+   "importsS": 0.342178542050533,
+   "timesS": [
+    0.1687285000225529,
+    0.01916825002990663,
+    0.01973429089412093
+   ],
+   "phases": null,
+   "peakRssBytes": 81412096,
+   "error": null,
+   "case": "sb-mini_obc-F3",
+   "target": "prod:km-load",
+   "processS": 0.6442592919338495
+  },
+  {
+   "importsS": 0.3344587500905618,
+   "timesS": [
+    0.23757120792288333,
+    0.029286416945979,
+    0.029798624920658767
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 6417,
+     "cpuNs": 2958,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 54428083,
+     "cpuNs": 51817959,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 50434500,
+     "cpuNs": 49291292,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 33133542,
+     "cpuNs": 30977458,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 64125666,
+     "cpuNs": 63023917,
+     "metadata": {
+      "components": 6,
+      "nets": 24,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 281125,
+     "cpuNs": 281459,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 1923375,
+     "cpuNs": 1729208,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 513667,
+     "cpuNs": 500917,
+     "metadata": {
+      "components": 6
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 286125,
+     "cpuNs": 286375,
+     "metadata": {
+      "nets": 24,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 88083,
+     "cpuNs": 88167,
+     "metadata": {
+      "components": 6,
+      "nets": 24,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 17149292,
+     "cpuNs": 16177875,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 85327872,
+   "error": null,
+   "case": "sb-mini_obc-F3",
+   "target": "prod:semantic-index",
+   "processS": 0.7228845830541104
+  },
+  {
+   "importsS": 0.33677466702647507,
+   "timesS": [
+    0.007246959023177624,
+    0.002288541989400983,
+    0.002479707938618958
+   ],
+   "phases": null,
+   "peakRssBytes": 62341120,
+   "error": null,
+   "case": "sb-mini_obc-F3",
+   "target": "prod:variant-catalog",
+   "processS": 0.43132458394393325
+  },
+  {
+   "importsS": 0.3365433330181986,
+   "timesS": [
+    0.18149683298543096,
+    0.022949749953113496,
+    0.022603207966312766
+   ],
+   "phases": null,
+   "peakRssBytes": 81756160,
+   "error": null,
+   "case": "sb-mini_obc-F3",
+   "target": "prod:system-interface",
+   "processS": 0.6538841669680551
+  },
+  {
+   "importsS": 0.019051000010222197,
+   "timesS": [
+    0.5609765829285607,
+    0.031015874934382737,
+    0.030721290968358517
+   ],
+   "phases": null,
+   "peakRssBytes": 84983808,
+   "error": null,
+   "case": "sb-mini_obc-F3",
+   "target": "golden:semantic-index",
+   "processS": 0.7302984159905463
+  },
+  {
+   "importsS": 0.018375165993347764,
+   "timesS": [
+    0.5026165000163019,
+    0.022394833038561046,
+    0.02136891707777977
+   ],
+   "phases": null,
+   "peakRssBytes": 81084416,
+   "error": null,
+   "case": "sb-mini_obc-F3",
+   "target": "golden:system-interface",
+   "processS": 0.658449916052632
+  },
+  {
+   "importsS": 0.023259416921064258,
+   "timesS": [
+    0.670801708009094,
+    0.5275801660027355,
+    0.5322072498966008
+   ],
+   "phases": null,
+   "peakRssBytes": 43548672,
+   "error": null,
+   "case": "sb-mini_obc-F3",
+   "target": "golden:project",
+   "processS": 1.8239080409985036
+  },
+  {
+   "importsS": 0.02426237508188933,
+   "timesS": [
+    0.17909316706936806,
+    0.02826245897449553,
+    0.03265483304858208
+   ],
+   "phases": null,
+   "peakRssBytes": 45973504,
+   "error": null,
+   "case": "sb-mini_obc-F3",
+   "target": "golden:stackup",
+   "processS": 0.32475104194600135
+  },
+  {
+   "importsS": 0.026081374962814152,
+   "timesS": [
+    0.41253045795019716,
+    0.023260958027094603,
+    0.021796458982862532
+   ],
+   "phases": null,
+   "peakRssBytes": 66617344,
+   "error": null,
+   "case": "sb-mini_obc-F3",
+   "target": "golden:placements",
+   "processS": 0.5745492089772597
+  },
+  {
+   "importsS": 0.02009433403145522,
+   "timesS": [
+    0.7948352500097826,
+    0.22663266700692475,
+    0.23125879105646163
+   ],
+   "phases": null,
+   "peakRssBytes": 88358912,
+   "error": null,
+   "case": "sb-mini_obc-F3",
+   "target": "golden:occurrences",
+   "processS": 1.367404666962102
+  },
+  {
+   "importsS": 0.02526849997229874,
+   "timesS": [
+    0.17943608295172453,
+    0.10617816704325378,
+    0.10405679198447615
+   ],
+   "phases": null,
+   "peakRssBytes": 62373888,
+   "error": null,
+   "case": "sb-mini_obc-F3",
+   "target": "golden:board-objects",
+   "processS": 0.4781790409469977
+  },
+  {
+   "importsS": 0.025081375031732023,
+   "timesS": [
+    0.4304950829828158,
+    0.1082367500057444,
+    0.10372233297675848
+   ],
+   "phases": null,
+   "peakRssBytes": 64716800,
+   "error": null,
+   "case": "sb-mini_obc-F3",
+   "target": "golden:route-metrics",
+   "processS": 0.7576459160773084
+  },
+  {
+   "importsS": 0.3357548749772832,
+   "timesS": [
+    0.165426166029647,
+    0.02098983305040747,
+    0.021496917004697025
+   ],
+   "phases": null,
+   "peakRssBytes": 81444864,
+   "error": null,
+   "case": "sb-mini_obc-F4",
+   "target": "prod:km-load",
+   "processS": 0.6369803750421852
+  },
+  {
+   "importsS": 0.332624249975197,
+   "timesS": [
+    0.24901516700629145,
+    0.031151958974078298,
+    0.03071729198563844
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 2917,
+     "cpuNs": 2375,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 64686917,
+     "cpuNs": 52588375,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 50022333,
+     "cpuNs": 49429917,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 32305583,
+     "cpuNs": 31198791,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 67291875,
+     "cpuNs": 65525917,
+     "metadata": {
+      "components": 6,
+      "nets": 28,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 282708,
+     "cpuNs": 283125,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 1598208,
+     "cpuNs": 1376791,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 266208,
+     "cpuNs": 266542,
+     "metadata": {
+      "components": 6
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 291292,
+     "cpuNs": 291625,
+     "metadata": {
+      "nets": 28,
+      "terminals": 40
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 135792,
+     "cpuNs": 133333,
+     "metadata": {
+      "components": 6,
+      "nets": 28,
+      "terminals": 40
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 17344000,
+     "cpuNs": 14847958,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 86851584,
+   "error": null,
+   "case": "sb-mini_obc-F4",
+   "target": "prod:semantic-index",
+   "processS": 0.7473604169208556
+  },
+  {
+   "importsS": 0.36977099999785423,
+   "timesS": [
+    0.008270459016785026,
+    0.0028166670817881823,
+    0.0021502909949049354
+   ],
+   "phases": null,
+   "peakRssBytes": 62128128,
+   "error": null,
+   "case": "sb-mini_obc-F4",
+   "target": "prod:variant-catalog",
+   "processS": 0.46296249993611127
+  },
+  {
+   "importsS": 0.3381848329445347,
+   "timesS": [
+    0.16409429092891514,
+    0.022711249999701977,
+    0.023862041998654604
+   ],
+   "phases": null,
+   "peakRssBytes": 81461248,
+   "error": null,
+   "case": "sb-mini_obc-F4",
+   "target": "prod:system-interface",
+   "processS": 0.6372934168903157
+  },
+  {
+   "importsS": 0.017189000034704804,
+   "timesS": [
+    0.5825399170862511,
+    0.03867462498601526,
+    0.03287249989807606
+   ],
+   "phases": null,
+   "peakRssBytes": 86343680,
+   "error": null,
+   "case": "sb-mini_obc-F4",
+   "target": "golden:semantic-index",
+   "processS": 0.7625952909002081
+  },
+  {
+   "importsS": 0.018296916037797928,
+   "timesS": [
+    0.4999575420515612,
+    0.02420441701542586,
+    0.023111207992769778
+   ],
+   "phases": null,
+   "peakRssBytes": 81870848,
+   "error": null,
+   "case": "sb-mini_obc-F4",
+   "target": "golden:system-interface",
+   "processS": 0.661676749936305
+  },
+  {
+   "importsS": 0.023805833072401583,
+   "timesS": [
+    0.6754186670295894,
+    0.5541152920341119,
+    0.5195644580526277
+   ],
+   "phases": null,
+   "peakRssBytes": 43941888,
+   "error": null,
+   "case": "sb-mini_obc-F4",
+   "target": "golden:project",
+   "processS": 1.8416379590053111
+  },
+  {
+   "importsS": 0.026232499978505075,
+   "timesS": [
+    0.18099712498951703,
+    0.028537707985378802,
+    0.03358720801770687
+   ],
+   "phases": null,
+   "peakRssBytes": 45744128,
+   "error": null,
+   "case": "sb-mini_obc-F4",
+   "target": "golden:stackup",
+   "processS": 0.33661962498445064
+  },
+  {
+   "importsS": 0.025570291909389198,
+   "timesS": [
+    0.42937879206147045,
+    0.0224350409116596,
+    0.022599415970034897
+   ],
+   "phases": null,
+   "peakRssBytes": 67108864,
+   "error": null,
+   "case": "sb-mini_obc-F4",
+   "target": "golden:placements",
+   "processS": 0.5855462920153514
+  },
+  {
+   "importsS": 0.019450000021606684,
+   "timesS": [
+    0.7890530839795247,
+    0.219570167013444,
+    0.22778979095164686
+   ],
+   "phases": null,
+   "peakRssBytes": 89456640,
+   "error": null,
+   "case": "sb-mini_obc-F4",
+   "target": "golden:occurrences",
+   "processS": 1.3426137500209734
+  },
+  {
+   "importsS": 0.027759292046539485,
+   "timesS": [
+    0.17683695803862065,
+    0.10721475002355874,
+    0.12113024992868304
+   ],
+   "phases": null,
+   "peakRssBytes": 62095360,
+   "error": null,
+   "case": "sb-mini_obc-F4",
+   "target": "golden:board-objects",
+   "processS": 0.5140002080006525
+  },
+  {
+   "importsS": 0.026044333004392684,
+   "timesS": [
+    0.44985937501769513,
+    0.1010314580053091,
+    0.09880899998825043
+   ],
+   "phases": null,
+   "peakRssBytes": 64962560,
+   "error": null,
+   "case": "sb-mini_obc-F4",
+   "target": "golden:route-metrics",
+   "processS": 0.7578327090013772
+  },
+  {
+   "importsS": 0.3297224580310285,
+   "timesS": [
+    0.15960983303375542,
+    0.019934709067456424,
+    0.019450124935247004
+   ],
+   "phases": null,
+   "peakRssBytes": 81608704,
+   "error": null,
+   "case": "sb-mini_obc-F5",
+   "target": "prod:km-load",
+   "processS": 0.6234412499470636
+  },
+  {
+   "importsS": 0.32851662510074675,
+   "timesS": [
+    0.2414867909392342,
+    0.03067787503823638,
+    0.028984541073441505
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 3416,
+     "cpuNs": 2917,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 52872750,
+     "cpuNs": 50666167,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 51199667,
+     "cpuNs": 50045084,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 33116500,
+     "cpuNs": 31672125,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 68751459,
+     "cpuNs": 66274375,
+     "metadata": {
+      "components": 6,
+      "nets": 24,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 250083,
+     "cpuNs": 250375,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 1725791,
+     "cpuNs": 1481250,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 296042,
+     "cpuNs": 292292,
+     "metadata": {
+      "components": 6
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 292708,
+     "cpuNs": 292875,
+     "metadata": {
+      "nets": 24,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 106000,
+     "cpuNs": 106125,
+     "metadata": {
+      "components": 6,
+      "nets": 24,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 18688375,
+     "cpuNs": 15908083,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 85458944,
+   "error": null,
+   "case": "sb-mini_obc-F5",
+   "target": "prod:semantic-index",
+   "processS": 0.7244372919667512
+  },
+  {
+   "importsS": 0.3378920420072973,
+   "timesS": [
+    0.006785416975617409,
+    0.002541458001360297,
+    0.0026529160095378757
+   ],
+   "phases": null,
+   "peakRssBytes": 62226432,
+   "error": null,
+   "case": "sb-mini_obc-F5",
+   "target": "prod:variant-catalog",
+   "processS": 0.4324446669779718
+  },
+  {
+   "importsS": 0.3401949580293149,
+   "timesS": [
+    0.1704582090023905,
+    0.021536292042583227,
+    0.02102020801976323
+   ],
+   "phases": null,
+   "peakRssBytes": 81199104,
+   "error": null,
+   "case": "sb-mini_obc-F5",
+   "target": "prod:system-interface",
+   "processS": 0.6421332500176504
+  },
+  {
+   "importsS": 0.0189712920691818,
+   "timesS": [
+    0.5620310410158709,
+    0.030511542106978595,
+    0.030330083100125194
+   ],
+   "phases": null,
+   "peakRssBytes": 85360640,
+   "error": null,
+   "case": "sb-mini_obc-F5",
+   "target": "golden:semantic-index",
+   "processS": 0.7365167499519885
+  },
+  {
+   "importsS": 0.01818274997640401,
+   "timesS": [
+    0.5059835839783773,
+    0.02262325002811849,
+    0.02281304099597037
+   ],
+   "phases": null,
+   "peakRssBytes": 81461248,
+   "error": null,
+   "case": "sb-mini_obc-F5",
+   "target": "golden:system-interface",
+   "processS": 0.6648477079579607
+  },
+  {
+   "importsS": 0.02334612503182143,
+   "timesS": [
+    0.6469594999216497,
+    0.535709833027795,
+    0.560767584014684
+   ],
+   "phases": null,
+   "peakRssBytes": 43761664,
+   "error": null,
+   "case": "sb-mini_obc-F5",
+   "target": "golden:project",
+   "processS": 1.8337621670216322
+  },
+  {
+   "importsS": 0.027791375061497092,
+   "timesS": [
+    0.18737199995666742,
+    0.028443290968425572,
+    0.0328184999525547
+   ],
+   "phases": null,
+   "peakRssBytes": 45940736,
+   "error": null,
+   "case": "sb-mini_obc-F5",
+   "target": "golden:stackup",
+   "processS": 0.3428524169139564
+  },
+  {
+   "importsS": 0.025670959032140672,
+   "timesS": [
+    0.4254402091028169,
+    0.02271074999589473,
+    0.022020500036887825
+   ],
+   "phases": null,
+   "peakRssBytes": 66568192,
+   "error": null,
+   "case": "sb-mini_obc-F5",
+   "target": "golden:placements",
+   "processS": 0.588513333001174
+  },
+  {
+   "importsS": 0.01966787490528077,
+   "timesS": [
+    0.8217989578843117,
+    0.2267928330693394,
+    0.23126775003038347
+   ],
+   "phases": null,
+   "peakRssBytes": 87834624,
+   "error": null,
+   "case": "sb-mini_obc-F5",
+   "target": "golden:occurrences",
+   "processS": 1.4038281660759822
+  },
+  {
+   "importsS": 0.024501250009052455,
+   "timesS": [
+    0.1795189999975264,
+    0.11106612510047853,
+    0.1052798330783844
+   ],
+   "phases": null,
+   "peakRssBytes": 62242816,
+   "error": null,
+   "case": "sb-mini_obc-F5",
+   "target": "golden:board-objects",
+   "processS": 0.4858484169235453
+  },
+  {
+   "importsS": 0.027589458972215652,
+   "timesS": [
+    0.44750470796134323,
+    0.10207958391401917,
+    0.10662141698412597
+   ],
+   "phases": null,
+   "peakRssBytes": 64897024,
+   "error": null,
+   "case": "sb-mini_obc-F5",
+   "target": "golden:route-metrics",
+   "processS": 0.7756464580306783
+  },
+  {
+   "importsS": 0.33654087502509356,
+   "timesS": [
+    0.1619064590195194,
+    0.02008437504991889,
+    0.01939929206855595
+   ],
+   "phases": null,
+   "peakRssBytes": 81477632,
+   "error": null,
+   "case": "sb-mini_obc-F6",
+   "target": "prod:km-load",
+   "processS": 0.628038749913685
+  },
+  {
+   "importsS": 0.3252010839059949,
+   "timesS": [
+    0.2319122910266742,
+    0.027815667097456753,
+    0.02856595895718783
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 3417,
+     "cpuNs": 3125,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 52168041,
+     "cpuNs": 49988500,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 51082166,
+     "cpuNs": 49952500,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 31995375,
+     "cpuNs": 30511750,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 65053292,
+     "cpuNs": 63688958,
+     "metadata": {
+      "components": 6,
+      "nets": 24,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 262542,
+     "cpuNs": 262875,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 1688000,
+     "cpuNs": 1447833,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 325167,
+     "cpuNs": 322416,
+     "metadata": {
+      "components": 6
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 293250,
+     "cpuNs": 293375,
+     "metadata": {
+      "nets": 24,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 105292,
+     "cpuNs": 105334,
+     "metadata": {
+      "components": 6,
+      "nets": 24,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 15209875,
+     "cpuNs": 13641917,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 86818816,
+   "error": null,
+   "case": "sb-mini_obc-F6",
+   "target": "prod:semantic-index",
+   "processS": 0.7101325000403449
+  },
+  {
+   "importsS": 0.33106924989260733,
+   "timesS": [
+    0.0068902079947292805,
+    0.0027426250744611025,
+    0.002752667060121894
+   ],
+   "phases": null,
+   "peakRssBytes": 61980672,
+   "error": null,
+   "case": "sb-mini_obc-F6",
+   "target": "prod:variant-catalog",
+   "processS": 0.4307183329947293
+  },
+  {
+   "importsS": 0.33477595809381455,
+   "timesS": [
+    0.16777416598051786,
+    0.022716083098202944,
+    0.02275404194369912
+   ],
+   "phases": null,
+   "peakRssBytes": 81412096,
+   "error": null,
+   "case": "sb-mini_obc-F6",
+   "target": "prod:system-interface",
+   "processS": 0.6354631249560043
+  },
+  {
+   "importsS": 0.018610458937473595,
+   "timesS": [
+    0.5667770830914378,
+    0.031661042012274265,
+    0.03091116703581065
+   ],
+   "phases": null,
+   "peakRssBytes": 85147648,
+   "error": null,
+   "case": "sb-mini_obc-F6",
+   "target": "golden:semantic-index",
+   "processS": 0.7453644159249961
+  },
+  {
+   "importsS": 0.01867537503130734,
+   "timesS": [
+    0.4958795830607414,
+    0.022362624993547797,
+    0.02254404197447002
+   ],
+   "phases": null,
+   "peakRssBytes": 81707008,
+   "error": null,
+   "case": "sb-mini_obc-F6",
+   "target": "golden:system-interface",
+   "processS": 0.643084125011228
+  },
+  {
+   "importsS": 0.022681541042402387,
+   "timesS": [
+    0.6576407080283388,
+    0.5468397079966962,
+    0.5365974999731407
+   ],
+   "phases": null,
+   "peakRssBytes": 43597824,
+   "error": null,
+   "case": "sb-mini_obc-F6",
+   "target": "golden:project",
+   "processS": 1.8324229590361938
+  },
+  {
+   "importsS": 0.025083707994781435,
+   "timesS": [
+    0.18407725007273257,
+    0.028499791980721056,
+    0.033914457890205085
+   ],
+   "phases": null,
+   "peakRssBytes": 46039040,
+   "error": null,
+   "case": "sb-mini_obc-F6",
+   "target": "golden:stackup",
+   "processS": 0.3376117079751566
+  },
+  {
+   "importsS": 0.026156916050240397,
+   "timesS": [
+    0.4205196669790894,
+    0.022547125001437962,
+    0.021325499983504415
+   ],
+   "phases": null,
+   "peakRssBytes": 66846720,
+   "error": null,
+   "case": "sb-mini_obc-F6",
+   "target": "golden:placements",
+   "processS": 0.572839375003241
+  },
+  {
+   "importsS": 0.01977037498727441,
+   "timesS": [
+    0.7834583749063313,
+    0.21023166691884398,
+    0.22245812497567385
+   ],
+   "phases": null,
+   "peakRssBytes": 87932928,
+   "error": null,
+   "case": "sb-mini_obc-F6",
+   "target": "golden:occurrences",
+   "processS": 1.3220629589632154
+  },
+  {
+   "importsS": 0.02779158402699977,
+   "timesS": [
+    0.17239920794963837,
+    0.10268587502650917,
+    0.10554404195863754
+   ],
+   "phases": null,
+   "peakRssBytes": 62160896,
+   "error": null,
+   "case": "sb-mini_obc-F6",
+   "target": "golden:board-objects",
+   "processS": 0.4735985000152141
+  },
+  {
+   "importsS": 0.027600458008237183,
+   "timesS": [
+    0.4589469169732183,
+    0.10266499989666045,
+    0.09955741697922349
+   ],
+   "phases": null,
+   "peakRssBytes": 64897024,
+   "error": null,
+   "case": "sb-mini_obc-F6",
+   "target": "golden:route-metrics",
+   "processS": 0.7764790831133723
+  },
+  {
+   "importsS": 0.35378649993799627,
+   "timesS": [
+    0.1639256669441238,
+    0.019751416984945536,
+    0.020136207924224436
+   ],
+   "phases": null,
+   "peakRssBytes": 81035264,
+   "error": null,
+   "case": "sb-mini_obc-F7",
+   "target": "prod:km-load",
+   "processS": 0.6466965829022229
+  },
+  {
+   "importsS": 0.4237108330707997,
+   "timesS": [
+    0.23579304094891995,
+    0.033180708065629005,
+    0.055421250057406723
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 3125,
+     "cpuNs": 2625,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 53238708,
+     "cpuNs": 50791500,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 51267292,
+     "cpuNs": 49904041,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 34019792,
+     "cpuNs": 32094625,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 64513709,
+     "cpuNs": 62781125,
+     "metadata": {
+      "components": 6,
+      "nets": 24,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 327417,
+     "cpuNs": 327666,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 1706959,
+     "cpuNs": 1308583,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 288208,
+     "cpuNs": 288458,
+     "metadata": {
+      "components": 6
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 285583,
+     "cpuNs": 285792,
+     "metadata": {
+      "nets": 24,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 99041,
+     "cpuNs": 99250,
+     "metadata": {
+      "components": 6,
+      "nets": 24,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 15881625,
+     "cpuNs": 13690958,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 86310912,
+   "error": null,
+   "case": "sb-mini_obc-F7",
+   "target": "prod:semantic-index",
+   "processS": 0.8438469169195741
+  },
+  {
+   "importsS": 0.33342862490098923,
+   "timesS": [
+    0.007224625092931092,
+    0.002306082984432578,
+    0.0021767920115962625
+   ],
+   "phases": null,
+   "peakRssBytes": 62013440,
+   "error": null,
+   "case": "sb-mini_obc-F7",
+   "target": "prod:variant-catalog",
+   "processS": 0.43261133308988065
+  },
+  {
+   "importsS": 0.3356336249271408,
+   "timesS": [
+    0.16947233292739838,
+    0.022663625073619187,
+    0.022074957960285246
+   ],
+   "phases": null,
+   "peakRssBytes": 81362944,
+   "error": null,
+   "case": "sb-mini_obc-F7",
+   "target": "prod:system-interface",
+   "processS": 0.634565707994625
+  },
+  {
+   "importsS": 0.018528708023950458,
+   "timesS": [
+    0.5786584590096027,
+    0.03104162507224828,
+    0.029692209092900157
+   ],
+   "phases": null,
+   "peakRssBytes": 85770240,
+   "error": null,
+   "case": "sb-mini_obc-F7",
+   "target": "golden:semantic-index",
+   "processS": 0.7520918750669807
+  },
+  {
+   "importsS": 0.019100707955658436,
+   "timesS": [
+    0.5047208339674398,
+    0.022488457965664566,
+    0.022908875020220876
+   ],
+   "phases": null,
+   "peakRssBytes": 81821696,
+   "error": null,
+   "case": "sb-mini_obc-F7",
+   "target": "golden:system-interface",
+   "processS": 0.6653647079365328
+  },
+  {
+   "importsS": 0.02095220796763897,
+   "timesS": [
+    0.6495302920229733,
+    0.5312505830079317,
+    0.5999522919300944
+   ],
+   "phases": null,
+   "peakRssBytes": 43368448,
+   "error": null,
+   "case": "sb-mini_obc-F7",
+   "target": "golden:project",
+   "processS": 1.8632511659525335
+  },
+  {
+   "importsS": 0.02642537502106279,
+   "timesS": [
+    0.18165887508075684,
+    0.029200291959568858,
+    0.03281679097563028
+   ],
+   "phases": null,
+   "peakRssBytes": 46022656,
+   "error": null,
+   "case": "sb-mini_obc-F7",
+   "target": "golden:stackup",
+   "processS": 0.3370100000174716
+  },
+  {
+   "importsS": 0.02601008303463459,
+   "timesS": [
+    0.41798399994149804,
+    0.021972459042444825,
+    0.023004124988801777
+   ],
+   "phases": null,
+   "peakRssBytes": 66879488,
+   "error": null,
+   "case": "sb-mini_obc-F7",
+   "target": "golden:placements",
+   "processS": 0.5764922080561519
+  },
+  {
+   "importsS": 0.021348874899558723,
+   "timesS": [
+    0.7858670840505511,
+    0.21768433402758092,
+    0.22672341705765575
+   ],
+   "phases": null,
+   "peakRssBytes": 88326144,
+   "error": null,
+   "case": "sb-mini_obc-F7",
+   "target": "golden:occurrences",
+   "processS": 1.3474011670332402
+  },
+  {
+   "importsS": 0.025713916984386742,
+   "timesS": [
+    0.17352779197972268,
+    0.103719332953915,
+    0.10626858309842646
+   ],
+   "phases": null,
+   "peakRssBytes": 62177280,
+   "error": null,
+   "case": "sb-mini_obc-F7",
+   "target": "golden:board-objects",
+   "processS": 0.4697018340229988
+  },
+  {
+   "importsS": 0.02682604198344052,
+   "timesS": [
+    0.44082445895764977,
+    0.09808258304838091,
+    0.0980349580058828
+   ],
+   "phases": null,
+   "peakRssBytes": 64995328,
+   "error": null,
+   "case": "sb-mini_obc-F7",
+   "target": "golden:route-metrics",
+   "processS": 0.7542178329313174
+  },
+  {
+   "importsS": 0.35125987499486655,
+   "timesS": [
+    0.1589512499049306,
+    0.01965129200834781,
+    0.019815250067040324
+   ],
+   "phases": null,
+   "peakRssBytes": 81051648,
+   "error": null,
+   "case": "sb-mini_obc-F8",
+   "target": "prod:km-load",
+   "processS": 0.641723082982935
+  },
+  {
+   "importsS": 0.3157736250432208,
+   "timesS": [
+    0.24579933297354728,
+    0.031123375054448843,
+    0.029441084014251828
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 4000,
+     "cpuNs": 3458,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 58565291,
+     "cpuNs": 51325583,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 51601542,
+     "cpuNs": 50156750,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 35167250,
+     "cpuNs": 33055417,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 65547000,
+     "cpuNs": 64262042,
+     "metadata": {
+      "components": 6,
+      "nets": 24,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 263458,
+     "cpuNs": 263708,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 1745834,
+     "cpuNs": 1528208,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 312333,
+     "cpuNs": 312666,
+     "metadata": {
+      "components": 6
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 308792,
+     "cpuNs": 309042,
+     "metadata": {
+      "nets": 24,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 243917,
+     "cpuNs": 224458,
+     "metadata": {
+      "components": 6,
+      "nets": 24,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 17390459,
+     "cpuNs": 14112625,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 86458368,
+   "error": null,
+   "case": "sb-mini_obc-F8",
+   "target": "prod:semantic-index",
+   "processS": 0.7158733749529347
+  },
+  {
+   "importsS": 0.36172483291011304,
+   "timesS": [
+    0.008922875043936074,
+    0.0027169170789420605,
+    0.002277375082485378
+   ],
+   "phases": null,
+   "peakRssBytes": 61898752,
+   "error": null,
+   "case": "sb-mini_obc-F8",
+   "target": "prod:variant-catalog",
+   "processS": 0.4604899580590427
+  },
+  {
+   "importsS": 0.35128404200077057,
+   "timesS": [
+    0.16895449999719858,
+    0.02153274999000132,
+    0.022408250020816922
+   ],
+   "phases": null,
+   "peakRssBytes": 81035264,
+   "error": null,
+   "case": "sb-mini_obc-F8",
+   "target": "prod:system-interface",
+   "processS": 0.6678082080325112
+  },
+  {
+   "importsS": 0.019048958085477352,
+   "timesS": [
+    0.5599365420639515,
+    0.03018529200926423,
+    0.03082279092632234
+   ],
+   "phases": null,
+   "peakRssBytes": 85393408,
+   "error": null,
+   "case": "sb-mini_obc-F8",
+   "target": "golden:semantic-index",
+   "processS": 0.7314246669411659
+  },
+  {
+   "importsS": 0.019919833983294666,
+   "timesS": [
+    0.49985958298202604,
+    0.02122395799960941,
+    0.020860582939349115
+   ],
+   "phases": null,
+   "peakRssBytes": 81592320,
+   "error": null,
+   "case": "sb-mini_obc-F8",
+   "target": "golden:system-interface",
+   "processS": 0.6476529169594869
+  },
+  {
+   "importsS": 0.022246292093768716,
+   "timesS": [
+    0.6444322919705883,
+    0.5463720409898087,
+    0.5436009999830276
+   ],
+   "phases": null,
+   "peakRssBytes": 43597824,
+   "error": null,
+   "case": "sb-mini_obc-F8",
+   "target": "golden:project",
+   "processS": 1.8211745419539511
+  },
+  {
+   "importsS": 0.025343667017295957,
+   "timesS": [
+    0.18242112500593066,
+    0.028517042053863406,
+    0.03394129208754748
+   ],
+   "phases": null,
+   "peakRssBytes": 45842432,
+   "error": null,
+   "case": "sb-mini_obc-F8",
+   "target": "golden:stackup",
+   "processS": 0.33742045902181417
+  },
+  {
+   "importsS": 0.02723137498833239,
+   "timesS": [
+    0.4322680829791352,
+    0.022121665999293327,
+    0.024517124984413385
+   ],
+   "phases": null,
+   "peakRssBytes": 66945024,
+   "error": null,
+   "case": "sb-mini_obc-F8",
+   "target": "golden:placements",
+   "processS": 0.5938855829881504
+  },
+  {
+   "importsS": 0.019675874966196716,
+   "timesS": [
+    0.8034274589736015,
+    0.22062408295460045,
+    0.23884700005874038
+   ],
+   "phases": null,
+   "peakRssBytes": 88604672,
+   "error": null,
+   "case": "sb-mini_obc-F8",
+   "target": "golden:occurrences",
+   "processS": 1.3793050000676885
+  },
+  {
+   "importsS": 0.025955791934393346,
+   "timesS": [
+    0.1774373750668019,
+    0.10549441701732576,
+    0.10307370801456273
+   ],
+   "phases": null,
+   "peakRssBytes": 62193664,
+   "error": null,
+   "case": "sb-mini_obc-F8",
+   "target": "golden:board-objects",
+   "processS": 0.4744315000716597
+  },
+  {
+   "importsS": 0.027256582980044186,
+   "timesS": [
+    0.44467862509191036,
+    0.0990354580571875,
+    0.09059787506703287
+   ],
+   "phases": null,
+   "peakRssBytes": 64815104,
+   "error": null,
+   "case": "sb-mini_obc-F8",
+   "target": "golden:route-metrics",
+   "processS": 0.7457097920123488
+  },
+  {
+   "importsS": 0.33039945794735104,
+   "timesS": [
+    0.15976375003810972,
+    0.0184427909553051,
+    0.017302916035987437
+   ],
+   "phases": null,
+   "peakRssBytes": 81362944,
+   "error": null,
+   "case": "sb-mini_obc-F9",
+   "target": "prod:km-load",
+   "processS": 0.6188226250233129
+  },
+  {
+   "importsS": 0.3234956250526011,
+   "timesS": [
+    0.22364833299070597,
+    0.026519583072513342,
+    0.025329665979370475
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 3166,
+     "cpuNs": 2666,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 49124333,
+     "cpuNs": 46876292,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 48934917,
+     "cpuNs": 47840041,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 30223792,
+     "cpuNs": 28771125,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 64491417,
+     "cpuNs": 63304292,
+     "metadata": {
+      "components": 5,
+      "nets": 24,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 265125,
+     "cpuNs": 265459,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 1612625,
+     "cpuNs": 1381541,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 260625,
+     "cpuNs": 260958,
+     "metadata": {
+      "components": 5
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 345167,
+     "cpuNs": 345417,
+     "metadata": {
+      "nets": 24,
+      "terminals": 32
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 112000,
+     "cpuNs": 112084,
+     "metadata": {
+      "components": 5,
+      "nets": 24,
+      "terminals": 32
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 15309708,
+     "cpuNs": 13626667,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 86704128,
+   "error": null,
+   "case": "sb-mini_obc-F9",
+   "target": "prod:semantic-index",
+   "processS": 0.6787265420425683
+  },
+  {
+   "importsS": 0.3386617910582572,
+   "timesS": [
+    0.007157749962061644,
+    0.006248332909308374,
+    0.0022223329870030284
+   ],
+   "phases": null,
+   "peakRssBytes": 61915136,
+   "error": null,
+   "case": "sb-mini_obc-F9",
+   "target": "prod:variant-catalog",
+   "processS": 0.43554224993567914
+  },
+  {
+   "importsS": 0.3331577080534771,
+   "timesS": [
+    0.18097708304412663,
+    0.02491958299651742,
+    0.020069040940143168
+   ],
+   "phases": null,
+   "peakRssBytes": 80904192,
+   "error": null,
+   "case": "sb-mini_obc-F9",
+   "target": "prod:system-interface",
+   "processS": 0.6451066249283031
+  },
+  {
+   "importsS": 0.018812249996699393,
+   "timesS": [
+    0.5622555420268327,
+    0.02896041690837592,
+    0.029731541988439858
+   ],
+   "phases": null,
+   "peakRssBytes": 86769664,
+   "error": null,
+   "case": "sb-mini_obc-F9",
+   "target": "golden:semantic-index",
+   "processS": 0.7370349169941619
+  },
+  {
+   "importsS": 0.018776874989271164,
+   "timesS": [
+    0.4905344170983881,
+    0.02191237499937415,
+    0.019626457942649722
+   ],
+   "phases": null,
+   "peakRssBytes": 81657856,
+   "error": null,
+   "case": "sb-mini_obc-F9",
+   "target": "golden:system-interface",
+   "processS": 0.6406027089105919
+  },
+  {
+   "importsS": 0.023895708029158413,
+   "timesS": [
+    0.6412852499634027,
+    0.5302557499380782,
+    0.5240042499499395
+   ],
+   "phases": null,
+   "peakRssBytes": 43548672,
+   "error": null,
+   "case": "sb-mini_obc-F9",
+   "target": "golden:project",
+   "processS": 1.7807261670241132
+  },
+  {
+   "importsS": 0.02658016700297594,
+   "timesS": [
+    0.18113883305341005,
+    0.025107584078796208,
+    0.03001670795492828
+   ],
+   "phases": null,
+   "peakRssBytes": 46219264,
+   "error": null,
+   "case": "sb-mini_obc-F9",
+   "target": "golden:stackup",
+   "processS": 0.3243117079837248
+  },
+  {
+   "importsS": 0.025376750039868057,
+   "timesS": [
+    0.4150629580253735,
+    0.019588917028158903,
+    0.018975667073391378
+   ],
+   "phases": null,
+   "peakRssBytes": 66666496,
+   "error": null,
+   "case": "sb-mini_obc-F9",
+   "target": "golden:placements",
+   "processS": 0.5655920000281185
+  },
+  {
+   "importsS": 0.018924125004559755,
+   "timesS": [
+    0.7770726250018924,
+    0.2145248749293387,
+    0.22216112492606044
+   ],
+   "phases": null,
+   "peakRssBytes": 87916544,
+   "error": null,
+   "case": "sb-mini_obc-F9",
+   "target": "golden:occurrences",
+   "processS": 1.3231369170825928
+  },
+  {
+   "importsS": 0.026835958007723093,
+   "timesS": [
+    0.17280095897149295,
+    0.10098950006067753,
+    0.103354417020455
+   ],
+   "phases": null,
+   "peakRssBytes": 61882368,
+   "error": null,
+   "case": "sb-mini_obc-F9",
+   "target": "golden:board-objects",
+   "processS": 0.4650750410510227
+  },
+  {
+   "importsS": 0.026867958018556237,
+   "timesS": [
+    0.43557829200290143,
+    0.1000628339825198,
+    0.09643758297897875
+   ],
+   "phases": null,
+   "peakRssBytes": 64667648,
+   "error": null,
+   "case": "sb-mini_obc-F9",
+   "target": "golden:route-metrics",
+   "processS": 0.7430071251001209
+  },
+  {
+   "importsS": 0.34015487506985664,
+   "timesS": [
+    0.15762299997732043,
+    0.0186740419594571,
+    0.01848900003824383
+   ],
+   "phases": null,
+   "peakRssBytes": 81281024,
+   "error": null,
+   "case": "sb-mini_obc-F11.1",
+   "target": "prod:km-load",
+   "processS": 0.636729291989468
+  },
+  {
+   "importsS": 0.3372227499494329,
+   "timesS": [
+    0.2369922079378739,
+    0.027658708044327796,
+    0.02918299997691065
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 7209,
+     "cpuNs": 6750,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 53727584,
+     "cpuNs": 51481084,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 51147209,
+     "cpuNs": 50088417,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 33065834,
+     "cpuNs": 31483458,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 65215875,
+     "cpuNs": 63469791,
+     "metadata": {
+      "components": 6,
+      "nets": 25,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 326166,
+     "cpuNs": 326417,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 1765416,
+     "cpuNs": 1449625,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 301459,
+     "cpuNs": 301708,
+     "metadata": {
+      "components": 6
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 340542,
+     "cpuNs": 340750,
+     "metadata": {
+      "nets": 25,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 102750,
+     "cpuNs": 102833,
+     "metadata": {
+      "components": 6,
+      "nets": 25,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 16759333,
+     "cpuNs": 14689375,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 85295104,
+   "error": null,
+   "case": "sb-mini_obc-F11.1",
+   "target": "prod:semantic-index",
+   "processS": 0.7286068750545382
+  },
+  {
+   "importsS": 0.3519876670325175,
+   "timesS": [
+    0.007487667025998235,
+    0.0021887499606236815,
+    0.00242266699206084
+   ],
+   "phases": null,
+   "peakRssBytes": 61865984,
+   "error": null,
+   "case": "sb-mini_obc-F11.1",
+   "target": "prod:variant-catalog",
+   "processS": 0.44871987495571375
+  },
+  {
+   "importsS": 0.34693949995562434,
+   "timesS": [
+    0.16931637504603714,
+    0.023311124998144805,
+    0.022883124998770654
+   ],
+   "phases": null,
+   "peakRssBytes": 80887808,
+   "error": null,
+   "case": "sb-mini_obc-F11.1",
+   "target": "prod:system-interface",
+   "processS": 0.6555259589804336
+  },
+  {
+   "importsS": 0.01915308297611773,
+   "timesS": [
+    0.5936838339548558,
+    0.03213237505406141,
+    0.041274583083577454
+   ],
+   "phases": null,
+   "peakRssBytes": 86491136,
+   "error": null,
+   "case": "sb-mini_obc-F11.1",
+   "target": "golden:semantic-index",
+   "processS": 0.7851051660254598
+  },
+  {
+   "importsS": 0.021313625038601458,
+   "timesS": [
+    0.5235210000537336,
+    0.02304629096761346,
+    0.022409832919947803
+   ],
+   "phases": null,
+   "peakRssBytes": 81018880,
+   "error": null,
+   "case": "sb-mini_obc-F11.1",
+   "target": "golden:system-interface",
+   "processS": 0.6875426250044256
+  },
+  {
+   "importsS": 0.023785749915987253,
+   "timesS": [
+    0.663175666006282,
+    0.5506878340383992,
+    0.5626061249058694
+   ],
+   "phases": null,
+   "peakRssBytes": 43810816,
+   "error": null,
+   "case": "sb-mini_obc-F11.1",
+   "target": "golden:project",
+   "processS": 1.8678538330132142
+  },
+  {
+   "importsS": 0.025813792017288506,
+   "timesS": [
+    0.18513891601469368,
+    0.029637375031597912,
+    0.033390791970305145
+   ],
+   "phases": null,
+   "peakRssBytes": 46055424,
+   "error": null,
+   "case": "sb-mini_obc-F11.1",
+   "target": "golden:stackup",
+   "processS": 0.3414967500139028
+  },
+  {
+   "importsS": 0.02617166703566909,
+   "timesS": [
+    0.4235173750203103,
+    0.022645040997304022,
+    0.022275625029578805
+   ],
+   "phases": null,
+   "peakRssBytes": 66879488,
+   "error": null,
+   "case": "sb-mini_obc-F11.1",
+   "target": "golden:placements",
+   "processS": 0.5860214999411255
+  },
+  {
+   "importsS": 0.01883458299562335,
+   "timesS": [
+    0.7803461250150576,
+    0.22553733398672193,
+    0.23400587507057935
+   ],
+   "phases": null,
+   "peakRssBytes": 88653824,
+   "error": null,
+   "case": "sb-mini_obc-F11.1",
+   "target": "golden:occurrences",
+   "processS": 1.3554894999833778
+  },
+  {
+   "importsS": 0.027331334073096514,
+   "timesS": [
+    0.17568804207257926,
+    0.10505849996116012,
+    0.10978879092726856
+   ],
+   "phases": null,
+   "peakRssBytes": 62439424,
+   "error": null,
+   "case": "sb-mini_obc-F11.1",
+   "target": "golden:board-objects",
+   "processS": 0.4839089169399813
+  },
+  {
+   "importsS": 0.026392624946311116,
+   "timesS": [
+    0.4592827499145642,
+    0.11802912503480911,
+    0.10192499996628612
+   ],
+   "phases": null,
+   "peakRssBytes": 64634880,
+   "error": null,
+   "case": "sb-mini_obc-F11.1",
+   "target": "golden:route-metrics",
+   "processS": 0.8002573749981821
+  },
+  {
+   "importsS": 0.34697733307257295,
+   "timesS": [
+    0.16959791700355709,
+    0.021067416993901134,
+    0.020195624907501042
+   ],
+   "phases": null,
+   "peakRssBytes": 80723968,
+   "error": null,
+   "case": "sb-mini_obc-F11.2",
+   "target": "prod:km-load",
+   "processS": 0.6550696659833193
+  },
+  {
+   "importsS": 0.34292399999685585,
+   "timesS": [
+    0.24621683300938457,
+    0.030372750014066696,
+    0.03004883404355496
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 6125,
+     "cpuNs": 5458,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 56113584,
+     "cpuNs": 53641208,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 53034416,
+     "cpuNs": 51691208,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 35166542,
+     "cpuNs": 33236291,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 67260791,
+     "cpuNs": 65292500,
+     "metadata": {
+      "components": 6,
+      "nets": 25,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 244708,
+     "cpuNs": 245042,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 1732959,
+     "cpuNs": 1522625,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 260666,
+     "cpuNs": 261000,
+     "metadata": {
+      "components": 6
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 282208,
+     "cpuNs": 282333,
+     "metadata": {
+      "nets": 25,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 80041,
+     "cpuNs": 81834,
+     "metadata": {
+      "components": 6,
+      "nets": 25,
+      "terminals": 36
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 16977667,
+     "cpuNs": 15283834,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 86081536,
+   "error": null,
+   "case": "sb-mini_obc-F11.2",
+   "target": "prod:semantic-index",
+   "processS": 0.7501357500441372
+  },
+  {
+   "importsS": 0.36467508401256055,
+   "timesS": [
+    0.008853374980390072,
+    0.0030661249766126275,
+    0.00312887504696846
+   ],
+   "phases": null,
+   "peakRssBytes": 61964288,
+   "error": null,
+   "case": "sb-mini_obc-F11.2",
+   "target": "prod:variant-catalog",
+   "processS": 0.4699282079236582
+  },
+  {
+   "importsS": 0.3502218750072643,
+   "timesS": [
+    0.18016408395487815,
+    0.02193783293478191,
+    0.02248216699808836
+   ],
+   "phases": null,
+   "peakRssBytes": 81199104,
+   "error": null,
+   "case": "sb-mini_obc-F11.2",
+   "target": "prod:system-interface",
+   "processS": 0.6661838329164311
+  },
+  {
+   "importsS": 0.019301416934467852,
+   "timesS": [
+    0.5900353330653161,
+    0.030962124932557344,
+    0.030682833050377667
+   ],
+   "phases": null,
+   "peakRssBytes": 86310912,
+   "error": null,
+   "case": "sb-mini_obc-F11.2",
+   "target": "golden:semantic-index",
+   "processS": 0.762668542098254
+  },
+  {
+   "importsS": 0.01762033300474286,
+   "timesS": [
+    0.5679046660661697,
+    0.027105874964036047,
+    0.024781082989647985
+   ],
+   "phases": null,
+   "peakRssBytes": 81674240,
+   "error": null,
+   "case": "sb-mini_obc-F11.2",
+   "target": "golden:system-interface",
+   "processS": 0.7306902500567958
+  },
+  {
+   "importsS": 0.02510987489949912,
+   "timesS": [
+    0.6922803330235183,
+    0.583780707907863,
+    0.5715207500616089
+   ],
+   "phases": null,
+   "peakRssBytes": 43876352,
+   "error": null,
+   "case": "sb-mini_obc-F11.2",
+   "target": "golden:project",
+   "processS": 1.934501374955289
+  },
+  {
+   "importsS": 0.02901458297856152,
+   "timesS": [
+    0.19479083304759115,
+    0.028632416971959174,
+    0.03278433403465897
+   ],
+   "phases": null,
+   "peakRssBytes": 46186496,
+   "error": null,
+   "case": "sb-mini_obc-F11.2",
+   "target": "golden:stackup",
+   "processS": 0.357882667100057
+  },
+  {
+   "importsS": 0.02448500005993992,
+   "timesS": [
+    0.44484766700770706,
+    0.022592916968278587,
+    0.021945082931779325
+   ],
+   "phases": null,
+   "peakRssBytes": 66830336,
+   "error": null,
+   "case": "sb-mini_obc-F11.2",
+   "target": "golden:placements",
+   "processS": 0.6107646670425311
+  },
+  {
+   "importsS": 0.02031091705430299,
+   "timesS": [
+    0.8202426249627024,
+    0.22777562506962568,
+    0.22852012503426522
+   ],
+   "phases": null,
+   "peakRssBytes": 88637440,
+   "error": null,
+   "case": "sb-mini_obc-F11.2",
+   "target": "golden:occurrences",
+   "processS": 1.3982355839107186
+  },
+  {
+   "importsS": 0.028367332997731864,
+   "timesS": [
+    0.2638595000607893,
+    0.1478322499897331,
+    0.11700220790226012
+   ],
+   "phases": null,
+   "peakRssBytes": 62439424,
+   "error": null,
+   "case": "sb-mini_obc-F11.2",
+   "target": "golden:board-objects",
+   "processS": 0.6258074999786913
+  },
+  {
+   "importsS": 0.030066333012655377,
+   "timesS": [
+    0.4696930419886485,
+    0.10254200000781566,
+    0.09609595802612603
+   ],
+   "phases": null,
+   "peakRssBytes": 64978944,
+   "error": null,
+   "case": "sb-mini_obc-F11.2",
+   "target": "golden:route-metrics",
+   "processS": 0.8020813339389861
+  },
+  {
+   "importsS": 0.4045500420033932,
+   "timesS": [
+    0.12778858304955065,
+    0.013018666999414563,
+    0.011397792026400566
+   ],
+   "phases": null,
+   "peakRssBytes": 80330752,
+   "error": null,
+   "case": "sb-mini_payload-F0",
+   "target": "prod:km-load",
+   "processS": 0.6495783330174163
+  },
+  {
+   "importsS": 0.36313549999613315,
+   "timesS": [
+    0.20884354098234326,
+    0.021755916066467762,
+    0.020283000078052282
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 8709,
+     "cpuNs": 8208,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 53755125,
+     "cpuNs": 49613208,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 52645417,
+     "cpuNs": 50974292,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 1833,
+     "cpuNs": 1791,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 65963208,
+     "cpuNs": 64504709,
+     "metadata": {
+      "components": 5,
+      "nets": 22,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 334666,
+     "cpuNs": 335125,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 1640250,
+     "cpuNs": 1323750,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 252500,
+     "cpuNs": 252916,
+     "metadata": {
+      "components": 5
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 264625,
+     "cpuNs": 264709,
+     "metadata": {
+      "nets": 22,
+      "terminals": 27
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 2125,
+     "cpuNs": 1250,
+     "metadata": {
+      "components": 5,
+      "nets": 22,
+      "terminals": 27
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 19053959,
+     "cpuNs": 16659583,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 83312640,
+   "error": null,
+   "case": "sb-mini_payload-F0",
+   "target": "prod:semantic-index",
+   "processS": 0.7162985840113834
+  },
+  {
+   "importsS": 0.35299395804759115,
+   "timesS": [
+    0.008636333979666233,
+    0.002791541046462953,
+    0.0024829170433804393
+   ],
+   "phases": null,
+   "peakRssBytes": 62144512,
+   "error": null,
+   "case": "sb-mini_payload-F0",
+   "target": "prod:variant-catalog",
+   "processS": 0.45075683295726776
+  },
+  {
+   "importsS": 0.37715433293487877,
+   "timesS": [
+    0.12793079193215817,
+    0.012503959005698562,
+    0.012293084058910608
+   ],
+   "phases": null,
+   "peakRssBytes": 80543744,
+   "error": null,
+   "case": "sb-mini_payload-F0",
+   "target": "prod:system-interface",
+   "processS": 0.624502208083868
+  },
+  {
+   "importsS": 0.019033374963328242,
+   "timesS": [
+    0.5194472910370678,
+    0.020746708032675087,
+    0.019216208020225167
+   ],
+   "phases": null,
+   "peakRssBytes": 84246528,
+   "error": null,
+   "case": "sb-mini_payload-F0",
+   "target": "golden:semantic-index",
+   "processS": 0.670525416964665
+  },
+  {
+   "importsS": 0.01878670894075185,
+   "timesS": [
+    0.4837002500426024,
+    0.01429912494495511,
+    0.013735290965996683
+   ],
+   "phases": null,
+   "peakRssBytes": 80723968,
+   "error": null,
+   "case": "sb-mini_payload-F0",
+   "target": "golden:system-interface",
+   "processS": 0.6188150839880109
+  },
+  {
+   "importsS": 0.022946084034629166,
+   "timesS": [
+    0.6714629589114338,
+    0.4907380420481786,
+    0.4714209579396993
+   ],
+   "phases": null,
+   "peakRssBytes": 43352064,
+   "error": null,
+   "case": "sb-mini_payload-F0",
+   "target": "golden:project",
+   "processS": 1.7200355420354754
+  },
+  {
+   "importsS": 0.02763779100496322,
+   "timesS": [
+    0.02418675005901605,
+    0.0059893750585615635,
+    0.005515667027793825
+   ],
+   "phases": null,
+   "peakRssBytes": 30654464,
+   "error": null,
+   "case": "sb-mini_payload-F0",
+   "target": "golden:stackup",
+   "processS": 0.12583970895502716
+  },
+  {
+   "importsS": 0.02654616697691381,
+   "timesS": [
+    0.023758834111504257,
+    0.006006125011481345,
+    0.005681333946995437
+   ],
+   "phases": null,
+   "peakRssBytes": 30359552,
+   "error": null,
+   "case": "sb-mini_payload-F0",
+   "target": "golden:placements",
+   "processS": 0.12682445894461125
+  },
+  {
+   "importsS": 0.019802374998107553,
+   "timesS": [
+    0.6758689170237631,
+    0.1407172919716686,
+    0.14099070790689439
+   ],
+   "phases": null,
+   "peakRssBytes": 85671936,
+   "error": null,
+   "case": "sb-mini_payload-F0",
+   "target": "golden:occurrences",
+   "processS": 1.0762683750363067
+  },
+  {
+   "importsS": 0.0253683339105919,
+   "timesS": [
+    0.156840292038396,
+    0.08719183295033872,
+    0.09054629202000797
+   ],
+   "phases": null,
+   "peakRssBytes": 61276160,
+   "error": null,
+   "case": "sb-mini_payload-F0",
+   "target": "golden:board-objects",
+   "processS": 0.42237270798068494
+  },
+  {
+   "importsS": 0.02906374994199723,
+   "timesS": [
+    0.43631454196292907,
+    0.09280654101166874,
+    0.08672316698357463
+   ],
+   "phases": null,
+   "peakRssBytes": 64602112,
+   "error": null,
+   "case": "sb-mini_payload-F0",
+   "target": "golden:route-metrics",
+   "processS": 0.7407028339803219
+  },
+  {
+   "importsS": 0.33955925004556775,
+   "timesS": [
+    0.14840012497734278,
+    0.010147250024601817,
+    0.009525042027235031
+   ],
+   "phases": null,
+   "peakRssBytes": 80347136,
+   "error": null,
+   "case": "sb-mini_power-F0",
+   "target": "prod:km-load",
+   "processS": 0.6025130830239505
+  },
+  {
+   "importsS": 0.3536246669245884,
+   "timesS": [
+    0.22837287501897663,
+    0.017151666921563447,
+    0.015036958968266845
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 4250,
+     "cpuNs": 3833,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 48103583,
+     "cpuNs": 46372250,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 50869000,
+     "cpuNs": 49094833,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 31291792,
+     "cpuNs": 29356292,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 65241958,
+     "cpuNs": 63460250,
+     "metadata": {
+      "components": 3,
+      "nets": 8,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 146625,
+     "cpuNs": 146959,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 1218250,
+     "cpuNs": 961584,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 167584,
+     "cpuNs": 167833,
+     "metadata": {
+      "components": 3
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 93375,
+     "cpuNs": 93458,
+     "metadata": {
+      "nets": 8,
+      "terminals": 10
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 43917,
+     "cpuNs": 44000,
+     "metadata": {
+      "components": 3,
+      "nets": 8,
+      "terminals": 10
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 16784834,
+     "cpuNs": 14582959,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 85295104,
+   "error": null,
+   "case": "sb-mini_power-F0",
+   "target": "prod:semantic-index",
+   "processS": 0.7002484160475433
+  },
+  {
+   "importsS": 0.3903118330053985,
+   "timesS": [
+    0.006173875066451728,
+    0.0014693340053781867,
+    0.001867000013589859
+   ],
+   "phases": null,
+   "peakRssBytes": 61980672,
+   "error": null,
+   "case": "sb-mini_power-F0",
+   "target": "prod:variant-catalog",
+   "processS": 0.48918520798906684
+  },
+  {
+   "importsS": 0.36162541597150266,
+   "timesS": [
+    0.16311945801135153,
+    0.011567833018489182,
+    0.011590124922804534
+   ],
+   "phases": null,
+   "peakRssBytes": 80691200,
+   "error": null,
+   "case": "sb-mini_power-F0",
+   "target": "prod:system-interface",
+   "processS": 0.6420048329746351
+  },
+  {
+   "importsS": 0.020766249974258244,
+   "timesS": [
+    0.610950915957801,
+    0.016864000004716218,
+    0.017018791986629367
+   ],
+   "phases": null,
+   "peakRssBytes": 86245376,
+   "error": null,
+   "case": "sb-mini_power-F0",
+   "target": "golden:semantic-index",
+   "processS": 0.7617564579704776
+  },
+  {
+   "importsS": 0.0175662919646129,
+   "timesS": [
+    0.48520179092884064,
+    0.01162308407947421,
+    0.011594625073485076
+   ],
+   "phases": null,
+   "peakRssBytes": 81018880,
+   "error": null,
+   "case": "sb-mini_power-F0",
+   "target": "golden:system-interface",
+   "processS": 0.620817458955571
+  },
+  {
+   "importsS": 0.021619874984025955,
+   "timesS": [
+    0.5986049580387771,
+    0.5050873750587925,
+    0.46735558309592307
+   ],
+   "phases": null,
+   "peakRssBytes": 43352064,
+   "error": null,
+   "case": "sb-mini_power-F0",
+   "target": "golden:project",
+   "processS": 1.6558891660533845
+  },
+  {
+   "importsS": 0.025742708006873727,
+   "timesS": [
+    0.1762091669952497,
+    0.017155832960270345,
+    0.01736058306414634
+   ],
+   "phases": null,
+   "peakRssBytes": 45744128,
+   "error": null,
+   "case": "sb-mini_power-F0",
+   "target": "golden:stackup",
+   "processS": 0.29853274999186397
+  },
+  {
+   "importsS": 0.026668541016988456,
+   "timesS": [
+    0.4614037499995902,
+    0.012716000084765255,
+    0.012908000033348799
+   ],
+   "phases": null,
+   "peakRssBytes": 66797568,
+   "error": null,
+   "case": "sb-mini_power-F0",
+   "target": "golden:placements",
+   "processS": 0.5983375000068918
+  },
+  {
+   "importsS": 0.019104290986433625,
+   "timesS": [
+    0.7012129169888794,
+    0.16658429196104407,
+    0.14805537497159094
+   ],
+   "phases": null,
+   "peakRssBytes": 88326144,
+   "error": null,
+   "case": "sb-mini_power-F0",
+   "target": "golden:occurrences",
+   "processS": 1.1394545000512153
+  },
+  {
+   "importsS": 0.027390207978896797,
+   "timesS": [
+    0.160986875067465,
+    0.09569204202853143,
+    0.09809504204895347
+   ],
+   "phases": null,
+   "peakRssBytes": 61800448,
+   "error": null,
+   "case": "sb-mini_power-F0",
+   "target": "golden:board-objects",
+   "processS": 0.4435953749343753
+  },
+  {
+   "importsS": 0.027722333907149732,
+   "timesS": [
+    0.43067370797507465,
+    0.09874108294025064,
+    0.09412424999754876
+   ],
+   "phases": null,
+   "peakRssBytes": 64733184,
+   "error": null,
+   "case": "sb-mini_power-F0",
+   "target": "golden:route-metrics",
+   "processS": 0.7450755420140922
+  },
+  {
+   "importsS": 0.3336328329751268,
+   "timesS": [
+    0.16103662503883243,
+    0.009873333969153464,
+    0.008948749979026616
+   ],
+   "phases": null,
+   "peakRssBytes": 80936960,
+   "error": null,
+   "case": "sb-mini_power-F10",
+   "target": "prod:km-load",
+   "processS": 0.609163291985169
+  },
+  {
+   "importsS": 0.3267706249607727,
+   "timesS": [
+    0.22806791705079377,
+    0.014666749979369342,
+    0.014757541008293629
+   ],
+   "phases": [
+    {
+     "phase": "configure-imports",
+     "elapsedNs": 3417,
+     "cpuNs": 3084,
+     "metadata": {}
+    },
+    {
+     "phase": "load-project",
+     "elapsedNs": 45980125,
+     "cpuNs": 43845042,
+     "metadata": {}
+    },
+    {
+     "phase": "compile-netlist",
+     "elapsedNs": 50508542,
+     "cpuNs": 49429334,
+     "metadata": {}
+    },
+    {
+     "phase": "load-pcb",
+     "elapsedNs": 31596083,
+     "cpuNs": 29708166,
+     "metadata": {}
+    },
+    {
+     "phase": "materialize-design-json",
+     "elapsedNs": 65813250,
+     "cpuNs": 63891834,
+     "metadata": {
+      "components": 3,
+      "nets": 6,
+      "includePcb": true
+     }
+    },
+    {
+     "phase": "project-schematic-instances",
+     "elapsedNs": 168792,
+     "cpuNs": 169041,
+     "metadata": {}
+    },
+    {
+     "phase": "scan-instance-fields",
+     "elapsedNs": 1235458,
+     "cpuNs": 1086792,
+     "metadata": {}
+    },
+    {
+     "phase": "project-components",
+     "elapsedNs": 238791,
+     "cpuNs": 239166,
+     "metadata": {
+      "components": 3
+     }
+    },
+    {
+     "phase": "project-schematic-nets",
+     "elapsedNs": 103834,
+     "cpuNs": 104000,
+     "metadata": {
+      "nets": 6,
+      "terminals": 8
+     }
+    },
+    {
+     "phase": "project-pcb-indexes",
+     "elapsedNs": 64250,
+     "cpuNs": 64375,
+     "metadata": {
+      "components": 3,
+      "nets": 6,
+      "terminals": 10
+     }
+    },
+    {
+     "phase": "resolve-variants",
+     "elapsedNs": 17180583,
+     "cpuNs": 15478792,
+     "metadata": {}
+    }
+   ],
+   "peakRssBytes": 85180416,
+   "error": null,
+   "case": "sb-mini_power-F10",
+   "target": "prod:semantic-index",
+   "processS": 0.6843217080458999
+  },
+  {
+   "importsS": 0.3489663329673931,
+   "timesS": [
+    0.0072514580097049475,
+    0.0014476659707725048,
+    0.0015034159878268838
+   ],
+   "phases": null,
+   "peakRssBytes": 62341120,
+   "error": null,
+   "case": "sb-mini_power-F10",
+   "target": "prod:variant-catalog",
+   "processS": 0.45044995902571827
+  },
+  {
+   "importsS": 0.3483823750866577,
+   "timesS": [
+    0.16692258405964822,
+    0.011150917038321495,
+    0.010745540959760547
+   ],
+   "phases": null,
+   "peakRssBytes": 80560128,
+   "error": null,
+   "case": "sb-mini_power-F10",
+   "target": "prod:system-interface",
+   "processS": 0.6461348748998716
+  },
+  {
+   "importsS": 0.019232540973462164,
+   "timesS": [
+    0.566816334030591,
+    0.016395375016145408,
+    0.01644745795056224
+   ],
+   "phases": null,
+   "peakRssBytes": 85590016,
+   "error": null,
+   "case": "sb-mini_power-F10",
+   "target": "golden:semantic-index",
+   "processS": 0.7137048749718815
+  },
+  {
+   "importsS": 0.026355457957834005,
+   "timesS": [
+    0.5265635839896277,
+    0.01232249999884516,
+    0.011467917007394135
+   ],
+   "phases": null,
+   "peakRssBytes": 81281024,
+   "error": null,
+   "case": "sb-mini_power-F10",
+   "target": "golden:system-interface",
+   "processS": 0.7189970420440659
+  },
+  {
+   "importsS": 0.026718041044659913,
+   "timesS": [
+    0.6156397499144077,
+    0.49460145900957286,
+    0.4776254999451339
+   ],
+   "phases": null,
+   "peakRssBytes": 43253760,
+   "error": null,
+   "case": "sb-mini_power-F10",
+   "target": "golden:project",
+   "processS": 1.6826532089617103
+  },
+  {
+   "importsS": 0.027977666934020817,
+   "timesS": [
+    0.17805275006685406,
+    0.017607040936127305,
+    0.01667712489143014
+   ],
+   "phases": null,
+   "peakRssBytes": 45760512,
+   "error": null,
+   "case": "sb-mini_power-F10",
+   "target": "golden:stackup",
+   "processS": 0.3088492080569267
+  },
+  {
+   "importsS": 0.026207791990600526,
+   "timesS": [
+    0.4180437909672037,
+    0.013582375016994774,
+    0.012292959028854966
+   ],
+   "phases": null,
+   "peakRssBytes": 66240512,
+   "error": null,
+   "case": "sb-mini_power-F10",
+   "target": "golden:placements",
+   "processS": 0.5635321669979021
+  },
+  {
+   "importsS": 0.01913066697306931,
+   "timesS": [
+    0.7109713749960065,
+    0.14933183300308883,
+    0.16960408398881555
+   ],
+   "phases": null,
+   "peakRssBytes": 88145920,
+   "error": null,
+   "case": "sb-mini_power-F10",
+   "target": "golden:occurrences",
+   "processS": 1.1689712919760495
+  },
+  {
+   "importsS": 0.0279413330135867,
+   "timesS": [
+    0.16413383302278817,
+    0.08996054099407047,
+    0.09249729104340076
+   ],
+   "phases": null,
+   "peakRssBytes": 61669376,
+   "error": null,
+   "case": "sb-mini_power-F10",
+   "target": "golden:board-objects",
+   "processS": 0.43745737499557436
+  },
+  {
+   "importsS": 0.029449791996739805,
+   "timesS": [
+    0.44597899995278567,
+    0.09312895801849663,
+    0.09055187506601214
+   ],
+   "phases": null,
+   "peakRssBytes": 64847872,
+   "error": null,
+   "case": "sb-mini_power-F10",
+   "target": "golden:route-metrics",
+   "processS": 0.749634415959008
+  }
+ ]
+}

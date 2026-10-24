@@ -1,0 +1,15 @@
+# Test tools for the backend suite (pytest runs the unittest suite in parallel;
+# testmon reruns only the tests affected by a change). Kept out of
+# runtime.lock, which is the production image's runtime.
+pytest==9.1.1
+pytest-xdist==3.8.0
+pytest-testmon==2.2.0
+# Starlette's TestClient (the agent API tests); not in the runtime image.
+httpx==0.28.1
+# The design-bundle tests validate the stub CLI's documents and bundles against
+# native/contracts/generated/schema/. The runtime lock already pins it; it is
+# repeated, at the same pin, for test environments built on an older venv.
+jsonschema==4.26.0
+# native/parity/vendor/compare_jlcpcb.py compares JLCPCB workbooks cell by cell;
+# no runtime code reads .xlsx.
+openpyxl==3.1.5

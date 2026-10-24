@@ -7,15 +7,10 @@ remote state lives on ``tracked_threads``; pending intent is the durable op.
 from __future__ import annotations
 
 import json
-import uuid
 from typing import Any, Mapping, Optional
 
-from app.services.comments_revisions import (
-    CHANGE_CREATE,
-    Editor,
-    record_revision,
-    set_root_status,
-)
+from app.services import comment_write
+from app.services.comments_revisions import Editor, set_root_status
 from app.services.trackers.contracts import RemoteIssue, RemoteVersion
 from app.services.trackers.op_store import LIVE_STATES, OpStore
 from app.services.trackers.promotion import (
@@ -138,27 +133,9 @@ def target_state_for_op(
 
 
 def append_system_note(conn: Any, *, project_id: str, comment_id: str, content: str) -> str:
-    reply_id = f"r_{uuid.uuid4().hex[:8]}"
-    conn.execute(
-        """
-        INSERT INTO comment_replies (
-            id, comment_id, project_id, author, author_kind, origin, content, revision,
-            timestamp, updated_at
-        ) VALUES (%s, %s, %s, %s, 'system', 'prism', %s, 1, NOW(), NOW())
-        """,
-        (reply_id, comment_id, project_id, "System", content),
+    return comment_write.insert_reply(
+        conn, project_id=project_id, comment_id=comment_id, content=content, editor=_SYSTEM_EDITOR,
     )
-    record_revision(
-        conn,
-        project_id=project_id,
-        target_kind="reply",
-        target_id=reply_id,
-        revision=1,
-        change_kind=CHANGE_CREATE,
-        editor=_SYSTEM_EDITOR,
-        content=content,
-    )
-    return reply_id
 
 
 def supersession_message(

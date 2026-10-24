@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
-import os
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+from support.postgres import SURVIVOR_URL, drop_schema
 
-POSTGRES_URL = os.environ.get("LEGACY_SURVIVOR_TEST_POSTGRES_URL", "").strip()
+
 SCRIPT = next(
     candidate
     for candidate in (
@@ -26,7 +26,7 @@ SPEC.loader.exec_module(migration)
 
 
 @unittest.skipUnless(
-    POSTGRES_URL,
+    SURVIVOR_URL,
     "LEGACY_SURVIVOR_TEST_POSTGRES_URL must point to a disposable PostgreSQL database",
 )
 class LegacyCatalogSurvivorPostgresIntegrationTests(unittest.TestCase):
@@ -45,13 +45,12 @@ class LegacyCatalogSurvivorPostgresIntegrationTests(unittest.TestCase):
         self._create_legacy_fixture()
 
     def tearDown(self) -> None:
-        with self.psycopg.connect(POSTGRES_URL, autocommit=True) as conn:
-            conn.execute("DROP SCHEMA IF EXISTS catalog CASCADE")
+        drop_schema("catalog", url=SURVIVOR_URL)  # this database is the survivor test's own
         self.tempdir.cleanup()
 
     def _create_legacy_fixture(self) -> None:
-        with self.psycopg.connect(POSTGRES_URL, row_factory=self.dict_row, autocommit=True) as conn:
-            conn.execute("DROP SCHEMA IF EXISTS catalog CASCADE")
+        drop_schema("catalog", url=SURVIVOR_URL)
+        with self.psycopg.connect(SURVIVOR_URL, row_factory=self.dict_row, autocommit=True) as conn:
             conn.execute("CREATE SCHEMA catalog")
             conn.execute(
                 """
@@ -215,7 +214,7 @@ class LegacyCatalogSurvivorPostgresIntegrationTests(unittest.TestCase):
         archive_path = Path(self.tempdir.name) / "survivors.zip"
         export_report = migration.export_archive(
             SimpleNamespace(
-                database_url=POSTGRES_URL,
+                database_url=SURVIVOR_URL,
                 projects_root=str(self.projects_root),
                 output=archive_path,
                 librarian_actor="rajesh@pixxel.co.in",
@@ -232,15 +231,14 @@ class LegacyCatalogSurvivorPostgresIntegrationTests(unittest.TestCase):
 
         shutil.rmtree(self.store_root)
 
-        with self.psycopg.connect(POSTGRES_URL, autocommit=True) as conn:
-            conn.execute("DROP SCHEMA catalog CASCADE")
+        drop_schema("catalog", url=SURVIVOR_URL)
 
         from app.services.component_catalog_service_postgres import ComponentCatalogPostgresService
 
-        service = ComponentCatalogPostgresService(store_root=self.store_root, database_url=POSTGRES_URL)
+        service = ComponentCatalogPostgresService(store_root=self.store_root, database_url=SURVIVOR_URL)
         service.initialize()
         plans = migration._component_restore_plan(manifest)
-        with service._connect() as conn:  # type: ignore[attr-defined]
+        with service.connection() as conn:
             migration._preflight_destination(conn, plans)
             required_asset_ids = {
                 str(link["asset_id"])

@@ -1,3 +1,5 @@
+import { unionLayers } from "./comparison-change-facts";
+import { kindsWith } from "./comparison-change-kinds";
 import type { ComparisonPresentationMode } from "./comparison-url";
 import type { ChangeItem } from "./types";
 
@@ -29,41 +31,15 @@ const COMPONENT_FIELD_REASONS = new Set([
     "renamed",
 ]);
 
-const SCHEMATIC_EXACT_OBJECTS = new Set([
-    "pin",
-    "sheet_pin",
-    "no_connect",
-    "bus",
-    "bus_entry",
-    "sheet",
-]);
+const SCHEMATIC_EXACT_OBJECTS = kindsWith("schematic-exact");
 
-const SCHEMATIC_NET_OBJECTS = new Set([
-    "wire",
-    "label",
-    "global_label",
-    "hierarchical_label",
-    "junction",
-]);
+const SCHEMATIC_NET_OBJECTS = kindsWith("schematic-net");
 
-const PCB_FABRICATION_OBJECTS = new Set([
-    "footprint",
-    "pad",
-    "track",
-    "segment",
-    "arc",
-    "arc_segment",
-    "via",
-    "zone",
-    "footprint_zone",
-]);
+const PCB_FABRICATION_OBJECTS = kindsWith("fabrication");
 
-const DOCUMENTATION_OBJECTS = new Set([
-    "image",
-    "table",
-    "text",
-    "footprint_text",
-]);
+const DOCUMENTATION_OBJECTS = kindsWith("documentation");
+
+const PCB_GRAPHIC_OBJECTS = kindsWith("pcb-graphic");
 
 const PCB_REVIEW_LAYER_SUFFIXES = [
     ".Cu",
@@ -88,7 +64,7 @@ function recommendation(
     };
 }
 
-function hasAny(values: Iterable<string>, expected: Set<string>): boolean {
+function hasAny(values: Iterable<string>, expected: ReadonlySet<string>): boolean {
     for (const value of values) {
         if (expected.has(value)) return true;
     }
@@ -98,10 +74,8 @@ function hasAny(values: Iterable<string>, expected: Set<string>): boolean {
 function objectKinds(change: ChangeItem): Set<string> {
     const kinds = new Set<string>();
     for (const value of [
-        change.object_kind,
-        change.geometry?.kind,
-        change.oldGeometry?.kind,
-        ...(change.details?.visualTargets ?? []).flatMap((target) => [
+        change.objectKind,
+        ...(change.details.targets ?? []).flatMap((target) => [
             target.kind,
             target.role,
         ]),
@@ -170,7 +144,7 @@ function policyFacts(change: ChangeItem): PolicyFacts {
         spatial: hasAny(reasons, SPATIAL_REASONS),
         hasFields: Object.keys(change.fields ?? {}).length > 0,
         powerSymbol: /^#(?:PWR|FLG)/i.test(change.reference ?? change.label),
-        fabricationLayer: (change.layers ?? []).some(isFabricationLayer),
+        fabricationLayer: unionLayers(change).some(isFabricationLayer),
     };
 }
 
@@ -198,9 +172,7 @@ function isSchematicNet({ change, kinds }: PolicyFacts): boolean {
 
 function isPcbGraphic({ change, kinds }: PolicyFacts): boolean {
     return hasAny(kinds, DOCUMENTATION_OBJECTS)
-        || kinds.has("drawing")
-        || kinds.has("graphic")
-        || kinds.has("footprint_graphic")
+        || hasAny(kinds, PCB_GRAPHIC_OBJECTS)
         || change.category === "graphics";
 }
 
@@ -320,7 +292,7 @@ const PCB_RULES: PolicyRule[] = [
         reason:
             "Constraint definitions have no direct canvas geometry; compare the structured old/new rules with one clean board revision at a time.",
         when: ({ kinds }) =>
-            kinds.has("net_class") || kinds.has("net_class_assignment"),
+            kinds.has("net-class") || kinds.has("net-class-assignment"),
     },
     {
         rule: "pcb-group",
@@ -436,8 +408,8 @@ export function recommendPresentationForChanges(
     );
     const pages = new Set(changes.flatMap((change) => [
         change.page,
-        change.base_item?.path,
-        change.compare_item?.path,
+        change.base?.documentPath,
+        change.head?.documentPath,
     ]).filter(Boolean));
     if (
         schematicReferences.size === 1

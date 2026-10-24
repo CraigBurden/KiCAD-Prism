@@ -2,24 +2,27 @@
 
 from __future__ import annotations
 
-import os
 import sys
 import unittest
-import uuid
-from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services import comments_schema_migrations  # noqa: E402
-from app.services.comments_store_service import CommentsStoreService  # noqa: E402
+from app.services.comments_schema_migrations import COMMENTS_LEDGER  # noqa: E402
+from app.services.comments_store_schema import create_base_tables  # noqa: E402
 from app.services.trackers.migrations import (  # noqa: E402
     cascade_comments_tracker_fks,
     cascade_workspace_tracker_fks,
     migrate_workspace_tracker_tables,
 )
 from app.services.trackers.store import TrackerStore  # noqa: E402
+from support.postgres import (  # noqa: E402
+    requires_scratch_postgres,
+    scratch_schema,
+    comments_store_on,
+    seed_comment,
+    seed_reply,
+)
 
 try:
     import psycopg
@@ -30,93 +33,17 @@ except ImportError:  # pragma: no cover
     ForeignKeyViolation = Exception  # type: ignore[misc, assignment]
     dict_row = None  # type: ignore[assignment]
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 
 
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
-
-
-class DisposableCommentsStore(CommentsStoreService):
-    def __init__(self, schema: str) -> None:
-        super().__init__()
-        self.schema = schema
-
-    @contextmanager
-    def _connect(self):
-        with psycopg.connect(_dsn(), row_factory=dict_row) as conn:
-            conn.execute(f'SET search_path TO "{self.schema}", public')
-            yield conn
-
-
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class CommentsMigrationReviewPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"trh14_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self.conn.execute(
-            """
-            CREATE TABLE comments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                status TEXT NOT NULL DEFAULT 'OPEN',
-                context TEXT NOT NULL DEFAULT 'PCB',
-                location_x REAL NOT NULL DEFAULT 0,
-                location_y REAL NOT NULL DEFAULT 0,
-                location_layer TEXT NOT NULL DEFAULT '',
-                location_page TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT ''
-            );
-            CREATE TABLE comment_replies (
-                id TEXT PRIMARY KEY,
-                comment_id TEXT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                content TEXT NOT NULL DEFAULT ''
-            );
-            CREATE TABLE project_comment_state (
-                project_id TEXT PRIMARY KEY,
-                imported_from_json BOOLEAN NOT NULL DEFAULT FALSE,
-                imported_at TIMESTAMPTZ,
-                last_exported_at TIMESTAMPTZ,
-                last_export_commit TEXT
-            );
-            """,
-            prepare=False,
-        )
-        self.conn.commit()
-
-    def _cleanup(self) -> None:
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
+        # The comment base tables as a database had them before the ledger's later steps.
+        self.scratch = scratch_schema(self, "trh14", then=(create_base_tables,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
 
     def test_h1_comments_migrate_creates_sync_tables_without_test_apply_schema(self) -> None:
-        comments_schema_migrations.apply_comments_migrations(self.conn)
+        COMMENTS_LEDGER.apply(self.conn)
         self.conn.commit()
         tables = {
             row["table_name"]
@@ -146,17 +73,11 @@ class CommentsMigrationReviewPostgresTests(unittest.TestCase):
         self.assertIn(4, ledger)
 
     def test_h4_delete_project_comments_after_link_does_not_fk_violate(self) -> None:
-        comments_schema_migrations.apply_comments_migrations(self.conn)
+        COMMENTS_LEDGER.apply(self.conn)
         self.conn.commit()
-        store = DisposableCommentsStore(self.schema)
-        self.conn.execute(
-            "INSERT INTO comments(id, project_id, author, content) VALUES (%s,%s,%s,%s)",
-            ("c_1", "prj_a", "Priya", "stub"),
-        )
-        self.conn.execute(
-            "INSERT INTO comment_replies(id, comment_id, project_id, author, content) VALUES (%s,%s,%s,%s,%s)",
-            ("r_1", "c_1", "prj_a", "Arjun", "ack"),
-        )
+        store = comments_store_on(self.scratch)
+        seed_comment(self.conn, "c_1", "prj_a", content="stub")
+        seed_reply(self.conn, "r_1", "c_1", "prj_a", content="ack")
         self.conn.execute(
             """
             INSERT INTO tracked_threads (
@@ -246,10 +167,7 @@ class CommentsMigrationReviewPostgresTests(unittest.TestCase):
             """,
             prepare=False,
         )
-        self.conn.execute(
-            "INSERT INTO comments(id, project_id, author, content) VALUES (%s,%s,%s,%s)",
-            ("c_old", "prj_a", "Priya", "stub"),
-        )
+        seed_comment(self.conn, "c_old", "prj_a", content="stub")
         self.conn.execute(
             """
             INSERT INTO tracked_threads (
@@ -262,8 +180,7 @@ class CommentsMigrationReviewPostgresTests(unittest.TestCase):
         self.conn.commit()
         with self.assertRaises(ForeignKeyViolation):
             self.conn.execute("DELETE FROM comments WHERE id = 'c_old'")
-        self.conn.rollback()
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
+        self.scratch.reset_path()
         cascade_comments_tracker_fks(self.conn)
         self.conn.commit()
         self.conn.execute("DELETE FROM comments WHERE id = 'c_old'")

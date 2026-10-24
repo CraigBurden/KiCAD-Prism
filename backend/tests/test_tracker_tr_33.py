@@ -3,32 +3,23 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import unittest
-import uuid
 from pathlib import Path
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.comments_revisions import history  # noqa: E402
 from app.services.trackers.contracts import (  # noqa: E402
-    ForgeUser,
     GoneConfirmed,
     NotModified,
     PageCursor,
     RemoteComment,
-    RemoteIssue,
-    RemoteVersion,
     UncertainAbsence,
     ForbiddenRead,
 )
 from app.services.trackers.errors import ProviderError  # noqa: E402
-from app.services.trackers.inbox_store import apply_schema as apply_inbox_schema  # noqa: E402
-from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
-from app.services.trackers.op_store import OpStore, apply_schema as apply_op_schema  # noqa: E402
+from app.services.trackers.op_store import OpStore  # noqa: E402
 from app.services.trackers.sweeper import (  # noqa: E402
     DELETION_CONFIRM_SECONDS,
     scope_key,
@@ -46,10 +37,10 @@ from test_tracker_tr_28 import (  # noqa: E402
     ISSUE_ID,
     ISSUE_NUMBER,
     REPLY_ID,
-    _forge_user,
     _remote_comment,
     _remote_issue,
 )
+from support.postgres import requires_scratch_postgres, tracker_schema, seed_comment, seed_reply  # noqa: E402
 
 try:
     import psycopg
@@ -58,61 +49,17 @@ except ImportError:  # pragma: no cover
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 F7 = json.loads((DOCS / "fixtures" / "F07.json").read_text(encoding="utf-8"))
 F8 = json.loads((DOCS / "fixtures" / "F08.json").read_text(encoding="utf-8"))
 
 
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
 
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
-
-
-class FixtureContractTests(unittest.TestCase):
-    def test_tr33_fixture_cases_present(self) -> None:
-        f7_ids = {case["id"] for case in F7["cases"]}
-        for case_id in (
-            "F7.conditional_304",
-            "F7.unauthorized_401",
-            "F7.private_404",
-            "F7.deleted_after_two_listings",
-            "F7.gone_410",
-            "F7.throttling",
-            "F7.lost_then_recovered_access",
-        ):
-            self.assertIn(case_id, f7_ids)
-        f8_ids = {case["id"] for case in F8["cases"]}
-        self.assertIn("F8.remote_reply_delete", f8_ids)
-
-
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class SweepPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"tr33_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self._create_comments_foundation()
-        comments_schema_migrations.apply_comments_migrations(self.conn)
-        migrate_workspace_tracker_tables(self.conn)
-        apply_op_schema(self.conn)
-        apply_inbox_schema(self.conn)
+        self.scratch = tracker_schema(self, "tr33")
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
         self.store = TrackerStore(self.conn)
         self.ops = OpStore(self.conn)
         self.store.upsert_connector(
@@ -126,47 +73,6 @@ class SweepPostgresTests(unittest.TestCase):
         self.issue_reads: dict[tuple[str, str | None], object] = {}
         self.comment_pages: list[tuple[list[RemoteComment], PageCursor | None]] = []
         self.comment_reads: dict[str, object] = {}
-
-    def _cleanup(self) -> None:
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
-
-    def _create_comments_foundation(self) -> None:
-        self.conn.execute(
-            """
-            CREATE TABLE comments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                status TEXT NOT NULL DEFAULT 'OPEN',
-                context TEXT NOT NULL DEFAULT 'PCB',
-                location_x REAL NOT NULL DEFAULT 0,
-                location_y REAL NOT NULL DEFAULT 0,
-                location_layer TEXT NOT NULL DEFAULT '',
-                location_page TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT ''
-            );
-            CREATE TABLE comment_replies (
-                id TEXT PRIMARY KEY,
-                comment_id TEXT NOT NULL REFERENCES comments(id),
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                content TEXT NOT NULL DEFAULT '',
-                author_kind TEXT NOT NULL DEFAULT 'user',
-                origin TEXT NOT NULL DEFAULT 'prism',
-                revision INTEGER NOT NULL DEFAULT 1,
-                deleted_at TIMESTAMPTZ,
-                deleted_by TEXT
-            );
-            """,
-            prepare=False,
-        )
 
     def _seed_thread(
         self,
@@ -185,10 +91,7 @@ class SweepPostgresTests(unittest.TestCase):
             remote_container_id=CONTAINER,
             generation=2,
         )
-        self.conn.execute(
-            "INSERT INTO comments(id, project_id, author, content) VALUES (%s, %s, %s, %s)",
-            (COMMENT_ID, "prj_a", "Priya", "root content"),
-        )
+        seed_comment(self.conn, COMMENT_ID, "prj_a", author="Priya", content="root content")
         self.store.insert_thread(
             thread_id=thread_id,
             comment_id=COMMENT_ID,
@@ -209,13 +112,16 @@ class SweepPostgresTests(unittest.TestCase):
             )
 
     def _seed_reply(self, *, thread_id: str = "tt_a", body: str = "mirrored reply") -> None:
-        self.conn.execute(
-            """
-            INSERT INTO comment_replies (
-                id, comment_id, project_id, author, author_kind, origin, content, revision
-            ) VALUES (%s, %s, %s, %s, 'user', 'prism', %s, 1)
-            """,
-            (REPLY_ID, COMMENT_ID, "prj_a", "Priya", body),
+        seed_reply(
+            self.conn,
+            REPLY_ID,
+            COMMENT_ID,
+            "prj_a",
+            author="Priya",
+            author_kind="user",
+            origin="prism",
+            content=body,
+            revision=1,
         )
         self.store.insert_reply_link(
             link_id="trl_1",

@@ -24,6 +24,11 @@ before editing.
   suites are `backend/tests/test_project_component_import_service.py` and
   `backend/tests/test_library_folder_import_service.py`; add only a focused
   cross-contract assertion when needed.
+- Required fields, value shapes and import readiness live only in
+  `backend/app/services/catalog/field_rules.py`. After changing it, run
+  `python3 scripts/export_catalog_field_rules.py` and extend
+  `frontend/src/lib/catalog-field-rules.cases.json`; never add a required
+  list or URL check to a grid, form or import service.
 - Identity locking, concurrent revision/audit serialization, and QA approval
   already have coverage in
   `backend/tests/test_component_catalog_postgres_integration.py`. Do not
@@ -43,9 +48,10 @@ Quick checks from the repository root:
 
 ```bash
 python3 scripts/check_catalog_architecture.py
+python3 scripts/check_module_size.py
 python3 scripts/check_agent_docs.py
-python3 -m unittest backend.tests.test_catalog_architecture -v
-python3 -m compileall -q backend/app scripts/check_catalog_architecture.py
+python3 -m unittest backend.tests.test_catalog_architecture backend.tests.test_module_size_gate -v
+python3 -m compileall -q backend/app scripts/check_catalog_architecture.py scripts/check_module_size.py
 git diff --check
 ```
 

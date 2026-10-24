@@ -293,6 +293,39 @@ Monitor:
 - catalog import and validation duration;
 - PostgreSQL connection-pool saturation.
 
+Design bundles (`.kicad-prism/bundles`) are kept by use. An hourly pass on the
+general worker keeps the bundles of the prebuild's commits (branch heads, each
+branch's newest `PRISM_DESIGN_BUNDLE_PREBUILD_COMMITS` commits and every tagged
+commit), released Release Studio commits and every bundle an alias still points
+to. It removes the rest after `PRISM_DESIGN_BUNDLE_RETENTION_DAYS` unused, and
+sweeps old unpacked-cache versions, archives no row names and `prism-kicad`'s
+stale temporary files. Unpacked caches are also dropped after
+`PRISM_DESIGN_BUNDLE_CACHE_IDLE_DAYS` without a read and kept under the
+`PRISM_DESIGN_BUNDLE_CACHE_*_MAX_BYTES` caps; a reader re-extracts what it
+needs. The worker logs each pass's counts (`Design bundle retention: ...`).
+
+Plan disk for the archives: a large board (about 55 MB of `.kicad_pcb`) takes
+about 47 MB per bundled revision, so twenty prebuilt revisions of one such
+design hold about 1 GB, plus its unpacked cache.
+
+With `PRISM_DESIGN_BUNDLE_AUTO_BUILD=true`, the first deploy does not rebuild
+every project at once: the worker's backfill queues at most one branch-head
+bundle per `PRISM_DESIGN_BUNDLE_BACKFILL_INTERVAL_SECONDS`, and only while no
+`design_bundle` job is active. It records in `ws_design_bundle_flags` each
+project whose board or root schematic no longer resolves by its project file
+(`board-unresolved`, `schematic-unresolved`), whose committed `.prism.json` is
+invalid, or whose project file is missing at HEAD (`project-absent`). Fix a
+flagged project by setting its board or schematic path in the project settings;
+the flag clears at the next backfill or build of its HEAD.
+
+A `design_bundle` job that fails in a KiCad step (zone refill, GLB export,
+source upgrade) is retried; after its last attempt the stage stays pending and
+the bundle row is marked `failed` with the error. Readers then answer *failed*
+instead of *pending*. The first status read after
+`PRISM_DESIGN_BUNDLE_FAILED_RETRY_SECONDS` (default one hour) queues it again;
+Generate or Regenerate retries at once. A source KiCad cannot read stays failed
+until a deliberate retry.
+
 Use configured artifact and partial-output retention. Do not delete unknown
 content inside `.kicad-prism` manually. Confirm whether it is authoritative data
 or a regenerable cache first.
@@ -349,6 +382,48 @@ so outbound work resumes through recovery rather than duplicate creates.
 
 Verify released asset files in persistent storage and confirm provider metadata
 advertises the correct public origin.
+
+`scripts/check_catalog_asset_files.py` lists every revision-linked asset file
+that is missing or no longer matches its sha256, grouped as
+`placement_broken` (the released head of an active part), `history_broken`
+(older releases and deactivated parts), and `draft_only`. It exits 1 while `placement_broken` is not empty. Run it with
+`docker compose run --rm --no-deps backend python scripts/check_catalog_asset_files.py`.
+Add `--restore` to look for exact sha256 copies of missing files. It searches
+the catalog object store first and then each `--search DIR` (volume backups,
+library checkouts, `RemoteLibrary/remote_3d/`; mount them into the container).
+It is a dry run until `--apply` is added and never changes the object store.
+`--database-url` selects the database for both the catalog and the object-store
+ledger. Restored files get the same mode as the store's other files.
+It writes only inside the catalog store and refuses paths behind a symlink. It
+never replaces an existing file, so a file with different content is only
+reported. These checks assume that no untrusted user changes the catalog store's
+directories while the script runs. The script neither initializes nor migrates
+the catalog. It exits 2 when the schema is not at head.
+
+Artifact maintenance never deletes a superseded never-released draft STEP at
+once. It moves the file to `quarantine/<entry>/` under the catalog store and
+deletes it once `CATALOG_DRAFT_MODEL_QUARANTINE_DAYS` (default 30) have passed;
+the purge ledger records both steps. The check lists quarantined files under
+`quarantine` with their `expires_at`, marks a missing file the ledger accounts
+for with `ledger` (`quarantined` or `purged`), and `--restore --apply` moves a
+quarantined file back and records the restore. A restored file stays until its
+asset is linked again and then abandoned. A quarantined file whose revision is
+released again before it expires is restored by maintenance itself.
+
+`scripts/report_unpinned_board_models.py [DIR ...]` (default
+`KICAD_PROJECTS_ROOT`) lists every board footprint whose 3D model still points
+at the provider's shared `<prefix>_3d` folder, so a fresh clone opens without
+it: parts placed before footprints embedded their models, with embedding off,
+or over the embed cap. Each entry says whether the file is present in that
+checkout and, with `--database-url`, which catalog 3D model assets carry the
+same bytes. It only reads; place such a part again from KiCad to pin it.
+
+`--record-legacy` lists missing never-released draft STEP files that no ledger
+row accounts for: files the purge deleted before its ledger existed (see
+[Upgrades](UPGRADES.md#superseded-draft-step-files-wait-in-quarantine)). With
+`--apply` it records them as `legacy_pre_ledger`, after which their components'
+audit chains verify again. It never records a released or head revision's
+file; restore those.
 
 ### Disk is full
 

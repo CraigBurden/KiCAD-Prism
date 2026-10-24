@@ -1,0 +1,94 @@
+{
+ "schema": "prism.placements.a1",
+ "footprints": [
+  {
+   "uuid": "4f51eca6-3440-5334-a47a-8da5ed063624",
+   "reference": "R1",
+   "libId": "Resistor_SMD:R_0603_1608Metric",
+   "side": "front",
+   "positionNm": {
+    "xNm": 5000000,
+    "yNm": 5000000
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1500000,
+     "yNm": -1000000
+    },
+    "maxNm": {
+     "xNm": 1500000,
+     "yNm": -1000000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 4000000,
+      "yNm": 5000000
+     },
+     "size": {
+      "xNm": 800000,
+      "yNm": 900000
+     }
+    },
+    {
+     "number": "2",
+     "type": "smd",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 6000000,
+      "yNm": 5000000
+     },
+     "size": {
+      "xNm": 800000,
+      "yNm": 900000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 1515,
+    "lengthBytes": 1622
+   }
+  }
+ ],
+ "designators": [
+  "R1"
+ ],
+ "outlineBounds": {
+  "minNm": {
+   "xNm": 0,
+   "yNm": 0
+  },
+  "maxNm": {
+   "xNm": 60000000,
+   "yNm": 40000000
+  }
+ }
+}

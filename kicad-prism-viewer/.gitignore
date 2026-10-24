@@ -12,11 +12,13 @@ references/
 # Generated viewer bundles and KiCad export artifacts.
 samples/
 /dist/
-/viewer/app.js
-/native/prism-clipper2/build/
 *.glb
 *.xao
 *.step
 *.stp
 *.stpz
 *.bin
+
+# Pixel-diff harness output.
+/tests/browser/pixel-diff/out/
+/tests/browser/perf/out/

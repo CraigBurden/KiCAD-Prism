@@ -7,10 +7,6 @@ does not touch the digest graph, the policy engine, or the approval model.
 
 import hashlib
 
-from app.release_studio.documents.artwork import (
-    PCB_SVG_CONFIG,
-    PCB_SVG_TESTPOINT_CONFIG,
-)
 from app.release_studio.documents.engine import (
     ASSEMBLY_SIDES,
     DOCUMENT_DOMAIN,
@@ -28,22 +24,27 @@ from app.release_studio.documents.svg import render_svg
 def renderer_resource_digest() -> str:
     """Identity of every bundled resource that can change a composed sheet.
 
-    Fonts are one such resource; the Cruncher view configuration is another,
-    because it decides what the assembly drawings contain.  The vendor pack
-    configuration is a third: it decides which parts reach a fab house's BOM,
-    which is a released member rather than a drawing.  All feed
+    Fonts are one such resource; the native artwork configurations are another,
+    because they decide what the assembly and testpoint drawings contain.  The
+    vendor pack configuration is a third: it decides which parts reach a fab
+    house's BOM, which is a released member rather than a drawing.  All feed
     ``toolchain_digest``, so editing any of them moves the build key rather
     than silently producing different output under an unchanged one.
     """
 
+    from app.release_studio.documents.artwork_bundle import (
+        ASSEMBLY_CONFIG,
+        TESTPOINT_CONFIG,
+        config_path,
+    )
     from app.release_studio.vendors.jlcpcb import VENDOR_CONFIG
 
     return hashlib.sha256(
         "\0".join(
             [
                 resource_bundle_digest(),
-                hashlib.sha256(PCB_SVG_CONFIG.read_bytes()).hexdigest(),
-                hashlib.sha256(PCB_SVG_TESTPOINT_CONFIG.read_bytes()).hexdigest(),
+                hashlib.sha256(config_path(ASSEMBLY_CONFIG).read_bytes()).hexdigest(),
+                hashlib.sha256(config_path(TESTPOINT_CONFIG).read_bytes()).hexdigest(),
                 hashlib.sha256(VENDOR_CONFIG.read_bytes()).hexdigest(),
             ]
         ).encode("utf-8")
@@ -57,7 +58,29 @@ def renderer_resource_digest() -> str:
 #: reproducibility claim the key exists to make. The golden-digest tests in
 #: `test_release_studio_documents.py` fail on any rendering change, so the bump
 #: cannot be skipped silently.
-#: d22 -- testpoint drawings render a Monkey-derived TP-only staging board and
+#: d29 -- a fabrication sheet's caption sits under the overall width
+#: dimension instead of over it, and the notes stay under the drawing only
+#: when that caption clears them. `kicad` keeps the d23 look.
+#: d28 -- the 2026-10-22 documentation review: `prism` chooses one set ratio
+#: against the full body (the paper as before) and continues a sheet's tables
+#: on their own pages when they do not fit beside the art; a part whose
+#: assembly outline covers other parts is a dashed outline on top with its
+#: designator outside; drills sit at the pad and offset pads' copper moves;
+#: the cover's component split, slot sizes and testpoint coordinates are
+#: corrected (divergence rs-3). `kicad` keeps the d23 look.
+#: d27 -- Release Studio is bundle-only: the assembly and testpoint artwork
+#: come from ``prism-kicad artwork`` and the DNP legend reads the native
+#: artwork configuration, so the Cruncher view configs and their loader are
+#: gone (C3 F4c).
+#: d26 -- artwork line weights are paper sizes by default: `paper` is the
+#: default `artwork_line_weights`, and the committed assembly/testpoint configs
+#: are tuned to ISO 128-20 widths and the ISO 3098 1.8 mm minimum text height.
+#: d24 -- the Prism sheet style is the default: ink-black worksheet and title
+#: block with grey tints, boxed/tinted/striped tables, captions under the
+#: placed artwork, the full ISO scale series with a 10 mm margin, shortened
+#: hierarchical testpoint nets, and the DNP designator list. `kicad` keeps the
+#: d23 bytes selectable.
+#: d23 -- testpoint drawings render a Monkey-derived TP-only staging board and
 #: promote legacy fp_text references for released Cruncher compatibility.
 #: d21 -- Cruncher views honor the checked-in board-outline canvas policy via
 #: Monkey's public bounding boxes, keeping SVG and PDF placement identical.
@@ -106,12 +129,11 @@ def renderer_resource_digest() -> str:
 #: d7 -- the default frame/title block is emitted by Monkey's public KiCad
 #: worksheet API and visible technical text uses Monkey's pinned NewStroke
 #: geometry. A deterministic hidden PDF text layer preserves search/copy.
-RENDERER_VERSION = "release-studio-documents/d22"
+RENDERER_VERSION = "release-studio-documents/d29"
 
 __all__ = [
     "ASSEMBLY_SIDES",
     "DOCUMENT_DOMAIN",
-    "PCB_SVG_CONFIG",
     "RENDERER_VERSION",
     "DocumentOutput",
     "DocumentPage",

@@ -4,18 +4,13 @@ from fastapi import Depends, HTTPException
 from starlette.requests import HTTPConnection
 from pydantic import BaseModel
 
+from app.core import policy
 from app.core.config import settings
-from app.core.roles import (
-    CATALOG_READ_ROLES,
-    CATALOG_WRITE_ROLES,
-    PROJECT_RELEASE_ACTOR_ROLES,
-    Role,
-    normalize_role,
-    role_meets_minimum,
-)
+from app.core.roles import Role, normalize_role
 from app.core.session import SESSION_COOKIE_NAME, decode_session_token
 from app.services import (
     access_service,
+    agent_auth_service,
     auth_service,
     provider_auth_service,
     service_client_service,
@@ -33,6 +28,7 @@ class AuthenticatedUser(BaseModel):
     scopes: list[str] = []
     session_id: str = ""
     user_id: str = ""
+    password_change_required: bool = False
 
 
 def guest_user() -> AuthenticatedUser:
@@ -52,7 +48,23 @@ def _resolve_allowed_user_role(email: str) -> Role | None:
     return normalize_role(role)
 
 
+PASSWORD_CHANGE_REQUIRED = "Password change required"
+
+
 async def get_current_user(request: HTTPConnection) -> AuthenticatedUser:
+    """The caller, refused while its account must still change a temporary password.
+
+    Only the routes that let the caller finish that change (``/auth/me`` and
+    ``/auth/password/change``) resolve it through
+    :func:`get_current_user_allowing_password_change` instead.
+    """
+    user = await get_current_user_allowing_password_change(request)
+    if user.password_change_required:
+        raise HTTPException(status_code=403, detail=PASSWORD_CHANGE_REQUIRED)
+    return user
+
+
+async def get_current_user_allowing_password_change(request: HTTPConnection) -> AuthenticatedUser:
     """Resolve the caller from the session cookie or a bearer token.
 
     Every store this consults is synchronous (session rows, role rows, provider
@@ -96,12 +108,33 @@ def _resolve_session_user(session_id: str) -> AuthenticatedUser:
         auth_type="session",
         session_id=session.session_id,
         user_id=session.user_id,
+        password_change_required=session.password_change_required,
     )
 
 
 def _resolve_bearer_user(token: str) -> AuthenticatedUser:
     provider_error: HTTPException | None = None
     if token.startswith("v1."):
+        try:
+            payload = agent_auth_service.validate_agent_token(token)
+            # Best-effort, throttled: keep the registry's "last used" column honest
+            # without a DB write on every request. Never fails the request.
+            agent_auth_service.touch_agent_token(payload)
+            return AuthenticatedUser(
+                email=str(payload["email"]),
+                name=str(payload["name"]),
+                picture=str(payload.get("picture") or ""),
+                role=normalize_role(str(payload["role"])) or "viewer",
+                auth_type="agent",
+                client_id=str(payload.get("client_id") or ""),
+                scopes=str(payload.get("scope") or "").split(),
+            )
+        except HTTPException as exc:
+            if exc.status_code >= 500:
+                raise
+            # Not an agent token (or an invalid one); fall through to the other
+            # bearer kinds, which use the same v1. envelope.
+
         try:
             payload = provider_auth_service.validate_access_token(token)
             scopes = str(payload.get("scope") or "").split()
@@ -135,37 +168,37 @@ def _resolve_bearer_user(token: str) -> AuthenticatedUser:
     raise HTTPException(status_code=401, detail="Invalid bearer token")
 
 
-def _has_scope(user: AuthenticatedUser, *required_scopes: str) -> bool:
-    scopes = set(user.scopes)
-    return "*" in scopes or any(scope in scopes for scope in required_scopes)
+def refuse_provider_token(user: AuthenticatedUser) -> None:
+    """For routes that resolve the caller themselves: KiCad remote-provider
+    tokens are for the remote-symbol routes only."""
+    if user.auth_type == policy.PROVIDER_AUTH_TYPE:
+        raise HTTPException(status_code=403, detail=policy.RULES["read"].provider_refusal)
+
+
+# Each dependency below is the policy rule of the same name; see app.core.policy.
 
 
 async def require_viewer(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
-    return user
+    return policy.authorize(user, "read")
+
+
+async def require_viewer_allowing_password_change(
+    user: AuthenticatedUser = Depends(get_current_user_allowing_password_change),
+) -> AuthenticatedUser:
+    return policy.authorize(user, "read")
 
 
 async def require_designer(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
-    if user.auth_type == "kicad_provider":
-        raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot modify Prism resources")
-    if not role_meets_minimum(user.role, "designer"):
-        raise HTTPException(status_code=403, detail="Designer role required")
-    return user
+    return policy.authorize(user, "design")
 
 
 async def require_comment_writer(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
     """Permit project participants to comment, but refuse read-only tokens."""
-    if user.auth_type == "kicad_provider":
-        raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot modify Prism resources")
-    _require_bearer_scope(user, "api:write")
-    return user
+    return policy.authorize(user, "comment")
 
 
 async def require_admin(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
-    if user.auth_type == "kicad_provider":
-        raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot access admin APIs")
-    if not role_meets_minimum(user.role, "admin"):
-        raise HTTPException(status_code=403, detail="Admin role required")
-    return user
+    return policy.authorize(user, "admin")
 
 
 async def require_project_release_actor(
@@ -173,44 +206,28 @@ async def require_project_release_actor(
 ) -> AuthenticatedUser:
     """Designer, QA, or Admin: approve or publish a project release.
 
-    Starting a build still uses ``require_designer``. QA is intentionally
-    below designer in ``ROLE_ORDER``, so a rank check cannot express this.
+    Starting a build still uses ``require_designer``.
     """
-
-    if user.auth_type == "kicad_provider":
-        raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot modify Prism resources")
-    if user.role not in PROJECT_RELEASE_ACTOR_ROLES:
-        raise HTTPException(status_code=403, detail="Designer, QA, or Admin role required")
-    return user
-
-
-def _require_bearer_scope(user: AuthenticatedUser, *required_scopes: str) -> None:
-    if user.auth_type == "session":
-        return
-    if _has_scope(user, *required_scopes):
-        return
-    raise HTTPException(status_code=403, detail=f"{' or '.join(required_scopes)} scope required")
+    return policy.authorize(user, "release")
 
 
 async def require_catalog_reader(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
-    _require_bearer_scope(user, "api:read")
-    if user.role not in CATALOG_READ_ROLES:
-        raise HTTPException(status_code=403, detail="Catalog read access required")
-    return user
+    return policy.authorize(user, "catalog_read")
+
+
+async def require_catalog_browser(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
+    """Read-only browsing of the component database; viewers included (D-P2-24)."""
+    return policy.authorize(user, "catalog_browse")
 
 
 async def require_catalog_writer(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
-    if user.auth_type == "kicad_provider":
-        raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot modify catalog resources")
-    _require_bearer_scope(user, "api:write")
-    if user.role not in CATALOG_WRITE_ROLES:
-        raise HTTPException(status_code=403, detail="Catalog write access required")
-    return user
+    return policy.authorize(user, "catalog_write")
+
+
+async def require_catalog_admin(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
+    """Metadata field definitions and artifact maintenance."""
+    return policy.authorize(user, "catalog_admin")
 
 
 async def require_remote_symbol_reader(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
-    if user.auth_type == "session":
-        return user
-    if _has_scope(user, "remote_symbols.read", "api:read"):
-        return user
-    raise HTTPException(status_code=403, detail="remote_symbols.read scope required")
+    return policy.authorize(user, "remote_symbols")

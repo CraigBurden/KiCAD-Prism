@@ -8,37 +8,16 @@ copies of the same 0603.
 
 from __future__ import annotations
 
-import os
 import sys
 import tempfile
 import unittest
 import uuid
 from pathlib import Path
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.component_catalog_service_postgres import ComponentCatalogPostgresService  # noqa: E402
-
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
-
-
-def _database_identity(url: str) -> tuple[str, str, int | None, str]:
-    parsed = urlsplit(url)
-    return (
-        parsed.username or "",
-        (parsed.hostname or "").lower(),
-        parsed.port,
-        parsed.path.lstrip("/"),
-    )
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _database_identity(POSTGRES_URL) == _database_identity(APPLICATION_POSTGRES_URL)
-)
+from support.postgres import CATALOG_URL, requires_scratch_postgres  # noqa: E402
 
 SYMBOL_BODY = """(kicad_symbol_lib (version 20240101) (generator prism-test)
   (symbol "R_Test" (pin_numbers hide) (in_bom yes) (on_board yes)
@@ -55,12 +34,7 @@ FOOTPRINT_BODY = """(footprint "R_0603" (version 20240101) (generator prism-test
 """
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for PostgreSQL integration tests")
-@unittest.skipIf(
-    SHARED_APPLICATION_DATABASE,
-    "Import remediation tests require a dedicated PostgreSQL database; "
-    "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL",
-)
+@requires_scratch_postgres("import remediation tests")
 class ImportBulkRemediationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -68,7 +42,7 @@ class ImportBulkRemediationTests(unittest.TestCase):
         self.component_ids: list[str] = []
         self.service = ComponentCatalogPostgresService(
             store_root=self.root / "components",
-            database_url=POSTGRES_URL,
+            database_url=CATALOG_URL,
         )
         self.service.initialize()
 
@@ -362,6 +336,141 @@ class ImportBulkRemediationTests(unittest.TestCase):
         # Identical content must not spawn a second revision either.
         revisions = self.service.list_component_revisions(first_id)
         self.assertEqual(len(revisions), 1, "identical remediation should not add a revision")
+
+    def test_accept_enforces_import_readiness_on_the_server(self) -> None:
+        # The remediation grid blocks these rows; a direct API accept must too.
+        mpn = f"RC0603-READY-{uuid.uuid4().hex[:8]}"
+        _, proposal = self._stage_proposal(reference="R7", mpn=mpn)
+        with self.assertRaisesRegex(ValueError, "Datasheet must be an HTTP\\(S\\) URL"):
+            self.service.accept_project_import_proposal(
+                str(proposal["id"]),
+                metadata_overrides={"datasheet": "see intranet"},
+                actor="tester@example.com",
+            )
+        with self.assertRaisesRegex(ValueError, "Description is required"):
+            self.service.accept_project_import_proposal(
+                str(proposal["id"]),
+                metadata_overrides={"description": "  "},
+                actor="tester@example.com",
+            )
+        reloaded = self.service.get_project_import_proposal(str(proposal["id"]))
+        assert reloaded is not None
+        self.assertEqual(reloaded["status"], "candidate")
+
+    def _required_custom_field(self) -> dict:
+        field = self.service.create_metadata_field(
+            {"key": f"approval_ref_{uuid.uuid4().hex[:8]}", "label": "Approval Ref", "type": "text", "required": True},
+            actor="admin@example.com",
+        )
+        self.addCleanup(self._drop_field, str(field["id"]))
+        return field
+
+    def _drop_field(self, field_id: str) -> None:
+        # The worker database is shared; a required field left behind would block other tests.
+        with self.service.connection() as conn:
+            conn.execute("DELETE FROM catalog_field_definition_events WHERE field_id = %s", (field_id,))
+            conn.execute("DELETE FROM catalog_field_definitions WHERE id = %s", (field_id,))
+            conn.commit()
+
+    def test_accept_enforces_custom_required_fields_on_the_server(self) -> None:
+        # D4: a custom required field is demanded at import, not only in the editor.
+        field = self._required_custom_field()
+        mpn = f"RC0603-CUSTOM-{uuid.uuid4().hex[:8]}"
+        _, proposal = self._stage_proposal(reference="R10", mpn=mpn)
+        with self.assertRaisesRegex(ValueError, "Approval Ref is required"):
+            self.service.accept_project_import_proposal(str(proposal["id"]), actor="tester@example.com")
+        reloaded = self.service.get_project_import_proposal(str(proposal["id"]))
+        assert reloaded is not None
+        self.assertEqual(reloaded["status"], "candidate")
+
+        result = self.service.accept_project_import_proposal(
+            str(proposal["id"]),
+            metadata_overrides={"extra_fields": {field["storage_key"]: "QA-17"}},
+            actor="tester@example.com",
+        )
+        self.component_ids.append(str(result["component"]["id"]))
+        self.assertEqual(result["component"]["extra_fields"][field["storage_key"]], "QA-17")
+
+    def test_patch_enforces_custom_required_fields_on_the_server(self) -> None:
+        # D4: the single-component PATCH refuses a blank custom required field.
+        mpn = f"RC0603-PATCH-{uuid.uuid4().hex[:8]}"
+        _, proposal = self._stage_proposal(reference="R11", mpn=mpn)
+        component = self.service.accept_project_import_proposal(
+            str(proposal["id"]), actor="tester@example.com"
+        )["component"]
+        self.component_ids.append(str(component["id"]))
+        field = self._required_custom_field()
+
+        with self.assertRaisesRegex(ValueError, "Approval Ref: Required"):
+            self.service.update_component_metadata(
+                str(component["id"]),
+                {"value": "22k"},
+                actor="tester@example.com",
+                expected_revision_id=str(component["revision_id"]),
+            )
+        self.assertEqual(self.service.get_component(str(component["id"]))["value"], component["value"])
+
+        updated = self.service.update_component_metadata(
+            str(component["id"]),
+            {"value": "22k", "extra_fields": {**component["extra_fields"], field["storage_key"]: "QA-18"}},
+            actor="tester@example.com",
+            expected_revision_id=str(component["revision_id"]),
+        )
+        assert updated is not None
+        self.assertEqual((updated["value"], updated["extra_fields"][field["storage_key"]]), ("22k", "QA-18"))
+
+    def test_create_enforces_custom_required_fields_on_the_server(self) -> None:
+        # D44: manual create (POST /components) refuses a blank custom required field.
+        field = self._required_custom_field()
+        payload = {
+            "value": "10k",
+            "description": "Resistor",
+            "datasheet": "https://example.test/rc.pdf",
+            "manufacturer": "Yageo",
+            "manufacturer_part_number": f"RC0603-CREATE-{uuid.uuid4().hex[:8]}",
+        }
+        with self.assertRaisesRegex(ValueError, "Approval Ref: Required"):
+            self.service.create_manual_component(actor="tester@example.com", **payload)
+        self.assertEqual(
+            self.service.match_component_identities(
+                [{"manufacturer": "Yageo", "mpn": payload["manufacturer_part_number"]}]
+            ),
+            [None],
+        )
+
+        created = self.service.create_manual_component(
+            actor="tester@example.com", extra_fields={field["storage_key"]: "QA-19"}, **payload
+        )
+        self.component_ids.append(str(created["id"]))
+        self.assertEqual(created["extra_fields"][field["storage_key"]], "QA-19")
+
+    def test_retired_identity_is_matched_and_blocks_import_with_its_reason(self) -> None:
+        mpn = f"RC0603-RETIRED-{uuid.uuid4().hex[:8]}"
+        _, seed = self._stage_proposal(reference="R8", mpn=mpn)
+        seed_result = self.service.accept_project_import_proposal(
+            str(seed["id"]), actor="tester@example.com"
+        )
+        retired_id = str(seed_result["component"]["id"])
+        self.service.deactivate_component(retired_id, actor="tester@example.com", reason="retired")
+
+        # Folder discovery must not show the retired identity as new...
+        matches = self.service.match_component_identities(
+            [{"manufacturer": " yageo ", "mpn": mpn.lower()}, {"manufacturer": "Yageo", "mpn": ""}]
+        )
+        self.assertEqual(len(matches), 2)
+        self.assertIsNone(matches[1])
+        assert matches[0] is not None
+        self.assertEqual(
+            (matches[0]["component_id"], matches[0]["is_active"]), (retired_id, False)
+        )
+
+        # ...and acceptance names the retired component instead of a bare conflict.
+        _, again = self._stage_proposal(reference="R9", mpn=mpn)
+        with self.assertRaisesRegex(ValueError, "retired"):
+            self.service.accept_project_import_proposal(str(again["id"]), actor="tester@example.com")
+        reloaded = self.service.get_project_import_proposal(str(again["id"]))
+        assert reloaded is not None
+        self.assertEqual(reloaded["status"], "candidate")
 
     def test_unknown_or_mistyped_asset_links_are_rejected(self) -> None:
         _, seed = self._stage_proposal(reference="R1", mpn="RC0603-TYPES")

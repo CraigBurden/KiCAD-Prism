@@ -6,6 +6,8 @@ import { getComponent, getInlineBundle, getPartManifest } from "@/panel/lib/pane
 import { createKiCadBridge, KiCadRpcError, getSessionId, sendRpcCommand } from "@/panel/lib/kicad-bridge";
 import { PLACEMENT_RESPONSE_TIMEOUT_MS } from "@/panel/lib/panel-placement";
 
+import { chooseOption } from "@/test/select";
+
 import { PartDetailScreen } from "./PartDetailScreen";
 
 vi.mock("@/panel/lib/panel-api", async (importOriginal) => ({
@@ -178,5 +180,27 @@ describe("panel placement", () => {
       unmount();
       bridge.dispose();
     }
+  });
+  it("places the released revision chosen in the panel", async () => {
+    const released = [
+      { revision_id: "rev-2", version: 2, released_at: "" },
+      { revision_id: "rev-1", version: 1, released_at: "" },
+    ];
+    vi.mocked(getComponent).mockImplementation(async (_id, _signal, _rep, revisionId = "") => ({
+      ...placeable,
+      version: revisionId === "rev-1" ? "1.0.0" : "2.0.0",
+      revision_id: revisionId || "rev-2",
+      released_revisions: released,
+    }));
+    vi.mocked(sendRpcCommand).mockResolvedValue({ status: "OK", command: "PLACE_COMPONENT" });
+    render(<PartDetailScreen componentId="part" onBack={() => {}} onAuthRequired={() => {}} appendLog={() => {}} />);
+
+    await screen.findByRole("combobox", { name: "Released revision" });
+    await chooseOption("Released revision", "Rev.1");
+    await waitFor(() => expect(getComponent).toHaveBeenLastCalledWith("part", expect.anything(), "", "rev-1"));
+    fireEvent.click(await screen.findByRole("button", { name: "Place" }));
+
+    await waitFor(() => expect(sendRpcCommand).toHaveBeenCalledTimes(1));
+    expect(getPartManifest).toHaveBeenCalledWith("part", "rep-1", expect.anything(), "rev-1");
   });
 });

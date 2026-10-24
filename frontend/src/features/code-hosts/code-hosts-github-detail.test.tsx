@@ -25,7 +25,7 @@ it("loads a GitHub connection once instead of re-fetching on every render", asyn
     const github = {
         id: "cn_gh", provider: "github", instanceKind: "github.com", displayName: "GitHub-Testing",
         baseUrl: "", host: "github.com", bot: { id: null, login: null }, credentialConfigured: true,
-        paused: true, pausedReason: "test_failed", capabilities: { issues: true, accountLinking: true },
+        status: "needs-test", paused: true, pausedReason: "test_failed", capabilities: { issues: true, accountLinking: true },
     };
     mocks.listConnectors.mockResolvedValue([github]);
     mocks.getOAuthCallbackUrl.mockResolvedValue("https://prism.example/api/trackers/oauth/callback");

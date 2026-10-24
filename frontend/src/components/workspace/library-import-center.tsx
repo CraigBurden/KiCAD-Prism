@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type InputHTMLAttributes } from "react";
-import { AlertTriangle, Check, ChevronRight, CircuitBoard, FolderOpen, FolderSearch, HardDrive, LoaderCircle, PanelLeftClose, PanelLeftOpen, RefreshCw, Table2, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, CircuitBoard, FolderOpen, FolderSearch, HardDrive, LoaderCircle, PanelLeftClose, PanelLeftOpen, RefreshCw, Table2, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { fetchApi, fetchJson, readApiError } from "@/lib/api";
+import { Separator } from "@/components/ui/separator";
+import { ApiHttpError } from "@/lib/api";
+import { usePoll } from "@/lib/server-state";
 import { Input } from "@/components/ui/input";
 import { canWriteCatalog } from "@/lib/roles";
 import type { User } from "@/types/auth";
@@ -15,8 +20,21 @@ import { PermissionHint } from "@/components/ui/permission-hint";
 import { cn } from "@/lib/utils";
 import { LibraryImportRemediationDialog, type ProposalRemediation } from "./library-import-remediation-dialog";
 import { LibraryImportRemediationGrid } from "./library-import-remediation-grid";
+import { useImportCustomFields } from "./library-import-custom-fields";
 import { LibraryFolderDiscoveryDialog } from "./library-folder-discovery-dialog";
-import { isAbortError, useImportSessionProposals, useNonOverlappingPoll } from "./library-import-session-proposals";
+import { isAbortError, useImportSessionProposals } from "./library-import-session-proposals";
+import {
+  completeFolderSnapshot,
+  createFolderSnapshot,
+  createProjectImportSession,
+  deleteImportSession,
+  discoverFolderSnapshot,
+  importServerFolder as queueServerFolderImport,
+  listFolderImportRoots,
+  listImportSessions,
+  resolveImportProposal,
+  uploadSnapshotFile,
+} from "./catalog-client";
 
 interface LibraryImportCenterProps {
   projects: Project[];
@@ -43,6 +61,24 @@ function groupedFindings(findings: ProjectComponentImportProposal["findings"]) {
   return Array.from(grouped.values());
 }
 
+// Status dots, as in Release Studio's run list.
+const SESSION_DOT: Record<ProjectComponentImportSession["status"], string> = {
+  queued: "bg-muted-foreground",
+  uploading: "bg-muted-foreground",
+  scanning: "bg-muted-foreground",
+  staged: "bg-primary",
+  failed: "bg-destructive",
+};
+
+function sessionName(session: ProjectComponentImportSession, projects: Project[]): string {
+  if (session.scope === "folder") return session.selection.display_name || "Library folder";
+  if (session.scope === "all-projects") return "All projects";
+  const project = projects.find((item) => item.id === session.project_id);
+  return project?.display_name || project?.name || session.project_id;
+}
+
+const runningStatuses = new Set<ProjectComponentImportSession["status"]>(["queued", "uploading", "scanning"]);
+
 const folderRelativePath = (file: File) => file.webkitRelativePath || file.name;
 const isDiscoverySource = (file: File) => /\.(kicad_sym|kicad_mod)$/i.test(file.name);
 const retryableUploadStatus = new Set([408, 425, 429, 500, 502, 503, 504]);
@@ -56,20 +92,22 @@ async function uploadSnapshotFiles(
   let completed = 0;
   const failures: Array<{ file: File; message: string }> = [];
   const uploadOne = async (file: File) => {
-    let lastMessage = `Failed to upload ${file.name}`;
+    const uploadFailed = `Failed to upload ${file.name}`;
+    let lastMessage = uploadFailed;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        const form = new FormData();
-        form.append("relative_path", folderRelativePath(file));
-        form.append("file", file, file.name);
-        const response = await fetchApi(`/api/catalog/import-snapshots/folders/${snapshotId}/files`, { method: "POST", body: form });
-        if (response.ok) return;
-        lastMessage = await readApiError(response, response.status === 413
-          ? `${file.name} exceeds the reverse-proxy upload limit`
-          : `Failed to upload ${file.name}`);
-        if (!retryableUploadStatus.has(response.status)) break;
+        await uploadSnapshotFile(snapshotId, folderRelativePath(file), file, uploadFailed);
+        return;
       } catch (error) {
-        lastMessage = error instanceof Error ? error.message : lastMessage;
+        if (error instanceof ApiHttpError) {
+          // A proxy's 413 page has no Prism body, so the generic message says why.
+          lastMessage = error.status === 413 && error.message === uploadFailed
+            ? `${file.name} exceeds the reverse-proxy upload limit`
+            : error.message;
+          if (!retryableUploadStatus.has(error.status)) break;
+        } else {
+          lastMessage = error instanceof Error ? error.message : lastMessage;
+        }
       }
       await new Promise((resolve) => window.setTimeout(resolve, 300 * (attempt + 1)));
     }
@@ -90,6 +128,12 @@ async function uploadSnapshotFiles(
     throw new Error(`${failures.length} file${failures.length === 1 ? "" : "s"} could not be captured. ${first.file.name}: ${first.message}`);
   }
 }
+
+// One toast per outage, not one per 2 s tick (usePoll skips repeats until a
+// tick succeeds), so a 30 s restart does not stack fifteen identical errors.
+const reportScanRefreshFailure = (error: unknown) => {
+  toast.error(error instanceof Error ? error.message : "Failed to refresh import sessions");
+};
 
 // The non-standard directory attributes React does not type. Constant, so
 // it is declared once rather than rebuilt on every render.
@@ -123,20 +167,20 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
   const [reviewMode, setReviewMode] = useState<"grid" | "cards">("grid");
   // The grid is wide; collapsing the session rail gives it back ~15rem.
   const [sessionsCollapsed, setSessionsCollapsed] = useState(false);
+  const [sessionToDelete, setSessionToDelete] = useState<ProjectComponentImportSession | null>(null);
+  const [deletingSession, setDeletingSession] = useState(false);
+  const customFields = useImportCustomFields();
   const canWrite = canWriteCatalog(user?.role);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const selectedSession = useMemo(
     () => sessions.find((session) => session.id === selectedSessionId),
     [selectedSessionId, sessions]
   );
-  const { proposals, loadProposals } = useImportSessionProposals(selectedSessionId);
+  const { proposals, loadProposals } = useImportSessionProposals(selectedSessionId, selectedSession?.status);
   const hasActiveScan = sessions.some((session) => session.status === "queued" || session.status === "scanning");
 
   const loadSessions = useCallback(async (signal?: AbortSignal) => {
-    const response = await fetchJson<{ items: ProjectComponentImportSession[] }>(
-      "/api/catalog/import-sessions",
-      { signal },
-    );
+    const response = await listImportSessions(signal);
     if (signal?.aborted) return;
     setSessions(response.items);
     setSelectedSessionId((current) => current || initialSessionId || response.items[0]?.id || "");
@@ -168,24 +212,19 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
 
   useEffect(() => {
     if (!canWrite) return;
-    void fetchJson<{ items: Array<{ name: string; path_hint: string }> }>(
-      "/api/catalog/import-sources/folder-roots"
-    ).then((response) => {
+    void listFolderImportRoots().then((response) => {
       setServerRoots(response.items);
       setServerRoot((current) => current || response.items[0]?.name || "");
     }).catch(() => setServerRoots([]));
   }, [canWrite]);
 
-  useNonOverlappingPoll(hasActiveScan, refreshActiveImport);
+  usePoll(hasActiveScan, refreshActiveImport, { intervalMs: 2000, onError: reportScanRefreshFailure });
 
   const createSession = async (scope: "project" | "all-projects") => {
     if (scope === "project" && !projectId) return;
     setCreating(true);
     try {
-      const session = await fetchJson<ProjectComponentImportSession>("/api/catalog/import-sessions/projects", {
-        method: "POST",
-        body: JSON.stringify({ scope, project_id: scope === "project" ? projectId : "" }),
-      });
+      const session = await createProjectImportSession(scope, scope === "project" ? projectId : "");
       await loadSessions();
       setSelectedSessionId(session.id);
       toast.success(scope === "project" ? "Project component scan queued" : "All-project component scan queued");
@@ -204,22 +243,15 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
       const topLevel = selected[0]?.webkitRelativePath.split("/")[0] || "KiCad libraries";
       const discoveryFiles = selected.filter(isDiscoverySource);
       if (discoveryFiles.length === 0) throw new Error("No .kicad_sym or .kicad_mod files were found in the selected directory");
-      const snapshot = await fetchJson<{ id: string }>("/api/catalog/import-snapshots/folders", {
-        method: "POST",
-        body: JSON.stringify({ display_name: topLevel }),
-      });
+      const snapshot = await createFolderSnapshot(topLevel);
       setFolderProgress({ completed: 0, total: discoveryFiles.length, label: "Capturing KiCad sources" });
       await uploadSnapshotFiles(snapshot.id, discoveryFiles, (completed, total) => {
         setFolderProgress({ completed, total, label: "Capturing KiCad sources" });
       });
       setFolderProgress({ completed: 0, total: 1, label: "Resolving component relationships" });
-      const discovery = await fetchJson<LibraryFolderDiscovery>(
-        `/api/catalog/import-snapshots/folders/${snapshot.id}/discover`,
-        {
-          method: "POST",
-          body: JSON.stringify({ files: selected.map((file) => ({ relative_path: folderRelativePath(file), size_bytes: file.size })) }),
-        }
-      );
+      const discovery = await discoverFolderSnapshot(snapshot.id, {
+        files: selected.map((file) => ({ relative_path: folderRelativePath(file), size_bytes: file.size })),
+      });
       setPendingFolder({
         snapshotId: snapshot.id,
         filesByPath: new Map(selected.map((file) => [folderRelativePath(file).toLocaleLowerCase(), file])),
@@ -247,16 +279,10 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
         ...selectedFiles.map((file) => ({ relative_path: folderRelativePath(file), size_bytes: file.size })),
         ...[...pendingFolder.manualFiles].map(([relativePath, file]) => ({ relative_path: relativePath, size_bytes: file.size })),
       ];
-      const refreshedDiscovery = await fetchJson<LibraryFolderDiscovery>(
-        `/api/catalog/import-snapshots/folders/${pendingFolder.snapshotId}/discover`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            files: inventory,
-            footprint_resolutions: effectiveResolutions,
-          }),
-        }
-      );
+      const refreshedDiscovery = await discoverFolderSnapshot(pendingFolder.snapshotId, {
+        files: inventory,
+        footprint_resolutions: effectiveResolutions,
+      });
       const componentIdSet = new Set(componentIds);
       const approved = refreshedDiscovery.components.filter((component) => componentIdSet.has(component.id));
       const requiredPaths = new Set<string>();
@@ -282,10 +308,10 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
       await uploadSnapshotFiles(pendingFolder.snapshotId, filesToUpload, (completed, total) => {
         setFolderProgress({ completed, total, label: "Capturing approved assets" });
       });
-      const session = await fetchJson<ProjectComponentImportSession>(
-        `/api/catalog/import-snapshots/folders/${pendingFolder.snapshotId}/complete`,
-        { method: "POST", body: JSON.stringify({ approved_component_ids: componentIds, footprint_resolutions: effectiveResolutions }) }
-      );
+      const session = await completeFolderSnapshot(pendingFolder.snapshotId, {
+        approved_component_ids: componentIds,
+        footprint_resolutions: effectiveResolutions,
+      });
       await loadSessions();
       setSelectedSessionId(session.id);
       setPendingFolder(null);
@@ -306,11 +332,7 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
     if (!component) throw new Error("Discovered component is no longer available");
     const safeLibrary = component.library.replace(/[^A-Za-z0-9_.-]+/g, "_") || "Manual";
     const relativePath = `manual-footprints/${safeLibrary}.pretty/${file.name}`;
-    const form = new FormData();
-    form.append("relative_path", relativePath);
-    form.append("file", file, file.name);
-    const response = await fetchApi(`/api/catalog/import-snapshots/folders/${pendingFolder.snapshotId}/files`, { method: "POST", body: form });
-    if (!response.ok) throw new Error(await readApiError(response, `Failed to attach ${file.name}`));
+    await uploadSnapshotFile(pendingFolder.snapshotId, relativePath, file, `Failed to attach ${file.name}`);
     const manualFiles = new Map(pendingFolder.manualFiles).set(relativePath, file);
     const uploadedPaths = new Set(pendingFolder.uploadedPaths).add(relativePath.toLocaleLowerCase());
     const footprintResolutions = { ...pendingFolder.footprintResolutions, [componentId]: relativePath };
@@ -318,10 +340,10 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
       ...[...pendingFolder.filesByPath.values()].map((source) => ({ relative_path: folderRelativePath(source), size_bytes: source.size })),
       ...[...manualFiles].map(([path, source]) => ({ relative_path: path, size_bytes: source.size })),
     ];
-    const discovery = await fetchJson<LibraryFolderDiscovery>(
-      `/api/catalog/import-snapshots/folders/${pendingFolder.snapshotId}/discover`,
-      { method: "POST", body: JSON.stringify({ files: inventory, footprint_resolutions: footprintResolutions }) }
-    );
+    const discovery = await discoverFolderSnapshot(pendingFolder.snapshotId, {
+      files: inventory,
+      footprint_resolutions: footprintResolutions,
+    });
     setPendingFolder({ ...pendingFolder, manualFiles, uploadedPaths, footprintResolutions, discovery });
     toast.success(`${file.name} attached to ${component.symbol_name}`);
   };
@@ -338,21 +360,17 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
       throw new Error(`The footprint references ${expectedName}. Select a model with that filename so the relationship remains deterministic.`);
     }
     const relativePath = `manual-models/${file.name}`;
-    const form = new FormData();
-    form.append("relative_path", relativePath);
-    form.append("file", file, file.name);
-    const response = await fetchApi(`/api/catalog/import-snapshots/folders/${pendingFolder.snapshotId}/files`, { method: "POST", body: form });
-    if (!response.ok) throw new Error(await readApiError(response, `Failed to attach ${file.name}`));
+    await uploadSnapshotFile(pendingFolder.snapshotId, relativePath, file, `Failed to attach ${file.name}`);
     const manualFiles = new Map(pendingFolder.manualFiles).set(relativePath, file);
     const uploadedPaths = new Set(pendingFolder.uploadedPaths).add(relativePath.toLocaleLowerCase());
     const inventory = [
       ...[...pendingFolder.filesByPath.values()].map((source) => ({ relative_path: folderRelativePath(source), size_bytes: source.size })),
       ...[...manualFiles].map(([path, source]) => ({ relative_path: path, size_bytes: source.size })),
     ];
-    const discovery = await fetchJson<LibraryFolderDiscovery>(
-      `/api/catalog/import-snapshots/folders/${pendingFolder.snapshotId}/discover`,
-      { method: "POST", body: JSON.stringify({ files: inventory, footprint_resolutions: pendingFolder.footprintResolutions }) }
-    );
+    const discovery = await discoverFolderSnapshot(pendingFolder.snapshotId, {
+      files: inventory,
+      footprint_resolutions: pendingFolder.footprintResolutions,
+    });
     setPendingFolder({ ...pendingFolder, manualFiles, uploadedPaths, discovery });
     toast.success(`${file.name} attached to ${component.symbol_name}`);
   };
@@ -361,13 +379,7 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
     if (!serverRoot) return;
     setCreating(true);
     try {
-      const session = await fetchJson<ProjectComponentImportSession>(
-        "/api/catalog/import-snapshots/folders/server",
-        {
-          method: "POST",
-          body: JSON.stringify({ root_name: serverRoot, subpath: serverSubpath }),
-        }
-      );
+      const session = await queueServerFolderImport(serverRoot, serverSubpath);
       await loadSessions();
       setSelectedSessionId(session.id);
       toast.success("Read-only folder snapshot queued");
@@ -378,13 +390,26 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
     }
   };
 
+  const deleteSession = async (session: ProjectComponentImportSession) => {
+    setDeletingSession(true);
+    try {
+      await deleteImportSession(session.id);
+      const remaining = sessions.filter((item) => item.id !== session.id);
+      setSessions(remaining);
+      if (selectedSessionId === session.id) setSelectedSessionId(remaining[0]?.id || "");
+      setSessionToDelete(null);
+      toast.success("Import session deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete import session");
+    } finally {
+      setDeletingSession(false);
+    }
+  };
+
   const resolveProposal = async (proposal: ProjectComponentImportProposal, action: "accept" | "reject", remediation?: ProposalRemediation) => {
     setProposalActionId(proposal.id);
     try {
-      await fetchJson(`/api/catalog/import-proposals/${proposal.id}/${action}`, {
-        method: "POST",
-        body: action === "accept" ? JSON.stringify(remediation) : undefined,
-      });
+      await resolveImportProposal(proposal.id, action, remediation);
       await Promise.all([loadSessions(), loadProposals(proposal.session_id)]);
       toast.success(action === "accept" ? `${proposal.reference} imported as a draft revision` : `${proposal.reference} rejected`);
       if (action === "accept") setRemediationProposal(null);
@@ -396,12 +421,12 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
   };
 
   if (loading) {
-    return <div className="flex h-full items-center justify-center text-sm text-muted-foreground"><LoaderCircle className="mr-2 h-4 w-4 animate-spin" />Loading imports…</div>;
+    return <div className="flex h-full items-center justify-center text-muted-foreground" aria-label="Loading"><LoaderCircle className="h-4 w-4 animate-spin" /></div>;
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="import-sources-container border-b p-3">
+      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b bg-card px-3 py-2">
         <input
           ref={folderInputRef}
           type="file"
@@ -416,67 +441,45 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
           blocked={!canWrite}
           action="import components into the catalog"
           allowedRoles={["designer", "admin"]}
-          className="flex w-full max-w-none"
+          className="flex min-w-0 flex-1 max-w-none"
         >
-          <div
-            className={cn(
-              "import-source-groups grid w-full grid-cols-1 gap-2",
-              serverRoots.length === 0 && "import-source-groups--split"
-            )}
-            data-testid="import-source-groups"
-          >
-            <section aria-labelledby="library-import-source" className="import-source-card flex min-w-0 flex-wrap items-center gap-3 border bg-card p-2">
-              <div className="flex shrink-0 items-center gap-2">
-                <div className="flex size-8 shrink-0 items-center justify-center border bg-muted/40 text-muted-foreground">
-                  <FolderOpen className="h-4 w-4" />
-                </div>
-                <h3 id="library-import-source" className="whitespace-nowrap text-sm font-semibold">KiCad libraries</h3>
-              </div>
-              <div className="import-source-controls ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
-                <Button variant="outline" onClick={() => folderInputRef.current?.click()} disabled={!canWrite || creating}>
-                  <FolderOpen className="mr-2 h-4 w-4" />Choose local folder
-                </Button>
-                {serverRoots.length > 0 && (
-                  <>
-                    <div className="hidden h-6 w-px bg-border sm:block" aria-hidden="true" />
-                    <Select value={serverRoot} onValueChange={setServerRoot} disabled={!canWrite || creating}>
-                      <SelectTrigger className="min-w-32 flex-1"><SelectValue placeholder="Server root" /></SelectTrigger>
-                      <SelectContent>{serverRoots.map((root) => <SelectItem key={root.name} value={root.name}>{root.name}</SelectItem>)}</SelectContent>
-                    </Select>
-                    <Input className="min-w-40 flex-1" value={serverSubpath} onChange={(event) => setServerSubpath(event.target.value)} placeholder="Optional subfolder" disabled={creating} />
-                    <Button variant="outline" onClick={() => void importServerFolder()} disabled={!canWrite || creating}>
-                      <HardDrive className="mr-2 h-4 w-4" />Import server folder
-                    </Button>
-                  </>
-                )}
-              </div>
-            </section>
-
-            <section aria-labelledby="project-import-source" className="import-source-card flex min-w-0 flex-wrap items-center gap-3 border bg-card p-2">
-              <div className="flex shrink-0 items-center gap-2">
-                <div className="flex size-8 shrink-0 items-center justify-center border bg-muted/40 text-muted-foreground">
-                  <CircuitBoard className="h-4 w-4" />
-                </div>
-                <h3 id="project-import-source" className="whitespace-nowrap text-sm font-semibold">Project components</h3>
-              </div>
-              <div className="import-source-controls ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
-                <Select value={projectId} onValueChange={setProjectId} disabled={!canWrite || creating}>
-                  <SelectTrigger className="min-w-40 flex-1"><SelectValue placeholder="Select a project" /></SelectTrigger>
-                  <SelectContent>
-                    {projects.map((project) => <SelectItem key={project.id} value={project.id}>{project.display_name || project.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Button variant="outline" onClick={() => void createSession("project")} disabled={!canWrite || !projectId || creating}>Import From Project</Button>
-                <Button onClick={() => void createSession("all-projects")} disabled={!canWrite || creating}>Import From All Projects</Button>
-              </div>
-            </section>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2" data-testid="import-sources">
+            <div role="group" aria-label="Project components" className="flex min-w-0 items-center gap-1.5">
+              <CircuitBoard className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+              <Select value={projectId} onValueChange={setProjectId} disabled={!canWrite || creating}>
+                <SelectTrigger size="sm" className="w-48" aria-label="Project"><SelectValue placeholder="Project" /></SelectTrigger>
+                <SelectContent>
+                  {projects.map((project) => <SelectItem key={project.id} value={project.id}>{project.display_name || project.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Button size="sm" variant="outline" title="Scan this project's components" onClick={() => void createSession("project")} disabled={!canWrite || !projectId || creating}>Scan</Button>
+              <Button size="sm" variant="outline" title="Scan every project's components" onClick={() => void createSession("all-projects")} disabled={!canWrite || creating}>All projects</Button>
+            </div>
+            <Separator orientation="vertical" className="h-5" />
+            <div role="group" aria-label="KiCad libraries" className="flex min-w-0 items-center gap-1.5">
+              <Button size="sm" variant="outline" title="Import KiCad libraries from a folder on this computer" onClick={() => folderInputRef.current?.click()} disabled={!canWrite || creating}>
+                <FolderOpen className="h-3.5 w-3.5" />Local folder
+              </Button>
+              {serverRoots.length > 0 && (
+                <>
+                  <Select value={serverRoot} onValueChange={setServerRoot} disabled={!canWrite || creating}>
+                    <SelectTrigger size="sm" className="w-32" aria-label="Server root"><SelectValue placeholder="Server root" /></SelectTrigger>
+                    <SelectContent>{serverRoots.map((root) => <SelectItem key={root.name} value={root.name} title={root.path_hint}>{root.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Input className="h-8 w-36 text-xs" aria-label="Subfolder" value={serverSubpath} onChange={(event) => setServerSubpath(event.target.value)} placeholder="Subfolder" disabled={creating} />
+                  <Button size="sm" variant="outline" title="Import KiCad libraries from the server folder" onClick={() => void importServerFolder()} disabled={!canWrite || creating}>
+                    <HardDrive className="h-3.5 w-3.5" />Server folder
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
         </PermissionHint>
         {folderProgress && (
-          <div className="mt-2 flex items-center justify-end gap-3 text-xs text-muted-foreground" role="status">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground" role="status" title={folderProgress.label}>
             <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-            <span>{folderProgress.label} {folderProgress.completed}/{folderProgress.total}</span>
-            <div className="h-1.5 w-40 overflow-hidden rounded-full bg-muted">
+            <span className="tabular-nums">{folderProgress.completed}/{folderProgress.total}</span>
+            <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
               <div className="h-full bg-primary transition-[width]" style={{ width: `${(folderProgress.completed / folderProgress.total) * 100}%` }} />
             </div>
           </div>
@@ -486,12 +489,12 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
       <div
         className={cn(
           "grid min-h-0 flex-1 transition-[grid-template-columns] duration-200",
-          sessionsCollapsed ? "grid-cols-[3rem_minmax(0,1fr)]" : "grid-cols-[18rem_minmax(0,1fr)]"
+          sessionsCollapsed ? "grid-cols-[3rem_minmax(0,1fr)]" : "grid-cols-[15rem_minmax(0,1fr)]"
         )}
       >
-        <aside className="min-h-0 overflow-y-auto border-r p-2">
+        <aside className="flex min-h-0 flex-col border-r">
           {sessionsCollapsed ? (
-            <div className="flex flex-col items-center gap-2">
+            <div className="flex flex-col items-center gap-2 py-2">
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -505,39 +508,62 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
             </div>
           ) : (
             <>
-          <div className="mb-2 flex items-center justify-between px-2 py-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Import sessions</span>
-            <div className="flex items-center">
-              <Button variant="ghost" size="icon-sm" aria-label="Refresh imports" onClick={() => void loadSessions()}><RefreshCw className="h-3.5 w-3.5" /></Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Collapse import sessions"
-                title="Collapse import sessions"
-                onClick={() => setSessionsCollapsed(true)}
-              >
-                <PanelLeftClose className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </div>
-          {sessions.length === 0 ? (
-            <p className="p-3 text-sm text-muted-foreground">No imports yet.</p>
-          ) : sessions.map((session) => (
-            <button
-              type="button"
-              key={session.id}
-              onClick={() => setSelectedSessionId(session.id)}
-              className={cn("mb-1 w-full border p-3 text-left transition-colors hover:bg-muted/40", selectedSessionId === session.id && "border-primary bg-primary/5")}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-medium">{session.scope === "folder" ? session.selection.display_name || "Library folder" : session.scope === "all-projects" ? "All projects" : projects.find((project) => project.id === session.project_id)?.display_name || projects.find((project) => project.id === session.project_id)?.name || session.project_id}</span>
-                {(session.status === "queued" || session.status === "scanning") && <LoaderCircle className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+              <div className="flex h-10 shrink-0 items-center gap-1 border-b pl-3 pr-1 text-sm font-medium">
+                <span className="flex-1 truncate">Sessions</span>
+                <Button variant="ghost" size="icon-sm" aria-label="Refresh imports" title="Refresh" onClick={() => void loadSessions()}><RefreshCw className="h-3.5 w-3.5" /></Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Collapse import sessions"
+                  title="Collapse import sessions"
+                  onClick={() => setSessionsCollapsed(true)}
+                >
+                  <PanelLeftClose className="h-3.5 w-3.5" />
+                </Button>
               </div>
-              <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-                <span>{sessionStatusLabel[session.status]}</span><span>{session.proposal_count} candidates</span>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {sessions.length === 0 ? (
+                  <p className="px-3 py-6 text-sm text-muted-foreground">No imports</p>
+                ) : sessions.map((session) => {
+                  const name = sessionName(session, projects);
+                  const active = selectedSessionId === session.id;
+                  const running = runningStatuses.has(session.status);
+                  return (
+                    <div key={session.id} className="group relative">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSessionId(session.id)}
+                        aria-current={active ? "true" : undefined}
+                        title={`${name} · ${sessionStatusLabel[session.status]} · ${session.candidate_count} of ${session.proposal_count} open`}
+                        className={cn(
+                          "flex h-9 w-full items-center gap-2 border-b px-3 text-left text-xs",
+                          active ? "bg-muted shadow-[inset_2px_0_0_hsl(var(--primary))]" : "hover:bg-muted/40",
+                        )}
+                      >
+                        {running ? (
+                          <LoaderCircle className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+                        ) : (
+                          <span className={cn("h-2 w-2 shrink-0 rounded-full", SESSION_DOT[session.status])} aria-hidden />
+                        )}
+                        <span className="min-w-0 flex-1 truncate font-medium">{name}</span>
+                        <span className="shrink-0 tabular-nums text-muted-foreground group-hover:invisible group-focus-within:invisible">{session.candidate_count}</span>
+                      </button>
+                      {canWrite && !running && (
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                          aria-label="Delete import session"
+                          title="Delete import session"
+                          onClick={() => setSessionToDelete(session)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            </button>
-          ))}
             </>
           )}
         </aside>
@@ -551,16 +577,17 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
           )}
         >
           {!selectedSession ? (
-            <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground"><FolderSearch className="mb-3 h-8 w-8" /><p>Select or create an import session.</p></div>
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground"><FolderSearch className="size-6" aria-hidden />No session selected</div>
           ) : selectedSession.status === "failed" ? (
-            <div className="border border-destructive/40 bg-destructive/5 p-4"><h3 className="font-medium text-destructive">Import scan failed</h3><p className="mt-2 text-sm text-muted-foreground">{selectedSession.error_message}</p></div>
+            <Alert variant="destructive"><AlertTriangle /><AlertTitle>Scan failed</AlertTitle><AlertDescription className="break-words">{selectedSession.error_message}</AlertDescription></Alert>
           ) : proposals.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{selectedSession.status === "staged" ? "No components were discovered." : selectedSession.scope === "folder" ? "Resolving symbols, footprints, and referenced 3D models…" : "Scanning captured project revisions…"}</div>
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{selectedSession.status === "staged" ? "No components found" : <LoaderCircle className="h-4 w-4 animate-spin" aria-label="Scanning" />}</div>
           ) : reviewMode === "grid" ? (
             <div className="h-full min-h-0">
               <LibraryImportRemediationGrid
                 sessionId={selectedSession.id}
                 proposals={proposals}
+                customFields={customFields}
                 canWrite={canWrite}
                 onShowDetailView={() => setReviewMode("cards")}
                 onRefresh={async () => {
@@ -570,10 +597,9 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
             </div>
           ) : (
             <div className="space-y-2">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm text-muted-foreground">Per-component findings and provenance.</p>
+              <div className="flex justify-end">
                 <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setReviewMode("grid")}>
-                  <Table2 className="mr-1.5 h-3.5 w-3.5" />Bulk edit grid
+                  <Table2 className="mr-1.5 h-3.5 w-3.5" />Grid
                 </Button>
               </div>
               {proposals.map((proposal) => {
@@ -582,32 +608,32 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
                 const warnings = proposal.findings.length - blocking;
                 const findingGroups = groupedFindings(proposal.findings);
                 return (
-                  <article key={proposal.id} className="border bg-card p-4">
+                  <article key={proposal.id} className="border bg-card px-3 py-2">
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2"><h3 className="font-mono text-sm font-semibold">{(metadata.references || [proposal.reference]).join(", ")}</h3><Badge variant="outline">{proposal.status}</Badge>{blocking > 0 && <Badge variant="destructive">{blocking} blocking</Badge>}</div>
-                        <p className="mt-2 text-sm">{metadata.value || "No value"} · {metadata.manufacturer_part_number || "No MPN"}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">{metadata.manufacturer || "No manufacturer"} · {metadata.footprint || "No footprint"} · {proposal.assets.length} staged assets · {proposal.provenance.length} usages</p>
+                        <p className="mt-1 truncate text-sm">{metadata.value || "—"} · {metadata.manufacturer_part_number || "—"}</p>
+                        <p className="truncate text-xs text-muted-foreground">{metadata.manufacturer || "—"} · {metadata.footprint || "—"} · {proposal.assets.length} assets · {proposal.provenance.length} usages</p>
                         {proposal.findings.length > 0 && (
-                          <details className="group mt-3 border-t pt-2">
-                            <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                              <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90" />
-                              <span>Review findings</span>
+                          <Collapsible className="group mt-2 border-t pt-1.5">
+                            <CollapsibleTrigger className="flex items-center gap-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                              <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
+                              <span>Findings</span>
                               {blocking > 0 ? <Badge variant="destructive">{blocking} blocker{blocking === 1 ? "" : "s"}</Badge> : null}
                               {warnings > 0 ? <Badge variant="warning">{warnings} warning{warnings === 1 ? "" : "s"}</Badge> : null}
-                            </summary>
-                            <div className="mt-2 space-y-1.5 border-l pl-3">
+                            </CollapsibleTrigger>
+                            <CollapsibleContent className="mt-2 space-y-1.5 border-l pl-3">
                               {findingGroups.map((finding) => (
                                 <p key={`${finding.severity}:${finding.message}`} className="flex items-start gap-2 text-xs text-muted-foreground">
                                   <AlertTriangle className={cn("mt-0.5 h-3.5 w-3.5 shrink-0", finding.severity === "error" ? "text-destructive" : "text-warning")} />
                                   <span>{finding.message}{finding.count > 1 ? <span className="ml-1 font-medium text-foreground">×{finding.count}</span> : null}</span>
                                 </p>
                               ))}
-                            </div>
-                          </details>
+                            </CollapsibleContent>
+                          </Collapsible>
                         )}
                       </div>
-                      {proposal.status === "candidate" && <div className="flex shrink-0 gap-2"><Button size="sm" variant="outline" onClick={() => void resolveProposal(proposal, "reject")} disabled={!canWrite || proposalActionId === proposal.id}><X className="mr-1.5 h-3.5 w-3.5" />Reject</Button><Button size="sm" onClick={() => setRemediationProposal(proposal)} disabled={!canWrite || proposalActionId === proposal.id}>{proposalActionId === proposal.id ? <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1.5 h-3.5 w-3.5" />}Review & accept</Button></div>}
+                      {proposal.status === "candidate" && <div className="flex shrink-0 gap-2"><Button size="sm" variant="outline" onClick={() => void resolveProposal(proposal, "reject")} disabled={!canWrite || proposalActionId === proposal.id}><X className="mr-1.5 h-3.5 w-3.5" />Reject</Button><Button size="sm" onClick={() => setRemediationProposal(proposal)} disabled={!canWrite || proposalActionId === proposal.id}>{proposalActionId === proposal.id ? <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1.5 h-3.5 w-3.5" />}Accept</Button></div>}
                     </div>
                   </article>
                 );
@@ -619,6 +645,7 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
       <LibraryImportRemediationDialog
         key={remediationProposal?.id ?? "none"}
         proposal={remediationProposal}
+        customFields={customFields}
         open={remediationProposal !== null}
         submitting={proposalActionId === remediationProposal?.id}
         onOpenChange={(nextOpen) => { if (!nextOpen && !proposalActionId) setRemediationProposal(null); }}
@@ -637,6 +664,15 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
         onApprove={(componentIds, footprintResolutions) => void approveFolderDiscovery(componentIds, footprintResolutions)}
         onAttachFootprint={attachMissingFootprint}
         onAttachModel={attachMissingModel}
+      />
+      <ConfirmDialog
+        open={sessionToDelete !== null}
+        onOpenChange={(open) => { if (!open && !deletingSession) setSessionToDelete(null); }}
+        title="Delete import session"
+        description="Open candidates and staged files are removed. Accepted components stay in the catalog."
+        confirmLabel="Delete"
+        busy={deletingSession}
+        onConfirm={() => { if (sessionToDelete) void deleteSession(sessionToDelete); }}
       />
     </div>
   );

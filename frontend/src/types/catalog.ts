@@ -91,6 +91,9 @@ export interface CatalogValidationFinding {
   message: string;
 }
 
+/** Every catalog entry is a KiCad library part; System Builder v2 adds its own kind. */
+export type CatalogItemKind = "part";
+
 export interface CatalogComponentValidationEvidence {
   summary: CatalogValidationSummary;
   runs: CatalogValidationRun[];
@@ -132,6 +135,7 @@ export interface CatalogComponent {
   sync_error?: string;
   source: ComponentSource;
   identity_kind: "mpn" | "provisional_ipn";
+  kind?: CatalogItemKind;
   name: string;
   value: string;
   manufacturer: string;
@@ -282,7 +286,11 @@ export interface CatalogAuditVerification {
   event_count: number;
   verified_count: number;
   first_invalid_event_id: string;
+  first_invalid_revision_id?: string;
+  first_invalid_asset_id?: string;
+  reason?: string;
   head_hash: string;
+  anchored_head_hash?: string;
 }
 
 export interface CatalogComponentUsage {
@@ -357,9 +365,22 @@ export interface ProjectComponentImportProposal {
   draft?: ImportProposalDraft;
 }
 
+/** Accept-request metadata: the remediable built-in fields, plus custom field values. */
+export interface ImportMetadataOverrides {
+  value?: string;
+  manufacturer?: string;
+  manufacturer_part_number?: string;
+  description?: string;
+  datasheet?: string;
+  package_name?: string;
+  /** Custom field values by storage key. On accept this replaces the symbol's own fields, so it carries them too. */
+  extra_fields?: Record<string, string>;
+}
+
 /** Unaccepted remediation edits, persisted server-side so they survive a reload. */
 export interface ImportProposalDraft {
-  metadata_overrides?: Record<string, string>;
+  /** `extra_fields` here holds only the custom values the reviewer edited. */
+  metadata_overrides?: ImportMetadataOverrides;
   asset_selections?: Record<string, string[]>;
   /** asset_type -> existing catalog asset id, linked by reference rather than copied. */
   asset_links?: Record<string, string>;
@@ -400,6 +421,7 @@ export interface ProjectComponentImportSession {
   updated_at: string;
   error_message: string;
   proposal_count: number;
+  candidate_count: number;
   selection: {
     component_uid?: string;
     reference?: string;
@@ -449,6 +471,8 @@ export interface LibraryFolderDiscoveryComponent {
     name: string;
     manufacturer: string;
     manufacturer_part_number: string;
+    /** False when the identity belongs to a retired component, which cannot be re-imported. */
+    is_active: boolean;
   } | null;
 }
 
@@ -541,6 +565,18 @@ export interface CatalogReleaseQueueResponse extends PaginatedComponents {
     done: number;
     blocked: number;
   };
+}
+
+/** `GET /api/catalog/health`. `released_assets_missing_on_disk` is null unless
+ * an admin asked for the disk check (`check_files=true`). */
+export interface CatalogHealth {
+  total_components: number;
+  released: number;
+  place_ready: number;
+  missing_files: number;
+  released_assets_missing_on_disk: number | null;
+  preview_failed: number;
+  validation: Record<CatalogValidationStatus, number>;
 }
 
 export interface SelectionRequiredResponse {

@@ -20,30 +20,41 @@ every consumer.
 
 ## Trace the affected hops
 
-1. Parse and normalize in `backend/app/services/design_compare_nodes.py`.
-   Derive the base and comparison revisions independently; absence on one side
+A new object kind is three hops:
+
+1. Emit it in the board-objects member
+   (`native/src/rs/prism-projections/src/board_objects/`; its contract
+   `native/src/tsp/prism/board-objects-a0.tsp` owns kind names, spelled with
+   `-`). Derive the base and head revisions independently; absence on one side
    remains absence.
-2. Shape semantic grouping in
-   `backend/app/services/design_compare_semantics.py`. Decide whether reviewers
-   need one row, one row per object, or a suppressed diagnostic.
-3. Add durable output in `backend/app/services/design_compare_artifacts.py`
-   only when the normal result payload is insufficient.
-4. Update narrow frontend types in
-   `frontend/src/components/design-comparison/types.ts` without widening an
-   exhaustively checked union to `string`.
-5. Add reviewer language and facts in
-   `frontend/src/components/design-comparison/comparison-change-vocabulary.ts`
-   and `frontend/src/components/design-comparison/comparison-change-facts.ts`.
-6. Check grouping/noise policy in
-   `frontend/src/components/design-comparison/comparison-review-groups.ts` and
-   `frontend/src/components/design-comparison/comparison-review-noise.ts`.
-7. If the change occupies layers, update
-   `frontend/src/components/design-comparison/comparison-layer-focus.ts` so the
-   selection shows exactly those layers. A layerless change contributes no
-   focus layers; it does not veto other selected changes.
-8. Check the final row and facts in
-   `frontend/src/components/design-comparison/differences-pane.tsx` and
-   `frontend/src/components/design-comparison/comparison-property-panel.tsx`.
+2. Classify it in `prism-kicad compare`
+   (`native/src/rs/prism-projections/src/compare/result/objects.rs`): category
+   and primary/secondary are `compare`'s. R1 deleted the backend's legacy
+   parser and classifier, so there is no second place to spell the kind.
+3. Add one row to
+   `frontend/src/components/design-comparison/comparison-change-kinds.ts`
+   (domain, reviewer noun, traits) and its expectation row in
+   `frontend/src/components/design-comparison/comparison-change-kinds.test.ts`.
+   The traits decide grouping, noise,
+   presentation policy, layer focus and the property panel; the test row shows
+   what each of those answers for the new kind.
+
+Only when the change needs it:
+
+- A net, bus or sheet-instance meaning: the `compare` projection's semantics
+  module (`native/src/rs/prism-projections/src/compare/`).
+- Components, their fields, DNP / in-BOM flags or BOM rows: the same
+  `compare` projection.
+- Durable output beyond the result payload:
+  `backend/app/services/design_compare_artifacts.py`.
+- A new target role: `DesignCompareTargetRole` in
+  `native/src/tsp/prism/design-compare-a1.tsp` (a contract change, so a new
+  version) and its mirror in
+  `frontend/src/components/design-comparison/design-compare-result.ts`.
+- A new reason code: reviewer verbs in
+  `frontend/src/components/design-comparison/comparison-change-vocabulary.ts`
+  and facts in
+  `frontend/src/components/design-comparison/comparison-change-facts.ts`.
 
 Do not add `bbox` to Prism's PROJECT_DIFF item payload. The ECAD viewer resolves
 identities and measures painted bounds; native KiCad input keeps its separate
@@ -51,8 +62,8 @@ strict-bounds contract.
 
 ## Tests and verification
 
-Add the smallest backend fixture that proves parsing/grouping on both revision
-sides. Add frontend coverage for grouping, vocabulary/facts, noise policy, and
-layer focus as applicable. The broad presentation contracts live in
+Add the smallest backend fixture that proves parsing and classification on
+both revision sides. The kind-table test covers the frontend modules; add a
+focused test only for behaviour the table row cannot express. The broad presentation contracts live in
 `frontend/src/components/design-comparison/comparison-presentation-shell.test.tsx`.
 Finish with `.agents/skills/prism-quality-gate/SKILL.md`.
