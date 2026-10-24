@@ -137,7 +137,7 @@ export function useDesignCompareJob(
             },
         }).then((settled) => {
             if (signal.aborted || settled.status === "completed") return;
-            setError(settled.message || "Semantic comparison failed");
+            setError(settled.error_message || settled.message || "Semantic comparison failed");
         }).catch((caught: unknown) => {
             if (isAbortError(caught) || signal.aborted) return;
             setError(caught instanceof Error
