@@ -12,7 +12,7 @@
  * `revision_conflict`; where `revisionId` is optional, omitting it writes
  * unguarded.
  */
-import { fetchBlob, fetchJson, ifMatch } from "@/lib/api";
+import { fetchBlob, fetchChecked, fetchJson, ifMatch } from "@/lib/api";
 import type {
   BulkAcceptResult,
   CatalogAssetSummary,
@@ -336,6 +336,10 @@ export function listImportSessions(signal?: AbortSignal) {
 
 export function listImportProposals(sessionId: string, signal?: AbortSignal) {
   return fetchJson<Items<ProjectComponentImportProposal>>(`${CATALOG}/import-sessions/${sessionId}/proposals`, { signal });
+}
+
+export async function deleteImportSession(sessionId: string) {
+  await fetchChecked(`${CATALOG}/import-sessions/${sessionId}`, { method: "DELETE" }, "Import session could not be deleted");
 }
 
 export function listFolderImportRoots() {

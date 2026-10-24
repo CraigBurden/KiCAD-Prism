@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type InputHTMLAttributes } from "react";
-import { AlertTriangle, Check, ChevronRight, CircuitBoard, FolderOpen, FolderSearch, HardDrive, LoaderCircle, PanelLeftClose, PanelLeftOpen, RefreshCw, Table2, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, CircuitBoard, FolderOpen, FolderSearch, HardDrive, LoaderCircle, PanelLeftClose, PanelLeftOpen, RefreshCw, Table2, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ApiHttpError } from "@/lib/api";
 import { usePoll } from "@/lib/server-state";
@@ -23,6 +24,7 @@ import {
   completeFolderSnapshot,
   createFolderSnapshot,
   createProjectImportSession,
+  deleteImportSession,
   discoverFolderSnapshot,
   importServerFolder as queueServerFolderImport,
   listFolderImportRoots,
@@ -55,6 +57,8 @@ function groupedFindings(findings: ProjectComponentImportProposal["findings"]) {
   }
   return Array.from(grouped.values());
 }
+
+const runningStatuses = new Set<ProjectComponentImportSession["status"]>(["queued", "uploading", "scanning"]);
 
 const folderRelativePath = (file: File) => file.webkitRelativePath || file.name;
 const isDiscoverySource = (file: File) => /\.(kicad_sym|kicad_mod)$/i.test(file.name);
@@ -144,6 +148,8 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
   const [reviewMode, setReviewMode] = useState<"grid" | "cards">("grid");
   // The grid is wide; collapsing the session rail gives it back ~15rem.
   const [sessionsCollapsed, setSessionsCollapsed] = useState(false);
+  const [sessionToDelete, setSessionToDelete] = useState<ProjectComponentImportSession | null>(null);
+  const [deletingSession, setDeletingSession] = useState(false);
   const customFields = useImportCustomFields();
   const canWrite = canWriteCatalog(user?.role);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -365,6 +371,22 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
     }
   };
 
+  const deleteSession = async (session: ProjectComponentImportSession) => {
+    setDeletingSession(true);
+    try {
+      await deleteImportSession(session.id);
+      const remaining = sessions.filter((item) => item.id !== session.id);
+      setSessions(remaining);
+      if (selectedSessionId === session.id) setSelectedSessionId(remaining[0]?.id || "");
+      setSessionToDelete(null);
+      toast.success("Import session deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete import session");
+    } finally {
+      setDeletingSession(false);
+    }
+  };
+
   const resolveProposal = async (proposal: ProjectComponentImportProposal, action: "accept" | "reject", remediation?: ProposalRemediation) => {
     setProposalActionId(proposal.id);
     try {
@@ -507,20 +529,33 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
           {sessions.length === 0 ? (
             <p className="p-3 text-sm text-muted-foreground">No imports yet.</p>
           ) : sessions.map((session) => (
+            <div key={session.id} className="group relative mb-1">
             <button
               type="button"
-              key={session.id}
               onClick={() => setSelectedSessionId(session.id)}
-              className={cn("mb-1 w-full border p-3 text-left transition-colors hover:bg-muted/40", selectedSessionId === session.id && "border-primary bg-primary/5")}
+              className={cn("w-full border p-3 text-left transition-colors hover:bg-muted/40", selectedSessionId === session.id && "border-primary bg-primary/5")}
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate text-sm font-medium">{session.scope === "folder" ? session.selection.display_name || "Library folder" : session.scope === "all-projects" ? "All projects" : projects.find((project) => project.id === session.project_id)?.display_name || projects.find((project) => project.id === session.project_id)?.name || session.project_id}</span>
                 {(session.status === "queued" || session.status === "scanning") && <LoaderCircle className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
               </div>
               <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-                <span>{sessionStatusLabel[session.status]}</span><span>{session.proposal_count} candidates</span>
+                <span>{sessionStatusLabel[session.status]}</span><span className="group-hover:invisible group-focus-within:invisible">{session.candidate_count} candidates</span>
               </div>
             </button>
+            {canWrite && !runningStatuses.has(session.status) && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="absolute bottom-1.5 right-1.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                aria-label="Delete import session"
+                title="Delete import session"
+                onClick={() => setSessionToDelete(session)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
+            </div>
           ))}
             </>
           )}
@@ -623,6 +658,15 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
         onApprove={(componentIds, footprintResolutions) => void approveFolderDiscovery(componentIds, footprintResolutions)}
         onAttachFootprint={attachMissingFootprint}
         onAttachModel={attachMissingModel}
+      />
+      <ConfirmDialog
+        open={sessionToDelete !== null}
+        onOpenChange={(open) => { if (!open && !deletingSession) setSessionToDelete(null); }}
+        title="Delete import session"
+        description="Its open candidates and staged files are removed. Components already accepted stay in the catalog."
+        confirmLabel="Delete"
+        busy={deletingSession}
+        onConfirm={() => { if (sessionToDelete) void deleteSession(sessionToDelete); }}
       />
     </div>
   );

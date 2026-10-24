@@ -6,6 +6,7 @@ import type { ProjectComponentImportProposal, ProjectComponentImportSession } fr
 import { ApiHttpError } from "@/lib/api";
 import {
   createFolderSnapshot,
+  deleteImportSession,
   listFolderImportRoots,
   listImportProposals,
   listImportSessions,
@@ -86,6 +87,7 @@ function importSession(id: string, status: ProjectComponentImportSession["status
     updated_at: "2026-08-27T00:00:00Z",
     error_message: "",
     proposal_count: 1,
+    candidate_count: 1,
     selection: { display_name: id },
   };
 }
@@ -139,6 +141,43 @@ describe("LibraryImportCenter session proposals", () => {
     });
     await waitFor(() => expect(screen.queryByText("R-A")).not.toBeInTheDocument());
     expect(screen.getByText("R-B")).toBeInTheDocument();
+  });
+});
+
+describe("LibraryImportCenter session delete", () => {
+  beforeEach(() => {
+    vi.mocked(listImportProposals).mockResolvedValue({ items: [] });
+    vi.mocked(listFolderImportRoots).mockResolvedValue({ items: [] });
+    vi.mocked(deleteImportSession).mockReset();
+  });
+
+  it("deletes a reviewed session after confirmation and selects the next one", async () => {
+    vi.mocked(listImportSessions).mockResolvedValue({
+      items: [{ ...importSession("session-a"), candidate_count: 0 }, importSession("session-b")],
+    });
+    vi.mocked(deleteImportSession).mockResolvedValue(undefined);
+    render(<LibraryImportCenter projects={[project]} user={{ name: "Admin", email: "admin@example.com", role: "admin" }} />);
+
+    expect(await screen.findByText("0 candidates")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete import session" })[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(deleteImportSession).toHaveBeenCalledWith("session-a"));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /session-a/i })).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /session-b/i })).toHaveClass("border-primary");
+  });
+
+  it("offers no delete while a session is still scanning, or to a reader", async () => {
+    vi.mocked(listImportSessions).mockResolvedValue({ items: [importSession("session-a", "scanning")] });
+    const { unmount } = render(<LibraryImportCenter projects={[project]} user={{ name: "Admin", email: "admin@example.com", role: "admin" }} />);
+    expect(await screen.findByRole("button", { name: /session-a/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete import session" })).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(listImportSessions).mockResolvedValue({ items: [importSession("session-a")] });
+    render(<LibraryImportCenter projects={[project]} user={{ name: "Viewer", email: "viewer@example.com", role: "viewer" }} />);
+    expect(await screen.findByRole("button", { name: /session-a/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete import session" })).not.toBeInTheDocument();
   });
 });
 
