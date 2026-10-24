@@ -2,10 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   ArrowDown,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
   ArrowUp,
   ChevronsUpDown,
   CircleAlert,
@@ -69,6 +65,7 @@ import type {
   WorkflowStage,
 } from "@/types/catalog";
 import { LibraryCatalogFileCheck } from "./library-catalog-file-check";
+import { LibraryPager } from "./library-pager";
 import { LibraryComponentQuickView } from "./library-component-quick-view";
 
 const PAGE_SIZE = 100;
@@ -411,7 +408,6 @@ export function LibraryCatalogWorkspace({
     resetScroll();
   }, [availability, category, page, resetScroll, sortDirection, sortKey, urlQuery, validation, workflow]);
 
-  const [pageInput, setPageInput] = useState("");
   const activeFilterCount = [workflow, availability, validation, category].filter((value) => value !== "all").length;
   const isFiltered = Boolean(urlQuery || activeFilterCount);
   const firstItem = total ? (page - 1) * PAGE_SIZE + 1 : 0;
@@ -518,41 +514,17 @@ export function LibraryCatalogWorkspace({
               </div>
             </div>
             </div>
-            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t bg-muted/20 px-3 py-2">
-              <span className="text-xs text-muted-foreground" aria-live="polite">{firstItem.toLocaleString()}–{lastItem.toLocaleString()} of {total.toLocaleString()}</span>
-              <nav className="flex items-center gap-1" aria-label="Catalog pagination">
-                <Button size="icon-sm" variant="outline" aria-label="First page" title="First page" disabled={loading || page <= 1} onClick={() => updateCatalogParams({ catalogPage: null })}><ChevronsLeft className="h-3.5 w-3.5" /></Button>
-                <Button size="icon-sm" variant="outline" aria-label="Previous page" title="Previous page" disabled={loading || page <= 1} onClick={() => updateCatalogParams({ catalogPage: page - 1 > 1 ? String(page - 1) : null })}><ChevronLeft className="h-3.5 w-3.5" /></Button>
-                {/* Stepping to page 173 of 240 one click at a time is not a workflow:
-                    type a page and press Enter. */}
-                <form
-                  className="flex items-center gap-1 px-1"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    const requested = Number(pageInput);
-                    if (!Number.isFinite(requested)) return;
-                    const target = Math.min(pages, Math.max(1, Math.trunc(requested)));
-                    updateCatalogParams({ catalogPage: target > 1 ? String(target) : null });
-                    setPageInput("");
-                  }}
-                >
-                  <label htmlFor="catalog-page-input" className="sr-only">Go to page</label>
-                  <Input
-                    id="catalog-page-input"
-                    className="h-7 w-16 text-center text-xs"
-                    inputMode="numeric"
-                    disabled={loading || pages <= 1}
-                    value={pageInput}
-                    placeholder={String(page)}
-                    onChange={(event) => setPageInput(event.target.value.replace(/[^0-9]/g, ""))}
-                    aria-label={`Go to page, ${pages} pages available`}
-                  />
-                  <span className="text-xs text-muted-foreground">/ {pages.toLocaleString()}</span>
-                </form>
-                <Button size="icon-sm" variant="outline" aria-label="Next page" title="Next page" disabled={loading || page >= pages} onClick={() => updateCatalogParams({ catalogPage: String(Math.min(pages, page + 1)) })}><ChevronRight className="h-3.5 w-3.5" /></Button>
-                <Button size="icon-sm" variant="outline" aria-label="Last page" title="Last page" disabled={loading || page >= pages} onClick={() => updateCatalogParams({ catalogPage: String(pages) })}><ChevronsRight className="h-3.5 w-3.5" /></Button>
-              </nav>
-            </div>
+            <LibraryPager
+              label="Catalog pagination"
+              page={page}
+              pages={pages}
+              first={firstItem}
+              last={lastItem}
+              total={total}
+              disabled={loading}
+              jump
+              onPage={(target) => updateCatalogParams({ catalogPage: target > 1 ? String(target) : null })}
+            />
           </div>
         )}
         </div>
