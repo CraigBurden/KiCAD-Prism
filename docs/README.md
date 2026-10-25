@@ -73,6 +73,8 @@ testers of unreleased behavior work from `dev`.
 - [Scripting and MCP ADR](architecture/adr-scripting-and-mcp.md)
   records how Prism becomes scriptable: the versioned API, tokens and scopes,
   and the MCP server.
+- [Addressing](architecture/addressing.md) lists the `/project/:projectId`
+  query parameters and the `prism://` resource URI grammar.
 - [Dependency identity](DEPENDENCIES.md) covers Python, JavaScript, and native pins.
 - [Design comparison](design-comparison/README.md) maps comparison contracts.
 
