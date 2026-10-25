@@ -3,6 +3,7 @@ use crate::{
     SchematicOccurrence, SchematicPlacedSymbol, SchematicPoint, SourceBundleError,
     SourceBundleErrorKind,
 };
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SchematicSymbolTerminal {
@@ -10,6 +11,10 @@ pub struct SchematicSymbolTerminal {
     pub symbol_uuid: String,
     pub reference: String,
     pub pin_number: String,
+    /// How many library pins with this number precede this one, over every unit of
+    /// the placed body style. KiCad pairs the nth such pin with the placed symbol's
+    /// nth saved `(pin "N" (uuid …))` (`SCH_SYMBOL::updatePins`).
+    pub number_ordinal: usize,
     pub pin_name: String,
     pub electrical_type: String,
     pub graphic_style: String,
@@ -34,16 +39,20 @@ pub(crate) fn resolve_symbol_terminals(
         let Some(library) = definition.library_pin_symbol_for_placement(placed) else {
             continue;
         };
+        let mut numbers_seen = HashMap::<&str, usize>::new();
         for subsymbol in &library.subsymbols {
-            if !active_subsymbol(
-                subsymbol.unit,
-                subsymbol.style,
-                effective.unit,
-                placed.convert,
-            ) {
+            // Every unit counts toward the ordinal; only the placed unit's pins are terminals.
+            if subsymbol.style != 0 && subsymbol.style != placed.convert {
                 continue;
             }
+            let active = subsymbol.unit == 0 || subsymbol.unit == effective.unit;
             for pin in &subsymbol.pins {
+                let seen = numbers_seen.entry(pin.number.as_str()).or_default();
+                let number_ordinal = *seen;
+                *seen += 1;
+                if !active {
+                    continue;
+                }
                 if terminals.len() >= limits.max_symbol_terminals_per_occurrence {
                     return Err(limit_error(
                         occurrence,
@@ -71,6 +80,7 @@ pub(crate) fn resolve_symbol_terminals(
                     symbol_uuid: placed.uuid.clone(),
                     reference: effective.reference.clone(),
                     pin_number: pin.number.clone(),
+                    number_ordinal,
                     pin_name: pin.name.clone(),
                     electrical_type: pin.electrical_type.clone(),
                     graphic_style: pin.graphic_style.clone(),
@@ -127,10 +137,6 @@ fn placed_pin_has_drawing(
     let draws_number =
         !library.pin_numbers_hide && !pin.number.is_empty() && pin.number_has_visible_size;
     draws_geometry || draws_name || draws_number
-}
-
-fn active_subsymbol(unit: i64, style: i64, placed_unit: i64, convert: i64) -> bool {
-    (unit == 0 || unit == placed_unit) && (style == 0 || style == convert)
 }
 
 fn transform_pin(
