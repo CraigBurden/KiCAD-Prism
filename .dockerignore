@@ -3,6 +3,14 @@
 
 # Runtime data and generated local state
 data/
+# Installer output and its backups hold live secrets (.env); operator Caddy
+# sites; backup archives and their staging directories.
+generated/
+generated.bak.*/
+sites/
+prism-backup-*
+.prism-backup-*
+.prism-restore-*
 **/.DS_Store
 **/__pycache__/
 **/*.pyc
