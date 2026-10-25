@@ -62,6 +62,30 @@ def incomplete_stages(stages: Mapping[str, Any]) -> dict[str, list[str]]:
     }
 
 
+def failure_reasons(manifest: Mapping[str, Any]) -> str:
+    """Each failed stage's error, ``"<stage>: <code>: <message> (<file>:<line>)"``, joined by ``"; "``.
+
+    Empty when no stage failed. The message never holds a host path
+    (``CliFinding``), so the text can be shown to a viewer.
+    """
+
+    reasons = []
+    for stage in STAGES:
+        record = manifest["stages"][stage]
+        error = record.get("error") if record.get("status") == "failed" else None
+        if not error:
+            continue
+        reason = f"{stage}: {error.get('code', 'error')}: {error.get('message', '')}".rstrip(": ")
+        location = error.get("location") or {}
+        if location.get("path"):
+            where = str(location["path"]).removeprefix("sources/")
+            if location.get("line"):
+                where += f":{location['line']}"
+            reason += f" ({where})"
+        reasons.append(reason)
+    return "; ".join(reasons)
+
+
 def next_stage(manifest: Mapping[str, Any]) -> str | None:
     """The first ``pending`` stage, or ``None`` when every stage is final."""
 

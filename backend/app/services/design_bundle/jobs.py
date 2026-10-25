@@ -398,6 +398,7 @@ class _Run:
             bundle_key=self.bundle_key, project_id=self.project_id, revision_key=self.revision_key,
             generator_digest=self.generator.digest, commit=self.key.commit, state=state, stages=statuses,
             job_id=self.context.job_id, archive_bytes=self.archive_path.stat().st_size,
+            error=manifest_rules.failure_reasons(archive.manifest),
         )
         if stage == "parse":
             self.details["design_key"] = design_keys.record(self.project_id, self.bundle_key, archive)
