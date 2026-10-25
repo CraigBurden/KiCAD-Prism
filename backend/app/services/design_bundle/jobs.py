@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from app.core.config import settings
-from app.services import project_revision
+from app.services import kicad_tools, project_revision
 from app.services.design_bundle import (
     cli,
     design_keys,
@@ -341,6 +341,14 @@ class _Run:
         except cli.CliFailure as failure:
             self.details["invocations"].append({"command": f"bundle build {stage}", "exit": failure.exit_code})
             if failure.retryable:
+                if stage != "parse" and failure.exit_code == 1:
+                    # Exit 1 is the CLI's internal category. A later stage
+                    # reads the stored archive, and a retry resumed
+                    # from the same archive failed the same way three times
+                    # where a fresh build passed (CMBD, v5.0.1), so the next
+                    # attempt rebuilds the archive instead of reading it again.
+                    logger.warning("Rebuilding %s after stage %s failed: %s", self.archive_path, stage, failure)
+                    store.delete(self.project_id, self.revision_key, self.generator.digest)
                 raise RetryableJobError(f"prism-kicad stage {stage}: {failure}", code=failure.code) from failure
             raise PermanentJobError(f"prism-kicad stage {stage}: {failure}", code=failure.code) from failure
         self.details["invocations"].append({**done.summary(), "stage": stage})
@@ -408,14 +416,36 @@ class _Run:
             percent=_STAGE_PERCENT[stage], force=True,
         )
 
+    def _kicad_step(self, step: str, runs: list[dict[str, Any]]) -> None:
+        """Record what a KiCad step's processes cost, as ``invocations`` does for prism-kicad.
+
+        A cache hit runs nothing and records nothing. The stage memory caps
+        bound prism-kicad only; these numbers are what the worker's memory
+        budget also has to hold.
+        """
+
+        if not runs:
+            return
+        self.details.setdefault("kicad_steps", []).append({
+            "step": step,
+            "runs": len(runs),
+            "exit": max((run["exit"] for run in runs), key=abs),
+            "elapsed_ms": sum(run["elapsed_ms"] for run in runs),
+            "peak_rss_bytes": max(run["peak_rss_bytes"] for run in runs),
+        })
+
     # -- stages ---------------------------------------------------------------
 
     def parse(self) -> Archive | None:
         self.context.progress(stage="bundle-materialize", message="Materializing design sources", percent=5, force=True)
         upgrades = kicad_steps.UpgradeCache()
-        prepared = prepare_sources(
-            self.repo, self.key, self.generator, self.work, cancel=self.cancel, upgrade_cache=upgrades
-        )
+        with kicad_tools.recording() as runs:
+            try:
+                prepared = prepare_sources(
+                    self.repo, self.key, self.generator, self.work, cancel=self.cancel, upgrade_cache=upgrades
+                )
+            finally:
+                self._kicad_step("upgrade", runs)
         src, effective, key_record, upgraded = prepared.src, prepared.effective, prepared.key_record, prepared.upgraded
         done = prepared.materialized
         self.details.update(
@@ -443,9 +473,13 @@ class _Run:
             sources = self._sources(archive, self._board_inputs(archive))
             self.context.progress(stage="bundle-refill", message="Refilling zones with pcbnew", percent=50, force=True)
             try:
-                refilled, refill_hit = kicad_steps.refill_board(
-                    sources, self.config, self.work / "refill", cancel=self.cancel
-                )
+                with kicad_tools.recording() as runs:
+                    try:
+                        refilled, refill_hit = kicad_steps.refill_board(
+                            sources, self.config, self.work / "refill", cancel=self.cancel
+                        )
+                    finally:
+                        self._kicad_step("refill", runs)
             except kicad_steps.KicadSourceUnreadable as error:
                 raise PermanentJobError(str(error), code="source-unreadable") from error
             except kicad_steps.KicadStepFailed as error:
@@ -459,7 +493,13 @@ class _Run:
         sources = self._sources(archive, ["sources/"])
         self.context.progress(stage="bundle-glb", message="Exporting component models", percent=85, force=True)
         try:
-            glb, hit = stage_models.export_components_glb(sources, self.key.record(), self.generator, self.work, cancel=self.cancel)
+            with kicad_tools.recording() as runs:
+                try:
+                    glb, hit = stage_models.export_components_glb(
+                        sources, self.key.record(), self.generator, self.work, cancel=self.cancel
+                    )
+                finally:
+                    self._kicad_step("glb", runs)
         except kicad_steps.KicadStepFailed as error:
             raise RetryableJobError(str(error), code="glb-export-failed", retry_after_seconds=30) from error
         self.details["models_cache_hit"] = hit

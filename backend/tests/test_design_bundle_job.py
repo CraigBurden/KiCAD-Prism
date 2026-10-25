@@ -215,6 +215,12 @@ class DesignBundleJobTests(_Workspace, unittest.TestCase):
         self.assertEqual(result.message, "Design bundle ready: parse complete, board complete, models complete")
         self.assertEqual((result.details["failed_stages"], result.details["partial_stages"]), ([], []))
         self.assertEqual(rows.get_bundle("p1", result.details["bundle_key"])["error"], "")
+        # The KiCad steps that ran report their cost beside prism-kicad's invocations.
+        steps = {step["step"]: step for step in result.details.get("kicad_steps", [])}
+        self.assertTrue(steps, "no KiCad step was recorded")
+        for step in steps.values():
+            self.assertEqual(set(step), {"step", "runs", "exit", "elapsed_ms", "peak_rss_bytes"})
+            self.assertGreaterEqual(step["runs"], 1)
 
     def test_the_output_directory_is_recreated_when_removed_before_parse(self) -> None:
         # The worker's first retention pass removes empty revision directories
@@ -246,6 +252,29 @@ class DesignBundleJobTests(_Workspace, unittest.TestCase):
         with self.assertRaises(PermanentJobError):
             self.run_job(job_id)
         self.assertFalse(any(store.root().rglob("*.prism")))
+
+    def test_an_internal_failure_after_parse_rebuilds_the_archive_on_retry(self) -> None:
+        self.add_project()
+        job_id = jobs.start_design_bundle_job("p1")
+        set_modes("bundle build:models=exit:1")
+        with self.assertRaises(RetryableJobError):
+            self.run_job(job_id)
+        # The archive parse and board wrote is gone, not resumed from.
+        self.assertFalse(any(store.root().rglob("*.prism")))
+        set_modes("")
+        builds_before = len(self.builds())
+        result = self.run_job(job_id)
+        self.assertEqual(result.details["stages"], {"parse": "complete", "board": "complete", "models": "complete"})
+        stages = [build[build.index("--stage") + 1] for build in self.builds()[builds_before:]]
+        self.assertEqual(stages, ["parse", "board", "models"])
+
+    def test_a_timeout_after_parse_resumes_from_the_archive(self) -> None:
+        self.add_project()
+        job_id = jobs.start_design_bundle_job("p1")
+        set_modes("bundle build:models=exit:5")
+        with self.assertRaises(RetryableJobError):
+            self.run_job(job_id)
+        self.assertTrue(any(store.root().rglob("*.prism")))
 
     def test_an_absent_project_has_no_key_and_no_bundle(self) -> None:
         repo = self.add_project()
