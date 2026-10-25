@@ -313,3 +313,36 @@ class InstalledMiddlewareTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BodyBufferTests(unittest.TestCase):
+    """A large upload is read only up to the limit; the rest streams on untouched."""
+
+    def test_reading_stops_at_the_limit_and_the_rest_is_replayed_in_order(self) -> None:
+        import asyncio
+
+        from app.core import idempotency
+
+        chunk = b"y" * (512 * 1024)
+        messages = [{"type": "http.request", "body": chunk, "more_body": True} for _ in range(5)]
+        messages[-1]["more_body"] = False
+        reads = {"count": 0}
+
+        async def receive():
+            reads["count"] += 1
+            return messages[reads["count"] - 1]
+
+        async def run():
+            buffered, complete = await idempotency._read_body(receive)
+            self.assertFalse(complete)
+            # 1 MiB + one chunk read, not the whole 2.5 MiB.
+            self.assertEqual(reads["count"], 3)
+            replay = idempotency._prefixed(buffered, receive)
+            seen = b""
+            while True:
+                message = await replay()
+                seen += message.get("body", b"")
+                if not message.get("more_body", False):
+                    return seen
+
+        self.assertEqual(asyncio.run(run()), chunk * 5)

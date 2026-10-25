@@ -87,16 +87,43 @@ def _session_cookie(cookie_header: bytes) -> bytes | None:
     return None
 
 
-async def _read_body(receive: Receive) -> bytes:
-    chunks: list[bytes] = []
+async def _read_body(receive: Receive) -> tuple[list[Message], bool]:
+    """Buffer the request up to ``MAX_BODY_BYTES``; report whether it all fit.
+
+    A larger body stops being read at the limit, so an upload of gigabytes is
+    never held in memory: the messages read so far are handed on first and the
+    rest streams from ``receive`` (see ``_prefixed``).
+    """
+
+    messages: list[Message] = []
+    size = 0
     while True:
         message = await receive()
-        if message["type"] == "http.disconnect":
-            break
-        chunks.append(message.get("body", b""))
+        messages.append(message)
+        if message["type"] != "http.request":
+            return messages, True
+        size += len(message.get("body", b""))
+        if size > MAX_BODY_BYTES:
+            return messages, False
         if not message.get("more_body", False):
-            break
-    return b"".join(chunks)
+            return messages, True
+
+
+def _joined(messages: Sequence[Message]) -> bytes:
+    return b"".join(message.get("body", b"") for message in messages if message["type"] == "http.request")
+
+
+def _prefixed(messages: Sequence[Message], receive: Receive) -> Receive:
+    """A receive callable that replays ``messages`` and then reads on from ``receive``."""
+
+    pending = list(messages)
+
+    async def replay() -> Message:
+        if pending:
+            return pending.pop(0)
+        return await receive()
+
+    return replay
 
 
 def _body_replay(body: bytes) -> Receive:
@@ -191,10 +218,11 @@ class IdempotencyMiddleware:
             )(scope, receive, send)
             return
 
-        body = await _read_body(receive)
-        if len(body) > MAX_BODY_BYTES:
-            await self._pass_through_large_body(scope, body, send)
+        messages, complete = await _read_body(receive)
+        if not complete:
+            await self._pass_through_large_body(scope, _prefixed(messages, receive), send)
             return
+        body = _joined(messages)
 
         await self._sweep_if_due()
 
@@ -308,14 +336,14 @@ class IdempotencyMiddleware:
 
         await _send_replay(send, row)
 
-    async def _pass_through_large_body(self, scope: Scope, body: bytes, send: Send) -> None:
+    async def _pass_through_large_body(self, scope: Scope, receive: Receive, send: Send) -> None:
         async def send_with_status(message: Message) -> None:
             if message["type"] == "http.response.start":
                 message = dict(message)
                 message["headers"] = [*(message.get("headers") or []), SKIPPED_HEADER]
             await send(message)
 
-        await self.app(scope, _body_replay(body), send_with_status)
+        await self.app(scope, receive, send_with_status)
 
     async def _sweep_if_due(self) -> None:
         global _last_sweep
