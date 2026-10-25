@@ -62,6 +62,30 @@ class EventLogPostgresTests(unittest.TestCase):
         with self.scratch.connect() as conn:
             return conn.execute("SELECT * FROM ws_events WHERE id = %s", (event_id,)).fetchone()
 
+    def test_a_later_writer_waits_so_ids_become_visible_in_order(self) -> None:
+        import threading
+
+        holder = self.scratch.connect()
+        first = holder.__enter__()
+        try:
+            first_id = event_log.record("job.finished", project_id=self.project, conn=first)
+            second: dict[str, int] = {}
+            writer = threading.Thread(
+                target=lambda: second.update(id=event_log.record("job.finished", project_id=self.project))
+            )
+            writer.start()
+            writer.join(timeout=1.0)
+            # The second writer is blocked on the head row; nothing past the cursor is visible.
+            self.assertTrue(writer.is_alive())
+            self.assertEqual(self._events()[0], [])
+            first.commit()
+        finally:
+            holder.__exit__(None, None, None)
+        writer.join(timeout=10)
+        self.assertFalse(writer.is_alive())
+        self.assertEqual(second["id"], first_id + 1)
+        self.assertEqual([event["id"] for event in self._events()[0]], [first_id, first_id + 1])
+
     def test_an_unknown_kind_is_refused(self) -> None:
         with self.assertRaises(ValueError):
             event_log.record("nope.happened", project_id=self.project)

@@ -9,7 +9,9 @@ socket (MCP-08b), never the delivery itself: workers write from other processes.
 
 Every caller of :func:`record` owns the transaction it is recording about. Pass
 its connection when the event must commit or roll back with the mutation; leave
-``conn`` out to append in a transaction of its own.
+``conn`` out to append in a transaction of its own. Writers take ids from one
+locked head row, so ids become visible in order; keep that transaction short,
+because other writers wait for it.
 """
 
 from __future__ import annotations
@@ -81,15 +83,20 @@ def record(
 
 
 def _insert(conn: Any, kind: str, project_id: str | None, topic: str, payload: dict[str, Any]) -> int:
-    row = conn.execute(
-        """
-        INSERT INTO ws_events (kind, project_id, topic, payload)
-        VALUES (%s, %s, %s, %s)
-        RETURNING id
-        """,
-        (kind, project_id, topic, Jsonb(payload)),
+    # The head row stays locked until the caller's transaction ends, so ids
+    # commit in order and a reader's cursor never passes a smaller id that is
+    # still uncommitted. Record inside short transactions only.
+    head = conn.execute(
+        "UPDATE ws_event_head SET cursor = cursor + 1 WHERE singleton RETURNING cursor"
     ).fetchone()
-    event_id = int(row["id"])
+    event_id = int(head["cursor"])
+    conn.execute(
+        """
+        INSERT INTO ws_events (id, kind, project_id, topic, payload)
+        VALUES (%s, %s, %s, %s, %s)
+        """,
+        (event_id, kind, project_id, topic, Jsonb(payload)),
+    )
     conn.execute("SELECT pg_notify(%s, %s)", (CHANNEL, str(event_id)))
     return event_id
 
