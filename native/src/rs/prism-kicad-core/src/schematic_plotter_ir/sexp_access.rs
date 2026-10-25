@@ -79,3 +79,35 @@ pub(super) fn number_at(form: &Sexp, index: usize) -> Result<f64, Error> {
         Err(model_error("Expected finite number"))
     }
 }
+
+/// `(body_style N)` (KiCad 10) or `(convert N)` (8 and 9); the later one wins.
+pub(super) fn body_style(form: &Sexp) -> Result<u32, Error> {
+    let Some(value) = list(form).and_then(|values| {
+        values.iter().rev().find(|value| {
+            matches!(
+                list(value).and_then(|items| items.first()).and_then(text),
+                Some("convert" | "body_style")
+            )
+        })
+    }) else {
+        return Ok(1);
+    };
+    scalar_at(value, 1)
+        .and_then(|value| value.parse().ok())
+        .ok_or_else(|| model_error("Expected schematic symbol integer"))
+}
+
+pub(super) fn child_u32(form: &Sexp, head: &str, default: u32) -> Result<u32, Error> {
+    let Some(value) = child(form, head) else {
+        return Ok(default);
+    };
+    scalar_at(value, 1)
+        .and_then(|value| value.parse().ok())
+        .ok_or_else(|| model_error("Expected schematic symbol integer"))
+}
+
+pub(super) fn child_yes(form: &Sexp, head: &str, default: bool) -> bool {
+    child(form, head)
+        .and_then(|value| scalar_at(value, 1))
+        .map_or(default, |value| value == "yes")
+}

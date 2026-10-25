@@ -434,21 +434,19 @@ fn populate_schematic_definition(
     for span in spans {
         match (span.depth, span.head.as_deref()) {
             (1, Some("version")) => {
-                set_once_scalar(&mut definition.version, text, span, source_path, limits)?
+                set_scalar(&mut definition.version, text, span, source_path, limits)?
             }
             (1, Some("generator")) => {
-                set_once_scalar(&mut definition.generator, text, span, source_path, limits)?
+                set_scalar(&mut definition.generator, text, span, source_path, limits)?
             }
-            (1, Some("generator_version")) => set_once_scalar(
+            (1, Some("generator_version")) => set_scalar(
                 &mut definition.generator_version,
                 text,
                 span,
                 source_path,
                 limits,
             )?,
-            (1, Some("uuid")) => {
-                set_once_scalar(&mut definition.uuid, text, span, source_path, limits)?
-            }
+            (1, Some("uuid")) => set_scalar(&mut definition.uuid, text, span, source_path, limits)?,
             (1, Some("sheet")) => {
                 if definition.sheets.len() >= limits.max_sheets_per_source {
                     return Err(schematic_limit(
@@ -504,17 +502,7 @@ fn parse_sheet_child(
     page_budget: &mut PageInstanceBudget,
 ) -> Result<(), SourceBundleError> {
     match head {
-        Some("uuid") => {
-            if state.uuid_seen {
-                return Err(SourceBundleError::new(
-                    SourceBundleErrorKind::Schematic,
-                    Some(source_path),
-                    "duplicate sheet uuid form",
-                ));
-            }
-            state.uuid_seen = true;
-            set_once_required_string(&mut sheet.uuid, text, span, source_path, limits)?;
-        }
+        Some("uuid") => set_required_string(&mut sheet.uuid, text, span, source_path, limits)?,
         Some("property") => parse_sheet_property(sheet, state, text, span, source_path, limits)?,
         Some("pin") => {
             if sheet.pins.len() >= limits.max_sheet_pins_per_sheet {
@@ -640,23 +628,15 @@ fn set_first_boolean(
     Ok(())
 }
 
-fn set_once_scalar(
+/// A repeated form overwrites the earlier one, as KiCad's parser assigns each in turn
+/// (`SCH_IO_KICAD_SEXPR_PARSER::ParseSchematic`).
+fn set_scalar(
     target: &mut Option<String>,
     source: &str,
     span: &FormSpan,
     source_path: &str,
     limits: SchematicBundleLimits,
 ) -> Result<(), SourceBundleError> {
-    if target.is_some() {
-        return Err(SourceBundleError::new(
-            SourceBundleErrorKind::Schematic,
-            Some(source_path),
-            format!(
-                "duplicate {} form",
-                span.head.as_deref().unwrap_or("scalar")
-            ),
-        ));
-    }
     let values = direct_scalars(source, span, 1, source_path, limits)?;
     let value = values.into_iter().next().ok_or_else(|| {
         SourceBundleError::new(
@@ -672,23 +652,14 @@ fn set_once_scalar(
     Ok(())
 }
 
-fn set_once_required_string(
+/// As [`set_scalar`], for a value that must not be empty.
+fn set_required_string(
     target: &mut String,
     source: &str,
     span: &FormSpan,
     source_path: &str,
     limits: SchematicBundleLimits,
 ) -> Result<(), SourceBundleError> {
-    if !target.is_empty() {
-        return Err(SourceBundleError::new(
-            SourceBundleErrorKind::Schematic,
-            Some(source_path),
-            format!(
-                "duplicate {} form",
-                span.head.as_deref().unwrap_or("scalar")
-            ),
-        ));
-    }
     let values = direct_scalars(source, span, 1, source_path, limits)?;
     *target = values.into_iter().next().ok_or_else(|| {
         SourceBundleError::new(
@@ -949,7 +920,7 @@ fn realize_occurrences(
                 let human_address = occurrence.human_address.clone();
                 occurrences.push(occurrence);
                 work.push(HierarchyWork::Exit(enter.source_path.clone()));
-                for (child_index, child) in definition.sheets.iter().enumerate().rev() {
+                for (child_index, child) in distinct_sheets(&definition.sheets).enumerate().rev() {
                     let Some(child_source) = bundle.resolve_schematic(
                         &enter.source_path,
                         &child.sheet_file,
@@ -978,6 +949,33 @@ fn realize_occurrences(
         }
     }
     Ok(occurrences)
+}
+
+/// A sheet's UUID names its occurrence path. KiCad keeps a UUID two sheets share
+/// (`SCH_SCREENS::ReplaceDuplicateTimeStamps` leaves sheets to a @todo), so a later
+/// sibling sharing one is numbered here to keep the occurrences apart.
+fn distinct_sheets(
+    sheets: &[SchematicSheet],
+) -> impl DoubleEndedIterator<Item = SchematicSheet> + ExactSizeIterator {
+    let mut seen = HashMap::<String, usize>::new();
+    sheets
+        .iter()
+        .map(|sheet| {
+            let key = if sheet.uuid.is_empty() {
+                &sheet.sheet_file
+            } else {
+                &sheet.uuid
+            };
+            let uses = seen.entry(key.clone()).or_default();
+            *uses += 1;
+            let mut sheet = sheet.clone();
+            if *uses > 1 {
+                sheet.uuid = format!("{key}#{}", *uses - 1);
+            }
+            sheet
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
 }
 
 fn materialize_occurrence(
