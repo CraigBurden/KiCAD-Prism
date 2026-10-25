@@ -57,6 +57,7 @@ describe("DesignDataSection", () => {
         // Nothing building and nothing failed, so the line says only those two.
         expect(screen.queryByText(/building/)).not.toBeInTheDocument();
         expect(screen.queryByText(/failed/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/incomplete/)).not.toBeInTheDocument();
         expect(mocks.fetchJson).toHaveBeenCalledWith(
             "/api/projects/p1/design-bundles",
             expect.objectContaining({ signal: expect.anything() }),
@@ -71,6 +72,29 @@ describe("DesignDataSection", () => {
         });
         renderSection();
         expect(await screen.findByText("1 stored · 0 reused · 2 building · 2 failed")).toBeInTheDocument();
+    });
+
+    it("lists revisions whose stages failed or are partial", async () => {
+        mocks.fetchJson.mockImplementation(async (url: string) =>
+            url.includes("/commits?")
+                ? HEAD
+                : {
+                      ...STATUS,
+                      incomplete: { failed: 1, partial: 1 },
+                      incompleteRevisions: [
+                          { commit: "b".repeat(40), revisionKey: "2".repeat(64), failedStages: ["parse"], partialStages: [] },
+                          { commit: "c".repeat(40), revisionKey: "3".repeat(64), failedStages: [], partialStages: ["board"] },
+                      ],
+                  },
+        );
+        renderSection();
+        expect(await screen.findByText("2 stored · 3 reused · 2 incomplete")).toBeInTheDocument();
+        const list = screen.getByRole("list", { name: "Incomplete design data" });
+        const items = within(list).getAllByRole("listitem");
+        expect(items).toHaveLength(2);
+        expect(within(items[0]).getByText("bbbbbbbb")).toHaveAttribute("title", "b".repeat(40));
+        expect(within(items[0]).getByText("parse failed")).toBeInTheDocument();
+        expect(within(items[1]).getByText("board partial")).toBeInTheDocument();
     });
 
     it("says the status is unavailable when the load fails", async () => {

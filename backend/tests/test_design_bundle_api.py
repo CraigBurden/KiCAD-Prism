@@ -111,6 +111,8 @@ class DesignBundleStatusTests(unittest.IsolatedAsyncioTestCase):
                 "bundles": {"complete": 2, "building": 1, "queued": 1, "failed": 1},
                 "aliases": 2,
                 "storedBytes": 4096,
+                "incomplete": {"failed": 0, "partial": 0},
+                "incompleteRevisions": [],
             },
         )
         lookup.assert_called_once_with("p1", "viewer")
@@ -134,6 +136,42 @@ class DesignBundleStatusTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(body["bundles"], {"complete": 0, "building": 0, "queued": 0, "failed": 0})
+
+    async def test_complete_bundles_with_failed_or_partial_stages_are_counted_and_listed(self) -> None:
+        app = _app()
+        app.dependency_overrides[get_current_user] = lambda: VIEWER
+        whole = {"parse": "complete", "board": "complete", "models": "complete"}
+        stored = [
+            {"state": "complete", "commit_sha": "a" * 40, "updated_at": "2026-10-01", "stages": whole},
+            {"state": "complete", "commit_sha": "b" * 40, "revision_key": "2" * 64, "updated_at": "2026-10-03",
+             "stages": {"parse": "failed", "board": "skipped", "models": "skipped"}},
+            {"state": "complete", "commit_sha": "c" * 40, "revision_key": "3" * 64, "updated_at": "2026-10-02",
+             "stages": {"parse": "partial", "board": "complete", "models": "complete"}},
+            # Still building: its stages are not final, so it is not reported.
+            {"state": "building", "commit_sha": "d" * 40, "updated_at": "2026-10-04",
+             "stages": {"parse": "partial", "board": "pending", "models": "pending"}},
+        ]
+        try:
+            with (
+                patch.object(api, "get_project_for_role_or_404", return_value=object()),
+                patch.object(api.rows, "bundles", return_value=stored),
+                patch.object(api.rows, "aliases", return_value=[], create=True),
+                patch.object(api.store, "stored_bytes", return_value=0),
+            ):
+                status, body = await _request(app, "GET", "/api/projects/p1/design-bundles")
+        finally:
+            app.dependency_overrides.pop(get_current_user, None)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["bundles"]["complete"], 3)
+        self.assertEqual(body["incomplete"], {"failed": 1, "partial": 1})
+        self.assertEqual(
+            body["incompleteRevisions"],
+            [
+                {"commit": "b" * 40, "revisionKey": "2" * 64, "failedStages": ["parse"], "partialStages": []},
+                {"commit": "c" * 40, "revisionKey": "3" * 64, "failedStages": [], "partialStages": ["parse"]},
+            ],
+        )
 
     async def test_a_hidden_project_is_not_found(self) -> None:
         app = _app()
