@@ -511,7 +511,22 @@ fn union_across_hierarchy(
             )? {
                 continue;
             }
-            let Some(parent_bus) = parent.bus_coord_to_subgraph.get(&pin.at).copied() else {
+            // A sheet pin on the inside of a bus segment is still on that bus, as in
+            // KiCad 10.0.6's netlist; the bus records it as one of its drivers.
+            let Some(parent_bus) =
+                parent
+                    .bus_coord_to_subgraph
+                    .get(&pin.at)
+                    .copied()
+                    .or_else(|| {
+                        parent.bus_subgraphs.iter().position(|bus| {
+                            bus.drivers.iter().any(|driver| {
+                                driver.kind == SchematicBusDriverKind::SheetPin
+                                    && driver.at == pin.at
+                            })
+                        })
+                    })
+            else {
                 continue;
             };
             let Some(child_bus) = child_bus_by_name.get(pin.name.as_str()).copied() else {

@@ -115,6 +115,62 @@ fn a_power_port_resolves_its_own_library_symbol_before_a_base_name_match() {
     assert_eq!(net_of(&design, "U1.1").name, "VX");
 }
 
+/// A sheet whose bus reaches its members by label name and a sheet with one bus
+/// stub per member, each under its own hierarchical label, share a parent bus that
+/// runs through sheet A's pin rather than ending on it (KiCad 10.0.6 still connects
+/// that pin): each member is one net across both sheets.
+#[test]
+fn bus_members_join_through_one_stub_per_member() {
+    let root = r#"(kicad_sch (uuid root)
+      (sheet (at 0 0) (size 20 20) (uuid sheet-a)
+        (property "Sheetname" "A") (property "Sheetfile" "a.kicad_sch")
+        (pin "S[1..2]" output (at 20 10 0) (uuid pin-a)))
+      (sheet (at 40 0) (size 20 20) (uuid sheet-b)
+        (property "Sheetname" "B") (property "Sheetfile" "b.kicad_sch")
+        (pin "S[1..2]" input (at 40 10 180) (uuid pin-b)))
+      (bus (pts (xy 18 10) (xy 40 10)) (uuid root-bus)))"#;
+    let a = format!(
+        r#"(kicad_sch (uuid a) (lib_symbols {PART})
+          (hierarchical_label "S[1..2]" (shape output) (at 0 0 0) (uuid a-port))
+          (wire (pts (xy 20 20) (xy 30 20)) (uuid a-wire-1))
+          (label "S1" (at 20 20 0) (uuid a-label-1))
+          (wire (pts (xy 20 40) (xy 30 40)) (uuid a-wire-2))
+          (label "S2" (at 20 40 0) (uuid a-label-2))
+          {} {})"#,
+        part("U1", 30.0, 20.0, "u1"),
+        part("U2", 30.0, 40.0, "u2")
+    );
+    let stub = |member: u32, y: f64| {
+        format!(
+            r#"(hierarchical_label "S[1..2]" (shape input) (at 0 {y} 0) (uuid b-port-{member}))
+          (bus (pts (xy 0 {y}) (xy 4 {y})) (uuid b-bus-{member}))
+          (bus_entry (at 4 {y}) (size 2 2) (uuid b-entry-{member}))
+          (wire (pts (xy 6 {y2}) (xy 20 {y2})) (uuid b-wire-{member}))
+          (label "S{member}" (at 10 {y2} 0) (uuid b-label-{member}))
+          {}"#,
+            part(
+                &format!("U{}", member + 2),
+                20.0,
+                y + 2.0,
+                &format!("b{member}")
+            ),
+            y2 = y + 2.0
+        )
+    };
+    let b = format!(
+        "(kicad_sch (uuid b) (lib_symbols {PART}) {} {})",
+        stub(1, 0.0),
+        stub(2, 20.0)
+    );
+    let design = design(&[
+        ("root.kicad_sch", root.to_owned()),
+        ("a.kicad_sch", a),
+        ("b.kicad_sch", b),
+    ]);
+    assert_eq!(net_of(&design, "U1.1"), net_of(&design, "U3.1"));
+    assert_eq!(net_of(&design, "U2.1"), net_of(&design, "U4.1"));
+}
+
 fn part(reference: &str, x: f64, y: f64, uuid: &str) -> String {
     format!(
         r#"(symbol (lib_id "Demo:Part") (at {x} {y} 0) (uuid {uuid}-part)
