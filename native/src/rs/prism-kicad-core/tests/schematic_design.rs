@@ -335,11 +335,9 @@ fn assert_scalar_nets(design: &prism_kicad_core::SchematicScalarDesignNetlist) {
     assert_eq!(terminal_refs(by_name["/Child/SIG"][0]), ["C0.1", "R0.1"]);
     assert_eq!(terminal_refs(by_name["G"][0]), ["C1.1", "R1.1"]);
     assert_eq!(terminal_refs(by_name["VCC"][0]), ["C2.1", "R2.1"]);
-    assert_eq!(
-        by_name["LOCAL"].len(),
-        2,
-        "local power stays per occurrence"
-    );
+    // Local power stays per occurrence and, as in KiCad, carries its sheet path.
+    assert_eq!(terminal_refs(by_name["/LOCAL"][0]), ["R3.1"]);
+    assert_eq!(terminal_refs(by_name["/Child/LOCAL"][0]), ["C3.1"]);
     assert_eq!(terminal_refs(by_name["/MISS"][0]), ["R4.1"]);
     assert_eq!(terminal_refs(by_name["/Child/ORPHAN"][0]), ["C4.1"]);
     assert_eq!(
