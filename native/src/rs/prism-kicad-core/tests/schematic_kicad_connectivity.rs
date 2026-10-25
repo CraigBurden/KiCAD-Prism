@@ -171,6 +171,56 @@ fn bus_members_join_through_one_stub_per_member() {
     assert_eq!(net_of(&design, "U2.1"), net_of(&design, "U4.1"));
 }
 
+/// KiCad names a net whose only driver is one pin `unconnected-(…)` whatever the
+/// pin's type, and keeps a `~` pin name in files from 20250318 on; older files mean
+/// no name by it.
+#[test]
+fn lone_pins_are_unconnected_and_tilde_names_follow_the_file_version() {
+    let sheet = |version: &str| {
+        format!(
+            r#"(kicad_sch (version {version}) (uuid root)
+          (lib_symbols
+            (symbol "Demo:IO"
+              (symbol "Demo:IO_1_1"
+                (pin bidirectional line (at 0 0 0) (name "IO") (number "5"))
+                (pin passive line (at 10 0 0) (name "~") (number "6")))))
+          (wire (pts (xy 0 0) (xy 0 5)) (uuid stub))
+          (symbol (lib_id "Demo:IO") (at 0 0 0) (uuid u1)
+            (property "Reference" "U1") (property "Value" "IO")))"#
+        )
+    };
+    let current = design(&[("root.kicad_sch", sheet("20260306"))]);
+    assert_eq!(net_of(&current, "U1.5").name, "unconnected-(U1-IO-Pad5)");
+    assert_eq!(net_of(&current, "U1.6").name, "unconnected-(U1-~-Pad6)");
+    let legacy = design(&[("root.kicad_sch", sheet("20240101"))]);
+    assert_eq!(net_of(&legacy, "U1.6").name, "unconnected-(U1-Pad6)");
+}
+
+/// Global names do not depend on the sheet, so KiCad ranks them by priority and then
+/// name, not by how deep the sheet is.
+#[test]
+fn equal_global_labels_name_their_net_alphabetically_whatever_the_sheet() {
+    let root = format!(
+        r#"(kicad_sch (uuid root) (lib_symbols {PART})
+          (global_label "B_NET" (shape input) (at 0 0 0) (uuid root-b))
+          {}
+          (sheet (at 40 40) (size 10 10) (uuid sheet)
+            (property "Sheetname" "Child") (property "Sheetfile" "child.kicad_sch")))"#,
+        part("U1", 0.0, 0.0, "u1")
+    );
+    let child = format!(
+        r#"(kicad_sch (uuid child) (lib_symbols {PART})
+          (wire (pts (xy 0 0) (xy 10 0)) (uuid child-wire))
+          (global_label "B_NET" (shape input) (at 0 0 0) (uuid child-b))
+          (global_label "A_NET" (shape input) (at 10 0 0) (uuid child-a))
+          {})"#,
+        part("U2", 0.0, 0.0, "u2")
+    );
+    let design = design(&[("root.kicad_sch", root), ("child.kicad_sch", child)]);
+    assert_eq!(net_of(&design, "U1.1"), net_of(&design, "U2.1"));
+    assert_eq!(net_of(&design, "U1.1").name, "A_NET");
+}
+
 fn part(reference: &str, x: f64, y: f64, uuid: &str) -> String {
     format!(
         r#"(symbol (lib_id "Demo:Part") (at {x} {y} 0) (uuid {uuid}-part)

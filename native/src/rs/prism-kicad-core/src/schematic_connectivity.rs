@@ -488,6 +488,15 @@ impl<'a> OccurrenceBuilder<'a> {
         Ok(out)
     }
 
+    /// Files older than 20250318 wrote `~` for a pin with no name.
+    fn legacy_tilde_names(&self) -> bool {
+        self.definition
+            .version
+            .as_deref()
+            .and_then(|version| version.parse::<u64>().ok())
+            .is_none_or(|version| version < 20_250_318)
+    }
+
     fn pin_semantics(
         &self,
         terminal: &crate::SchematicSymbolTerminal,
@@ -592,6 +601,7 @@ impl<'a> OccurrenceBuilder<'a> {
                 source_pin_uuid: naming.source_pin_uuid.clone(),
                 pin_svg_id: naming.pin_svg_id.clone(),
                 source_order: out.len(),
+                legacy_unnamed: terminal.pin_name == "~" && self.legacy_tilde_names(),
             });
         }
         union.add(semantics.at, self.limits.max_graph_points, self.definition)?;

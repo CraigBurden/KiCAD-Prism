@@ -964,11 +964,7 @@ impl<'a> DesignBuilder<'a> {
             format!("{}-{}", pin.reference, pin.pin_number)
         };
         self.ensure_name_bytes(raw_name.len())?;
-        let power = pin.is_power
-            && matches!(
-                pin.priority,
-                SchematicDriverPriority::GlobalPowerPin | SchematicDriverPriority::LocalPowerPin
-            );
+        let power = pin.is_power && pin.priority == SchematicDriverPriority::GlobalPowerPin;
         let full_name = if power {
             raw_name.clone()
         } else {
