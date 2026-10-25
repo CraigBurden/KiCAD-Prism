@@ -80,6 +80,47 @@ fn decimal_pin_angles_read_as_their_integer_part() {
     assert!(net_of(&design, "R1", "1").is_some());
 }
 
+/// KiCad's parser assigns each header form in turn, so a repeated `uuid`,
+/// `version`, `generator`, `title_block` or sheet `uuid` (a merge leftover) keeps
+/// the later value (`ParseSchematic`, `parseSchematicSymbol`, `parseSheet`).
+#[test]
+fn repeated_header_forms_keep_the_later_value() {
+    let root = r#"(kicad_sch (version 20250114) (version 20260306)
+      (generator "eeschema") (generator "eeschema")
+      (generator_version "9.0") (generator_version "10.0")
+      (uuid root-old) (uuid root)
+      (title_block (title "Old") (rev "1"))
+      (title_block (title "New"))
+      (sheet (at 0 0) (size 10 10)
+        (uuid 0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d)
+        (uuid 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d)
+        (property "Sheetname" "Child" (at 0 0 0))
+        (property "Sheetfile" "child.kicad_sch" (at 0 0 0)))
+      (symbol (lib_id "Demo:R") (at 0 0 0) (unit 1)
+        (uuid 2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e)
+        (uuid 3c4d5e6f-7a8b-4c9d-8e1f-2a3b4c5d6e7f)
+        (property "Reference" "R1" (at 0 0 0))))"#;
+    let child = r#"(kicad_sch (version 20260306) (uuid child))"#;
+    let design = design(&[("root.kicad_sch", root), ("child.kicad_sch", child)])
+        .expect("repeated header forms");
+    let root_sheet = &design["sheets"][0];
+    assert_eq!(root_sheet["title"], "New");
+    assert_eq!(
+        root_sheet["revision"], "",
+        "the later title block replaces it whole"
+    );
+    assert!(
+        design["sheets"]
+            .as_array()
+            .expect("sheets")
+            .iter()
+            .any(|sheet| sheet["sheet_path_uuids"]
+                .as_str()
+                .is_some_and(|path| path.contains("1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"))),
+        "the later sheet uuid names the sheet path"
+    );
+}
+
 fn net_of(design: &Value, designator: &str, pin: &str) -> Option<String> {
     design["nets"].as_array()?.iter().find_map(|net| {
         net["terminals"]
