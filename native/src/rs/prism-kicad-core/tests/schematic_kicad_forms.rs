@@ -39,7 +39,8 @@ fn body_style_selects_the_alternate_body_like_convert() {
         let design = design(&[("root.kicad_sch", &root)]).expect("design.json");
         assert_eq!(
             net_of(&design, "R1", "1").as_deref(),
-            Some("unconnected-(R1-Pad1)"),
+            // A `~` pin name counts as a name from file version 20250318 (`parsePin`).
+            Some("unconnected-(R1-~-Pad1)"),
             "({token} 2) places the pin at the body-2 position, off the labelled wire"
         );
     }

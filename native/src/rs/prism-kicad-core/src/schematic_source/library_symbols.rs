@@ -29,6 +29,9 @@ pub struct SchematicLibrarySubsymbol {
     pub name: String,
     pub unit: i64,
     pub style: i64,
+    /// KiCad 10's `(unit_name "…")`: the unit's display name, which replaces the
+    /// A/B/C suffix in references and net names (`SCH_SYMBOL::SubReference`).
+    pub unit_name: Option<String>,
     pub pins: Vec<SchematicLibraryPin>,
 }
 
@@ -483,10 +486,10 @@ fn parse_library_subsymbol(
         .map_err(|error| source_error(source_path, error.to_string()))?;
     let selected = carrier_form_spans(
         text,
-        &["symbol", "pin"],
+        &["symbol", "pin", "unit_name"],
         source_path,
         limits,
-        limits.max_library_pins_per_source.saturating_add(2),
+        limits.max_library_pins_per_source.saturating_add(3),
     )?;
     let root = selected
         .iter()
@@ -497,6 +500,8 @@ fn parse_library_subsymbol(
         .next()
         .unwrap_or_default();
     let (unit, style) = unit_and_style(&name);
+    let unit_name = child_scalar(text, &selected, "unit_name", source_path, limits)?
+        .filter(|unit_name| !unit_name.is_empty());
     let mut pins = Vec::new();
     for pin_span in selected
         .iter()
@@ -515,6 +520,7 @@ fn parse_library_subsymbol(
         name,
         unit,
         style,
+        unit_name,
         pins,
     })
 }

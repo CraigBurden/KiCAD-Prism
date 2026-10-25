@@ -124,23 +124,35 @@ fn designator_with_unit(
     max_string_bytes: usize,
 ) -> Result<String, SourceBundleError> {
     let placed = &definition.symbols[terminal.symbol_index];
-    let unit_count = definition
-        .library_pin_symbol_for_placement(placed)
-        .map_or(1, |library| {
-            library
-                .subsymbols
-                .iter()
-                .map(|subsymbol| subsymbol.unit)
-                .max()
-                .unwrap_or(1)
-                .max(1)
-        });
+    let library = definition.library_pin_symbol_for_placement(placed);
+    let unit_count = library.map_or(1, |library| {
+        library
+            .subsymbols
+            .iter()
+            .map(|subsymbol| subsymbol.unit)
+            .max()
+            .unwrap_or(1)
+            .max(1)
+    });
     if unit_count <= 1 {
         ensure_bytes(definition, terminal.reference.len(), max_string_bytes)?;
         return Ok(terminal.reference.clone());
     }
-    let suffix = subpart_reference(symbol.unit, settings)
-        .map_err(|message| error(definition, SourceBundleErrorKind::Schematic, message))?;
+    // A unit display name replaces the A/B/C suffix (`SCH_SYMBOL::SubReference`).
+    let display_name = library.and_then(|library| {
+        library
+            .subsymbols
+            .iter()
+            .find(|subsymbol| subsymbol.unit == symbol.unit && subsymbol.unit_name.is_some())
+            .and_then(|subsymbol| subsymbol.unit_name.clone())
+    });
+    let suffix = match display_name {
+        Some(name) => char::from_u32(settings.separator)
+            .filter(|_| settings.separator != 0)
+            .map_or(name.clone(), |separator| format!("{separator}{name}")),
+        None => subpart_reference(symbol.unit, settings)
+            .map_err(|message| error(definition, SourceBundleErrorKind::Schematic, message))?,
+    };
     let output_bytes = terminal
         .reference
         .len()

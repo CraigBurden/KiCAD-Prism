@@ -196,6 +196,30 @@ fn lone_pins_are_unconnected_and_tilde_names_follow_the_file_version() {
     assert_eq!(net_of(&legacy, "U1.6").name, "unconnected-(U1-Pad6)");
 }
 
+/// A unit's display name (`(unit_name …)`, KiCad 10) replaces its A/B/C suffix in
+/// net names (`SCH_SYMBOL::SubReference`); a unit without one keeps the letter.
+#[test]
+fn unit_display_names_replace_the_unit_letter() {
+    let root = r#"(kicad_sch (version 20260306) (uuid root)
+      (lib_symbols
+        (symbol "Demo:Dual"
+          (symbol "Demo:Dual_1_1"
+            (unit_name "POWER")
+            (pin passive line (at 0 0 0) (name "VIN") (number "1")))
+          (symbol "Demo:Dual_2_1"
+            (pin passive line (at 0 0 0) (name "IO") (number "2")))))
+      (symbol (lib_id "Demo:Dual") (at 0 0 0) (unit 1) (uuid unit-a)
+        (property "Reference" "U1") (property "Value" "Dual"))
+      (symbol (lib_id "Demo:Dual") (at 20 0 0) (unit 2) (uuid unit-b)
+        (property "Reference" "U1") (property "Value" "Dual")))"#;
+    let design = design(&[("root.kicad_sch", root.to_owned())]);
+    assert_eq!(
+        net_of(&design, "U1.1").name,
+        "unconnected-(U1POWER-VIN-Pad1)"
+    );
+    assert_eq!(net_of(&design, "U1.2").name, "unconnected-(U1B-IO-Pad2)");
+}
+
 /// Global names do not depend on the sheet, so KiCad ranks them by priority and then
 /// name, not by how deep the sheet is.
 #[test]
