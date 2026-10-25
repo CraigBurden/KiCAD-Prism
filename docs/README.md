@@ -70,6 +70,9 @@ testers of unreleased behavior work from `dev`.
   amendments record why Prism parses KiCad in Rust, once per revision; the
   contracts are in `native/contracts/prism/` and the parity records in
   `native/parity/`.
+- [Scripting and MCP ADR](architecture/adr-scripting-and-mcp.md)
+  records how Prism becomes scriptable: the versioned API, tokens and scopes,
+  and the MCP server.
 - [Dependency identity](DEPENDENCIES.md) covers Python, JavaScript, and native pins.
 - [Design comparison](design-comparison/README.md) maps comparison contracts.
 
