@@ -27,7 +27,7 @@ from typing import Optional, Protocol
 
 from app.core.roles import Role, role_meets_minimum
 from app.core import errors
-from app.core.policy import has_scope
+from app.core.policy import MCP_AUTH_TYPE, has_scope
 from app.core.security import AuthenticatedUser
 from app.services import access_service
 
@@ -39,6 +39,7 @@ PERSON_AUTH_TYPES = frozenset({"session", "guest"})
 # Kinds of stable actor identity. ``legacy`` never describes a live actor; it
 # marks rows whose author was recorded as free text before TR-01.
 ACTOR_KIND_USER = "user"
+ACTOR_KIND_AGENT = "agent"
 ACTOR_KIND_SERVICE = "service"
 ACTOR_KIND_GUEST = "guest"
 ACTOR_KIND_LEGACY = "legacy"
@@ -81,6 +82,8 @@ class ActorIdentity:
     display_name: str
     role: Role
     auth_type: str
+    client_id: str = ""
+    token_id: str = ""
 
     @property
     def is_admin(self) -> bool:
@@ -122,6 +125,10 @@ def is_guest(user: AuthenticatedUser) -> bool:
 def resolve_actor(user: AuthenticatedUser) -> ActorIdentity:
     """Map an authenticated caller onto its stable actor identity (D6).
 
+    An MCP client resolves exactly like the signed-in user it acts for: the
+    same ``user_id``, so that person owns the agent's comments. Only
+    ``actor_kind`` differs (``agent``), which marks the write in history.
+
     Raises ``CommentPermissionError`` for callers that may never mutate
     comments (remote-provider tokens) and for session users whose identity
     cannot be resolved to a ``users`` row: recording a mutation under a
@@ -141,6 +148,8 @@ def resolve_actor(user: AuthenticatedUser) -> ActorIdentity:
             display_name=user.name or client_id,
             role=user.role,
             auth_type=user.auth_type,
+            client_id=client_id,
+            token_id=user.token_id,
         )
 
     if is_guest(user):
@@ -150,6 +159,8 @@ def resolve_actor(user: AuthenticatedUser) -> ActorIdentity:
             display_name=user.name or "Guest",
             role=user.role,
             auth_type=user.auth_type,
+            client_id=user.client_id,
+            token_id=user.token_id,
         )
 
     user_id = user.user_id.strip()
@@ -168,10 +179,12 @@ def resolve_actor(user: AuthenticatedUser) -> ActorIdentity:
         display_name = display_name or row.get("name") or user.email
     return ActorIdentity(
         actor_id=user_id,
-        actor_kind=ACTOR_KIND_USER,
+        actor_kind=ACTOR_KIND_AGENT if user.auth_type == MCP_AUTH_TYPE else ACTOR_KIND_USER,
         display_name=display_name or user.email,
         role=user.role,
         auth_type=user.auth_type,
+        client_id=user.client_id,
+        token_id=user.token_id,
     )
 
 
