@@ -231,6 +231,7 @@ pub fn run(request: &ParseRequest<'_>) -> Outcome<ParseOutcome> {
         failed: Vec::new(),
         derived: Vec::new(),
         pending_index: None,
+        unavailable_models: BTreeSet::new(),
         documents: BTreeMap::new(),
     };
     let error = stage.parse()?;
@@ -279,6 +280,9 @@ struct ParseRun<'a> {
     pending_index: Option<Box<SemanticIndexA2>>,
     /// An in-memory parse's projections (`ParseRequest::in_memory`).
     documents: BTreeMap<String, Document>,
+    /// The 3D models the key lists but the worker could not materialize
+    /// (`model-unavailable`): a reader finds them absent, as built.
+    unavailable_models: BTreeSet<String>,
 }
 
 mod projections;
@@ -780,6 +784,7 @@ impl ParseRun<'_> {
             if target["inSources"] == true {
                 self.read_target(path)?;
             } else if reference["kind"] == "model-3d" && self.key_lists(path) {
+                self.unavailable_models.insert(path.to_owned());
                 self.warn(
                     "model-unavailable",
                     format!("the 3D model {} is in the revision key but was not materialized; the bundle is built without it", member(path)),
@@ -930,7 +935,8 @@ impl ParseRun<'_> {
             self.request.key_record.as_ref(),
         );
         if let Some(record) = &self.request.key_record
-            && let Some(mismatch) = crate::read_set::check(&read_set, &members, record)
+            && let Some(mismatch) =
+                crate::read_set::check(&read_set, &members, record, &self.unavailable_models)
         {
             return Err(internal(format!(
                 "I14: the read set does not hold in --key-record at {}: {}",

@@ -30,7 +30,7 @@ def _run(repo: Path, args: list[str], env: Mapping[str, str] | None) -> tuple[bo
 
 
 def hydrate(repo: Path, *, env: Mapping[str, str] | None = None) -> dict[str, object]:
-    """``git submodule update --init --recursive``, then the LFS objects of HEAD and recent branches."""
+    """``git submodule update --init --recursive``, then the LFS objects of every commit the prebuild builds."""
 
     report: dict[str, object] = {"submodules": "none", "lfs": "none"}
     if (repo / ".gitmodules").is_file():
@@ -39,11 +39,18 @@ def hydrate(repo: Path, *, env: Mapping[str, str] | None = None) -> dict[str, ob
     if shutil.which("git-lfs") is None:
         report["lfs"] = "git-lfs is not installed"
         return report
-    # HEAD's objects into the working tree, then those of recently updated
-    # branches into the local store, where materialization looks for them.
+    # HEAD's objects into the working tree, then those of every commit the
+    # prebuild builds (branch heads, each branch's newest commits, tags) into
+    # the local store, where materialization looks for them. ``--recent``
+    # alone skips a branch not updated in the last days, whose bundles then
+    # lose its LFS 3D models.
     ok, detail = _run(repo, ["lfs", "pull"], env)
     if ok:
-        ok, detail = _run(repo, ["lfs", "fetch", "--recent"], env)
+        from app.services.design_bundle.reuse import prebuild_commits
+
+        commits = prebuild_commits(repo)
+        if commits:
+            ok, detail = _run(repo, ["lfs", "fetch", "origin", *commits], env)
     if ok and (repo / ".gitmodules").is_file():
         ok, detail = _run(repo, ["submodule", "foreach", "--recursive", "git lfs pull"], env)
     report["lfs"] = "fetched" if ok else f"failed: {detail}"
