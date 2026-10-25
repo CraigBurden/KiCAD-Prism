@@ -5,8 +5,9 @@ use super::{
     PlotBudget, SchematicDrawingSettings, SchematicPlotContext, SchematicPlotLimits,
     SchematicPlotOperation, SchematicPlotRecord, SchematicStyledThickSegment,
     SchematicSymbolInstanceRecord, SchematicSymbolOverplotRecord, SchematicSymbolPinAttrs,
-    SchematicSymbolPinBlock, SchematicTextOperation, child, child_string, limit_error, list,
-    mm_to_nm, model_error, number_at, parse_span, scalar_at, text, value_at,
+    SchematicSymbolPinBlock, SchematicTextOperation, child, child_string, children, is_private,
+    limit_error, list, mm_to_nm, model_error, number_at, parse_span, property_key, property_value,
+    scalar_at, text, value_at,
 };
 use crate::plotter_text_cache::{PlotterTextCacheSession, PlotterTextLayout};
 use crate::plotter_types::{
@@ -319,12 +320,6 @@ fn direct_symbols(form: &Sexp) -> Vec<&Sexp> {
     children(form, "symbol").collect()
 }
 
-fn children<'a>(form: &'a Sexp, head: &'a str) -> impl Iterator<Item = &'a Sexp> {
-    list(form).into_iter().flatten().filter(move |child| {
-        list(child).and_then(|values| values.first()).and_then(text) == Some(head)
-    })
-}
-
 fn resolve_library(libraries: &[&Sexp], lib_name: &str, lib_id: &str) -> Option<usize> {
     [lib_name, lib_id]
         .into_iter()
@@ -472,7 +467,7 @@ fn body_operations(
     let mut outlines = Vec::new();
     for subsymbol in subsymbols {
         for head in ["rectangle", "circle", "arc", "polyline", "bezier"] {
-            for shape in children(subsymbol, head) {
+            for shape in children(subsymbol, head).filter(|shape| !is_private(shape)) {
                 let Some(operation) = convert_shape(
                     shape,
                     head,
@@ -495,7 +490,7 @@ fn body_operations(
                 }
             }
         }
-        for body_text in children(subsymbol, "text") {
+        for body_text in children(subsymbol, "text").filter(|text| !is_private(text)) {
             if let Some(operation) = body_text_operation(
                 body_text,
                 &symbol_variables,
@@ -921,7 +916,7 @@ fn append_properties(
         if hidden(property) {
             continue;
         }
-        let key = value_at(property, 1).unwrap_or_default();
+        let key = property_key(property).unwrap_or_default();
         let mut value = resolved_property_value(property, symbol);
         if key == "Reference" {
             value = instance_reference(symbol, &context.sheet_instance_path);
@@ -976,7 +971,7 @@ fn append_properties(
 }
 
 fn resolved_property_value(property: &Sexp, symbol: &PlacedSymbol) -> String {
-    let raw = value_at(property, 2).unwrap_or_default();
+    let raw = property_value(property).unwrap_or_default();
     if !(raw.starts_with("${") && raw.ends_with('}')) {
         return raw;
     }
@@ -985,9 +980,9 @@ fn resolved_property_value(property: &Sexp, symbol: &PlacedSymbol) -> String {
         .properties
         .iter()
         .find(|candidate| {
-            value_at(candidate, 1).is_some_and(|key| key.trim().to_lowercase() == token)
+            property_key(candidate).is_some_and(|key| key.trim().to_lowercase() == token)
         })
-        .and_then(|candidate| value_at(candidate, 2))
+        .and_then(property_value)
         .unwrap_or(raw)
 }
 
@@ -1142,8 +1137,10 @@ fn pin_group_id(symbol_uuid: &str, pin_number: &str, source_uuid: &str) -> Strin
     format!("{symbol_uuid}__pin__{token}")
 }
 
+/// Hidden by a `hide` flag, or private (KiCad draws private items only in the symbol editor).
 fn hidden(form: &Sexp) -> bool {
-    child_yes(form, "hide", false)
+    is_private(form)
+        || child_yes(form, "hide", false)
         || list(form)
             .into_iter()
             .flatten()
