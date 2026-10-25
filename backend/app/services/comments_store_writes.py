@@ -140,6 +140,7 @@ class CommentsStoreWritesMixin:
         if actor is not None:
             author, author_user_id, author_kind = actor.display_name, actor.actor_id, actor.actor_kind
             promotion_actor = promotion_actor_for(actor)
+        author_client_id = _optional_str(actor.client_id) if actor is not None else None
         timestamp = _utc_now_iso()
         author_user_id = _optional_str(author_user_id)
         author_kind_norm = _optional_str(author_kind) or (AUTHOR_KIND_USER if author_user_id else AUTHOR_KIND_LEGACY)
@@ -166,6 +167,7 @@ class CommentsStoreWritesMixin:
             "comparison_domain": _optional_str(comparison_domain), "file_path": _optional_str(file_path),
             "semantic_item_id": _optional_str(semantic_item_id), "anchor_kind": _optional_str(anchor_kind),
             "author_user_id": author_user_id, "author_kind": author_kind_norm, "updated_at": timestamp,
+            "author_client_id": author_client_id,
             "anchor_commit": anchor_commit, "anchor_revision_key": _optional_str(anchor_revision_key),
             "anchor_design_key": _optional_str(anchor_design_key),
             "anchor_source": _optional_str(anchor_source),
@@ -182,7 +184,12 @@ class CommentsStoreWritesMixin:
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
                 comment_write.insert_root(
                     conn, columns=columns, content_format=content_format,
-                    editor=Editor(user_id=author_user_id, kind=author_kind_norm, display=author),
+                    editor=Editor(
+                        user_id=author_user_id, kind=author_kind_norm, display=author,
+                        auth_type=actor.auth_type if actor is not None else None,
+                        client_id=author_client_id,
+                        token_id=_optional_str(actor.token_id) if actor is not None else None,
+                    ),
                 )
                 comment_attachments.link_references(
                     conn, project_id=project_id, content=content,
@@ -585,6 +592,7 @@ class CommentsStoreWritesMixin:
             promotion_actor = promotion_actor_for(actor)
         author_user_id = _optional_str(author_user_id)
         author_kind_norm = _optional_str(author_kind) or (AUTHOR_KIND_USER if author_user_id else AUTHOR_KIND_LEGACY)
+        author_client_id = _optional_str(actor.client_id) if actor is not None else None
 
         with self._connect() as conn:
             with conn.transaction():
@@ -597,7 +605,12 @@ class CommentsStoreWritesMixin:
 
                 reply_id = comment_write.insert_reply(
                     conn, project_id=project_id, comment_id=comment_id, content=content,
-                    editor=Editor(user_id=author_user_id, kind=author_kind_norm, display=author, origin=origin),
+                    editor=Editor(
+                        user_id=author_user_id, kind=author_kind_norm, display=author, origin=origin,
+                        auth_type=actor.auth_type if actor is not None else None,
+                        client_id=author_client_id,
+                        token_id=_optional_str(actor.token_id) if actor is not None else None,
+                    ),
                     content_format=content_format, require_live_root=True,
                 )
                 if reply_id is None:

@@ -25,6 +25,7 @@ class AuthenticatedUser(BaseModel):
     role: Role
     auth_type: str = "session"
     client_id: str = ""
+    token_id: str = ""
     scopes: list[str] = []
     session_id: str = ""
     user_id: str = ""
@@ -127,6 +128,7 @@ def _resolve_bearer_user(token: str) -> AuthenticatedUser:
                 role=normalize_role(str(payload["role"])) or "viewer",
                 auth_type="agent",
                 client_id=str(payload.get("client_id") or ""),
+                token_id=str(payload.get("jti") or ""),
                 scopes=str(payload.get("scope") or "").split(),
             )
         except HTTPException as exc:
@@ -145,6 +147,7 @@ def _resolve_bearer_user(token: str) -> AuthenticatedUser:
                 role=normalize_role(str(payload["role"])) or "viewer",
                 auth_type="kicad_provider",
                 client_id=str(payload.get("client_id") or ""),
+                token_id=str(payload.get("jti") or ""),
                 scopes=scopes,
             )
         except HTTPException as exc:
