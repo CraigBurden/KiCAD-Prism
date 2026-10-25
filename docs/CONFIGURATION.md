@@ -233,6 +233,13 @@ running the write twice.
 Keys live in the workspace database (`ws_idempotency_keys`) and are swept after
 24 hours.
 
+### Event log
+
+`GET /api/v1/events?after=<cursor>` replays the append-only event log (revision
+synced, bundle built or failed, job progress and completion, comparison done,
+comment changed, release candidate built or approved). `PRISM_EVENT_RETENTION_DAYS`
+is how many days of events are kept (default 30); startup deletes older rows.
+
 ## Project-level `.prism.json`
 
 Place `.prism.json` in a KiCad project root when auto-detection does not find the

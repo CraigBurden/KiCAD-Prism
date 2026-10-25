@@ -322,6 +322,15 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
         description="Enable the comment WebSocket gateway; disable during staged rollout to use HTTP refresh fallback.",
     )
 
+    PRISM_EVENT_RETENTION_DAYS: int = Field(
+        default=30,
+        ge=0,
+        description=(
+            "Days the append-only event log behind GET /api/v1/events keeps rows; "
+            "older rows are pruned at startup."
+        ),
+    )
+
     TRACKER_CREDENTIAL_ROOT_KEY: SecretStr = Field(default=SecretStr(""))
     TRACKER_CREDENTIAL_ROOT_KEY_ID: str = Field(default="v1")
     TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY: SecretStr = Field(default=SecretStr(""))

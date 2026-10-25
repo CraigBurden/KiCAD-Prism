@@ -954,6 +954,11 @@
     "path": "/api/v1/sim/a0/engines",
     "typed": true
   },
+  "list_events": {
+    "method": "GET",
+    "path": "/api/v1/events",
+    "typed": true
+  },
   "list_folder_import_roots": {
     "method": "GET",
     "path": "/api/v1/catalog/import-sources/folder-roots",
