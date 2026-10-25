@@ -1,6 +1,6 @@
 # ADR: Scriptable Prism and the MCP server
 
-- **Status:** Proposed (2026-10-26). §2 records decisions the maintainer took on 2026-10-25. §3 is proposed and becomes binding on acceptance. §9 lists what is still open.
+- **Status:** Proposed (2026-10-26). §2 records decisions the maintainer took on 2026-10-25 and 2026-10-26. §3 is proposed and becomes binding on acceptance. §9 lists what is still open.
 - **Branch:** work happens on `feature/scripting-mcp`; every PR in this effort targets it, and it merges into `dev` once the v5.1 slice (§7) is complete.
 - **Builds on:**
   - the caller policy table, `backend/app/core/policy.py`: one rule per action, naming roles, bearer scopes and provider refusals;
@@ -40,6 +40,10 @@ Prism's theme for the next major (v6) is AI integration. Prism does not run a mo
 | D3 | `api:write` is **split into area scopes**: `comments:write`, `design:write`, `catalog:write`, and the sensitive `release:approve`, `catalog:qa`, `admin`. `api:write` stays as an alias that implies all of them, so existing tokens keep working. |
 | D4 | **MCP only, no in-app assistant.** Users bring their own clients and agents. Prism never calls a model. |
 | D5 | Minor releases roughly monthly; not formalized. |
+| D6 | **Only people resolve comments** (2026-10-26). An agent may reply to any comment it can read, but resolving or reopening a thread is a human action, whoever wrote it and whatever the agent was asked to do. |
+| D7 | **Every MCP read is audited** (2026-10-26), with client, tool, project and revision; no sampling. |
+| D8 | **The SDK is designed to be published** (2026-10-26): its own package, versioning and licence metadata from the start. Whether and where to publish is decided later. |
+| D9 | **`render_view` ships in v5.1** (2026-10-26), not v5.2: PNG renders of a schematic region, PCB area or 3D view with highlights, for multimodal agents. |
 
 ## 3. Decisions proposed
 
@@ -90,7 +94,7 @@ services (projects, design bundle, compare, comments, catalog, release, jobs)
   | `catalog_qa` | `catalog:qa` |
   | `admin`, `catalog_admin` | `admin` |
 
-- **Human-only actions.** `release`, `catalog_qa`, `admin` and `catalog_admin` are refused to MCP callers in the policy table itself, whatever scopes the token holds. A tool that reaches one returns an input-required result in URL mode: a link to the Prism page where a person acts. Personal access tokens may hold these scopes for scripts the user runs knowingly; MCP clients may not request them.
+- **Human-only actions.** `release`, `catalog_qa`, `admin`, `catalog_admin` and resolving or reopening a comment (a new `comment_resolve` action, split from `comment`; D6) are refused to MCP callers in the policy table itself, whatever scopes the token holds. A tool that reaches one returns an input-required result in URL mode: a link to the Prism page where a person acts. Personal access tokens may hold the release, QA and admin scopes for scripts the user runs knowingly; MCP clients may not request them. No token resolves a comment: resolving needs a session.
 - **Actor model.** Every write and audit record stores `user`, `auth_type`, `client_id`, `token_id` and an optional `agent_run_id` (passed by the client). Comments get `authorKind` (`person`, `agent`, `service`) and the client's name, so the UI can mark agent-authored comments.
 
 ### 3.6 Tokens and OAuth
@@ -123,7 +127,8 @@ services (projects, design bundle, compare, comments, catalog, release, jobs)
   - `compare_revisions`, `get_changes`;
   - `list_comments`;
   - `search_catalog`, `get_catalog_component`;
-  - `get_release_status`.
+  - `get_release_status`;
+  - `render_view` (D9): a PNG of a schematic region, PCB area or 3D view at a revision, with given components or nets highlighted, rendered headless from the revision's bundle with the same viewer code the web UI runs.
 - **Server.** Streamable HTTP, stateless. Cross-call state is always an explicit handle (job id, comparison id, commit sha), never a session.
 - **Long work.** Comparisons and bundle builds run as Prism jobs, exposed through the tasks extension (`io.modelcontextprotocol/tasks`). The task handle is the job id.
 - **Results.**
@@ -162,7 +167,7 @@ Design queries run in a **design-query service** over the revision's bundle proj
 
 - **Off by default.** `PRISM_MCP_ENABLED` (default `false`), like Simulation Studio's flag: while unset, `/mcp` and its metadata answer 404.
 - **Scoping.** Admins can limit MCP to chosen projects and tools.
-- **Read audit.** Every MCP read is logged with client, tool and project, so admins can answer "which client read which design". Proprietary designs will flow to third-party model providers through users' own clients, and admins need control and evidence.
+- **Read audit** (D7). Every MCP read is logged with client, tool, project and revision, so admins can answer "which client read which design". Proprietary designs will flow to third-party model providers through users' own clients, and admins need control and evidence.
 
 ### 3.12 SDK and CLI
 
@@ -172,7 +177,8 @@ Design queries run in a **design-query service** over the revision's bundle proj
   - `prism compare <base> <head> --wait`;
   - `prism bom <project> --revision <rev> --csv`;
   - `prism comment …`.
-- Both live in this repo and are versioned with the API. CI regenerates the client and fails on drift.
+- Both live in this repo, in one package (`sdk/python`, distribution name `kicad-prism`, import name `prism`), versioned with the API. CI regenerates the client and fails on drift.
+- Designed to publish (D8): Apache-2.0 metadata, semantic versions that follow the release tag, no imports from `backend/`, and its own tests. Until a publishing decision, it ships as a wheel in the release archive.
 
 ## 4. What this does not do
 
@@ -180,6 +186,7 @@ Design queries run in a **design-query service** over the revision's bundle proj
 - No tool per route.
 - No MCP writes in v5.1. Write tools come in v5.2, each behind its area scope, after the actor model and idempotency keys are in.
 - No release approval, publishing, catalog QA or admin action through MCP, ever (§3.5).
+- No comment resolved or reopened by any token or agent (D6).
 - No change to session auth in the browser. Session callers carry no scopes, as today.
 
 ## 5. Consequences
@@ -193,6 +200,7 @@ Design queries run in a **design-query service** over the revision's bundle proj
 ## 6. Security notes
 
 - The bearer path, not MCP, is the trust boundary: MCP adds no permission the policy table doesn't grant.
+- `render_view` runs the viewer headless on the worker, never in the request process, under the same memory budget as other worker jobs.
 - PATs and refresh tokens are stored hashed; access tokens are short-lived JWTs (proposed: 1 hour).
 - `/mcp` validates `Origin` and the token's audience (the resource indicator) on every request. A token minted for another resource is refused.
 - Rate limits per client and per token, configured by admins (v5.3), with defaults from v5.1.
@@ -216,9 +224,10 @@ Each package is one PR into `feature/scripting-mcp`, in this order. Packages on 
 | MCP-10 | Tool registry and the read-only MCP server at `/mcp`, with tasks and resource links | 05, 06, 09 |
 | MCP-11 | Governance switches and read audit | 10 |
 | MCP-12 | Python SDK and `prism` CLI | 06 |
-| MCP-13 | Docs: "Automating Prism" (SDK, CLI, MCP client setup) | 10, 12 |
+| MCP-13 | `render_view`: headless renders from the bundle, as a route and a tool (D9) | 05, 07, 10 |
+| MCP-14 | Docs: "Automating Prism" (SDK, CLI, MCP client setup) | 10, 12 |
 
-The branch merges into `dev` when MCP-01 to MCP-13 are in and the full suites pass on it. The automated upgrade and rollback check from the release plan is separate, not part of this branch.
+The branch merges into `dev` when MCP-01 to MCP-14 are in and the full suites pass on it. The automated upgrade and rollback check from the release plan is separate, not part of this branch.
 
 ## 8. Alternatives considered
 
@@ -229,9 +238,5 @@ The branch merges into `dev` when MCP-01 to MCP-13 are in and the full suites pa
 
 ## 9. Open questions
 
-1. May an agent resolve a comment someone else wrote when a person asked it to ("resolve everything addressed in this commit")? Proposed: no; agents resolve only their own.
-2. Read audit volume: log every MCP read, or sample? §3.11 proposes every read.
-3. One MCP endpoint per deployment (proposed) or per workspace later?
-4. Publish the server in the MCP registry, or keep it documentation-only, given every Prism is self-hosted?
-5. SDK distribution: publish to PyPI, or ship it in the release archive only?
-6. `render_view` (PNG renders for multimodal agents): v5.2 as planned, or pulled into v5.1?
+1. **One MCP endpoint per deployment, or per workspace?** A deployment is one workspace today (no workspace id anywhere in the schema), so one `/mcp` per deployment is proposed. Projects are limited by folder visibility and the admin allowlist (§3.11). Per-workspace endpoints only matter if Prism becomes multi-tenant, and would then mean one OAuth resource and audience per workspace.
+2. **Publish the server in the MCP Registry?** The registry is a public catalog that clients search to find servers. Every Prism is self-hosted at its own URL, so an entry would describe how to connect, not where. Proposed: documentation only for v5.1; revisit once the server is stable.
