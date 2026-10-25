@@ -266,7 +266,7 @@ See [Release process](docs/RELEASES.md).
 ## Project status
 
 `main` contains stable release history; the latest release is
-[`v5.0.0-alpha`](https://github.com/krishna-swaroop/KiCAD-Prism/releases/tag/v5.0.0-alpha).
+[`v5.0.1-alpha`](https://github.com/krishna-swaroop/KiCAD-Prism/releases/tag/v5.0.1-alpha).
 `dev` holds unreleased work and may change between releases.
 
 Current boundaries include:
