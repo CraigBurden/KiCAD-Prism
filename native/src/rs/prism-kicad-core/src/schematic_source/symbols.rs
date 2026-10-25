@@ -5,7 +5,7 @@ use super::{
 use crate::schematic_bundle::SchematicBundleLimits;
 use crate::sexpr_projection::FormSpan;
 use crate::source_bundle::SourceBundleError;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 
@@ -440,8 +440,12 @@ fn parse_symbol(
             .get(2)
             .map_or(Ok(0.0), |value| finite_f64(value, source_path))
     })?;
-    let instances =
-        parse_symbol_instances(source, child(&spans, "instances"), source_path, limits)?;
+    let instances = last_instance_per_path(parse_symbol_instances(
+        source,
+        child(&spans, "instances"),
+        source_path,
+        limits,
+    )?);
     let indexes = index_symbol_instances(
         &instances,
         limits.max_symbol_instance_index_bytes_per_source,
@@ -561,6 +565,26 @@ fn instance_index_bytes(path: &str) -> Option<usize> {
         .and_then(|bytes| bytes.checked_add(2 * std::mem::size_of::<usize>()))
         .and_then(|bytes| bytes.checked_add(2 * std::mem::size_of::<PathFingerprint>()))
         .and_then(|bytes| bytes.checked_add(2 * std::mem::size_of::<InstanceIndexEntry>()))
+}
+
+/// KiCad keeps one instance per project and path: a repeated one replaces the
+/// earlier (`SCH_SYMBOL::AddHierarchicalReference` removes it first).
+fn last_instance_per_path(instances: Vec<SchematicSymbolInstance>) -> Vec<SchematicSymbolInstance> {
+    let keep: HashSet<usize> = {
+        let mut last = HashMap::<(&str, &str), usize>::new();
+        for (index, instance) in instances.iter().enumerate() {
+            last.insert((&instance.project, normalized_path(&instance.path)), index);
+        }
+        last.into_values().collect()
+    };
+    if keep.len() == instances.len() {
+        return instances;
+    }
+    instances
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, instance)| keep.contains(&index).then_some(instance))
+        .collect()
 }
 
 fn normalized_path(path: &str) -> &str {

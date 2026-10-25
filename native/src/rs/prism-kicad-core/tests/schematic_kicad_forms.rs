@@ -121,6 +121,28 @@ fn repeated_header_forms_keep_the_later_value() {
     );
 }
 
+/// KiCad keeps one instance per project and path; a repeated one replaces the
+/// earlier (`SCH_SYMBOL::AddHierarchicalReference` removes it first).
+#[test]
+fn a_repeated_instance_path_keeps_the_later_record() {
+    let root = r#"(kicad_sch (version 20260306) (uuid root)
+      (lib_symbols
+        (symbol "Demo:R"
+          (property "Reference" "R" (at 0 0 0))
+          (symbol "Demo:R_1_1"
+            (pin passive line (at 0 0 0) (length 0) (name "~") (number "1")))))
+      (symbol (lib_id "Demo:R") (at 0 0 0) (unit 1)
+        (uuid 4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a)
+        (property "Reference" "R?" (at 0 0 0))
+        (instances
+          (project "demo"
+            (path "/root" (reference "R1") (unit 1))
+            (path "/root" (reference "R2") (unit 1))))))"#;
+    let design = design(&[("root.kicad_sch", root)]).expect("a repeated instance path");
+    assert!(net_of(&design, "R2", "1").is_some());
+    assert!(net_of(&design, "R1", "1").is_none());
+}
+
 fn net_of(design: &Value, designator: &str, pin: &str) -> Option<String> {
     design["nets"].as_array()?.iter().find_map(|net| {
         net["terminals"]

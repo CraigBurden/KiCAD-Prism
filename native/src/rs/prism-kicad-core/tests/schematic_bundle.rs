@@ -1070,7 +1070,7 @@ fn modern_symbol_instance_paths_require_exact_project_ownership() {
 }
 
 #[test]
-fn symbol_instance_lookup_is_project_aware_and_rejects_ambiguity() {
+fn symbol_instance_lookup_is_project_aware_and_keeps_the_later_duplicate() {
     let bundle = schematic_with_root(
         br#"(kicad_sch
           (symbol (uuid symbol-a)
@@ -1089,12 +1089,15 @@ fn symbol_instance_lookup_is_project_aware_and_rejects_ambiguity() {
         .definition("design/root.kicad_sch")
         .expect("root")
         .symbols[0];
+    // KiCad keeps one instance per project and path, the later replacing the earlier
+    // (`SCH_SYMBOL::AddHierarchicalReference`).
     assert_eq!(
         symbol
             .instance_for_project("alpha", "/same")
-            .expect_err("same-project duplicate must be ambiguous")
-            .matches,
-        2
+            .expect("same-project duplicate resolves")
+            .expect("alpha path")
+            .reference,
+        "A2"
     );
     assert_eq!(
         symbol
@@ -1109,7 +1112,8 @@ fn symbol_instance_lookup_is_project_aware_and_rejects_ambiguity() {
             .unique_instance_for_path("/same")
             .expect_err("cross-project path must be ambiguous")
             .matches,
-        3
+        2,
+        "one record per project once alpha's duplicate collapses"
     );
     assert_eq!(
         symbol
