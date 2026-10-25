@@ -1,6 +1,6 @@
 # ADR: Scriptable Prism and the MCP server
 
-- **Status:** Accepted (2026-10-26). §2 records the maintainer's decisions of 2026-10-25 and 2026-10-26; §3 was accepted as proposed on 2026-10-26.
+- **Status:** Accepted (2026-10-26). §2 records the maintainer's decisions of 2026-10-25 and 2026-10-26; §3 was accepted as proposed on 2026-10-26, and §3.10 amended with D12 the same day.
 - **Branch:** work happens on `feature/scripting-mcp`; every PR in this effort targets it, and it merges into `dev` once the v5.1 slice (§7) is complete.
 - **Builds on:**
   - the caller policy table, `backend/app/core/policy.py`: one rule per action, naming roles, bearer scopes and provider refusals;
@@ -46,6 +46,7 @@ Prism's theme for the next major (v6) is AI integration. Prism does not run a mo
 | D9 | **`render_view` ships in v5.1** (2026-10-26), not v5.2: PNG renders of a schematic region, PCB area or 3D view with highlights, for multimodal agents. |
 | D10 | **One MCP endpoint per deployment** (2026-10-26). A deployment is one workspace; agents see projects through folder visibility and the admin allowlist (§3.11). Per-workspace endpoints are reconsidered only if Prism becomes multi-tenant. |
 | D11 | **Not listed in the MCP Registry for now** (2026-10-26). Every Prism is self-hosted at its own URL, so v5.1 documents how to connect instead. Revisited once the server is stable. |
+| D12 | **One live event socket, fed by the event log** (2026-10-26). The live socket of §3.10 is part of MCP-08 instead of per-feature sockets; polling remains the fallback. |
 
 ## 3. Decisions proposed
 
@@ -159,11 +160,25 @@ Design queries run in a **design-query service** over the revision's bundle proj
 - An append-only event table records:
   - revision synced;
   - bundle built or failed;
+  - job progress and completion;
   - comparison done;
   - comment changed;
   - release candidate built or approved.
-- In v5.1 it backs MCP subscriptions and a polling route (`GET /api/v1/events?after=`), the pattern the comment change feed already uses.
-- Signed outbound webhooks with retries read the same log in v5.2.
+- One log feeds every consumer: the polling route `GET /api/v1/events?after=`, the live socket below, MCP subscriptions, and the signed outbound webhooks with retries in v5.2.
+- **Live socket** (D12). One socket per signed-in user at `/api/v1/events/live` replaces per-feature sockets and polling loops.
+  - It follows `comment_live_broker.py`: the table is the record. Postgres `NOTIFY` is only a wake-up hint, because workers write events from other processes. A reconnecting client replays from its cursor.
+  - Clients subscribe to topics such as `project:<id>` and `job:<id>`. The policy table and folder visibility are checked on subscribe and again for each event delivered.
+  - A heartbeat keeps idle sockets under nginx's 300 s `proxy_read_timeout`. Fan-out runs off the event loop, so a burst of events can't stall requests.
+  - `websockets` must be in `runtime.lock`, or live sockets answer 405 in production. `TestClient` hides this, so a deployment-level check covers it.
+  - Polling stays as the fallback.
+  - Screens that move onto it after MCP-08:
+    - job progress (`server-state.ts`);
+    - the design-data panel (its 5 s poll);
+    - Release Studio;
+    - Simulation Studio runs;
+    - library imports;
+    - a "new commit or bundle ready" notice on open pages.
+  - Not in scope: viewer data and file reads, live co-editing, presence.
 
 ### 3.11 Governance
 
@@ -221,7 +236,7 @@ Each package is one PR into `feature/scripting-mcp`, in this order. Packages on 
 | MCP-05 | Server-side BOM, review grouping and anchor resolution; the design-query service | 01 |
 | MCP-06 | Typing pass over the routes MCP and the SDK use | 01, 05 |
 | MCP-07 | Identity contract test; URL grammar helper; `deep_links.py` fix | 00 |
-| MCP-08 | Event log and `GET /api/v1/events` | 01 |
+| MCP-08 | Event log, `GET /api/v1/events` and the live socket `/api/v1/events/live` (§3.10) | 01 |
 | MCP-09 | OAuth for MCP clients (CIMD, RFC 9728, RFC 9207, refresh, incremental consent) | 02, 03 |
 | MCP-10 | Tool registry and the read-only MCP server at `/mcp`, with tasks and resource links | 05, 06, 09 |
 | MCP-11 | Governance switches and read audit | 10 |
