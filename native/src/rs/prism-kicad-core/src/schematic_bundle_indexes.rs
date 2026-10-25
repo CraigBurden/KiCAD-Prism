@@ -81,11 +81,12 @@ fn library_symbol_index_for_key(index: &HashMap<String, usize>, key: &str) -> Op
     if key.is_empty() {
         return None;
     }
-    let direct = index.get(key).copied();
-    let basename = key
-        .rsplit_once(':')
-        .and_then(|(_, basename)| index.get(basename).copied());
-    direct.into_iter().chain(basename).min()
+    // KiCad looks a placed symbol's `lib_name` or `lib_id` up exactly; the base name
+    // is only a fallback, so `power:VCC` never resolves to an earlier `Local:VCC`.
+    index.get(key).copied().or_else(|| {
+        key.rsplit_once(':')
+            .and_then(|(_, basename)| index.get(basename).copied())
+    })
 }
 
 pub(crate) fn index_bundle_legacy_instances(
