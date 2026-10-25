@@ -92,9 +92,13 @@ pub(super) fn project(
             &port_key,
             &mut diagnostics,
         );
-        // `memberKeys = sorted(key for _unit, key, _symbol in units)` (:437).
+        // `memberKeys = sorted(key for _unit, key, _symbol in units)` (:437),
+        // each once: units copied with their symbol share its UUID and so its
+        // KIID path, which KiCad keeps (`ReplaceDuplicateTimeStamps` runs only
+        // on legacy files).
         let mut member_keys: Vec<&String> = units.iter().map(|unit| &unit.key).collect();
         member_keys.sort_unstable();
+        member_keys.dedup();
         let component_geometry = geometry(board, &reference);
         let component_dnp = is_dnp(&default_dnp, &reference);
         components.push(json!({

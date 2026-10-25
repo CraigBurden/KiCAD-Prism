@@ -276,21 +276,36 @@ fn entry_of<'a>(
 }
 
 /// Check the read set against `record`: conditions 4–7 of cli-spec.md §5.10,
-/// in order, each on the first failing path in code point order. `bundle
-/// reuse` calls this for a stored manifest; stage parse calls it before
-/// writing, where a `Some` result is I14, a defect (exit 1, `internal`).
+/// in order, each on the first failing path in code point order. Stage parse
+/// calls it before writing, where a `Some` result is I14, a defect (exit 1,
+/// `internal`).
+///
+/// A 3D model the key lists but the worker could not materialize
+/// (`unavailable`, each warned `model-unavailable`) is absent from the source
+/// root, so a reader that probes or lists it finds it absent although the
+/// record lists it. That is the build bundle-format.md §2.2 describes, not a
+/// defect, so the check reads the record without those models; `bundle
+/// reuse` refuses such a bundle anyway (condition 3).
 #[must_use]
 pub fn check(
     read_set: &ReadSet,
     members: &[MemberData],
     record: &rk::RevisionKeyRecordA1,
+    unavailable: &BTreeSet<String>,
 ) -> Option<Mismatch> {
     let sources: Vec<&a3::BundleManifestSourceEntry> = members
         .iter()
         .filter(|member| is_source_role(member.role))
         .filter_map(|member| member.source.as_ref())
         .collect();
-    check_sources(read_set, &sources, record)
+    if unavailable.is_empty() {
+        return check_sources(read_set, &sources, record);
+    }
+    let mut built = record.clone();
+    built
+        .entries
+        .retain(|entry| !unavailable.contains(&entry.path.0));
+    check_sources(read_set, &sources, &built)
 }
 
 /// [`check`] on the source entries a manifest records, for `bundle reuse`,
@@ -605,7 +620,10 @@ mod tests {
             &record,
             "USB-PD-Trigger-Board.kicad_pro",
         ))];
-        assert_eq!(check(&ReadSet::default(), &members, &record), None);
+        assert_eq!(
+            check(&ReadSet::default(), &members, &record, &BTreeSet::new()),
+            None
+        );
     }
 
     #[test]
@@ -616,7 +634,7 @@ mod tests {
             a3::RevisionKeyEntryKind::Regular,
             &"0".repeat(40),
         )];
-        let mismatch = check(&ReadSet::default(), &members, &record).unwrap();
+        let mismatch = check(&ReadSet::default(), &members, &record, &BTreeSet::new()).unwrap();
         assert_eq!(mismatch.condition, CliReuseCondition::Read);
         assert_eq!(mismatch.path, "ghost.kicad_sch");
     }
@@ -636,7 +654,7 @@ mod tests {
             }],
             ..ReadSet::default()
         };
-        let mismatch = check(&read_set, &members, &record).unwrap();
+        let mismatch = check(&read_set, &members, &record, &BTreeSet::new()).unwrap();
         assert_eq!(mismatch.condition, CliReuseCondition::Probe);
         assert_eq!(mismatch.path, "USB-PD-Trigger-Board.kicad_pro");
     }
@@ -657,7 +675,7 @@ mod tests {
             }],
             ..ReadSet::default()
         };
-        let mismatch = check(&read_set, &members, &record).unwrap();
+        let mismatch = check(&read_set, &members, &record, &BTreeSet::new()).unwrap();
         assert_eq!(mismatch.condition, CliReuseCondition::Listing);
     }
 
@@ -675,7 +693,7 @@ mod tests {
             }],
             ..ReadSet::default()
         };
-        let mismatch = check(&read_set, &members, &record).unwrap();
+        let mismatch = check(&read_set, &members, &record, &BTreeSet::new()).unwrap();
         assert_eq!(mismatch.condition, CliReuseCondition::Gitlink);
         assert_eq!(mismatch.path, "vendor/footprints");
     }
@@ -716,7 +734,7 @@ mod tests {
             }],
             ..ReadSet::default()
         };
-        let mismatch = check(&read_set, &members, &record).unwrap();
+        let mismatch = check(&read_set, &members, &record, &BTreeSet::new()).unwrap();
         assert_eq!(mismatch.condition, CliReuseCondition::Gitlink);
         assert_eq!(mismatch.path, "vendor/footprints");
     }
