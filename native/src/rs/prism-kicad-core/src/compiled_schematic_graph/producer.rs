@@ -255,7 +255,7 @@ impl<'a> StructuralGraphBuilder<'a> {
         let source_record = format!("instance-path:{}", occurrence.occurrence_address);
         let address_key = format!("sheet{}", occurrence.index);
         let sheet_number = occurrence.index.to_string();
-        let display_name = if occurrence.parent_index.is_none() {
+        let display_name = if occurrence.is_root_schematic() {
             portable_stem(
                 self.index
                     .portable_source_path(&source_definition.source_path),

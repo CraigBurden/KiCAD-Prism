@@ -832,23 +832,36 @@ fn absent_and_miscased_sub_sheets_warn() {
     );
 }
 
-/// KiCad 10 loads every sheet a project lists in `schematic.top_level_sheets`; the
-/// bundle reads one root, so each other listed sheet is a warning, not a silent drop.
+/// KiCad 10 opens each sheet a project lists in `schematic.top_level_sheets`: the
+/// bundle reads every one in the source set and warns for a listed one that is not.
 #[test]
-fn unread_top_level_sheets_warn() {
+fn every_top_level_sheet_is_read() {
     let project = r#"{"schematic": {"top_level_sheets": [
         {"filename": "p.kicad_sch", "name": "p", "uuid": "00000000-0000-0000-0000-000000000001"},
-        {"filename": "second.kicad_sch", "name": "second", "uuid": "00000000-0000-0000-0000-000000000002"}]}}"#;
+        {"filename": "second.kicad_sch", "name": "second", "uuid": "00000000-0000-0000-0000-000000000002"},
+        {"filename": "gone.kicad_sch", "name": "gone", "uuid": "00000000-0000-0000-0000-000000000003"}]}}"#;
     let tree = source_tree(&[
         ("p.kicad_pro", project),
         ("p.kicad_sch", SHEET),
         ("second.kicad_sch", SHEET),
     ]);
-    let built = parse_into(&tree.join("p.kicad_pro"), &tree.join("o.prism"));
-    assert_eq!(built.code, 0);
+    let out = tree.join("o.prism");
+    let built = parse_into(&tree.join("p.kicad_pro"), &out);
+    assert_eq!(built.code, 0, "{}", built.document);
+    assert_eq!(built.document["stages"][0]["status"], "complete");
     let warnings = built.document["warnings"].as_array().expect("warnings");
     assert_eq!(warnings.len(), 1);
-    assert_eq!(warnings[0]["code"], "top-level-sheet-unread");
+    assert_eq!(warnings[0]["code"], "top-level-sheet-missing");
+    let limits = Limits::defaults(Work::Verify);
+    let reader = BundleReader::open(std::fs::read(&out).unwrap(), &limits).unwrap();
+    assert!(
+        reader
+            .manifest()
+            .members
+            .iter()
+            .any(|member| member.path.0 == "sources/second.kicad_sch"),
+        "the second top-level sheet is read"
+    );
 }
 
 /// KiCad turns `\` into `/` in a sheet file name (`SCH_SHEET::SetFileName`); every

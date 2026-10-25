@@ -19,12 +19,14 @@ use crate::sexpr_projection::{FormSpan, ProjectionLimits, Selector, scan_form_sp
 use crate::source_bundle::{SourceBundle, SourceBundleError, SourceBundleErrorKind};
 use prism_kicad_contracts::generated::source_bundle_manifest::SourceKind;
 use std::borrow::Cow;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 mod document;
+mod hierarchy;
 mod path_helpers;
 mod sheet_parse;
 mod title_block;
-use path_helpers::{join_occurrence_path, nonempty_or, portable_file_name, portable_parent};
+use hierarchy::{hierarchy_roots, realize_occurrences};
+use path_helpers::{portable_file_name, portable_parent};
 use sheet_parse::{SheetParseState, default_sheet};
 use title_block::parse_title_block;
 
@@ -102,6 +104,16 @@ pub struct SchematicOccurrence {
     pub effective_exclude_from_sim: bool,
 }
 
+impl SchematicOccurrence {
+    /// The root schematic of a single-root project, which carries no sheet of
+    /// its own and is named after its file. A KiCad 10 multi-root project's
+    /// top-level sheets are top-level occurrences with a name and file.
+    #[must_use]
+    pub fn is_root_schematic(&self) -> bool {
+        self.parent_index.is_none() && self.sheet_file.is_empty()
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct SchematicBundleIndex {
     limits: SchematicBundleLimits,
@@ -161,7 +173,16 @@ impl SchematicBundleIndex {
         }
         let parse_definitions_ns = elapsed_ns(definitions_started);
         let occurrences_started = profile.then(std::time::Instant::now);
-        let occurrences = realize_occurrences(bundle, &definitions, &definition_by_path, limits)?;
+        let project_settings = project_schematic_settings_with_limits(bundle.project(), limits)?;
+        let roots = hierarchy_roots(
+            bundle,
+            &project_settings.top_level_sheets,
+            &definitions,
+            &definition_by_path,
+            limits,
+        )?;
+        let occurrences =
+            realize_occurrences(bundle, roots, &definitions, &definition_by_path, limits)?;
         let realize_occurrences_ns = elapsed_ns(occurrences_started);
         let indexes_started = profile.then(std::time::Instant::now);
         let legacy_symbol_instance_by_path = index_bundle_legacy_instances(&definitions);
@@ -173,7 +194,6 @@ impl SchematicBundleIndex {
             .map_or_else(String::new, portable_file_stem);
         let project_file = portable_file_name(identity_path).to_owned();
         let source_anchor = portable_parent(identity_path).to_owned();
-        let project_settings = project_schematic_settings_with_limits(bundle.project(), limits)?;
         let bundle_identity_sha256 = bundle.bundle_identity_sha256();
         let assemble_indexes_ns = elapsed_ns(indexes_started);
         let index = Self {
@@ -841,219 +861,6 @@ fn decoded(token: Token<'_>) -> Cow<'_, str> {
     } else {
         Cow::Borrowed(token.lexeme)
     }
-}
-
-#[derive(Clone, Debug)]
-enum HierarchyWork {
-    Enter(Box<HierarchyEnter>),
-    Exit(String),
-}
-
-#[derive(Clone, Debug)]
-struct HierarchyEnter {
-    source_path: String,
-    parent_index: Option<usize>,
-    parent_sheet_index: Option<usize>,
-    sheet: Option<SchematicSheet>,
-    parent_address: String,
-    parent_legacy_address: String,
-    parent_human_address: String,
-    effective_in_bom: bool,
-    effective_on_board: bool,
-    effective_dnp: bool,
-    effective_exclude_from_sim: bool,
-}
-
-fn realize_occurrences(
-    bundle: &SourceBundle,
-    definitions: &[SchematicDefinition],
-    definition_by_path: &HashMap<String, usize>,
-    limits: SchematicBundleLimits,
-) -> Result<Vec<SchematicOccurrence>, SourceBundleError> {
-    let mut occurrences = Vec::new();
-    let mut active_sources = HashSet::new();
-    let mut work = vec![HierarchyWork::Enter(Box::new(HierarchyEnter {
-        source_path: bundle.root_schematic_path().to_owned(),
-        parent_index: None,
-        parent_sheet_index: None,
-        sheet: None,
-        parent_address: String::new(),
-        parent_legacy_address: String::new(),
-        parent_human_address: String::new(),
-        effective_in_bom: true,
-        effective_on_board: true,
-        effective_dnp: false,
-        effective_exclude_from_sim: false,
-    }))];
-    while let Some(item) = work.pop() {
-        match item {
-            HierarchyWork::Exit(source_path) => {
-                active_sources.remove(&source_path);
-            }
-            HierarchyWork::Enter(enter) => {
-                if !active_sources.insert(enter.source_path.clone()) {
-                    return Err(SourceBundleError::new(
-                        SourceBundleErrorKind::HierarchyCycle,
-                        Some(&enter.source_path),
-                        "schematic hierarchy contains a source cycle",
-                    ));
-                }
-                if occurrences.len() >= limits.max_occurrences {
-                    return Err(schematic_limit(
-                        &enter.source_path,
-                        "hierarchy occurrence count exceeds its limit",
-                    ));
-                }
-                let definition_index =
-                    *definition_by_path.get(&enter.source_path).ok_or_else(|| {
-                        SourceBundleError::new(
-                            SourceBundleErrorKind::MissingSource,
-                            Some(&enter.source_path),
-                            "resolved schematic was not indexed",
-                        )
-                    })?;
-                let definition = &definitions[definition_index];
-                let index = occurrences.len() + 1;
-                let occurrence = materialize_occurrence(&enter, definition, index, limits)?;
-                let occurrence_address = occurrence.occurrence_address.clone();
-                let legacy_address = occurrence.legacy_address.clone();
-                let human_address = occurrence.human_address.clone();
-                occurrences.push(occurrence);
-                work.push(HierarchyWork::Exit(enter.source_path.clone()));
-                for (child_index, child) in distinct_sheets(&definition.sheets).enumerate().rev() {
-                    let Some(child_source) = bundle.resolve_schematic(
-                        &enter.source_path,
-                        &child.sheet_file,
-                        limits.max_path_bytes,
-                    )?
-                    else {
-                        continue;
-                    };
-                    let child_path = child_source.path().to_owned();
-                    work.push(HierarchyWork::Enter(Box::new(HierarchyEnter {
-                        source_path: child_path,
-                        parent_index: Some(index),
-                        parent_sheet_index: Some(child_index),
-                        sheet: Some(child.clone()),
-                        parent_address: occurrence_address.clone(),
-                        parent_legacy_address: legacy_address.clone(),
-                        parent_human_address: human_address.clone(),
-                        effective_in_bom: enter.effective_in_bom && child.in_bom,
-                        effective_on_board: enter.effective_on_board && child.on_board,
-                        effective_dnp: enter.effective_dnp || child.dnp,
-                        effective_exclude_from_sim: enter.effective_exclude_from_sim
-                            || child.exclude_from_sim,
-                    })));
-                }
-            }
-        }
-    }
-    Ok(occurrences)
-}
-
-/// A sheet's UUID names its occurrence path. KiCad keeps a UUID two sheets share
-/// (`SCH_SCREENS::ReplaceDuplicateTimeStamps` leaves sheets to a @todo), so a later
-/// sibling sharing one is numbered here to keep the occurrences apart.
-fn distinct_sheets(
-    sheets: &[SchematicSheet],
-) -> impl DoubleEndedIterator<Item = SchematicSheet> + ExactSizeIterator {
-    let mut seen = HashMap::<String, usize>::new();
-    sheets
-        .iter()
-        .map(|sheet| {
-            let key = if sheet.uuid.is_empty() {
-                &sheet.sheet_file
-            } else {
-                &sheet.uuid
-            };
-            let uses = seen.entry(key.clone()).or_default();
-            *uses += 1;
-            let mut sheet = sheet.clone();
-            if *uses > 1 {
-                sheet.uuid = format!("{key}#{}", *uses - 1);
-            }
-            sheet
-        })
-        .collect::<Vec<_>>()
-        .into_iter()
-}
-
-fn materialize_occurrence(
-    enter: &HierarchyEnter,
-    definition: &SchematicDefinition,
-    index: usize,
-    limits: SchematicBundleLimits,
-) -> Result<SchematicOccurrence, SourceBundleError> {
-    let (occurrence_address, legacy_address, human_address) =
-        occurrence_paths(enter, definition, limits)?;
-    let (sheet_uuid, sheet_name, sheet_file) = enter.sheet.as_ref().map_or_else(
-        || (None, "root".to_owned(), String::new()),
-        |value| {
-            (
-                (!value.uuid.is_empty()).then(|| value.uuid.clone()),
-                if value.sheet_name.is_empty() {
-                    value.sheet_file.clone()
-                } else {
-                    value.sheet_name.clone()
-                },
-                value.sheet_file.clone(),
-            )
-        },
-    );
-    Ok(SchematicOccurrence {
-        index,
-        source_path: enter.source_path.clone(),
-        parent_index: enter.parent_index,
-        parent_sheet_index: enter.parent_sheet_index,
-        sheet_uuid,
-        sheet_name,
-        sheet_file,
-        occurrence_address,
-        legacy_address,
-        human_address,
-        effective_in_bom: enter.effective_in_bom,
-        effective_on_board: enter.effective_on_board,
-        effective_dnp: enter.effective_dnp,
-        effective_exclude_from_sim: enter.effective_exclude_from_sim,
-    })
-}
-
-fn occurrence_paths(
-    enter: &HierarchyEnter,
-    definition: &SchematicDefinition,
-    limits: SchematicBundleLimits,
-) -> Result<(String, String, String), SourceBundleError> {
-    let uuid_segment = enter
-        .sheet
-        .as_ref()
-        .map(|sheet| nonempty_or(&sheet.uuid, &sheet.sheet_file))
-        .or(definition.uuid.as_deref())
-        .unwrap_or("root");
-    let occurrence = join_occurrence_path(&enter.parent_address, uuid_segment, false);
-    let legacy = enter.sheet.as_ref().map_or_else(
-        || "/".to_owned(),
-        |_| join_occurrence_path(&enter.parent_legacy_address, uuid_segment, true),
-    );
-    let human = enter.sheet.as_ref().map_or_else(
-        || "/".to_owned(),
-        |sheet| {
-            join_occurrence_path(
-                &enter.parent_human_address,
-                nonempty_or(&sheet.sheet_name, &sheet.sheet_file),
-                true,
-            )
-        },
-    );
-    if [occurrence.len(), legacy.len(), human.len()]
-        .into_iter()
-        .any(|bytes| bytes > limits.max_path_bytes)
-    {
-        return Err(schematic_limit(
-            &enter.source_path,
-            "schematic occurrence path exceeds max_path_bytes",
-        ));
-    }
-    Ok((occurrence, legacy, human))
 }
 
 fn schematic_error(path: &str, error: crate::Error) -> SourceBundleError {

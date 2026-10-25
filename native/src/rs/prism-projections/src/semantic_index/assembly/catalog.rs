@@ -97,7 +97,7 @@ fn board_records(
     Some(records)
 }
 
-/// Walk the root schematic and every sheet it reaches in hierarchy order
+/// Walk the top-level schematics and every sheet they reach in hierarchy order
 /// (`variant_catalog_service.py:308-328`).
 fn schematic_walk(input: &ProjectionInput<'_>, builder: &mut Builder) {
     let Some(root) = input
@@ -109,7 +109,20 @@ fn schematic_walk(input: &ProjectionInput<'_>, builder: &mut Builder) {
         return;
     };
     let project_dir = parent_dir(&input.config.project_file.0).to_owned();
-    let mut pending = vec![root];
+    // A KiCad 10 multi-root project starts from each top-level sheet the core
+    // realized; otherwise the root schematic.
+    let mut pending: Vec<String> = input.schematic.map_or_else(Vec::new, |model| {
+        model
+            .index
+            .occurrences()
+            .filter(|occurrence| occurrence.parent_index.is_none())
+            .map(|occurrence| occurrence.source_path.clone())
+            .collect()
+    });
+    if pending.is_empty() {
+        pending.push(root);
+    }
+    pending.reverse();
     let mut visited: BTreeSet<String> = BTreeSet::new();
     while let Some(path) = pending.pop() {
         let Some(resolved) = normalize(&path) else {
