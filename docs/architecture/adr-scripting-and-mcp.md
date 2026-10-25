@@ -1,6 +1,6 @@
 # ADR: Scriptable Prism and the MCP server
 
-- **Status:** Proposed (2026-10-26). §2 records decisions the maintainer took on 2026-10-25 and 2026-10-26. §3 is proposed and becomes binding on acceptance. §9 lists what is still open.
+- **Status:** Accepted (2026-10-26). §2 records the maintainer's decisions of 2026-10-25 and 2026-10-26; §3 was accepted as proposed on 2026-10-26.
 - **Branch:** work happens on `feature/scripting-mcp`; every PR in this effort targets it, and it merges into `dev` once the v5.1 slice (§7) is complete.
 - **Builds on:**
   - the caller policy table, `backend/app/core/policy.py`: one rule per action, naming roles, bearer scopes and provider refusals;
@@ -44,6 +44,8 @@ Prism's theme for the next major (v6) is AI integration. Prism does not run a mo
 | D7 | **Every MCP read is audited** (2026-10-26), with client, tool, project and revision; no sampling. |
 | D8 | **The SDK is designed to be published** (2026-10-26): its own package, versioning and licence metadata from the start. Whether and where to publish is decided later. |
 | D9 | **`render_view` ships in v5.1** (2026-10-26), not v5.2: PNG renders of a schematic region, PCB area or 3D view with highlights, for multimodal agents. |
+| D10 | **One MCP endpoint per deployment** (2026-10-26). A deployment is one workspace; agents see projects through folder visibility and the admin allowlist (§3.11). Per-workspace endpoints are reconsidered only if Prism becomes multi-tenant. |
+| D11 | **Not listed in the MCP Registry for now** (2026-10-26). Every Prism is self-hosted at its own URL, so v5.1 documents how to connect instead. Revisited once the server is stable. |
 
 ## 3. Decisions proposed
 
@@ -238,5 +240,4 @@ The branch merges into `dev` when MCP-01 to MCP-14 are in and the full suites pa
 
 ## 9. Open questions
 
-1. **One MCP endpoint per deployment, or per workspace?** A deployment is one workspace today (no workspace id anywhere in the schema), so one `/mcp` per deployment is proposed. Projects are limited by folder visibility and the admin allowlist (§3.11). Per-workspace endpoints only matter if Prism becomes multi-tenant, and would then mean one OAuth resource and audience per workspace.
-2. **Publish the server in the MCP Registry?** The registry is a public catalog that clients search to find servers. Every Prism is self-hosted at its own URL, so an entry would describe how to connect, not where. Proposed: documentation only for v5.1; revisit once the server is stable.
+None. The questions raised in review are settled as D6–D11.
