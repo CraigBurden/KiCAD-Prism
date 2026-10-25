@@ -102,6 +102,8 @@ class AuthConfig(BaseModel):
     oidc_provider_name: str = ""
     password_auth_enabled: bool = False
     workspace_name: str
+    # Its routes 404 when off; the frontend asks here instead of probing one.
+    sim_studio_enabled: bool = False
 
 
 class ActiveSession(BaseModel):
@@ -212,6 +214,7 @@ async def get_auth_config():
         oidc_provider_name=settings.OIDC_PROVIDER_NAME.strip() or "SSO",
         password_auth_enabled=password_auth_enabled(),
         workspace_name=settings.WORKSPACE_NAME,
+        sim_studio_enabled=settings.PRISM_SIM_STUDIO_ENABLED,
     )
 
 
