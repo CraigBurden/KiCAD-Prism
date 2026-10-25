@@ -63,6 +63,23 @@ fn labels_with_many_fields_parse() {
     design(&[("root.kicad_sch", &root)]).expect("labels with fields");
 }
 
+/// KiCad reads a pin orientation with `strtol` (`parsePin`, `parseInt("pin
+/// orientation")`): `270.0` is 270.
+#[test]
+fn decimal_pin_angles_read_as_their_integer_part() {
+    let root = r#"(kicad_sch (version 20260306) (uuid root)
+      (lib_symbols
+        (symbol "Demo:R"
+          (property "Reference" "R" (at 0 0 0))
+          (symbol "Demo:R_1_1"
+            (pin passive line (at 0 0 270.0) (length 2.54) (name "~") (number "1")))))
+      (symbol (lib_id "Demo:R") (at 0 0 0) (unit 1)
+        (uuid 5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a)
+        (property "Reference" "R1" (at 0 0 0))))"#;
+    let design = design(&[("root.kicad_sch", root)]).expect("a decimal pin angle");
+    assert!(net_of(&design, "R1", "1").is_some());
+}
+
 fn net_of(design: &Value, designator: &str, pin: &str) -> Option<String> {
     design["nets"].as_array()?.iter().find_map(|net| {
         net["terminals"]

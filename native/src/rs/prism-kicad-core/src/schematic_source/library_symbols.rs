@@ -554,11 +554,7 @@ fn parse_library_pin(
         .map(|at_span| direct_scalars(text, at_span, 3, source_path, limits))
         .transpose()?
         .and_then(|values| values.get(2).cloned())
-        .map_or(Ok(0), |value| {
-            value
-                .parse::<i64>()
-                .map_err(|_| source_error(source_path, "library pin angle is not an integer"))
-        })?;
+        .map_or(Ok(0), |value| pin_angle(&value, source_path))?;
     let hidden = header.iter().any(|value| value == "hide")
         || child_scalar(text, &selected, "hide", source_path, limits)?.as_deref() == Some("yes");
     let length = child_scalar(text, &selected, "length", source_path, limits)?;
@@ -666,4 +662,18 @@ fn unit_and_style(name: &str) -> (i64, i64) {
         (Some(unit), Some(style), Some(_)) => (unit, style),
         _ => (1, 0),
     }
+}
+
+/// KiCad reads a pin's orientation with `strtol` (`parseInt("pin orientation")` in
+/// `SCH_IO_KICAD_SEXPR_PARSER::parsePin`), so `270.0` is 270: the integer part of
+/// any number.
+fn pin_angle(value: &str, source_path: &str) -> Result<i64, SourceBundleError> {
+    value.parse::<i64>().or_else(|_| {
+        value
+            .parse::<f64>()
+            .ok()
+            .filter(|angle| angle.is_finite() && angle.abs() < 1e15)
+            .map(|angle| angle.trunc() as i64)
+            .ok_or_else(|| source_error(source_path, "library pin angle is not a number"))
+    })
 }
