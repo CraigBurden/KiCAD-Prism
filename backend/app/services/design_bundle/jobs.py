@@ -341,6 +341,14 @@ class _Run:
         except cli.CliFailure as failure:
             self.details["invocations"].append({"command": f"bundle build {stage}", "exit": failure.exit_code})
             if failure.retryable:
+                if stage != "parse" and failure.exit_code == 1:
+                    # Exit 1 is the CLI's internal category. A later stage
+                    # reads the stored archive, and a retry resumed
+                    # from the same archive failed the same way three times
+                    # where a fresh build passed (CMBD, v5.0.1), so the next
+                    # attempt rebuilds the archive instead of reading it again.
+                    logger.warning("Rebuilding %s after stage %s failed: %s", self.archive_path, stage, failure)
+                    store.delete(self.project_id, self.revision_key, self.generator.digest)
                 raise RetryableJobError(f"prism-kicad stage {stage}: {failure}", code=failure.code) from failure
             raise PermanentJobError(f"prism-kicad stage {stage}: {failure}", code=failure.code) from failure
         self.details["invocations"].append({**done.summary(), "stage": stage})

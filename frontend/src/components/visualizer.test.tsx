@@ -137,6 +137,21 @@ describe("Visualizer through the ecad-viewer adapter", () => {
         await waitFor(() => expect(cancel).toHaveBeenCalled());
     });
 
+    it("says a failed bundle once, in the view, not again in the index banner", async () => {
+        const failed = () => json({ status: "failed", members: ["projections/project.json"], detail: "member-schema-invalid" }, 422);
+        vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+            const url = String(input);
+            const path = new URL(url, "http://prism.test").pathname;
+            if (path.endsWith("/schematic") || path.endsWith("/schematic/subsheets") || path.endsWith("/semantic-index/identity")) {
+                return failed();
+            }
+            return serve(url);
+        }));
+        renderVisualizer();
+        await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(1));
+        expect(screen.getAllByText("Design data could not be built")).toHaveLength(1);
+    });
+
     it("hands the schematic its project, page layout and subsheets with the root, in one load", async () => {
         // Support files arriving after the sheet would reload the whole design.
         const project = { filename: "board.kicad_pro", content: "{}" };
