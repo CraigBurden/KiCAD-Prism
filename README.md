@@ -1,5 +1,9 @@
 # KiCAD Prism
 
+[![Latest release](https://img.shields.io/github/v/release/krishna-swaroop/KiCAD-Prism?include_prereleases&sort=semver&label=release)](https://github.com/krishna-swaroop/KiCAD-Prism/releases/latest)
+[![Release date](https://img.shields.io/github/release-date-pre/krishna-swaroop/KiCAD-Prism?label=released)](https://github.com/krishna-swaroop/KiCAD-Prism/releases)
+[![License](https://img.shields.io/github/license/krishna-swaroop/KiCAD-Prism)](LICENSE)
+
 KiCAD Prism is an open-source, self-hosted review, release and
 component-governance platform for teams that design in KiCad and keep their
 projects in Git.
@@ -12,9 +16,13 @@ hardware, with no proprietary ECAD cloud.
 
 ![Project workspace](assets/readme/workspace.jpg)
 
+*The designs in these screenshots are third-party hardware projects, used to
+show Prism working on real boards. They are not made by Prism. See
+[Designs shown in the screenshots](#designs-shown-in-the-screenshots).*
+
 ## What Prism does
 
-### Browse any revision
+### Browse and review any revision
 
 Import projects from SSH or HTTPS Git remotes, monorepos included. Every
 revision opens in schematic, PCB, 3D, BOM and stackup views, with cross-probing
@@ -27,13 +35,30 @@ waiting.
 | --- | --- | --- |
 | ![Schematic viewer](assets/readme/schematic.jpg) | ![PCB viewer](assets/readme/pcb.jpg) | ![3D view](assets/readme/3d.jpg) |
 
-### Review changes
+Insets open a live view of the other document from any pin or pad, and chain
+from there: below, a PCB inset of U1's CC1 pin leads to a schematic inset of C7.
+
+![Chained schematic and PCB insets](assets/readme/insets.jpg)
+
+Select a net to highlight it across the schematic, PCB and 3D views, with its
+routed length, layers, tracks and vias. In 3D, isolate a net to see only its
+copper: tracks, zones, pads and vias.
+
+| Net highlight (PCB) | Net highlight (3D) | Net isolated (3D) |
+| --- | --- | --- |
+| ![CONTROL_VBUS highlighted on the PCB](assets/readme/net-highlight-2d.jpg) | ![+3V3 highlighted in 3D](assets/readme/net-highlight-3d.jpg) | ![+3V3 isolated in 3D](assets/readme/net-isolate-3d.jpg) |
+
+Comment on any sheet, part or area. Comments are rich text with pasted snips
+and attachments, anchored to the revision they were written on, and can be
+published to GitHub or GitLab issues.
+
+![Review comments on a schematic](assets/readme/commenting.jpg)
+
+### Compare revisions
 
 Compare any two revisions. Design Comparison lists what changed in the
 schematic, PCB, BOM, stackup and fabrication outputs, highlights it on the
-sheet, and keeps the review discussion next to it. Comments are rich text with
-pasted snips and attachments, anchored to the revision they were written on,
-and can be published to GitHub or GitLab issues.
+sheet, and keeps the review discussion next to it.
 
 ![Design comparison](assets/readme/design-comparison.jpg)
 
@@ -58,6 +83,11 @@ its 3D models embedded, or through a generated KiCad database library.
 
 ![Library Manager catalog](assets/readme/library-manager.jpg)
 
+In KiCad, the Remote Symbol Provider panel shows a released part's details and
+symbol and footprint previews, and places it.
+
+<img src="assets/readme/remote-symbol-panel.jpg" alt="Remote Symbol Provider panel in KiCad" width="420">
+
 ### Document a design
 
 Generated documents are built from the same design bundle. The connector
@@ -78,11 +108,26 @@ The prototypes are run by hand and are not part of the product yet.
 - OIDC single sign-on, optional password login, workspace roles, OAuth2 for the
   KiCad panel and scoped service clients for automation.
 
-The screenshots show open-source hardware: Great Scott Gadgets'
-[Cynthion](https://github.com/greatscottgadgets/cynthion-hardware), CERN's
-[wren-hw](https://gitlab.cern.ch/be-cem-edl/chronos/wren/wren-hw), the
-[OpenSwitch](https://gitlab.com/qfreiman) boards and the
-[USB-PD-Trigger-Board](https://github.com/krishna-swaroop/USB-PD-Trigger-Board).
+## Designs shown in the screenshots
+
+The screenshots show publicly available KiCad projects by other designers,
+imported into Prism the way a team would import its own. Their schematics,
+layouts, 3D models, documentation and design decisions are the work of their
+authors. They were not designed, generated or modified by Prism or its
+contributors, and they appear here only to show what Prism does with a real
+design. All rights stay with the authors under the projects' own terms.
+
+| Project | Author | Source | License |
+| --- | --- | --- | --- |
+| Cynthion | Great Scott Gadgets | [greatscottgadgets/cynthion-hardware](https://github.com/greatscottgadgets/cynthion-hardware) | CERN-OHL-P v2 |
+| WREN (vme-wren, vme-wren-fp-single, EDA-04903, EDA-04949) | CERN, BE-CEM | [be-cem-edl/chronos/wren/wren-hw](https://gitlab.cern.ch/be-cem-edl/chronos/wren/wren-hw) | CERN-OHL-W v2 or later and CC BY-SA 4.0, as stated on the schematic sheets |
+| OpenSwitch 10x10G carrier and LAN969x | Quentin Freimanis | [qfreiman/openswitch-10x10g-carrier](https://gitlab.com/qfreiman/openswitch-10x10g-carrier), [qfreiman/openswitch-lan969x](https://gitlab.com/qfreiman/openswitch-lan969x) | No license is stated in the repositories; see them for the author's terms |
+| USB-PD-Trigger-Board | Krishna Swaroop (Prism maintainer) | [krishna-swaroop/USB-PD-Trigger-Board](https://github.com/krishna-swaroop/USB-PD-Trigger-Board) | MIT |
+
+The component catalog in the Library Manager screenshot is CERN's public
+KiCad database library. If you are an author of one of these designs and would
+like a screenshot changed, credited differently or removed, please
+[open an issue](https://github.com/krishna-swaroop/KiCAD-Prism/issues).
 
 ## Runtime
 
