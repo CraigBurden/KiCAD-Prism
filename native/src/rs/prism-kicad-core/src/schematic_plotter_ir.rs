@@ -1971,6 +1971,22 @@ fn scalar_at(form: &Sexp, index: usize) -> Option<String> {
 fn value_at(form: &Sexp, index: usize) -> Option<String> {
     scalar_at(form, index)
 }
+/// KiCad 9's bare `private` flag right after a form's head, on a field or on a library
+/// symbol's graphic or text. KiCad draws private items only in the symbol editor.
+fn is_private(form: &Sexp) -> bool {
+    matches!(
+        list(form).and_then(|values| values.get(1)),
+        Some(Sexp::Atom(flag)) if &**flag == "private"
+    )
+}
+/// A field's name, after the `private` flag when there is one.
+fn property_key(property: &Sexp) -> Option<String> {
+    value_at(property, if is_private(property) { 2 } else { 1 })
+}
+/// A field's value, after the `private` flag when there is one.
+fn property_value(property: &Sexp) -> Option<String> {
+    value_at(property, if is_private(property) { 3 } else { 2 })
+}
 fn integer_at(form: &Sexp, index: usize) -> Option<i64> {
     match list(form)?.get(index)? {
         Sexp::Integer(value) => Some(*value),

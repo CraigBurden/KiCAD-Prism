@@ -930,11 +930,11 @@ fn property_text(
     property: &Sexp,
     default_width: i64,
 ) -> Result<Option<SchematicPlotOperation>, Error> {
-    if named_yes(property, "hide") {
+    if named_yes(property, "hide") || is_private(property) {
         return Ok(None);
     }
-    let key = value_at(property, 1).unwrap_or_default();
-    let mut value = value_at(property, 2).unwrap_or_default();
+    let key = property_key(property).unwrap_or_default();
+    let mut value = property_value(property).unwrap_or_default();
     if value == "~" {
         return Ok(None);
     }

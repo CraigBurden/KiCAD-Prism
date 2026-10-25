@@ -550,17 +550,19 @@ fn parse_sheet_property(
             "sheet property count exceeds its limit",
         ));
     }
-    let values = direct_scalar_strings(text, span, 2, source_path, limits)?;
-    if values.len() < 2 {
+    let property = crate::schematic_source::property_scalars(text, span, source_path, limits)?;
+    if property.count < 2 {
         return Err(SourceBundleError::new(
             SourceBundleErrorKind::Schematic,
             Some(source_path),
             "sheet property requires a name and value",
         ));
     }
+    let values = [property.key, property.value];
     sheet.properties.push(SchematicSymbolProperty {
         key: values[0].clone(),
         value: values[1].clone(),
+        private: property.private,
     });
     match values[0].as_str() {
         "Sheetname" | "Sheet name" if !state.sheet_name_seen => {
@@ -920,9 +922,11 @@ fn push_direct_scalar(
     limits: SchematicBundleLimits,
 ) -> Result<(), SourceBundleError> {
     if values.len() >= maximum {
-        return Err(schematic_limit(
-            source_path,
-            "direct scalar count exceeds its limit",
+        // More bare values than the form takes: a format error, not a size limit.
+        return Err(SourceBundleError::new(
+            SourceBundleErrorKind::Schematic,
+            Some(source_path),
+            "form has more values than expected",
         ));
     }
     if token.lexeme.len() > limits.max_decoded_string_bytes.saturating_add(2) {

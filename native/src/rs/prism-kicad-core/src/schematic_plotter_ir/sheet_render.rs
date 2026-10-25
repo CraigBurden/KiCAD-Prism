@@ -366,11 +366,12 @@ fn append_property(
 ) -> Result<(), Error> {
     if named_flag(property, "hide")
         || child(property, "effects").is_some_and(|effects| named_flag(effects, "hide"))
+        || is_private(property)
     {
         return Ok(());
     }
-    let key = value_at(property, 1).unwrap_or_default();
-    let value = value_at(property, 2).unwrap_or_default();
+    let key = property_key(property).unwrap_or_default();
+    let value = property_value(property).unwrap_or_default();
     let show_name = named_flag(property, "show_name");
     if value.is_empty() && !show_name {
         return Ok(());
@@ -471,8 +472,8 @@ fn pair_or_default(
 fn sheet_property_value(properties: &[&Sexp], names: &[&str]) -> String {
     properties
         .iter()
-        .find(|property| value_at(property, 1).is_some_and(|key| names.contains(&key.as_str())))
-        .and_then(|property| value_at(property, 2))
+        .find(|property| property_key(property).is_some_and(|key| names.contains(&key.as_str())))
+        .and_then(|property| property_value(property))
         .unwrap_or_default()
 }
 

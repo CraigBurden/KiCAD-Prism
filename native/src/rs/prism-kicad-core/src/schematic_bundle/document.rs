@@ -436,7 +436,11 @@ fn property_form(
     let mut lexer = Lexer::new(text);
     expect(&mut lexer, TokenKind::Left, source_path)?;
     next_scalar(&mut lexer, source_path, limits.max_decoded_string_bytes)?;
-    let name = next_scalar_token(&mut lexer, source_path)?;
+    let mut name = next_scalar_token(&mut lexer, source_path)?;
+    // KiCad 9's bare `private` flag precedes the name; a quoted "private" is a name.
+    if name.kind == TokenKind::Atom && name.lexeme == "private" {
+        name = next_scalar_token(&mut lexer, source_path)?;
+    }
     let value = next_scalar_token(&mut lexer, source_path)?;
     Ok(PropertyRecord {
         name: decode(name.clone(), limits.max_decoded_string_bytes, source_path)?,

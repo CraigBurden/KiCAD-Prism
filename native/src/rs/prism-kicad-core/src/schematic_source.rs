@@ -791,6 +791,61 @@ fn direct_scalars(
     source_path: &str,
     limits: SchematicBundleLimits,
 ) -> Result<Vec<String>, SourceBundleError> {
+    Ok(
+        direct_scalar_tokens(source, span, maximum, source_path, limits)?
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect(),
+    )
+}
+
+/// A symbol or sheet field: `(property [private] "NAME" "VALUE" …)`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PropertyScalars {
+    pub(crate) private: bool,
+    pub(crate) key: String,
+    pub(crate) value: String,
+    /// How many of name and value the form carried (0–2); a missing one reads as "".
+    pub(crate) count: usize,
+}
+
+/// Read a field's name and value. KiCad 9 added a bare `private` flag before
+/// the name (`SCH_IO_KICAD_SEXPR_PARSER::parseProperty` and `parseSchField`);
+/// a quoted `"private"` is an ordinary field name.
+pub(crate) fn property_scalars(
+    source: &str,
+    span: &FormSpan,
+    source_path: &str,
+    limits: SchematicBundleLimits,
+) -> Result<PropertyScalars, SourceBundleError> {
+    let values = direct_scalar_tokens(source, span, 3, source_path, limits)?;
+    let (private, values) = match values.split_first() {
+        Some(((TokenKind::Atom, flag), rest)) if flag == "private" => (true, rest),
+        _ => (false, values.as_slice()),
+    };
+    if values.len() > 2 {
+        return Err(source_error(
+            source_path,
+            "property has more values than a name and a value",
+        ));
+    }
+    let count = values.len();
+    let mut values = values.iter().map(|(_, value)| value.clone());
+    Ok(PropertyScalars {
+        private,
+        key: values.next().unwrap_or_default(),
+        value: values.next().unwrap_or_default(),
+        count,
+    })
+}
+
+fn direct_scalar_tokens(
+    source: &str,
+    span: &FormSpan,
+    maximum: usize,
+    source_path: &str,
+    limits: SchematicBundleLimits,
+) -> Result<Vec<(TokenKind, String)>, SourceBundleError> {
     let text = span
         .text(source)
         .map_err(|error| source_error(source_path, error.to_string()))?;
@@ -810,19 +865,21 @@ fn direct_scalars(
             }
             _ if depth == 1 => {
                 if values.len() >= maximum {
-                    return Err(limit_error(
+                    // More bare values than the form takes: a format error, not a size limit.
+                    return Err(source_error(
                         source_path,
-                        "direct scalar count exceeds its limit",
+                        "form has more values than expected",
                     ));
                 }
                 if token.lexeme.len() > limits.max_decoded_string_bytes.saturating_add(2) {
                     return Err(limit_error(source_path, "decoded string exceeds its limit"));
                 }
+                let kind = token.kind;
                 let decoded = decoded(token);
                 if decoded.len() > limits.max_decoded_string_bytes {
                     return Err(limit_error(source_path, "decoded string exceeds its limit"));
                 }
-                values.push(decoded.into_owned());
+                values.push((kind, decoded.into_owned()));
             }
             _ => {}
         }
