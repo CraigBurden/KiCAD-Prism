@@ -247,7 +247,7 @@ class InMemoryJobService:
         try:
             if settle is not None:
                 settle(self.settle_connection)
-            row.update(values)
+            row.update(values, error_code="", error_message="")
             self._end(row, "completed")
         finally:
             self._completing.discard(job_id)

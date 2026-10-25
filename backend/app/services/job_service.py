@@ -659,7 +659,9 @@ class JobService:
 
         ``settle(conn)`` runs inside it, after the job row and its artifacts,
         so a feature row the handler settles commits with the job or not at
-        all; a raise rolls the completion back and propagates.
+        all; a raise rolls the completion back and propagates. A completed job
+        carries no error: an earlier attempt's ``error_code`` and
+        ``error_message`` are cleared.
         """
 
         with self._connect() as conn:
@@ -673,6 +675,7 @@ class JobService:
                 SET status = 'completed', stage = 'completed', message = %s,
                     percent = 100, result_path = %s, result_digest = %s,
                     result_metadata = %s::jsonb, completed_at = NOW(),
+                    error_code = '', error_message = '',
                     heartbeat_at = NOW(), lease_owner = '',
                     lease_expires_at = NULL, updated_at = NOW()
                 WHERE id = %s AND fence = %s AND lease_owner = %s
