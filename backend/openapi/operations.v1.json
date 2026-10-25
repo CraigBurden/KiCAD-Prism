@@ -514,6 +514,16 @@
     "path": "/api/v1/projects/{project_id}/design-bundles",
     "typed": false
   },
+  "get_design_component": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/design/components/{ref}",
+    "typed": true
+  },
+  "get_design_net": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/design/nets/{name}",
+    "typed": true
+  },
   "get_doc_file_content": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/docs/content",
@@ -1333,6 +1343,11 @@
     "method": "GET",
     "path": "/api/v1/remote-provider/search",
     "typed": false
+  },
+  "search_design": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/design/search",
+    "typed": true
   },
   "search_projects": {
     "method": "GET",

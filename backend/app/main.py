@@ -16,6 +16,7 @@ from app.api.project_viewer_3d import router as project_viewer_3d_router
 from app.api.project_properties import router as project_properties_router
 from app.api.project_viewer_sources import router as project_viewer_sources_router
 from app.api.project_variants import router as project_variants_router
+from app.api.project_design_query import router as project_design_query_router
 from app.api.project_catalog_usage import router as project_catalog_usage_router
 from app.api.project_import_followups import router as project_import_followups_router
 from app.api.design_bundles import router as design_bundles_router
@@ -297,6 +298,7 @@ app.include_router(
 app.include_router(comments_router, prefix="/api/projects", tags=["comments"])
 app.include_router(comment_live_router, prefix="/api/projects", tags=["comments-live"])
 app.include_router(project_variants_router, prefix="/api/projects", tags=["variants"])
+app.include_router(project_design_query_router, prefix="/api/projects", tags=["design-query"])
 app.include_router(project_catalog_usage_router, prefix="/api/projects", tags=["catalog-usage"])
 app.include_router(design_bundles_router)
 app.include_router(design_compare_router, prefix="/api/projects", tags=["design-compare"])
