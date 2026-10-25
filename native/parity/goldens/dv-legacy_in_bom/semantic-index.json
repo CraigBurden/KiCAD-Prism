@@ -102,8 +102,8 @@
  ],
  "nets": [
   {
-   "netUid": "net:b35cb56b29451984bec3",
-   "name": "unconnected-(R10-Pad1)",
+   "netUid": "net:381567f7fde5e8e42bc6",
+   "name": "unconnected-(R10-~-Pad1)",
    "netClass": "Default",
    "aliases": [],
    "sourceSheets": [
@@ -132,8 +132,8 @@
    "webgpuRefs": []
   },
   {
-   "netUid": "net:dc1c6082b871460cce4a",
-   "name": "unconnected-(R10-Pad2)",
+   "netUid": "net:514b8cb2e24d523f7e90",
+   "name": "unconnected-(R10-~-Pad2)",
    "netClass": "Default",
    "aliases": [],
    "sourceSheets": [
@@ -162,8 +162,8 @@
    "webgpuRefs": []
   },
   {
-   "netUid": "net:44a28729ba8d58c098b0",
-   "name": "unconnected-(R11-Pad1)",
+   "netUid": "net:f1194d47288a18476cc8",
+   "name": "unconnected-(R11-~-Pad1)",
    "netClass": "Default",
    "aliases": [],
    "sourceSheets": [
@@ -192,8 +192,8 @@
    "webgpuRefs": []
   },
   {
-   "netUid": "net:06cfee2d0fd95b0d7d42",
-   "name": "unconnected-(R11-Pad2)",
+   "netUid": "net:76a627fbac0712f654bb",
+   "name": "unconnected-(R11-~-Pad2)",
    "netClass": "Default",
    "aliases": [],
    "sourceSheets": [
@@ -230,9 +230,9 @@
    "pin": "1",
    "pinName": "~",
    "pinType": "PASSIVE",
-   "netUid": "net:b35cb56b29451984bec3",
-   "netName": "unconnected-(R10-Pad1)",
-   "schematicNetName": "unconnected-(R10-Pad1)",
+   "netUid": "net:381567f7fde5e8e42bc6",
+   "netName": "unconnected-(R10-~-Pad1)",
+   "schematicNetName": "unconnected-(R10-~-Pad1)",
    "schematicPinUuid": "150fe5c1-40a8-5611-9bd8-eb68e942c403"
   },
   {
@@ -242,9 +242,9 @@
    "pin": "2",
    "pinName": "~",
    "pinType": "PASSIVE",
-   "netUid": "net:dc1c6082b871460cce4a",
-   "netName": "unconnected-(R10-Pad2)",
-   "schematicNetName": "unconnected-(R10-Pad2)",
+   "netUid": "net:514b8cb2e24d523f7e90",
+   "netName": "unconnected-(R10-~-Pad2)",
+   "schematicNetName": "unconnected-(R10-~-Pad2)",
    "schematicPinUuid": "60d9a57c-d548-54e8-b90a-2b14d12a17c0"
   },
   {
@@ -254,9 +254,9 @@
    "pin": "1",
    "pinName": "~",
    "pinType": "PASSIVE",
-   "netUid": "net:44a28729ba8d58c098b0",
-   "netName": "unconnected-(R11-Pad1)",
-   "schematicNetName": "unconnected-(R11-Pad1)",
+   "netUid": "net:f1194d47288a18476cc8",
+   "netName": "unconnected-(R11-~-Pad1)",
+   "schematicNetName": "unconnected-(R11-~-Pad1)",
    "schematicPinUuid": "6c277a9e-7b65-55f2-b96b-035df909fafd"
   },
   {
@@ -266,9 +266,9 @@
    "pin": "2",
    "pinName": "~",
    "pinType": "PASSIVE",
-   "netUid": "net:06cfee2d0fd95b0d7d42",
-   "netName": "unconnected-(R11-Pad2)",
-   "schematicNetName": "unconnected-(R11-Pad2)",
+   "netUid": "net:76a627fbac0712f654bb",
+   "netName": "unconnected-(R11-~-Pad2)",
+   "schematicNetName": "unconnected-(R11-~-Pad2)",
    "schematicPinUuid": "e94c1ffe-9b91-5bcc-8c91-b1d2aa08d5de"
   }
  ],
@@ -310,10 +310,10 @@
    "R11:2": 3
   },
   "netByName": {
-   "unconnected-(R10-Pad1)": 0,
-   "unconnected-(R10-Pad2)": 1,
-   "unconnected-(R11-Pad1)": 2,
-   "unconnected-(R11-Pad2)": 3
+   "unconnected-(R10-~-Pad1)": 0,
+   "unconnected-(R10-~-Pad2)": 1,
+   "unconnected-(R11-~-Pad1)": 2,
+   "unconnected-(R11-~-Pad2)": 3
   },
   "netByNetCode": {},
   "netBySchematicUuid": {

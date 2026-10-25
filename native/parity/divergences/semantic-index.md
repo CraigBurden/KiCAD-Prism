@@ -109,6 +109,7 @@ One runner entry, D1's a2 envelope, applies to every case: the goldens hold the 
   - A placed symbol resolves its library symbol by its exact name first.
   - Local power nets carry their sheet path.
   - A net whose only driver is one pin is `unconnected-(…)`, and a `~` pin name counts from file version 20250318.
+    The nine design-variant and synthetic goldens with such nets carry KiCad's names (`unconnected-(R1-~-Pad1)`) and their net uids.
   - A unit's `(unit_name …)` replaces its letter in net names (`SCH_SYMBOL::SubReference`).
   - Placed symbols read `(body_style N)` as well as `(convert N)`.
 - Why: checked net for net against KiCad 10.0.6's `kicad-cli sch export netlist` on the committed fixtures and on a corpus of 34 production KiCad 9/10 projects. Every committed fixture KiCad loads matches.
