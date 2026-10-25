@@ -1,29 +1,88 @@
 # KiCAD Prism
 
-KiCAD Prism is an open-source, self-hosted collaboration and
-component-governance platform for teams using KiCad and Git.
+KiCAD Prism is an open-source, self-hosted review, release and
+component-governance platform for teams that design in KiCad and keep their
+projects in Git.
 
-KiCad remains the desktop editor. Git remains the source of truth. Prism adds
-browser review, visual comparison, generated assets, comments, and governed
-component libraries without requiring a proprietary ECAD cloud.
+KiCad remains the editor and Git remains the source of truth. Prism adds what
+happens around them: browsing every revision in the browser, reviewing changes
+with comments, building and signing off release packages, and running a governed
+component library that desktop KiCad places parts from. It runs on your own
+hardware, with no proprietary ECAD cloud.
 
-![KiCAD Prism workspace](assets/KiCAD-Prism-New-Workspace.png)
+![Project workspace](assets/readme/workspace.jpg)
 
-## Capabilities
+## What Prism does
 
-- Import KiCad projects from SSH or HTTPS Git remotes, including monorepos.
-- Browse schematics, PCBs, 3D boards, BOMs, stackups, assembly views, history,
-  and generated documentation.
-- Cross-probe compatible schematic, PCB, and BOM identities.
-- Compare commits with semantic schematic, PCB, BOM, and related change views.
-- Create and resolve project or comparison discussions.
-- Run supported KiCad jobset flows and browse outputs in the Assets portal.
-- Govern component revisions through authoring, QA, approval, and release.
-- Validate symbols and footprints with optional KLC release gates.
-- Place released components from desktop KiCad through the Remote Symbol
-  Provider.
-- Self-host with PostgreSQL, OIDC SSO, roles, scoped service clients, and
-  separate workers.
+### Browse any revision
+
+Import projects from SSH or HTTPS Git remotes, monorepos included. Every
+revision opens in schematic, PCB, 3D, BOM and stackup views, with cross-probing
+between them, net highlighting, point-to-point measurement and PCB or schematic
+insets. Prism reads each revision once with its own Rust KiCad parser and keeps
+the result as a design bundle, so recent commits and every tag open without
+waiting.
+
+| Schematic | PCB | 3D |
+| --- | --- | --- |
+| ![Schematic viewer](assets/readme/schematic.jpg) | ![PCB viewer](assets/readme/pcb.jpg) | ![3D view](assets/readme/3d.jpg) |
+
+### Review changes
+
+Compare any two revisions. Design Comparison lists what changed in the
+schematic, PCB, BOM, stackup and fabrication outputs, highlights it on the
+sheet, and keeps the review discussion next to it. Comments are rich text with
+pasted snips and attachments, anchored to the revision they were written on,
+and can be published to GitHub or GitLab issues.
+
+![Design comparison](assets/readme/design-comparison.jpg)
+
+### Release a board
+
+Release Studio takes a committed revision through source, identity,
+manufacturing, build, outputs and publish. It builds fabrication and assembly
+files, PDF documents and manufacturer packs, shows the Gerbers in the browser,
+records DRC/ERC evidence and designer and QA sign-off, and publishes the
+approved package to GitHub or GitLab Releases.
+
+![Release Studio with the Gerber viewer](assets/readme/release-studio.jpg)
+
+### Govern components
+
+Library Manager is a component catalog with immutable revisions, reusable
+symbol, footprint, 3D and SPICE assets, optional KiCad Library Convention
+checks and a QA release flow. Components can be imported from library folders
+or from the parts your projects already use. Released parts reach desktop KiCad
+through the Remote Symbol Provider, which places the exact catalog revision with
+its 3D models embedded, or through a generated KiCad database library.
+
+![Library Manager catalog](assets/readme/library-manager.jpg)
+
+### Document a design
+
+Generated documents are built from the same design bundle. The connector
+interface control sheet below, one per connector with views from its STEP model,
+a board locator and the pinout with the nets each pin reaches, comes from the
+documentation prototypes in [`native/src/rs/prism-docs-lab`](native/src/rs/prism-docs-lab/README.md).
+The prototypes are run by hand and are not part of the product yet.
+
+![Connector interface control sheet](assets/readme/connector-icd.jpg)
+
+### Also included
+
+- Assets Portal and Workflows for KiCad jobset outputs, and a Documentation
+  view for the Markdown kept in a project.
+- Design variants with effective BOM and DNP visibility.
+- Simulation Studio (experimental, off by default): DC IR drop on a revision's
+  board.
+- OIDC single sign-on, optional password login, workspace roles, OAuth2 for the
+  KiCad panel and scoped service clients for automation.
+
+The screenshots show open-source hardware: Great Scott Gadgets'
+[Cynthion](https://github.com/greatscottgadgets/cynthion-hardware), CERN's
+[wren-hw](https://gitlab.cern.ch/be-cem-edl/chronos/wren/wren-hw), the
+[OpenSwitch](https://gitlab.com/qfreiman) boards and the
+[USB-PD-Trigger-Board](https://github.com/krishna-swaroop/USB-PD-Trigger-Board).
 
 ## Runtime
 
@@ -151,23 +210,29 @@ See [Release process](docs/RELEASES.md).
 - [Project workflows](docs/PROJECT_WORKFLOWS.md)
 - [Library Manager](docs/LIBRARY_MANAGER.md)
 - [Remote Symbol Provider](docs/REMOTE_SYMBOL_PROVIDER.md)
+- [Release Studio](docs/release-studio/README.md)
+- [Issue trackers](docs/TRACKER_INTEGRATION.md)
+- [Simulation Studio](docs/SIMULATION_STUDIO.md)
 - [Team adoption](docs/TEAM_ADOPTION.md)
 - [Operations](docs/OPERATIONS.md)
+- [Upgrades and backups](docs/UPGRADES.md)
 - [Release process](docs/RELEASES.md)
 
 ## Project status
 
-`main` contains stable release history; the latest prerelease is
-`v4.0.0-alpha`. `dev` holds unreleased work and may change between releases.
+`main` contains stable release history; the latest release is
+[`v5.0.0-alpha`](https://github.com/krishna-swaroop/KiCAD-Prism/releases/tag/v5.0.0-alpha).
+`dev` holds unreleased work and may change between releases.
 
 Current boundaries include:
 
+- a single-workspace deployment, not multi-tenant SaaS;
 - one role per user rather than composable workspace and catalog permissions;
-- project-scoped standard comments;
-- no mention notifications or Git-forge webhook/status integration;
+- mentions are stored but send no email or inbox notifications;
+- issue publication covers GitHub and GitLab; Gitea and Forgejo issues, pull
+  request status checks and built-in PLM connectors are not shipped;
 - fixed workflow types rather than first-class arbitrary workflows;
-- no real-time multi-user ECAD editing;
-- no complete in-product approved/changes-requested project state.
+- no real-time multi-user ECAD editing.
 
 See [Platform overview](docs/OVERVIEW.md) before planning a team rollout.
 
