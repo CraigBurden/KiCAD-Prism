@@ -50,6 +50,7 @@ from app.services.workspace_migrations import m123_drop_system_builder_v1
 from app.services.workspace_migrations import m124_drop_mesh_viewer_readiness
 from app.services.workspace_migrations import m129_drop_system_builder_v2
 from app.services.workspace_migrations import m130_sim_run_solved_commit
+from app.services.workspace_migrations import m131_idempotency_keys
 
 
 Migration = Callable[[Any], None]
@@ -96,6 +97,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     # 125-128 were System Builder v2; 129 drops what they made.
     (129, "drop_system_builder_v2", m129_drop_system_builder_v2.migrate),
     (130, "sim_run_solved_commit", m130_sim_run_solved_commit.migrate),
+    (131, "idempotency_keys", m131_idempotency_keys.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.
