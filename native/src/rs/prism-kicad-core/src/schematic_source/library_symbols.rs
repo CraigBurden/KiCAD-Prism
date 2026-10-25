@@ -573,10 +573,13 @@ fn parse_library_pin(
     let number_has_visible_size =
         pin_text_has_visible_size(text, &selected, "number", source_path, limits)?;
     Ok(SchematicLibraryPin {
-        electrical_type: header
-            .first()
-            .cloned()
-            .unwrap_or_else(|| "unspecified".to_owned()),
+        // KiCad reads the older `unconnected` as `no_connect` (`PT_NC`,
+        // `SCH_IO_KICAD_SEXPR_PARSER::parsePinType`).
+        electrical_type: match header.first().map(String::as_str) {
+            None => "unspecified".to_owned(),
+            Some("unconnected") => "no_connect".to_owned(),
+            Some(other) => other.to_owned(),
+        },
         graphic_style: header.get(1).cloned().unwrap_or_else(|| "line".to_owned()),
         at,
         angle_degrees,

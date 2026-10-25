@@ -529,7 +529,8 @@ fn union_across_hierarchy(
             else {
                 continue;
             };
-            let Some(child_bus) = child_bus_by_name.get(pin.name.as_str()).copied() else {
+            let name = crate::schematic_connectivity::label_text::unescape(&pin.name);
+            let Some(child_bus) = child_bus_by_name.get(name.as_str()).copied() else {
                 continue;
             };
             union_bus_pair(

@@ -13,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 mod driver_selection;
 mod driver_types;
 mod graphical_ids;
+pub(crate) mod label_text;
 mod pin_naming;
 mod pin_power;
 mod render_ids;
@@ -352,7 +353,7 @@ impl<'a> OccurrenceBuilder<'a> {
                 self.push_label(
                     &mut out,
                     SchematicLabelDriver {
-                        text: label.text.clone(),
+                        text: label_text::unescape(&label.text),
                         at: label.at,
                         priority,
                         kind,
@@ -370,7 +371,7 @@ impl<'a> OccurrenceBuilder<'a> {
                 self.push_label(
                     &mut out,
                     SchematicLabelDriver {
-                        text: pin.name.clone(),
+                        text: label_text::unescape(&pin.name),
                         at: pin.at,
                         priority: SchematicDriverPriority::SheetPin,
                         kind: SchematicWireDriverKind::SheetPin,

@@ -245,6 +245,48 @@ fn equal_global_labels_name_their_net_alphabetically_whatever_the_sheet() {
     assert_eq!(net_of(&design, "U1.1").name, "A_NET");
 }
 
+/// KiCad names a label's net from its unescaped text, escaped again
+/// (`SCH_LABEL_BASE`, `EscapeString(…, CTX_NETNAME)`): `A/B` and `A{slash}B`
+/// are one name.
+#[test]
+fn a_raw_slash_and_an_escaped_slash_name_one_net() {
+    let root = format!(
+        r#"(kicad_sch (uuid root) (lib_symbols {PART})
+          (label "VPP{{slash}}MCLR" (at 0 0 0) (uuid escaped))
+          (label "VPP/MCLR" (at 20 0 0) (uuid raw))
+          {}
+          {})"#,
+        part("U1", 0.0, 0.0, "u1"),
+        part("U2", 20.0, 0.0, "u2"),
+    );
+    let design = design(&[("root.kicad_sch", root)]);
+    assert_eq!(net_of(&design, "U1.1"), net_of(&design, "U2.1"));
+    assert_eq!(net_of(&design, "U1.1").name, "/VPP{slash}MCLR");
+}
+
+/// A sheet pin and its hierarchical label written with KiCad's `{slash}` escape
+/// still bind: both name the connection by their unescaped text.
+#[test]
+fn an_escaped_sheet_pin_binds_its_hierarchical_label() {
+    let root = format!(
+        r#"(kicad_sch (uuid root) (lib_symbols {PART})
+          {}
+          (wire (pts (xy 0 0) (xy 40 0)) (uuid root-wire))
+          (sheet (at 40 -5) (size 10 10) (uuid sheet)
+            (property "Sheetname" "Child") (property "Sheetfile" "child.kicad_sch")
+            (pin "P0{{slash}}A" input (at 40 0 180) (uuid sheet-pin))))"#,
+        part("U1", 0.0, 0.0, "u1")
+    );
+    let child = format!(
+        r#"(kicad_sch (uuid child) (lib_symbols {PART})
+          (hierarchical_label "P0{{slash}}A" (shape input) (at 0 0 0) (uuid child-port))
+          {})"#,
+        part("U2", 0.0, 0.0, "u2")
+    );
+    let design = design(&[("root.kicad_sch", root), ("child.kicad_sch", child)]);
+    assert_eq!(net_of(&design, "U1.1"), net_of(&design, "U2.1"));
+}
+
 fn part(reference: &str, x: f64, y: f64, uuid: &str) -> String {
     format!(
         r#"(symbol (lib_id "Demo:Part") (at {x} {y} 0) (uuid {uuid}-part)
