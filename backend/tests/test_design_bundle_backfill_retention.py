@@ -47,7 +47,7 @@ class BackfillTests(_Workspace, unittest.TestCase):
         with self.scratch.connection() as conn:
             seed_job(conn, "active-1", "design_bundle", "running")
         paced = backfill.tick(self.state)
-        self.assertEqual((paced["busy"], paced["queued"]), ("a design_bundle job is active", None))
+        self.assertEqual((paced["busy"], paced["queued"]), ("every design_bundle slot is taken", None))
         with self.scratch.connection() as conn:
             conn.execute("UPDATE ws_jobs SET status='completed' WHERE id='active-1'")
         second = backfill.tick(self.state)["queued"]
@@ -59,6 +59,81 @@ class BackfillTests(_Workspace, unittest.TestCase):
         payloads = [row["payload"] for row in self.queue.rows.values()]
         self.assertTrue(all(row["requested_by"] == jobs.BACKFILL_REQUESTED_BY for row in self.queue.rows.values()))
         self.assertEqual(sum(1 for p in payloads if p["head"]), 2)
+
+    def _older_commits(self, repo, count: int) -> list[str]:
+        """Commit ``count`` more revisions on main; returns the ones now behind HEAD, newest first."""
+
+        before = [git(repo, "rev-parse", "HEAD")]
+        for index in range(count):
+            (repo / "board/demo.kicad_sch").write_text(f"(kicad_sch (version 20260306) (rev {index}))\n", encoding="utf-8")
+            git(repo, "-c", "commit.gpgsign=false", "commit", "-qam", f"rev {index}")
+            before.insert(0, git(repo, "rev-parse", "HEAD"))
+        return before[1:]
+
+    def _busy(self, job_id: str = "active-1") -> None:
+        with self.scratch.connection() as conn:
+            seed_job(conn, job_id, "design_bundle", "running")
+
+    def _free(self, job_id: str = "active-1") -> None:
+        with self.scratch.connection() as conn:
+            conn.execute("UPDATE ws_jobs SET status='completed' WHERE id=%s", (job_id,))
+
+    def test_every_projects_head_is_queued_before_any_older_revision(self) -> None:
+        # Found on v5.0.1: after a generator change the backfill rebuilt older
+        # revisions of the first projects while later projects had no HEAD bundle.
+        older = self._older_commits(self.add_project("p1", "r1"), 2)
+        heads = {p: git(self.add_project(p, f"r{p}"), "rev-parse", "HEAD") for p in ("p2", "p3")}
+        order = [backfill.tick(self.state)["queued"] for _ in range(5)]
+        self.assertEqual(
+            [(item["project_id"], item["commit"]) for item in order[1:]],
+            [("p2", heads["p2"]), ("p3", heads["p3"]), ("p1", older[0]), ("p1", older[1])],
+        )
+        self.assertEqual(order[0]["project_id"], "p1")
+
+    def test_a_busy_slot_keys_nothing_and_keeps_the_next_build(self) -> None:
+        for project in ("p1", "p2", "p3"):
+            self.add_project(project, f"r{project}")
+        self._busy()
+        first = backfill.tick(self.state)
+        self.assertEqual((first["queued"], first["keyed"]), (None, 3))  # each HEAD keyed once, for its flags
+        for _ in range(3):
+            busy = backfill.tick(self.state)
+            self.assertEqual((busy["queued"], busy["keyed"]), (None, 0))
+        self._free()
+        self.assertEqual(backfill.tick(self.state)["queued"]["project_id"], "p1")
+
+    def test_older_revisions_are_taken_round_robin_across_projects(self) -> None:
+        old = {p: self._older_commits(self.add_project(p, f"r{p}"), 2) for p in ("p1", "p2")}
+        queued = [backfill.tick(self.state)["queued"] for _ in range(6)][2:]  # the two HEADs come first
+        self.assertEqual(
+            [(item["project_id"], item["commit"]) for item in queued],
+            [("p1", old["p1"][0]), ("p2", old["p2"][0]), ("p1", old["p1"][1]), ("p2", old["p2"][1])],
+        )
+
+    def test_free_slots_are_filled_in_parallel_heads_first(self) -> None:
+        older = self._older_commits(self.add_project("p1", "r1"), 1)
+        heads = {p: git(self.add_project(p, f"r{p}"), "rev-parse", "HEAD") for p in ("p2", "p3")}
+        with mock.patch.object(settings, "PRISM_DESIGN_BUNDLE_CONCURRENCY", 3):
+            self._busy()  # one of the three slots is taken
+            first = backfill.tick(self.state)["builds"]
+            self.assertEqual([item["project_id"] for item in first], ["p1", "p2"])
+            self.assertEqual(first[1]["commit"], heads["p2"])
+            self._free()
+            second = backfill.tick(self.state)["builds"]
+        # Two queued jobs are in the in-memory queue, not ws_jobs: three slots are free again.
+        self.assertEqual([(item["project_id"], item["commit"]) for item in second], [("p3", heads["p3"]), ("p1", older[0])])
+
+    def test_served_and_absent_commits_are_not_keyed_again(self) -> None:
+        self.add_project("p1", "r1")
+        repo = self.add_project("p2", "r2")
+        with self.scratch.connection() as conn:
+            conn.execute("UPDATE ws_projects SET project_file_rel='renamed.kicad_pro' WHERE id='p2'")
+        self._older_commits(repo, 1)
+        first = backfill.tick(self.state)
+        self.assertEqual(first["queued"]["project_id"], "p1")
+        backfill.tick(self.state)  # p2 is absent at every commit; p1 is served
+        for _ in range(2):
+            self.assertEqual(backfill.tick(self.state)["keyed"], 0)
 
     def test_it_flags_projects_whose_board_or_schematic_no_longer_resolves(self) -> None:
         files = {k: v for k, v in PROJECT_FILES.items() if k not in ("board/demo.kicad_pcb", "board/demo.kicad_sch")}
