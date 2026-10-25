@@ -63,7 +63,7 @@ SCHEME_DETAIL = {
 def run(root: Path, *, fresh: bool = False) -> dict:
     tui.banner("KiCAD Prism deployment", "Generates .env, proxy config, and a Compose overlay")
 
-    existing, source = ({}, None) if fresh else _previous_settings(root)
+    existing, source = ({}, None) if fresh else previous_settings(root)
     if existing:
         tui.note(f"Reusing settings from {source}")
         tui.hint("Secrets carry over, including the database password. That matters:")
@@ -374,7 +374,7 @@ def run(root: Path, *, fresh: bool = False) -> dict:
     return answers
 
 
-def _previous_settings(root: Path) -> tuple[dict[str, str], str | None]:
+def previous_settings(root: Path) -> tuple[dict[str, str], str | None]:
     """Find settings from an earlier deployment, generated or hand-written.
 
     A hand-written .env at the repository root is the common case for someone
