@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
+import { usePoll } from "@/lib/server-state";
 
 interface DesignBundleCounts {
     complete: number;
@@ -55,6 +56,11 @@ interface DesignDataSectionProps {
 
 type Scope = "commit" | "project";
 
+const STATUS_POLL_MS = 5000;
+
+/** ``load`` reports its own failure as "status unavailable". */
+const ignorePollError = () => {};
+
 /**
  * The Design data block of Project settings: how much parsed design data Prism
  * holds for this project's commits and tags, and the two manual rebuilds.
@@ -93,6 +99,11 @@ export function DesignDataSection({ projectId, canEdit }: DesignDataSectionProps
         load(controller.signal);
         return () => controller.abort();
     }, [load]);
+
+    // While a build is queued or running, keep the counts current so the line
+    // settles to the outcome instead of saying "building" until reopened.
+    const building = status !== null && status.bundles.building + status.bundles.queued > 0;
+    usePoll(building, load, { intervalMs: STATUS_POLL_MS, onError: ignorePollError });
 
     useEffect(() => {
         const controller = new AbortController();
