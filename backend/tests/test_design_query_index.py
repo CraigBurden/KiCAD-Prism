@@ -188,8 +188,8 @@ class LoadTests(unittest.TestCase):
         self.assertIs(second, first)
         self.assertEqual(parse.call_count, 1)
 
-    def test_the_cache_keeps_four_revisions(self) -> None:
-        commits = [f"{number:040x}" for number in range(5)]
+    def test_the_cache_keeps_two_revisions(self) -> None:
+        commits = [f"{number:040x}" for number in range(3)]
         artifacts = {
             commit: semantic_index_bundle.ArtifactFile(FIXTURE, commit, GENERATOR)
             for commit in commits
@@ -203,12 +203,12 @@ class LoadTests(unittest.TestCase):
         ), mock.patch.object(design_index.json, "load", wraps=json.load) as parse:
             for commit in commits:
                 design_index.load(self.project, commit)
-            self.assertEqual(design_index.cache_stats()["entries"], 4)
-            self.assertEqual(parse.call_count, 5)
-            design_index.load(self.project, commits[0])  # evicted by the fifth
-            self.assertEqual(parse.call_count, 6)
-            design_index.load(self.project, commits[4])  # still cached
-            self.assertEqual(parse.call_count, 6)
+            self.assertEqual(design_index.cache_stats()["entries"], 2)
+            self.assertEqual(parse.call_count, 3)
+            design_index.load(self.project, commits[0])  # evicted by the third
+            self.assertEqual(parse.call_count, 4)
+            design_index.load(self.project, commits[0])  # now cached
+            self.assertEqual(parse.call_count, 4)
 
 
 if __name__ == "__main__":

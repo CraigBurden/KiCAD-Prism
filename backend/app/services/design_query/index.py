@@ -21,7 +21,7 @@ Fields used (all names are the member's own, a2):
   true for the default assembly.
 
 A parsed index is immutable for a bundle revision, so it is cached by the
-artifact's ``(revision key, generator)`` in a four-entry LRU. Readers treat the
+artifact's ``(revision key, generator)`` in a two-entry LRU. Readers treat the
 returned mapping as read-only.
 """
 
@@ -36,10 +36,10 @@ from typing import Any
 
 from app.services import semantic_index_service
 
-#: Four revisions are enough for the current page, its comparison and a
-#: follow-up query; the parsed member can be tens of megabytes, so this stays
-#: deliberately small.
-CACHE_SIZE = 4
+#: Two revisions cover a query and its follow-up, or both sides of a
+#: comparison. A large board's parsed member is tens to hundreds of megabytes
+#: of Python objects, so the bound stays small.
+CACHE_SIZE = 2
 
 _CACHE: "OrderedDict[tuple[str, str], dict[str, Any]]" = OrderedDict()
 _CACHE_LOCK = threading.Lock()

@@ -121,7 +121,7 @@ async def search_design(
     project = get_project_for_role_or_404(project_id, user.role)
     commit = await _resolve(project, revision)
     index, design_key = await asyncio.to_thread(design_index.load, project, commit)
-    results = design_index.find(index, q, set(kind or _DEFAULT_KINDS), limit=limit)
+    results = await asyncio.to_thread(design_index.find, index, q, set(kind or _DEFAULT_KINDS), limit=limit)
     response.headers["Cache-Control"] = _cache_control(revision)
     return {
         "revision": _revision(commit, design_key),
@@ -143,7 +143,7 @@ async def get_design_component(
     project = get_project_for_role_or_404(project_id, user.role)
     commit = await _resolve(project, revision)
     index, design_key = await asyncio.to_thread(design_index.load, project, commit)
-    found = design_index.component(index, ref)
+    found = await asyncio.to_thread(design_index.component, index, ref)
     if found is None:
         raise NotFound("Component not found", code="component-not-found")
     response.headers["Cache-Control"] = _cache_control(revision)
@@ -163,7 +163,7 @@ async def get_design_net(
     project = get_project_for_role_or_404(project_id, user.role)
     commit = await _resolve(project, revision)
     index, design_key = await asyncio.to_thread(design_index.load, project, commit)
-    found = design_index.net(index, name)
+    found = await asyncio.to_thread(design_index.net, index, name)
     if found is None:
         raise NotFound("Net not found", code="net-not-found")
     response.headers["Cache-Control"] = _cache_control(revision)
