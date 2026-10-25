@@ -29,6 +29,9 @@ pub struct SchematicLibrarySubsymbol {
     pub name: String,
     pub unit: i64,
     pub style: i64,
+    /// KiCad 10's `(unit_name "…")`: the unit's display name, which replaces the
+    /// A/B/C suffix in references and net names (`SCH_SYMBOL::SubReference`).
+    pub unit_name: Option<String>,
     pub pins: Vec<SchematicLibraryPin>,
 }
 
@@ -483,10 +486,10 @@ fn parse_library_subsymbol(
         .map_err(|error| source_error(source_path, error.to_string()))?;
     let selected = carrier_form_spans(
         text,
-        &["symbol", "pin"],
+        &["symbol", "pin", "unit_name"],
         source_path,
         limits,
-        limits.max_library_pins_per_source.saturating_add(2),
+        limits.max_library_pins_per_source.saturating_add(3),
     )?;
     let root = selected
         .iter()
@@ -497,6 +500,8 @@ fn parse_library_subsymbol(
         .next()
         .unwrap_or_default();
     let (unit, style) = unit_and_style(&name);
+    let unit_name = child_scalar(text, &selected, "unit_name", source_path, limits)?
+        .filter(|unit_name| !unit_name.is_empty());
     let mut pins = Vec::new();
     for pin_span in selected
         .iter()
@@ -515,6 +520,7 @@ fn parse_library_subsymbol(
         name,
         unit,
         style,
+        unit_name,
         pins,
     })
 }
@@ -554,11 +560,7 @@ fn parse_library_pin(
         .map(|at_span| direct_scalars(text, at_span, 3, source_path, limits))
         .transpose()?
         .and_then(|values| values.get(2).cloned())
-        .map_or(Ok(0), |value| {
-            value
-                .parse::<i64>()
-                .map_err(|_| source_error(source_path, "library pin angle is not an integer"))
-        })?;
+        .map_or(Ok(0), |value| pin_angle(&value, source_path))?;
     let hidden = header.iter().any(|value| value == "hide")
         || child_scalar(text, &selected, "hide", source_path, limits)?.as_deref() == Some("yes");
     let length = child_scalar(text, &selected, "length", source_path, limits)?;
@@ -571,10 +573,13 @@ fn parse_library_pin(
     let number_has_visible_size =
         pin_text_has_visible_size(text, &selected, "number", source_path, limits)?;
     Ok(SchematicLibraryPin {
-        electrical_type: header
-            .first()
-            .cloned()
-            .unwrap_or_else(|| "unspecified".to_owned()),
+        // KiCad reads the older `unconnected` as `no_connect` (`PT_NC`,
+        // `SCH_IO_KICAD_SEXPR_PARSER::parsePinType`).
+        electrical_type: match header.first().map(String::as_str) {
+            None => "unspecified".to_owned(),
+            Some("unconnected") => "no_connect".to_owned(),
+            Some(other) => other.to_owned(),
+        },
         graphic_style: header.get(1).cloned().unwrap_or_else(|| "line".to_owned()),
         at,
         angle_degrees,
@@ -666,4 +671,18 @@ fn unit_and_style(name: &str) -> (i64, i64) {
         (Some(unit), Some(style), Some(_)) => (unit, style),
         _ => (1, 0),
     }
+}
+
+/// KiCad reads a pin's orientation with `strtol` (`parseInt("pin orientation")` in
+/// `SCH_IO_KICAD_SEXPR_PARSER::parsePin`), so `270.0` is 270: the integer part of
+/// any number.
+fn pin_angle(value: &str, source_path: &str) -> Result<i64, SourceBundleError> {
+    value.parse::<i64>().or_else(|_| {
+        value
+            .parse::<f64>()
+            .ok()
+            .filter(|angle| angle.is_finite() && angle.abs() < 1e15)
+            .map(|angle| angle.trunc() as i64)
+            .ok_or_else(|| source_error(source_path, "library pin angle is not a number"))
+    })
 }

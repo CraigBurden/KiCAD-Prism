@@ -53,6 +53,9 @@ struct RefExtra<'a> {
 struct Producer<'a> {
     sources: &'a dyn Sources,
     board_model: Option<&'a BoardModel<'a>>,
+    /// The top-level sheets the core realized (several in a KiCad 10
+    /// multi-root project); empty without a schematic model.
+    top_level: Vec<String>,
     project_file: String,
     project_dir: Vec<String>,
     stem: String,
@@ -76,6 +79,14 @@ impl<'a> Producer<'a> {
         Self {
             sources: input.sources,
             board_model: input.board,
+            top_level: input.schematic.map_or_else(Vec::new, |model| {
+                model
+                    .index
+                    .occurrences()
+                    .filter(|occurrence| occurrence.parent_index.is_none())
+                    .map(|occurrence| occurrence.source_path.clone())
+                    .collect()
+            }),
             project_dir: dir_segments(&project_file),
             project_name: stem.clone(),
             stem,
@@ -222,7 +233,8 @@ impl<'a> Producer<'a> {
         Value::Object(document)
     }
 
-    /// `project.py:521-555`: the root schematic and every sheet it reaches.
+    /// `project.py:521-555`: the root schematic, the other top-level sheets of a
+    /// KiCad 10 multi-root project, and every sheet they reach.
     fn scan_schematics(&mut self) -> Result<(), ProjectionError> {
         let root = self.repo(&format!("{}.kicad_sch", self.stem));
         if !self.sources.exists(&root) {
@@ -230,6 +242,11 @@ impl<'a> Producer<'a> {
         }
         let mut queue = VecDeque::from([root.clone()]);
         let mut seen = BTreeSet::from([root.clone()]);
+        for top in &self.top_level {
+            if seen.insert(top.clone()) {
+                queue.push_back(top.clone());
+            }
+        }
         while let Some(path) = queue.pop_front() {
             let tree = self.read_sexpr(&path)?;
             if path == root {

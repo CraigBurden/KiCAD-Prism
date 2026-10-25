@@ -515,12 +515,15 @@ fn parse_label(
     source_path: &str,
     limits: SchematicBundleLimits,
 ) -> Result<SchematicLabel, SourceBundleError> {
+    // A label carries any number of fields, each with its own nested `(at …)`
+    // (`SCH_IO_KICAD_SEXPR_PARSER::parseSchText`), so the selection scales with the
+    // per-symbol field limit rather than a fixed count.
     let spans = carrier_form_spans(
         source,
         &[root_head, "at", "shape", "uuid"],
         source_path,
         limits,
-        8,
+        limits.max_symbol_properties_per_symbol.saturating_add(8),
     )?;
     let root = spans
         .iter()

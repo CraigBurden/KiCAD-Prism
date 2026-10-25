@@ -70,6 +70,39 @@ fn occurrence_subgraphs_attach_exact_carriers_without_attaching_pins_mid_segment
     assert!(middle_pin.label_drivers.is_empty());
 }
 
+/// KiCad carries a bus wire entry's connection to every non-bus item at either end
+/// (`SCH_BUS_WIRE_ENTRY::ConnectionPropagatesTo`), so an entry drawn between two
+/// wires as a 45-degree jog joins them; the pin past the jog takes the label.
+#[test]
+fn a_bus_entry_between_two_wires_joins_them() {
+    let index = index(
+        br#"(kicad_sch
+          (uuid root)
+          (lib_symbols
+            (symbol "Demo:Part"
+              (symbol "Demo:Part_1_1"
+                (pin passive line (at 0 0 0) (name "P1") (number "1")))))
+          (wire (pts (xy 0 0) (xy 10 0)) (uuid labelled))
+          (label "SIG" (at 5 0 0) (uuid label))
+          (bus_entry (at 10 0) (size 2 -2) (uuid jog))
+          (wire (pts (xy 12 -2) (xy 20 -2)) (uuid past-jog))
+          (symbol (lib_id "Demo:Part") (lib_name "Demo:Part")
+            (at 20 -2 0) (uuid placed)
+            (property "Reference" "U1") (property "Value" "Part")))"#,
+    );
+    let subgraphs = build_schematic_occurrence_subgraphs(
+        &index,
+        1,
+        SchematicOccurrenceConnectivityLimits::default(),
+    )
+    .expect("occurrence connectivity");
+    let pin = subgraphs
+        .iter()
+        .find(|subgraph| !subgraph.pin_drivers.is_empty())
+        .expect("pin subgraph");
+    assert_eq!(pin.chosen_name, "SIG");
+}
+
 #[test]
 fn canonical_bus_members_merge_distinct_wire_label_spellings() {
     let index = index(
@@ -292,14 +325,14 @@ fn occurrence_connectivity_limits_fail_closed_independently() {
         max_subgraphs: 4,
         max_retained_points: 5,
         max_retained_string_bytes: 14,
-        max_attachment_query_work: 5,
+        max_attachment_query_work: 6,
         ..SchematicOccurrenceConnectivityLimits::default()
     };
     build_schematic_occurrence_subgraphs(&index, 1, exact).expect("simultaneous exact limits");
     for (limits, message) in [
         (
             SchematicOccurrenceConnectivityLimits {
-                max_attachment_query_work: 4,
+                max_attachment_query_work: 5,
                 ..exact
             },
             "query work",

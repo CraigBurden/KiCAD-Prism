@@ -1,6 +1,7 @@
 //! Bounded placed-symbol composition from embedded schematic library data.
 
 use super::annotation_render::{apply_center_defaults, schematic_text, text_style};
+use super::sexp_access::{body_style, child_u32, child_yes};
 use super::{
     PlotBudget, SchematicDrawingSettings, SchematicPlotContext, SchematicPlotLimits,
     SchematicPlotOperation, SchematicPlotRecord, SchematicStyledThickSegment,
@@ -407,7 +408,7 @@ fn parse_placed_symbol(form: &Sexp) -> Result<PlacedSymbol, Error> {
         angle,
         mirror,
         unit: child_u32(form, "unit", 1)?,
-        convert: child_u32(form, "convert", 1)?,
+        convert: body_style(form)?,
         in_bom: child_yes(form, "in_bom", true),
         on_board: child_yes(form, "on_board", true),
         dnp: child_yes(form, "dnp", false),
@@ -419,21 +420,6 @@ fn parse_placed_symbol(form: &Sexp) -> Result<PlacedSymbol, Error> {
         references,
     };
     Ok(symbol)
-}
-
-fn child_u32(form: &Sexp, head: &str, default: u32) -> Result<u32, Error> {
-    let Some(value) = child(form, head) else {
-        return Ok(default);
-    };
-    scalar_at(value, 1)
-        .and_then(|value| value.parse().ok())
-        .ok_or_else(|| model_error("Expected schematic symbol integer"))
-}
-
-fn child_yes(form: &Sexp, head: &str, default: bool) -> bool {
-    child(form, head)
-        .and_then(|value| scalar_at(value, 1))
-        .map_or(default, |value| value == "yes")
 }
 
 fn body_operations(

@@ -161,7 +161,7 @@ fn optional(value: &str) -> Value {
 /// instance carries the sheet symbol's name
 /// (`design_json/schematic_instances.rs:91-105`, km's `schematic_instances()`).
 fn sheet_name(occurrence: &SchematicOccurrence) -> String {
-    if occurrence.parent_index.is_none() {
+    if occurrence.is_root_schematic() {
         source_stem(&occurrence.source_path, occurrence.index)
     } else {
         occurrence.sheet_name.clone()

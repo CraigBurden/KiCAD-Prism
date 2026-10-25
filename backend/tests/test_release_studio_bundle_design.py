@@ -52,11 +52,13 @@ class SemanticA0Tests(unittest.TestCase):
     #: same revisions with today's ``build_semantic_index`` over the fixture
     #: sources the bundle was captured from (upgraded, kicad_monkey 2026.9.7).
     #: The parity script re-derives both sides; this pins the committed answer.
+    #: rs-synthetic's bare-board and documentation digests follow its golden
+    #: since its unconnected pin nets take KiCad's names (semantic-index D1).
     FINGERPRINTS = {
         "rs-synthetic": {
-            "bare_board": "7314d39ade6a23145ef053a4ca0d6c961bf9dcd050f49b348a4f8c0342761c85",
+            "bare_board": "f94fd8a365858a2003c5e821dcf09b17edf3c2c55bfa55605d97d0c5026f908c",
             "assembly": "e73273ca7f2351b22b8ccc1e66c4c044e95114073c584afa948905d32d38a431",
-            "documentation": "c655888751f8cf5c6a7cf116aee230defaf519aa290715da8e6d02c4e3a69d44",
+            "documentation": "4c2c3026d942dd9144ca36b0bbc47c1a24f454cbfd6e6f63d852e8658b65f01d",
         },
         "rs-usb-pd": {
             "bare_board": "b22aa3466ab98dec74150b134ed5947a721010971ca5a9ae0033957300fed1b3",

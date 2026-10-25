@@ -391,12 +391,23 @@ impl ParseRun<'_> {
             Ok(project) => project,
             Err(finding) => return Ok(Err(finding)),
         };
-        let sheets = match &self.config.root_schematic {
-            Some(root) => match self.read_hierarchy(&root.0.clone())? {
-                Ok(sheets) => sheets,
-                Err(finding) => return Ok(Err(finding)),
-            },
+        let roots = match self.config.root_schematic.clone() {
+            Some(root) => {
+                let roots = self.top_level_roots(&project.text, &root.0)?;
+                // The configured root stays a member (bundle-format.md I4) when
+                // the project's top-level sheets leave it out.
+                if !roots.contains(&root.0)
+                    && let Err(finding) = self.read_checked(&root.0, SCHEMATIC_FORMAT, None)?
+                {
+                    return Ok(Err(finding));
+                }
+                roots
+            }
             None => Vec::new(),
+        };
+        let sheets = match self.read_hierarchy(roots)? {
+            Ok(sheets) => sheets,
+            Err(finding) => return Ok(Err(finding)),
         };
         let board = match self.config.board.clone() {
             Some(board) => match self.read_checked(&board.0, BOARD_FORMAT, None)? {
@@ -436,9 +447,11 @@ impl ParseRun<'_> {
         }
     }
 
-    fn read_hierarchy(&mut self, root: &str) -> Outcome<Result<Vec<Text>, Finding>> {
-        let mut seen = BTreeSet::from([root.to_owned()]);
-        let mut queue = VecDeque::from([(root.to_owned(), None)]);
+    /// Every schematic `roots` reach, breadth first; the first root leads, as
+    /// the core's bundle takes it for the root schematic.
+    fn read_hierarchy(&mut self, roots: Vec<String>) -> Outcome<Result<Vec<Text>, Finding>> {
+        let mut seen: BTreeSet<String> = roots.iter().cloned().collect();
+        let mut queue: VecDeque<_> = roots.into_iter().map(|root| (root, None)).collect();
         let mut sheets = Vec::new();
         while let Some((path, referrer)) = queue.pop_front() {
             let (text, references) = match self.read_checked(&path, SCHEMATIC_FORMAT, referrer)? {
@@ -627,12 +640,12 @@ impl ParseRun<'_> {
             }
             _ => None,
         };
-        let root = self
-            .config
-            .root_schematic
-            .as_ref()
-            .map(|root| root.0.clone())
-            .unwrap_or_default();
+        // The first top-level sheet: the configured root schematic unless the
+        // project lists its top-level sheets (§5.2.2).
+        let root = match &parts {
+            Some(Ok((bundle, _))) => bundle.root_schematic_path().to_owned(),
+            _ => String::new(),
+        };
         let schematic = match (&parts, &facts) {
             (Some(Ok((bundle, index))), Some(Ok(facts))) => {
                 Some(prism_projections::SchematicModel {

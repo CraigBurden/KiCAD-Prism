@@ -309,7 +309,6 @@ impl MutationIndex {
                 symbols.push(SymbolRecord {
                     span,
                     uuid: String::new(),
-                    uuid_seen: false,
                     properties: Vec::new(),
                 });
                 continue;
@@ -324,17 +323,8 @@ impl MutationIndex {
                 ));
             }
             match span.head.as_deref() {
-                Some("uuid") => {
-                    let value = scalar_form(source, &span, source_path, limits)?;
-                    if symbol.uuid_seen {
-                        return Err(schematic_source_error(
-                            source_path,
-                            "placed symbol has ambiguous uuid forms",
-                        ));
-                    }
-                    symbol.uuid = value;
-                    symbol.uuid_seen = true;
-                }
+                // A repeated uuid overwrites, as `parseSchematicSymbol` assigns each.
+                Some("uuid") => symbol.uuid = scalar_form(source, &span, source_path, limits)?,
                 Some("property") => {
                     symbol
                         .properties
@@ -378,7 +368,6 @@ impl MutationIndex {
 struct SymbolRecord {
     span: FormSpan,
     uuid: String,
-    uuid_seen: bool,
     properties: Vec<PropertyRecord>,
 }
 

@@ -325,19 +325,28 @@ pub(super) fn nested_xyz(
     default: [f64; 3],
     limits: PcbLimits,
 ) -> Result<[f64; 3], Error> {
-    let Some(container) = child(children, head) else {
-        return Ok(default);
-    };
+    match child(children, head) {
+        Some(container) => Ok(xyz_of(source, container, limits)?.unwrap_or(default)),
+        None => Ok(default),
+    }
+}
+
+/// The `(xyz X Y Z)` inside one model field, `None` when it has none.
+pub(super) fn xyz_of(
+    source: &str,
+    container: &FormSpan,
+    limits: PcbLimits,
+) -> Result<Option<[f64; 3]>, Error> {
     let nested = direct_children(source, container, limits.max_model_children, limits)?;
     let Some(xyz) = child(&nested, "xyz") else {
-        return Ok(default);
+        return Ok(None);
     };
     let values = bounded_scalar_values(source, xyz, limits.max_model_children)?;
-    Ok([
+    Ok(Some([
         required_f64(values.first(), "Expected model x value", xyz)?,
         required_f64(values.get(1), "Expected model y value", xyz)?,
         required_f64(values.get(2), "Expected model z value", xyz)?,
-    ])
+    ]))
 }
 
 pub(super) fn child<'a>(children: &'a [FormSpan], head: &str) -> Option<&'a FormSpan> {

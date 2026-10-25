@@ -248,12 +248,16 @@ impl StructuralGraphBuilder<'_> {
             let component_ref = self
                 .component_by_symbol
                 .get(&context.occurrence_index)
-                .and_then(|symbols| symbols.get(&pin.symbol_uuid))
+                .and_then(|symbols| symbols.get(&pin.symbol_index))
                 .cloned();
-            let source_uuid = if pin.source_pin_uuid.is_empty() {
+            // A symbol without a uuid (KiCad assigns one) is identified by its
+            // component occurrence.
+            let source_uuid = if !pin.source_pin_uuid.is_empty() {
+                pin.source_pin_uuid.as_str()
+            } else if !pin.symbol_uuid.is_empty() {
                 pin.symbol_uuid.as_str()
             } else {
-                pin.source_pin_uuid.as_str()
+                component_ref.as_deref().unwrap_or_default()
             };
             self.add_terminal(
                 TerminalInput {
@@ -284,10 +288,19 @@ impl StructuralGraphBuilder<'_> {
                 SchematicWireDriverKind::SheetPin => (TerminalRole::SheetEntry, false),
                 _ => continue,
             };
-            let source_uuid = if label.source_uuid.is_empty() {
+            // KiCad gives an item without a uuid a fresh one (`parseSchText`); the
+            // label's kind, text and position stand in for it here.
+            let positional;
+            let source_uuid = if !label.source_uuid.is_empty() {
+                label.source_uuid.as_str()
+            } else if !label.render_id.is_empty() {
                 label.render_id.as_str()
             } else {
-                label.source_uuid.as_str()
+                positional = format!(
+                    "{:?}:{}@{},{}",
+                    label.kind, label.text, label.at.x_iu, label.at.y_iu
+                );
+                positional.as_str()
             };
             self.add_terminal(
                 TerminalInput {
@@ -313,20 +326,40 @@ impl StructuralGraphBuilder<'_> {
     ) -> Result<(), SourceBundleError> {
         let track_hierarchical_port =
             input.hierarchical_port && self.has_parent_occurrence(context.occurrence_index);
-        let semantic_key = (
+        let mut semantic_key = (
             input.role,
             input.component_ref.unwrap_or_default().to_owned(),
             input.source_uuid.to_owned(),
             input.source_subobject.to_owned(),
         );
-        if let Some(index) = context
+        // Items sharing a UUID (KiCad keeps duplicates in s-expression files) on
+        // different nets are different terminals: a later one is numbered.
+        let mut copy = 0_usize;
+        while let Some(index) = context
             .terminal_state
             .terminal_by_semantic_source
             .get(&semantic_key)
             .copied()
         {
-            return self.reuse_terminal(index, input, context, track_hierarchical_port);
+            if self.graph.terminal_occurrences[index]
+                .local_net_occurrence_ref
+                .is_none()
+            {
+                let source_uuid = semantic_key.2.clone();
+                let input = TerminalInput {
+                    source_uuid: &source_uuid,
+                    ..input
+                };
+                return self.reuse_terminal(index, input, context, track_hierarchical_port);
+            }
+            copy += 1;
+            semantic_key.2 = format!("{}#{copy}", input.source_uuid);
         }
+        let source_uuid = semantic_key.2.clone();
+        let input = TerminalInput {
+            source_uuid: &source_uuid,
+            ..input
+        };
         self.append_new_terminal(semantic_key, input, context, track_hierarchical_port)
     }
 
@@ -571,6 +604,7 @@ impl StructuralGraphBuilder<'_> {
             .map(|row| (row.child_unit_occurrence_ref.clone(), row.id.clone()))
             .collect::<HashMap<_, _>>();
         let mut bound_children = HashSet::new();
+        let mut bound_parents = HashSet::new();
         for binding in bindings {
             let parent_ref = state
                 .terminal_by_source
@@ -610,6 +644,21 @@ impl StructuralGraphBuilder<'_> {
                 .clone();
             self.append_hierarchy_binding_row(binding, &parent_ref, &child_ref, &hierarchy_ref)?;
             bound_children.insert(child_ref);
+            bound_parents.insert(parent_ref);
+        }
+        // A sheet pin sharing another's UUID (KiCad keeps duplicates) is a numbered
+        // terminal no binding names; it is recorded as unresolved, not dropped.
+        let unbound_entries = self
+            .graph
+            .terminal_occurrences
+            .iter()
+            .filter(|terminal| {
+                terminal.role == TerminalRole::SheetEntry && !bound_parents.contains(&terminal.id)
+            })
+            .map(|terminal| terminal.id.clone())
+            .collect::<Vec<_>>();
+        for entry in &unbound_entries {
+            self.mark_hierarchy_unresolved(entry, state);
         }
         for child_ref in state
             .hierarchical_port_by_name

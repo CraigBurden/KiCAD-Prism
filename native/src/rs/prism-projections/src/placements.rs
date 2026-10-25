@@ -391,12 +391,19 @@ fn scalar_child(form: &Sexp, index: usize) -> String {
     }
 }
 
-/// The footprint's `(uuid …)`, or `""` (`placements_build.py:322-323`).
+/// The footprint's `(uuid …)`, or `""` (`placements_build.py:322-323`). KiCad 6 and 7
+/// boards write `(tstamp …)` instead, which KiCad 10 still reads as the uuid
+/// (`PCB_IO_KICAD_SEXPR_PARSER::parseFOOTPRINT_unchecked`).
 fn uuid_of(form: &Sexp) -> String {
-    match tree::child(Some(form), "uuid").and_then(tree::as_list) {
-        Some(values) if values.len() > 1 => tree::py_str(&values[1]),
-        _ => String::new(),
-    }
+    ["uuid", "tstamp"]
+        .into_iter()
+        .find_map(
+            |head| match tree::child(Some(form), head).and_then(tree::as_list) {
+                Some(values) if values.len() > 1 => Some(tree::py_str(&values[1])),
+                _ => None,
+            },
+        )
+        .unwrap_or_default()
 }
 
 /// A `NonNegativeNanometres` from millimetres.
@@ -512,6 +519,18 @@ mod tests {
             let value = serde_json::to_value(&produced.document).unwrap();
             assert_eq!(value["schema"], super::SCHEMA);
         });
+    }
+
+    /// KiCad 6 and 7 write `(tstamp …)` where later versions write `(uuid …)`.
+    #[test]
+    fn a_footprint_identified_by_tstamp_is_placed() {
+        let text = BOARD.replace("(uuid ", "(tstamp ");
+        let (document, _) = build(&text, None).expect("board builds");
+        assert_eq!(document.footprints.len(), 1);
+        assert_eq!(
+            document.footprints[0].uuid.0,
+            "00000000-0000-0000-0000-000000000001"
+        );
     }
 
     #[test]

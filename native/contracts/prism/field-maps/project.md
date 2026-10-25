@@ -140,8 +140,8 @@ The producer reads these files, and only these:
    - Its `text_variables` and `net_settings.classes[]`.
    - Its drawing-sheet settings `schematic.page_layout_descr_file` and `pcbnew.page_layout_descr_file`. An empty or missing setting is not a reference: KiCad then uses its default sheet.
    - Every other string value for `text-path`.
-2. **The root schematic:** the effective configuration's `root_schematic`, or `<stem>.kicad_sch` beside the project file (KiCad's pairing; bundle-format §2.1).
-3. **Every schematic reached from it:** follow `sheet-file` references whose target is `repository` with `inSources` true, at any depth, reading each file once. A cycle ends at the first repeat.
+2. **The root schematic:** the effective configuration's `root_schematic`, or `<stem>.kicad_sch` beside the project file (KiCad's pairing; bundle-format §2.1). A KiCad 10 project's other top-level sheets (`schematic.top_level_sheets`, as stage parse reads them: cli-spec §5.2.2) follow it as `schematic` documents.
+3. **Every schematic reached from them:** follow `sheet-file` references whose target is `repository` with `inSources` true, at any depth, reading each file once. A cycle ends at the first repeat.
    - Detached sheets are not read (D5).
    - A sheet file that is not in the sources is listed as a reference but not read. Stage parse loads it as an empty sheet with a `sheet-missing` warning, as KiCad does (cli-spec §5.2.2).
 4. **The board:** the effective configuration's `board`, or `<stem>.kicad_pcb`.

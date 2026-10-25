@@ -201,13 +201,15 @@ impl NetBuilder<'_> {
     ) -> Result<(String, bool), SourceBundleError> {
         match subgraph.chosen_kind {
             Some(SchematicWireDriverKind::GlobalLabel)
-            | Some(SchematicWireDriverKind::GlobalPowerPin)
-            | Some(SchematicWireDriverKind::LocalPowerPin) => {
+            | Some(SchematicWireDriverKind::GlobalPowerPin) => {
                 Ok((self.escaped_name(&subgraph.chosen_name)?, false))
             }
+            // A local power port names a sheet-local net, prefixed by its sheet path
+            // as a local label's is (KiCad's `SCH_CONNECTION` for a local driver).
             Some(SchematicWireDriverKind::LocalLabel)
             | Some(SchematicWireDriverKind::HierarchicalLabel)
-            | Some(SchematicWireDriverKind::SheetPin) => {
+            | Some(SchematicWireDriverKind::SheetPin)
+            | Some(SchematicWireDriverKind::LocalPowerPin) => {
                 let escaped_bytes = self.escaped_name_bytes(&subgraph.chosen_name)?;
                 let separator = usize::from(!self.sheet_path.ends_with('/'));
                 let output_bytes = self
@@ -231,12 +233,10 @@ impl NetBuilder<'_> {
     }
 
     fn auto_name(&self, subgraph: &SchematicWireSubgraph) -> Result<String, SourceBundleError> {
-        let isolated = (subgraph.pin_drivers.len() == 1).then(|| &subgraph.pin_drivers[0]);
-        let weak_isolated = isolated.is_some_and(|pin| {
-            matches!(pin.electrical_type.as_str(), "passive" | "unspecified")
-                || pin.electrical_type.contains("no_connect")
-                || pin.parent_pin_count == 1
-        });
+        // KiCad names a net whose only driver is one pin `unconnected-(…)`, whatever
+        // the pin's type (`CONNECTION_GRAPH::buildConnectionGraph`, weakly-driven
+        // single-pin nets); a no-connect flag forces it for every pin.
+        let weak_isolated = subgraph.pin_drivers.len() == 1 && subgraph.label_drivers.is_empty();
         let forced_unconnected = subgraph.no_connect || weak_isolated;
         let has_component_pin = subgraph
             .pin_drivers
@@ -283,8 +283,10 @@ impl NetBuilder<'_> {
         order: usize,
     ) -> Result<AutoNameCandidate<'a>, SourceBundleError> {
         let unconnected = forced_unconnected || pin.electrical_type == "no_connect";
+        // KiCad drops the pin name when it is empty or the number; `~` is a name
+        // except in a file old enough to mean no name by it.
         let bare_pad =
-            pin.pin_name.is_empty() || pin.pin_name == "~" || pin.pin_name == pin.pin_number;
+            pin.pin_name.is_empty() || pin.pin_name == pin.pin_number || pin.legacy_unnamed;
         let suffix = if bare_pad {
             self.compose_escaped("Pad", &pin.pin_number, "")?
         } else if unconnected || pin.has_multiple {

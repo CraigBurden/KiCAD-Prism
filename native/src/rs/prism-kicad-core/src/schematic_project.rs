@@ -8,6 +8,53 @@ use crate::{
 pub(crate) struct ProjectSchematicSettings {
     pub(crate) subparts: SchematicSubpartSettings,
     pub(crate) bus_aliases: Vec<ProjectBusAlias>,
+    pub(crate) top_level_sheets: Vec<ProjectTopLevelSheet>,
+}
+
+/// One entry of a KiCad 10 project's `schematic.top_level_sheets`: a schematic KiCad
+/// loads as a root of the design (`SCH_EDIT_FRAME::OpenProjectFiles`).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProjectTopLevelSheet {
+    /// The file, relative to the project directory.
+    pub filename: String,
+    /// The sheet's name, shown in net and sheet paths when there are several roots.
+    pub name: String,
+    /// The sheet's UUID, which replaces the file's own; `None` when absent or nil.
+    pub uuid: Option<String>,
+}
+
+const NIL_UUID: &str = "00000000-0000-0000-0000-000000000000";
+
+/// The project's top-level sheets in file order, skipping entries without a file
+/// name; empty when the project lists none (a single-root project).
+#[must_use]
+pub fn project_top_level_sheets(project: &serde_json::Value) -> Vec<ProjectTopLevelSheet> {
+    top_level_sheets_of(project.get("schematic"))
+}
+
+fn top_level_sheets_of(schematic: Option<&serde_json::Value>) -> Vec<ProjectTopLevelSheet> {
+    let text = |sheet: &serde_json::Value, key: &str| {
+        sheet
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_owned()
+    };
+    schematic
+        .and_then(|schematic| schematic.get("top_level_sheets"))
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|sheet| {
+            let filename = text(sheet, "filename");
+            let uuid = text(sheet, "uuid");
+            (!filename.is_empty()).then(|| ProjectTopLevelSheet {
+                filename,
+                name: text(sheet, "name"),
+                uuid: (!uuid.is_empty() && uuid != NIL_UUID).then_some(uuid),
+            })
+        })
+        .collect()
 }
 
 pub(crate) fn project_schematic_settings_with_limits(
@@ -18,6 +65,7 @@ pub(crate) fn project_schematic_settings_with_limits(
         return Ok(ProjectSchematicSettings {
             subparts: SchematicSubpartSettings::default(),
             bus_aliases: Vec::new(),
+            top_level_sheets: Vec::new(),
         });
     };
     let document = ProjectDocument::from_reader(
@@ -71,6 +119,7 @@ pub(crate) fn project_schematic_settings_with_limits(
             )?,
         },
         bus_aliases,
+        top_level_sheets: top_level_sheets_of(view.raw().get("schematic")),
     })
 }
 

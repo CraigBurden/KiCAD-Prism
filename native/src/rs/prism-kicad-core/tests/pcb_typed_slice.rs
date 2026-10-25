@@ -209,14 +209,14 @@ fn assert_model_visibility_and_offset_units() {
     for (actual, expected) in offset.into_iter().zip([25.4, 50.8, 76.2]) {
         assert!((actual - expected).abs() < 1e-12);
     }
-    for suffix in ["hide (hide no)", "(at (xyz 1 2 3))"] {
-        let source = SOURCE.replace(
-            "(rotate (xyz 10 20 30))",
-            &format!("(rotate (xyz 10 20 30)) {suffix}"),
-        );
-        let view = PcbView::parse(&source, PcbLimits::default()).unwrap();
-        assert!(view.models().next().unwrap().is_err());
-    }
+    // KiCad reads the fields in order, the last one winning (`parse3DModel`).
+    let source = SOURCE.replace(
+        "(rotate (xyz 10 20 30))",
+        "(rotate (xyz 10 20 30)) hide (hide no) (at (xyz 1 2 3))",
+    );
+    let view = PcbView::parse(&source, PcbLimits::default()).unwrap();
+    let model = view.models().next().unwrap().unwrap();
+    assert_eq!((model.hidden, model.offset), (Some(false), offset));
 }
 
 #[test]
