@@ -59,6 +59,8 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 import logging
+
+from app.core.api_version import ApiVersionMiddleware, install_versioned_openapi, operation_id
 from urllib.parse import urlsplit
 
 # Configure logging
@@ -231,7 +233,13 @@ async def lifespan(app: FastAPI):
         catalog_service.close()
         database.close()
 
-app = FastAPI(title="KiCAD Prism API", lifespan=lifespan)
+app = FastAPI(
+    title="KiCAD Prism API",
+    lifespan=lifespan,
+    openapi_url="/api/openapi.json",
+    generate_unique_id_function=operation_id,
+)
+install_versioned_openapi(app)
 install_error_handlers(app)
 install_design_data_handlers(app)
 
@@ -260,6 +268,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Outermost: /api/v1/... is rewritten to /api/... before anything else sees it.
+app.add_middleware(ApiVersionMiddleware)
 
 # Include Routers
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])

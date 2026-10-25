@@ -40,7 +40,7 @@ from app.services import git_host_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(include_in_schema=False)
 
 # The only paths git actually asks for. Anything else is not a git client and has no
 # business being routed into http-backend.
