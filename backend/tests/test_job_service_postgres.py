@@ -419,6 +419,29 @@ class JobServicePostgresTests(unittest.TestCase):
         self.assertEqual(outcome, "cancelled")
         self.assertEqual(self.service.get(queued["job_id"])["status"], "cancelled")
 
+    def test_a_successful_retry_clears_the_failed_attempt_s_error(self) -> None:
+        queued = self.enqueue("retry-clears-error")
+        claim = self.service.claim("worker-a", worker_pool=self.pool)
+        outcome = self.service.fail(
+            queued["job_id"],
+            "worker-a",
+            int(claim["fence"]),
+            error_code="output-write-failed",
+            error_message="-o's directory does not exist",
+            transient=True,
+            retry_after_seconds=0,
+        )
+        self.assertEqual(outcome, "retry_wait")
+        self.assertEqual(self.service.get(queued["job_id"])["error_code"], "output-write-failed")
+        retry = self.service.claim("worker-a", worker_pool=self.pool)
+        self.assertEqual(str(retry["job_id"]), queued["job_id"])
+        self.assertTrue(self.service.complete(queued["job_id"], "worker-a", int(retry["fence"]), message="done"))
+        job = self.service.get(queued["job_id"])
+        self.assertEqual(
+            (job["status"], job["percent"], job["error_code"], job["error_message"]),
+            ("completed", 100, "", ""),
+        )
+
     def _artifact(self, name: str, body: bytes, readiness: str = "partial") -> dict:
         path, digest, size = self.write_artifact_file(name, body)
         return {"kind": self.kind, "artifact_key": "ended", "digest": digest, "object_path": path,

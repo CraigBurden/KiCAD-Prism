@@ -132,8 +132,10 @@ def closure_documents(src: Path, config: Mapping[str, object]) -> list[str]:
 
     Sheets are followed through their ``Sheetfile`` property, relative to the
     referencing sheet's directory, then to the project directory; only files
-    present under ``src`` count. Reading a file's header and sheet names is all
-    this does; the parse is the CLI's.
+    present under ``src`` count. A name that matches one schematic only when
+    letter case is ignored is that schematic, as stage parse reads it
+    (cli-spec.md §5.2.2), whatever the worker's file system. Reading a file's
+    header and sheet names is all this does; the parse is the CLI's.
     """
 
     found: list[str] = []
@@ -142,6 +144,7 @@ def closure_documents(src: Path, config: Mapping[str, object]) -> list[str]:
     project_dir = PurePosixPath(str(config["project_file"])).parent
     queue = [str(config["root_schematic"])] if isinstance(config.get("root_schematic"), str) else []
     seen: set[str] = set()
+    schematics = {path.relative_to(src).as_posix() for path in src.rglob("*.kicad_sch") if path.is_file()}
     while queue:
         sheet = queue.pop(0)
         if sheet in seen or not (src / sheet).is_file():
@@ -152,11 +155,20 @@ def closure_documents(src: Path, config: Mapping[str, object]) -> list[str]:
         for raw in _SHEET_FILE.findall(text):
             name = raw.replace('\\"', '"').replace("\\\\", "\\")
             for base in (PurePosixPath(sheet).parent, project_dir):
-                candidate = _normalized(base / name)
-                if candidate is not None and (src / candidate).is_file():
+                candidate = _present(_normalized(base / name), schematics)
+                if candidate is not None:
                     queue.append(candidate)
                     break
     return found
+
+
+def _present(path: str | None, schematics: set[str]) -> str | None:
+    """``path`` as spelled in ``schematics``: exactly, or its one letter-case-only match."""
+
+    if path is None or path in schematics:
+        return path
+    folded = [candidate for candidate in schematics if candidate.casefold() == path.casefold()]
+    return folded[0] if len(folded) == 1 else None
 
 
 def _normalized(path: PurePosixPath) -> str | None:

@@ -84,11 +84,12 @@ fn auto_names_use_duplicate_pin_names_units_and_source_pin_identity() {
         .iter()
         .map(|net| (net.name.as_str(), net))
         .collect::<std::collections::HashMap<_, _>>();
+    // Each pin is alone on its net, so KiCad 10.0.6 names it unconnected.
     let first = by_name
-        .get("Net-(U1-A-IO-Pad1)")
+        .get("unconnected-(U1-A-IO-Pad1)")
         .expect("first duplicate-name pin");
     let second = by_name
-        .get("Net-(U1-A-IO-Pad2)")
+        .get("unconnected-(U1-A-IO-Pad2)")
         .expect("second duplicate-name pin");
     assert_eq!(first.terminals[0].source_pin_id, "pin-one");
     assert_eq!(first.terminals[0].svg_id, "pin-one");
@@ -158,8 +159,10 @@ fn isolated_and_named_multi_pin_auto_names_follow_kicad_quality_rules() {
         .into_iter()
         .map(|net| net.name)
         .collect::<std::collections::HashSet<_>>();
-    assert!(names.contains("Net-(U1-VREF)"));
-    assert!(names.contains("Net-(U1-IO)"));
+    // A pin alone on its net is unconnected whatever its type (KiCad 10.0.6); this
+    // file has no version, so its `~` pin name means no name.
+    assert!(names.contains("unconnected-(U1-VREF-Pad1)"));
+    assert!(names.contains("unconnected-(U1-IO-Pad2)"));
     assert!(names.contains("unconnected-(R1-Pad1)"));
 
     let error = build_schematic_occurrence_nets(&index, 1, u64::MAX, Default::default())

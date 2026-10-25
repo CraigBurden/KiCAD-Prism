@@ -392,6 +392,7 @@ pub(super) fn promote_bus_members(
         };
         union_within_occurrences(compiled, &member_offsets, &mut context)?;
         union_across_hierarchy(compiled, index, aliases, &member_offsets, &mut context)?;
+        union_global_buses(compiled, &member_offsets, &mut context)?;
     }
 
     let mut group_index_by_root = HashMap::new();
@@ -510,10 +511,26 @@ fn union_across_hierarchy(
             )? {
                 continue;
             }
-            let Some(parent_bus) = parent.bus_coord_to_subgraph.get(&pin.at).copied() else {
+            // A sheet pin on the inside of a bus segment is still on that bus, as in
+            // KiCad 10.0.6's netlist; the bus records it as one of its drivers.
+            let Some(parent_bus) =
+                parent
+                    .bus_coord_to_subgraph
+                    .get(&pin.at)
+                    .copied()
+                    .or_else(|| {
+                        parent.bus_subgraphs.iter().position(|bus| {
+                            bus.drivers.iter().any(|driver| {
+                                driver.kind == SchematicBusDriverKind::SheetPin
+                                    && driver.at == pin.at
+                            })
+                        })
+                    })
+            else {
                 continue;
             };
-            let Some(child_bus) = child_bus_by_name.get(pin.name.as_str()).copied() else {
+            let name = crate::schematic_connectivity::label_text::unescape(&pin.name);
+            let Some(child_bus) = child_bus_by_name.get(name.as_str()).copied() else {
                 continue;
             };
             union_bus_pair(
@@ -523,6 +540,41 @@ fn union_across_hierarchy(
                 offsets[child_array_index][child_bus],
                 context,
             )?;
+        }
+    }
+    Ok(())
+}
+
+/// Buses that carry the same global label are one bus in every sheet, so their
+/// members with matching names join, as global labels of nets do.
+fn union_global_buses(
+    compiled: &[CompiledOccurrence],
+    offsets: &[Vec<usize>],
+    context: &mut MemberUnionContext<'_>,
+) -> Result<(), SourceBundleError> {
+    let mut first_by_name = HashMap::<&str, (usize, usize)>::new();
+    for (occurrence, compiled_occurrence) in compiled.iter().enumerate() {
+        for (bus_index, bus) in compiled_occurrence.bus_subgraphs.iter().enumerate() {
+            for driver in &bus.drivers {
+                if driver.kind != SchematicBusDriverKind::GlobalLabel {
+                    continue;
+                }
+                let Some(&(first_occurrence, first_bus)) = first_by_name.get(driver.text.as_str())
+                else {
+                    first_by_name.insert(driver.text.as_str(), (occurrence, bus_index));
+                    continue;
+                };
+                if (first_occurrence, first_bus) == (occurrence, bus_index) {
+                    continue;
+                }
+                union_bus_pair(
+                    &compiled[first_occurrence].bus_subgraphs[first_bus],
+                    bus,
+                    offsets[first_occurrence][first_bus],
+                    offsets[occurrence][bus_index],
+                    context,
+                )?;
+            }
         }
     }
     Ok(())

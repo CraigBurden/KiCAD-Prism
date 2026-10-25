@@ -97,7 +97,7 @@ fn board_records(
     Some(records)
 }
 
-/// Walk the root schematic and every sheet it reaches in hierarchy order
+/// Walk the top-level schematics and every sheet they reach in hierarchy order
 /// (`variant_catalog_service.py:308-328`).
 fn schematic_walk(input: &ProjectionInput<'_>, builder: &mut Builder) {
     let Some(root) = input
@@ -109,7 +109,20 @@ fn schematic_walk(input: &ProjectionInput<'_>, builder: &mut Builder) {
         return;
     };
     let project_dir = parent_dir(&input.config.project_file.0).to_owned();
-    let mut pending = vec![root];
+    // A KiCad 10 multi-root project starts from each top-level sheet the core
+    // realized; otherwise the root schematic.
+    let mut pending: Vec<String> = input.schematic.map_or_else(Vec::new, |model| {
+        model
+            .index
+            .occurrences()
+            .filter(|occurrence| occurrence.parent_index.is_none())
+            .map(|occurrence| occurrence.source_path.clone())
+            .collect()
+    });
+    if pending.is_empty() {
+        pending.push(root);
+    }
+    pending.reverse();
     let mut visited: BTreeSet<String> = BTreeSet::new();
     while let Some(path) = pending.pop() {
         let Some(resolved) = normalize(&path) else {
@@ -125,8 +138,12 @@ fn schematic_walk(input: &ProjectionInput<'_>, builder: &mut Builder) {
             builder.source_unparseable(SOURCE_SCHEMATIC, basename(&path));
             continue;
         }
-        let records =
-            read_text(input.sources, &resolved).map(|text| scan::scan(&text, "kicad_sch"));
+        let records = read_text(input.sources, &resolved)
+            .or_else(|| {
+                let actual = case_insensitive_schematic(input.sources, &resolved)?;
+                read_text(input.sources, &actual)
+            })
+            .map(|text| scan::scan(&text, "kicad_sch"));
         let Some(records) = records.filter(|records| records.readable) else {
             builder.source_unparseable(SOURCE_SCHEMATIC, &resolved);
             continue;
@@ -350,14 +367,27 @@ fn join(directory: &str, name: &str) -> String {
     }
 }
 
+/// The one source-set schematic whose path equals `path` ignoring letter case, as
+/// stage parse reads a sub-sheet named in another case (cli-spec.md §5.2.2).
+fn case_insensitive_schematic(sources: &dyn Sources, path: &str) -> Option<String> {
+    let folded = path.to_lowercase();
+    let mut matches = sources
+        .list("", &[".kicad_sch"])
+        .into_iter()
+        .filter(|candidate| candidate.to_lowercase() == folded);
+    let actual = matches.next()?;
+    matches.next().is_none().then_some(actual)
+}
+
 /// Lexically resolve `.` and `..` (`Path.resolve`); `None` when it escapes
-/// above the repository root.
+/// above the repository root. `\` separates segments as `/` does, as KiCad reads a
+/// sheet file name (`SCH_SHEET::SetFileName`).
 fn normalize(path: &str) -> Option<String> {
     if path.starts_with('/') {
         return None;
     }
     let mut parts: Vec<&str> = Vec::new();
-    for part in path.split('/') {
+    for part in path.split(['/', '\\']) {
         match part {
             "" | "." => {}
             ".." => {

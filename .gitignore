@@ -39,6 +39,12 @@ docker-compose.override.yml
 # contracts elsewhere (e.g. JSON Schema) are not hidden.
 /generated/
 /generated.bak.*/
+# Operator Caddy sites imported by the generated Caddyfile.
+/sites/
+# prism_backup.py archives and staging, written to the deployment root by default.
+/prism-backup-*
+/.prism-backup-*
+/.prism-restore-*
 
 # Remote-panel loadtest secrets + reports
 loadtest/.env.loadtest

@@ -79,3 +79,43 @@ One runner entry, D1's a2 envelope, applies to every case: the goldens hold the 
 - Why: KiCad 10.0.6's netlist does the same. With the `project_bus_alias_hierarchy` fixture's aliases replaced by `CTRL: [INNER, CTRL_B], INNER: [CTRL_A]`, `CTRL_A` is not bused (`/CTRL_A` and `/MEMBER_SHEET/CTRL_A` stay separate nets); `INNER: [CTRL]` (a cycle) and `CTRL: [CTRL, CTRL_B]` give the same nets, with no error.
 - Consumer: every reader of the schematic nets (`design.json`, the semantic index, occurrences, system interface).
 - Fixtures: none of the parity cases nests or cycles aliases; `prism-kicad-core/tests/schematic_bus.rs` and `project_bus_alias_design.rs` pin the behaviour. `crate_version` 0.10.0.
+
+## D12. Sub-sheets: KiCad 9 private fields, letter-case matches and absent files
+
+- Today: kicad_monkey fails a schematic whose field carries KiCad 9's bare `private` flag, and fails the design when a sub-sheet file is absent.
+- Bundle: a private field is read like any other (KiCad's netlist keeps it; the plotter skips it, as KiCad draws it only in the symbol editor). A sub-sheet reference that matches exactly one source-set schematic only when letter case is ignored reads that file and warns `sheet-path-case`; an absent sub-sheet is empty and warns `sheet-missing` (cli-spec.md §5.2.2).
+- Why: KiCad 10.0.6 parses `(property private …)` and loads an absent sheet file empty (`SCH_IO_KICAD_SEXPR::loadHierarchy`). It opens a sheet file through the file system, so a letter-case-only mismatch resolves on Windows and macOS, where these designs are authored, and is empty on Linux. The bundle follows the authoring platforms.
+- Consumer: every reader of the schematic (`design.json`, the semantic index, occurrences, the plots).
+- Fixtures: none of the parity cases has private fields, a mis-cased or an absent sheet; `prism-kicad-core/tests/schematic_private_properties.rs`, `schematic_private_drawing.rs`, `schematic_bundle.rs` and `prism-kicad-cli/tests/exits.rs` pin the behaviour. `crate_version` 0.11.0.
+
+## D13. Pins that share a number pair with saved pins in order
+
+- Today: kicad_monkey keys a placed symbol's saved pins by number, so two library pins with one number (a connector's mounting pads) take the same pin UUID, and a design whose two such pins sit on different nets fails "one semantic terminal source resolves to multiple local nets".
+- Bundle: the nth library pin with a number, over every unit of the placed body style, takes the nth saved `(pin "N" (uuid …))`.
+- Why: KiCad 10.0.6 pairs them the same way (`SCH_SYMBOL::updatePins`); its netlist gives each pin its own net (`unconnected-(J3-25-PadMounting)`, `unconnected-(J3-26-PadMounting)`).
+- Consumer: every reader of the schematic nets and terminals.
+- Fixtures: none of the parity cases repeats a pin number; `prism-kicad-core/tests/compiled_graph_producer.rs` pins the behaviour. `crate_version` 0.11.0.
+
+## D14. Schematic nets follow KiCad 10.0.6's connection graph
+
+- Today: kicad_monkey's connectivity differs from KiCad 10.0.6 in several rules, so a design can get different nets or net names from KiCad's own netlist.
+- Bundle: these rules match `eeschema/connection_graph.cpp` at 10.0.6.
+  - A bus wire entry drawn between two wires joins them (`SCH_BUS_WIRE_ENTRY::ConnectionPropagatesTo`).
+  - A global label and a global power symbol with one name are one net, and equal global drivers name the net alphabetically (the `name_to_sgs` pre-pass).
+  - A global label meets a local label of the same text on its sheet.
+  - Buses carrying one global label join member by member.
+  - Stacked no-connect pins stay apart.
+  - A sheet pin inside a bus segment pairs with that bus.
+  - A placed symbol resolves its library symbol by its exact name first.
+  - Local power nets carry their sheet path.
+  - A net whose only driver is one pin is `unconnected-(…)`, and a `~` pin name counts from file version 20250318.
+    The nine design-variant and synthetic goldens with such nets carry KiCad's names (`unconnected-(R1-~-Pad1)`) and their net uids.
+  - A unit's `(unit_name …)` replaces its letter in net names (`SCH_SYMBOL::SubReference`).
+  - Placed symbols read `(body_style N)` as well as `(convert N)`.
+- Why: checked net for net against KiCad 10.0.6's `kicad-cli sch export netlist` on the committed fixtures and on a corpus of 34 production KiCad 9/10 projects. Every committed fixture KiCad loads matches.
+- Not emulated:
+  - the `_N` order of colliding weak names (KiCad's subgraph creation order);
+  - the path prefix of a bus member shared by a root local bus and a sheet's global bus;
+  - an order-dependent hierarchical rename after the global merge.
+- Consumer: every reader of the schematic nets (`design.json`, the semantic index, occurrences, system interface).
+- Fixtures: `prism-kicad-core/tests/schematic_kicad_connectivity.rs`, `schematic_connectivity.rs` and `schematic_kicad_forms.rs` pin each rule with a synthetic design. `crate_version` 0.12.0.

@@ -48,6 +48,20 @@ def all_final(manifest: Mapping[str, Any]) -> bool:
     return all(status in FINAL for status in statuses(manifest).values())
 
 
+def incomplete_stages(stages: Mapping[str, Any]) -> dict[str, list[str]]:
+    """The stages a bundle records as ``failed`` and as ``partial``, in stage order.
+
+    ``stages`` maps a stage to its status (:func:`statuses`, or a bundle row's
+    ``stages``). A stage skipped because an earlier one failed is not named:
+    the failed stage is.
+    """
+
+    return {
+        "failed": [stage for stage in STAGES if stages.get(stage) == "failed"],
+        "partial": [stage for stage in STAGES if stages.get(stage) == "partial"],
+    }
+
+
 def next_stage(manifest: Mapping[str, Any]) -> str | None:
     """The first ``pending`` stage, or ``None`` when every stage is final."""
 

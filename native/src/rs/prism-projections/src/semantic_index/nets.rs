@@ -91,17 +91,16 @@ fn index_net_items(state: &mut State, schematic_refs: &[Value], net_index: usize
 }
 
 /// `pins_by_pair`: graphical pins keyed `<designator>:<pin>`
-/// (semantic_index_service.py:963-967).
+/// (semantic_index_service.py:963-967). A pin without a designator or a
+/// number (a library pin KiCad writes as `(pin "")`, such as a mounting hole's)
+/// has no terminal, as in the netlist pass below.
 fn pins_by_pair(graphical: &Map<String, Value>) -> OrderedMap {
     let mut pins = OrderedMap::default();
     for pin in object_list(graphical, "pins") {
-        let pair = format!(
-            "{}:{}",
-            string(pin.get("designator")),
-            string(pin.get("pin"))
-        );
-        if pair != ":" {
-            pins.insert(pair, pin.clone());
+        let reference = string(pin.get("designator"));
+        let number = string(pin.get("pin"));
+        if !reference.is_empty() && !number.is_empty() {
+            pins.insert(format!("{reference}:{number}"), pin.clone());
         }
     }
     pins

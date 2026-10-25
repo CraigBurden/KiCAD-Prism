@@ -543,7 +543,7 @@ fn component_properties(
             )?;
         }
     }
-    let (sheet_name, sheet_file) = if occurrence.parent_index.is_none() {
+    let (sheet_name, sheet_file) = if occurrence.is_root_schematic() {
         (
             portable_stem(&occurrence.source_path),
             portable_name(&occurrence.source_path),

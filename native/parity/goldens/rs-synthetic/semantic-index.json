@@ -144,7 +144,7 @@
    ],
    "webgpuRefs": [],
    "aliases": [
-    "unconnected-(R1-Pad1)"
+    "unconnected-(R1-~-Pad1)"
    ],
    "sourceSheets": [
     "/"
@@ -191,7 +191,7 @@
    ],
    "webgpuRefs": [],
    "aliases": [
-    "unconnected-(R1-Pad2)",
+    "unconnected-(R1-~-Pad2)",
     "unconnected-(D1-K-Pad1)"
    ],
    "sourceSheets": [
@@ -274,7 +274,7 @@
    "pinType": "PASSIVE",
    "netUid": "net:436512e5babfbe83cb49",
    "netName": "+5V",
-   "schematicNetName": "unconnected-(R1-Pad1)",
+   "schematicNetName": "unconnected-(R1-~-Pad1)",
    "schematicPinUuid": "66666666-6666-4666-8666-666666666661",
    "pcbPadUuid": "273c016c-e4d1-4e9c-854d-0ca38b3d19d9"
   },
@@ -287,7 +287,7 @@
    "pinType": "PASSIVE",
    "netUid": "net:8c2e4a035f5f3d218f87",
    "netName": "STATUS",
-   "schematicNetName": "unconnected-(R1-Pad2)",
+   "schematicNetName": "unconnected-(R1-~-Pad2)",
    "schematicPinUuid": "66666666-6666-4666-8666-666666666662",
    "pcbPadUuid": "b51d7448-4f0f-46a4-bf35-9a1dde63805e"
   },
@@ -362,11 +362,11 @@
   "netByName": {
    "unconnected-(D1-K-Pad1)": 1,
    "unconnected-(D1-A-Pad2)": 2,
-   "unconnected-(R1-Pad1)": 0,
-   "unconnected-(R1-Pad2)": 1,
    "+5V": 0,
    "STATUS": 1,
-   "GND": 2
+   "GND": 2,
+   "unconnected-(R1-~-Pad1)": 0,
+   "unconnected-(R1-~-Pad2)": 1
   },
   "netByNetCode": {},
   "netBySchematicUuid": {

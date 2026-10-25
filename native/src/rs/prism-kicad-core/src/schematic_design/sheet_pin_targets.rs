@@ -66,18 +66,20 @@ impl SheetPinTargetIndex {
                 }
                 let targets = result.by_parent.entry(parent_index).or_default();
                 if pin.uuid.is_empty() {
+                    // Keyed by the connection name the label drivers carry.
+                    let name = crate::schematic_connectivity::label_text::unescape(&pin.name);
                     let by_name = targets.by_point.entry(pin.at).or_default();
-                    if by_name.contains_key(pin.name.as_str()) {
+                    if by_name.contains_key(name.as_str()) {
                         continue;
                     }
                     target_string_bytes = add_target_string_bytes(
                         target_string_bytes,
-                        pin.name.len(),
+                        name.len(),
                         child.human_address.len(),
                         limits.max_target_index_bytes,
                         &parent.source_path,
                     )?;
-                    by_name.insert(pin.name.clone(), child.human_address.clone());
+                    by_name.insert(name, child.human_address.clone());
                 } else {
                     if targets.by_uuid.contains_key(pin.uuid.as_str()) {
                         continue;

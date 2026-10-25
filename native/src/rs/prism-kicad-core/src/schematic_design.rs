@@ -9,6 +9,7 @@ mod bus_promotion;
 mod driver_choice;
 mod driver_storage;
 mod occurrence_compile;
+mod sheet_pin_suffix;
 mod sheet_pin_targets;
 mod types;
 mod union_find;
@@ -16,6 +17,7 @@ use bus_promotion::{BusPromotion, collect_design_bus_aliases, promote_bus_member
 use driver_choice::{DriverChoice, checked_join, consider_choice, sheet_depth};
 use driver_storage::merged_driver_shape;
 use occurrence_compile::{DesignCompilationBudget, compile_design_occurrence};
+use sheet_pin_suffix::{NamedGroup, sheet_pin_suffix_indices};
 use sheet_pin_targets::SheetPinTargetIndex;
 pub use types::{
     SchematicDesignNet, SchematicDesignNetEndpoint, SchematicDesignNetLimits,
@@ -204,8 +206,7 @@ impl<'a> DesignBuilder<'a> {
 
     fn build(mut self) -> Result<SchematicCompiledDesign, SourceBundleError> {
         let hierarchy_bindings = self.bind_hierarchy()?;
-        self.merge_global_labels()?;
-        self.merge_global_power()?;
+        self.merge_globals()?;
         let promotion = promote_bus_members(
             &self.compiled,
             self.index,
@@ -218,8 +219,7 @@ impl<'a> DesignBuilder<'a> {
         }
         let groups = self.ordered_groups();
         self.preflight_output_shape(&groups)?;
-        let suffix_indices = self.sheet_pin_suffix_indices()?;
-        let materialized = self.materialize(groups, &suffix_indices, &promotion)?;
+        let materialized = self.materialize(groups, &promotion)?;
         Ok(SchematicCompiledDesign {
             netlist: SchematicScalarDesignNetlist {
                 nets: materialized.nets,
@@ -299,7 +299,9 @@ impl<'a> DesignBuilder<'a> {
                 .coord_to_subgraph
                 .get(&pin.at)
                 .copied();
-            let child_match = child_by_name.get(pin.name.as_str()).copied();
+            let child_match = child_by_name
+                .get(crate::schematic_connectivity::label_text::unescape(&pin.name).as_str())
+                .copied();
             self.push_binding_union(
                 parent_array_index,
                 child_array_index,
@@ -383,52 +385,36 @@ impl<'a> DesignBuilder<'a> {
         Ok(())
     }
 
-    fn merge_global_labels(&mut self) -> Result<(), SourceBundleError> {
+    /// Join every subgraph a global label or a global power pin names, keyed by that
+    /// name: a `+3V3` global label and a `+3V3` power symbol are one net, as in
+    /// KiCad's global pass (`CONNECTION_GRAPH::buildConnectionGraph`, `name_to_sgs`
+    /// over drivers at or above `GLOBAL_POWER_PIN`).
+    fn merge_globals(&mut self) -> Result<(), SourceBundleError> {
         let mut first_by_name = HashMap::<&str, usize>::new();
         let mut unions = Vec::new();
         for (flat_index, (occurrence_index, subgraph_index)) in self.flat.iter().enumerate() {
-            for label in &self.compiled[*occurrence_index].subgraphs[*subgraph_index].label_drivers
-            {
-                if label.kind != SchematicWireDriverKind::GlobalLabel {
-                    continue;
-                }
-                if let Some(first) = first_by_name.get(label.text.as_str()) {
+            let subgraph = &self.compiled[*occurrence_index].subgraphs[*subgraph_index];
+            let labels = subgraph
+                .label_drivers
+                .iter()
+                .filter(|label| label.kind == SchematicWireDriverKind::GlobalLabel)
+                .map(|label| label.text.as_str());
+            let power = subgraph
+                .pin_drivers
+                .iter()
+                .filter(|pin| {
+                    pin.is_power && pin.priority == SchematicDriverPriority::GlobalPowerPin
+                })
+                .map(|pin| pin.power_value.as_str());
+            for name in labels.chain(power) {
+                if let Some(first) = first_by_name.get(name) {
                     self.ensure_pending_union_capacity(unions.len())?;
                     unions.push((*first, flat_index));
                 } else {
                     if first_by_name.len() >= self.limits.max_merge_keys {
-                        return Err(
-                            self.limit_error("global-label merge-key count exceeds its limit")
-                        );
+                        return Err(self.limit_error("global merge-key count exceeds its limit"));
                     }
-                    first_by_name.insert(label.text.as_str(), flat_index);
-                }
-            }
-        }
-        for (left, right) in unions {
-            self.bounded_union(left, right)?;
-        }
-        Ok(())
-    }
-
-    fn merge_global_power(&mut self) -> Result<(), SourceBundleError> {
-        let mut first_by_name = HashMap::<&str, usize>::new();
-        let mut unions = Vec::new();
-        for (flat_index, (occurrence_index, subgraph_index)) in self.flat.iter().enumerate() {
-            for pin in &self.compiled[*occurrence_index].subgraphs[*subgraph_index].pin_drivers {
-                if !pin.is_power || pin.priority != SchematicDriverPriority::GlobalPowerPin {
-                    continue;
-                }
-                if let Some(first) = first_by_name.get(pin.power_value.as_str()) {
-                    self.ensure_pending_union_capacity(unions.len())?;
-                    unions.push((*first, flat_index));
-                } else {
-                    if first_by_name.len() >= self.limits.max_merge_keys {
-                        return Err(
-                            self.limit_error("global-power merge-key count exceeds its limit")
-                        );
-                    }
-                    first_by_name.insert(pin.power_value.as_str(), flat_index);
+                    first_by_name.insert(name, flat_index);
                 }
             }
         }
@@ -523,16 +509,14 @@ impl<'a> DesignBuilder<'a> {
         )
     }
 
-    fn materialize(
-        &mut self,
+    /// Every group with a driver, merged and named before any sheet-pin suffix.
+    fn named_groups(
+        &self,
         groups: Vec<Vec<usize>>,
-        suffix_indices: &HashMap<(usize, usize), usize>,
         promotion: &BusPromotion,
-    ) -> Result<MaterializedDesign, SourceBundleError> {
-        let mut nets = Vec::new();
-        let mut unmaterialized_net_names = HashMap::new();
-        let mut seen_synthetic_sheet_pin_names = HashMap::<String, usize>::new();
-        let mut synthetic_sheet_pin_name_bytes = 0_usize;
+    ) -> Result<Vec<NamedGroup>, SourceBundleError> {
+        let mut named = Vec::new();
+        let mut work_string_bytes = 0_usize;
         for group in groups {
             let (mut merged, choice) = self.merged_subgraph(&group, promotion)?;
             let Some(choice) = choice else {
@@ -542,16 +526,53 @@ impl<'a> DesignBuilder<'a> {
             merged.chosen_priority = choice.priority;
             merged.chosen_kind = Some(choice.kind);
             let source_path = &self.compiled[self.flat[group[0]].0].source_path;
-            let (mut name, auto_named) = name_schematic_subgraph(
+            let (name, auto_named) = name_schematic_subgraph(
                 source_path,
                 &choice.sheet_path,
                 &merged,
                 self.limits.max_name_bytes,
             )?;
+            work_string_bytes = work_string_bytes
+                .checked_add(name.len())
+                .filter(|bytes| *bytes <= self.limits.max_work_string_bytes)
+                .ok_or_else(|| self.limit_error("design work string bytes exceed their limit"))?;
+            named.push(NamedGroup {
+                group,
+                merged,
+                name,
+                auto_named,
+                kind: choice.kind,
+                sheet_pin_key: choice.sheet_pin_key,
+            });
+        }
+        Ok(named)
+    }
+
+    fn materialize(
+        &mut self,
+        groups: Vec<Vec<usize>>,
+        promotion: &BusPromotion,
+    ) -> Result<MaterializedDesign, SourceBundleError> {
+        let named = self.named_groups(groups, promotion)?;
+        let suffix_indices = sheet_pin_suffix_indices(&named);
+        let suffix_indices = &suffix_indices;
+        let mut nets = Vec::new();
+        let mut unmaterialized_net_names = HashMap::new();
+        let mut seen_synthetic_sheet_pin_names = HashMap::<String, usize>::new();
+        let mut synthetic_sheet_pin_name_bytes = 0_usize;
+        for NamedGroup {
+            group,
+            merged,
+            mut name,
+            auto_named,
+            kind,
+            sheet_pin_key,
+        } in named
+        {
             self.apply_sheet_pin_suffix(
                 &mut name,
-                choice.kind,
-                choice.sheet_pin_key,
+                kind,
+                sheet_pin_key,
                 suffix_indices,
                 &mut seen_synthetic_sheet_pin_names,
                 &mut synthetic_sheet_pin_name_bytes,
@@ -981,11 +1002,7 @@ impl<'a> DesignBuilder<'a> {
             format!("{}-{}", pin.reference, pin.pin_number)
         };
         self.ensure_name_bytes(raw_name.len())?;
-        let power = pin.is_power
-            && matches!(
-                pin.priority,
-                SchematicDriverPriority::GlobalPowerPin | SchematicDriverPriority::LocalPowerPin
-            );
+        let power = pin.is_power && pin.priority == SchematicDriverPriority::GlobalPowerPin;
         let full_name = if power {
             raw_name.clone()
         } else {
@@ -1022,62 +1039,6 @@ impl<'a> DesignBuilder<'a> {
             }
         }
         self.compiled[occurrence_array_index].human_address.clone()
-    }
-
-    fn sheet_pin_suffix_indices(
-        &self,
-    ) -> Result<HashMap<(usize, usize), usize>, SourceBundleError> {
-        let mut grouped = HashMap::<String, Vec<(usize, usize, (usize, usize))>>::new();
-        let mut fallback = 0_usize;
-        let mut work_string_bytes = 0_usize;
-        for occurrence in 0..self.compiled.len() {
-            for subgraph in &self.compiled[occurrence].subgraphs {
-                for label in &subgraph.label_drivers {
-                    if label.kind != SchematicWireDriverKind::SheetPin {
-                        continue;
-                    }
-                    let sheet_path = self.label_sheet_path(occurrence, label);
-                    let fake = SchematicWireSubgraph {
-                        coords: Vec::new(),
-                        pin_drivers: Vec::new(),
-                        label_drivers: Vec::new(),
-                        graphical: Default::default(),
-                        chosen_name: label.text.clone(),
-                        chosen_priority: label.priority,
-                        chosen_kind: Some(label.kind),
-                        no_connect: false,
-                    };
-                    let (base, _) = name_schematic_subgraph(
-                        &self.compiled[occurrence].source_path,
-                        &sheet_path,
-                        &fake,
-                        self.limits.max_name_bytes,
-                    )?;
-                    work_string_bytes = work_string_bytes
-                        .checked_add(base.len())
-                        .ok_or_else(|| self.limit_error("design work string bytes overflow"))?;
-                    if work_string_bytes > self.limits.max_work_string_bytes {
-                        return Err(self.limit_error("design work string bytes exceed their limit"));
-                    }
-                    grouped.entry(base).or_default().push((
-                        label.source_order,
-                        fallback,
-                        (occurrence, label.source_order),
-                    ));
-                    fallback = fallback
-                        .checked_add(1)
-                        .ok_or_else(|| self.limit_error("sheet-pin suffix order overflows"))?;
-                }
-            }
-        }
-        let mut result = HashMap::new();
-        for entries in grouped.values_mut() {
-            entries.sort_by_key(|value| (value.0, value.1));
-            for (suffix, (_, _, key)) in entries.iter().enumerate() {
-                result.insert(*key, suffix);
-            }
-        }
-        Ok(result)
     }
 
     fn ensure_name_bytes(&self, bytes: usize) -> Result<(), SourceBundleError> {

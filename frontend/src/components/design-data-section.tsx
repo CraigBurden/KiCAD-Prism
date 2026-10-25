@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
@@ -11,10 +12,22 @@ interface DesignBundleCounts {
     failed: number;
 }
 
+/** A stored bundle whose stages finished with a failed or partial stage. */
+interface IncompleteRevision {
+    commit: string | null;
+    revisionKey: string;
+    failedStages: string[];
+    partialStages: string[];
+}
+
 interface DesignBundleStatus {
     bundles: DesignBundleCounts;
     aliases: number;
     storedBytes: number;
+    /** Stored bundles with a failed stage, and with only partial ones. */
+    incomplete?: { failed: number; partial: number };
+    /** The newest incomplete revisions (at most 20). */
+    incompleteRevisions?: IncompleteRevision[];
 }
 
 interface CommitsResponse {
@@ -116,7 +129,12 @@ export function DesignDataSection({ projectId, canEdit }: DesignDataSectionProps
         if (failed > 0) {
             summary.push(`${failed} failed`);
         }
+        const incomplete = (status.incomplete?.failed ?? 0) + (status.incomplete?.partial ?? 0);
+        if (incomplete > 0) {
+            summary.push(`${incomplete} incomplete`);
+        }
     }
+    const incompleteRevisions = status?.incompleteRevisions ?? [];
 
     return (
         <section className="space-y-2">
@@ -127,6 +145,33 @@ export function DesignDataSection({ projectId, canEdit }: DesignDataSectionProps
             </p>
 
             {status && <p className="text-sm">{summary.join(" · ")}</p>}
+            {incompleteRevisions.length > 0 && (
+                <ul className="space-y-1" aria-label="Incomplete design data">
+                    {incompleteRevisions.map((revision) => (
+                        <li
+                            key={revision.revisionKey}
+                            className="flex min-w-0 items-center gap-2"
+                        >
+                            <span
+                                className="truncate font-mono text-xs text-muted-foreground"
+                                title={revision.commit ?? undefined}
+                            >
+                                {revision.commit ? revision.commit.slice(0, 8) : "—"}
+                            </span>
+                            {revision.failedStages.map((stage) => (
+                                <Badge key={`failed-${stage}`} variant="destructive">
+                                    {stage} failed
+                                </Badge>
+                            ))}
+                            {revision.partialStages.map((stage) => (
+                                <Badge key={`partial-${stage}`} variant="warning">
+                                    {stage} partial
+                                </Badge>
+                            ))}
+                        </li>
+                    ))}
+                </ul>
+            )}
             {unavailable && (
                 <p className="text-sm text-muted-foreground">Design data status unavailable</p>
             )}

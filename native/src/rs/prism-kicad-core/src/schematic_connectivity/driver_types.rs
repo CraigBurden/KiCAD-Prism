@@ -46,6 +46,9 @@ pub struct SchematicPinDriver {
     pub source_pin_uuid: String,
     pub pin_svg_id: String,
     pub source_order: usize,
+    /// The pin is named `~`, which a file older than 20250318 means as no name
+    /// (`SCH_IO_KICAD_SEXPR_PARSER::parsePin`); net names then use the pad alone.
+    pub legacy_unnamed: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

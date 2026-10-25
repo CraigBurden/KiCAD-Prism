@@ -214,7 +214,7 @@ fn build_occurrence_document(
             .unwrap_or_else(|| source_stem(&occurrence.source_path, occurrence.index))
     });
     let sheet_name = request.context_overrides.sheet_name.unwrap_or_else(|| {
-        if occurrence.parent_index.is_none() {
+        if occurrence.is_root_schematic() {
             source_stem(&occurrence.source_path, occurrence.index)
         } else {
             occurrence.sheet_name.clone()

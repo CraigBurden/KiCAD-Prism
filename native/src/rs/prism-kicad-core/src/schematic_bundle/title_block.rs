@@ -1,4 +1,4 @@
-use super::{SchematicBundleLimits, direct_scalar_strings, schematic_limit};
+use super::{SchematicBundleLimits, direct_scalars, schematic_limit};
 use crate::sexpr_projection::FormSpan;
 use crate::{KiCadTitleBlock, SourceBundleError, SourceBundleErrorKind};
 use std::collections::BTreeMap;
@@ -9,10 +9,13 @@ pub(super) fn parse_title_block(
     source_path: &str,
     limits: SchematicBundleLimits,
 ) -> Result<Option<KiCadTitleBlock>, SourceBundleError> {
-    let Some(root) = unique_root(spans, source_path)? else {
+    let Some(root) = last_root(spans) else {
         return Ok(None);
     };
-    let children = spans.iter().filter(is_title_block_child);
+    let children = spans
+        .iter()
+        .filter(is_title_block_child)
+        .filter(|span| root.range.contains(&span.range.start));
     if children.clone().count() > limits.max_title_block_children_per_source {
         return Err(schematic_limit(
             source_path,
@@ -26,22 +29,12 @@ pub(super) fn parse_title_block(
     Ok(Some(builder.finish(root)))
 }
 
-fn unique_root<'a>(
-    spans: &'a [FormSpan],
-    source_path: &str,
-) -> Result<Option<&'a FormSpan>, SourceBundleError> {
-    let mut roots = spans
+/// A repeated title block replaces the earlier one whole, as KiCad's parser
+/// assigns each in turn (`ParseSchematic`, `T_title_block`).
+fn last_root(spans: &[FormSpan]) -> Option<&FormSpan> {
+    spans
         .iter()
-        .filter(|span| span.depth == 1 && span.head.as_deref() == Some("title_block"));
-    let root = roots.next();
-    if roots.next().is_some() {
-        return Err(SourceBundleError::new(
-            SourceBundleErrorKind::Schematic,
-            Some(source_path),
-            "duplicate schematic title_block form",
-        ));
-    }
-    Ok(root)
+        .rfind(|span| span.depth == 1 && span.head.as_deref() == Some("title_block"))
 }
 
 fn is_title_block_child(span: &&FormSpan) -> bool {
@@ -84,7 +77,7 @@ impl TitleBlockBuilder {
         source_path: &str,
         limits: SchematicBundleLimits,
     ) -> Result<(), SourceBundleError> {
-        let values = direct_scalar_strings(text, child, 2, source_path, limits)?;
+        let values = direct_scalars(text, child, 2, source_path, limits)?;
         if values.len() < 2 {
             return Ok(());
         }
@@ -127,7 +120,7 @@ fn set_first_scalar(
     limits: SchematicBundleLimits,
 ) -> Result<(), SourceBundleError> {
     if target.is_none() {
-        *target = direct_scalar_strings(text, child, 1, source_path, limits)?
+        *target = direct_scalars(text, child, 1, source_path, limits)?
             .into_iter()
             .next();
     }
