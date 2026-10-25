@@ -8,6 +8,7 @@
 mod annotation_render;
 mod graphic_render;
 mod image_decode;
+mod sexp_access;
 mod sheet_render;
 mod symbol_render;
 mod table_render;
@@ -26,6 +27,10 @@ use std::time::Instant;
 
 use annotation_render::{annotation_variables, append_annotation_records};
 use graphic_render::{append_graphic_records, append_image_records, append_rule_area_records};
+use sexp_access::{
+    child, child_string, children, integer_at, is_private, list, number_at, property_key,
+    property_value, scalar_at, text, value_at,
+};
 use sheet_render::append_sheet_records;
 use symbol_render::append_symbol_records;
 use table_render::append_table_records;
@@ -1939,62 +1944,6 @@ fn parse_point(form: &Sexp) -> Result<[i64; 2], Error> {
         mm_to_nm(number_at(form, 2)?)?,
     ])
 }
-fn child<'a>(form: &'a Sexp, head: &str) -> Option<&'a Sexp> {
-    list(form)?
-        .iter()
-        .find(|value| list(value).and_then(|values| values.first()).and_then(text) == Some(head))
-}
-fn child_string(form: &Sexp, head: &str) -> Option<String> {
-    child(form, head).and_then(|value| scalar_at(value, 1))
-}
-fn list(form: &Sexp) -> Option<&[Sexp]> {
-    if let Sexp::List(values) = form {
-        Some(values)
-    } else {
-        None
-    }
-}
-fn text(value: &Sexp) -> Option<&str> {
-    match value {
-        Sexp::Atom(value) | Sexp::Quoted(value) => Some(value),
-        _ => None,
-    }
-}
-fn scalar_at(form: &Sexp, index: usize) -> Option<String> {
-    list(form)?.get(index).map(|value| match value {
-        Sexp::Atom(value) | Sexp::Quoted(value) => value.to_string(),
-        Sexp::Integer(value) => value.to_string(),
-        Sexp::Float(value) => value.to_string(),
-        Sexp::List(_) => String::new(),
-    })
-}
-fn value_at(form: &Sexp, index: usize) -> Option<String> {
-    scalar_at(form, index)
-}
-fn integer_at(form: &Sexp, index: usize) -> Option<i64> {
-    match list(form)?.get(index)? {
-        Sexp::Integer(value) => Some(*value),
-        Sexp::Atom(value) | Sexp::Quoted(value) => value.parse().ok(),
-        Sexp::Float(value) if value.fract() == 0.0 => Some(*value as i64),
-        _ => None,
-    }
-}
-fn number_at(form: &Sexp, index: usize) -> Result<f64, Error> {
-    let value = match list(form).and_then(|values| values.get(index)) {
-        Some(Sexp::Integer(value)) => *value as f64,
-        Some(Sexp::Float(value)) => *value,
-        Some(Sexp::Atom(value)) | Some(Sexp::Quoted(value)) => value
-            .parse()
-            .map_err(|_| model_error("Expected finite number"))?,
-        _ => return Err(model_error("Expected finite number")),
-    };
-    if value.is_finite() {
-        Ok(value)
-    } else {
-        Err(model_error("Expected finite number"))
-    }
-}
-
 fn positional_number(value: Option<&Sexp>) -> Result<Option<f64>, Error> {
     let value = match value {
         Some(Sexp::Integer(value)) => Some(*value as f64),

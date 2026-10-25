@@ -331,6 +331,11 @@ class _Run:
         return store.open_bundle(self.project_id, self.revision_key, self.generator.digest, self.bundle_key)
 
     def cli(self, args: list[str], stage: str) -> cli.CliRun:
+        # The CLI creates no directory for -o. The worker's retention sweep
+        # removes empty revision directories, and its first pass runs while
+        # the first job materializes sources, so the directory made when the
+        # run began may be gone by now: make it again right before each build.
+        store.prepare(self.project_id, self.revision_key, self.generator.digest)
         try:
             done = cli.run(args, timeout_seconds=cli.outer_timeout(stage), expect="prism.cli.build_result.a0", cancel=self.cancel)
         except cli.CliFailure as failure:
@@ -532,7 +537,18 @@ def run_design_bundle_job(context: JobContext) -> JobResult:
     run.publish(archive, "models")
     statuses = manifest_rules.statuses(archive.manifest)
     run.details["stages"] = statuses
-    return JobResult(message=f"Design bundle ready: {', '.join(f'{k} {v}' for k, v in statuses.items())}", details=run.details)
+    incomplete = manifest_rules.incomplete_stages(statuses)
+    run.details["failed_stages"], run.details["partial_stages"] = incomplete["failed"], incomplete["partial"]
+    return JobResult(message=completion_message(statuses), details=run.details)
+
+
+def completion_message(statuses: Mapping[str, str]) -> str:
+    """The job's message: ``ready`` only when no stage failed or is partial."""
+
+    listed = ", ".join(f"{stage} {status}" for stage, status in statuses.items())
+    if any(manifest_rules.incomplete_stages(statuses).values()):
+        return f"Design bundle incomplete: {listed}"
+    return f"Design bundle ready: {listed}"
 
 
 def _served_by_reuse(context: JobContext, row: Mapping[str, Any], key: ProjectKey, generator: Generator) -> JobResult | None:

@@ -163,20 +163,23 @@ impl SourceBundle {
         hasher.finalize().into()
     }
 
+    /// The sub-sheet file `reference` names, or `None` when it is absent: KiCad
+    /// loads that sheet empty (`SCH_IO_KICAD_SEXPR::loadHierarchy`) and the
+    /// bundle's builder warns `sheet-missing`.
     pub(crate) fn resolve_schematic(
         &self,
         parent_path: &str,
         reference: &str,
         max_path_bytes: usize,
-    ) -> Result<&SourceFile, SourceBundleError> {
+    ) -> Result<Option<&SourceFile>, SourceBundleError> {
         let resolved = resolve_relative_path(parent_path, reference, max_path_bytes)?;
-        let source = self.sources.get(&resolved).ok_or_else(|| {
-            SourceBundleError::new(
-                SourceBundleErrorKind::MissingSource,
-                Some(&resolved),
-                "referenced schematic is absent from the source bundle",
-            )
-        })?;
+        let Some(source) = self
+            .sources
+            .get(&resolved)
+            .or_else(|| self.case_insensitive_schematic(&resolved))
+        else {
+            return Ok(None);
+        };
         if source.kind != SourceKind::Schematic {
             return Err(SourceBundleError::new(
                 SourceBundleErrorKind::Kind,
@@ -184,7 +187,19 @@ impl SourceBundle {
                 "referenced sheet source is not classified as schematic",
             ));
         }
-        Ok(source)
+        Ok(Some(source))
+    }
+
+    /// The one schematic whose path equals `path` ignoring letter case, as the
+    /// Windows and macOS file systems the designs are authored on resolve it.
+    /// The bundle's builder warns when it reads one (`sheet-path-case`).
+    fn case_insensitive_schematic(&self, path: &str) -> Option<&SourceFile> {
+        let folded = path.to_lowercase();
+        let mut matches = self.sources.values().filter(|source| {
+            source.kind == SourceKind::Schematic && source.path().to_lowercase() == folded
+        });
+        let source = matches.next()?;
+        matches.next().is_none().then_some(source)
     }
 }
 

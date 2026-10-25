@@ -51,13 +51,17 @@ pub(super) fn build_pin_namings(
         .iter()
         .map(|terminal| terminal.symbol_index)
         .collect::<HashSet<_>>();
-    let mut source_pin_uuids = HashMap::new();
+    // Saved order, as KiCad pairs duplicate pin numbers (`SCH_SYMBOL::updatePins`).
+    let mut source_pin_uuids = HashMap::<(usize, &str), Vec<&str>>::new();
     for symbol_index in active_symbols {
         let Some(symbol) = definition.symbols.get(symbol_index) else {
             continue;
         };
         for pin in &symbol.pins {
-            source_pin_uuids.insert((symbol_index, pin.number.as_str()), pin.uuid.as_str());
+            source_pin_uuids
+                .entry((symbol_index, pin.number.as_str()))
+                .or_default()
+                .push(pin.uuid.as_str());
         }
     }
     let mut retained_string_bytes = 0_usize;
@@ -72,6 +76,7 @@ pub(super) fn build_pin_namings(
         })?;
         let source_pin_uuid = source_pin_uuids
             .get(&(terminal.symbol_index, terminal.pin_number.as_str()))
+            .and_then(|uuids| uuids.get(terminal.number_ordinal))
             .copied()
             .unwrap_or_default();
         let designator_with_unit =

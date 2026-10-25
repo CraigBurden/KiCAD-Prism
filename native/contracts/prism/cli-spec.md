@@ -416,7 +416,9 @@ The final archive of `parse → board → models` is therefore the same whatever
 | an s-expression or JSON syntax error, with line, column and offset from the core's `Position` (fork: `src/rs/kicad-monkey-core/src/sexpr.rs:59-69`) | `failed` | `source-unparseable` |
 | a source that is not UTF-8 | `failed` | `source-not-utf8` |
 | a file format version or token the core does not read, for example `backend/tests/fixtures/design_variants/kicad11_tokens` | `failed` | `source-format-unsupported` |
-| a sheet, or the configuration's root schematic or board, that resolves inside the source root but is not in the source set; located at the referencing file and line | `failed` | `source-missing` |
+| the configuration's root schematic or board, inside the source root but not in the source set | `failed` | `source-missing` |
+| a sub-sheet whose file, resolved against the referencing sheet's directory, is not in the source set. KiCad reports it and loads the sheet empty (`SCH_IO_KICAD_SEXPR::loadHierarchy`); so does the stage | not a failure: a stage-parse warning; the sheet has no contents | `sheet-missing` |
+| a sub-sheet reference that matches exactly one source-set schematic only when letter case is ignored, as the Windows and macOS file systems designs are authored on resolve it; that file is read | not a failure: a stage-parse warning naming both spellings | `sheet-path-case` |
 | a repository 3D model reference whose target is a key entry but absent under the source root, because K could not materialize it (bundle-format.md §2.2) | not a failure: a stage-parse warning, the reference's target not a member | `model-unavailable` |
 | the design-JSON builder rejects the model | `partial`, `design.json` in `failed_members` | `design-build-failed` |
 | a projection producer rejects the model; the message names the projection | `partial`, that projection in `failed_members` | `projection-failed` |
@@ -866,6 +868,7 @@ Codes are `DiagnosticCode` (kebab-case). A code never changes meaning; a new mea
 | `archive-path-collision` | error | precondition / 7 | `extract` would overwrite different bytes, or a link or non-directory is in the way |
 | `panic`, `internal-error`, `self-verify-failed` | error | internal / 1 | defects |
 | `model-unavailable` | stage-parse warning in the manifest; warning diagnostic | — | a repository 3D model the worker could not materialize (bundle-format.md §2.2); the bundle is built without it |
+| `sheet-missing`, `sheet-path-case` | stage-parse warning in the manifest; warning diagnostic | — | a sub-sheet file that is absent (the sheet is empty, as in KiCad), or one read under a different letter case (§5.2.2) |
 | `source-unparseable`, `source-not-utf8`, `source-format-unsupported`, `source-missing` | stage `error` in the manifest; error diagnostic | — / 9 | recorded stage failures (§5.2.2). `source-unparseable` is today's code for the same condition (`backend/app/services/variant_catalog_service.py:51`). |
 | `design-build-failed`, `projection-failed`, `materialization-failed` | `failed_members` in the manifest; error diagnostic | — / 9 | recorded member failures (§5.2.2, §5.2.3) |
 | `zip-malformed`, `zip-unsupported`, `zip-path-invalid`, `zip-duplicate-member`, `zip-path-collision`, `zip-ratio-exceeded`, `zip-size-mismatch`, `zip-crc-mismatch`, `manifest-invalid`, `member-missing`, `member-unlisted`, `member-order`, `member-digest-mismatch`, `member-schema-invalid`, `member-unreadable`, `stage-inconsistent`, `findings-truncated` | verify finding | — / 8 | §5.3, §6.2 |

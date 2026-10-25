@@ -1,6 +1,6 @@
 use super::{
     SchematicPoint, carrier_form_spans, child_point, child_scalar, direct_scalars, limit_error,
-    parse_iu, source_error,
+    parse_iu, property_scalars, source_error,
 };
 use crate::schematic_bundle::SchematicBundleLimits;
 use crate::sexpr::{Lexer, Token, TokenKind, decode_quoted_with_limit};
@@ -332,10 +332,11 @@ fn parse_library_properties(
                 "embedded library symbol property count exceeds its limit",
             ));
         }
-        let values = direct_scalars(source, property, 2, source_path, limits)?;
+        let property = property_scalars(source, property, source_path, limits)?;
         properties.push(SchematicSymbolProperty {
-            key: values.first().cloned().unwrap_or_default(),
-            value: values.get(1).cloned().unwrap_or_default(),
+            key: property.key,
+            value: property.value,
+            private: property.private,
         });
     }
     Ok(properties)

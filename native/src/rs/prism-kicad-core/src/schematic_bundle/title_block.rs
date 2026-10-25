@@ -1,4 +1,4 @@
-use super::{SchematicBundleLimits, direct_scalar_strings, schematic_limit};
+use super::{SchematicBundleLimits, direct_scalars, schematic_limit};
 use crate::sexpr_projection::FormSpan;
 use crate::{KiCadTitleBlock, SourceBundleError, SourceBundleErrorKind};
 use std::collections::BTreeMap;
@@ -84,7 +84,7 @@ impl TitleBlockBuilder {
         source_path: &str,
         limits: SchematicBundleLimits,
     ) -> Result<(), SourceBundleError> {
-        let values = direct_scalar_strings(text, child, 2, source_path, limits)?;
+        let values = direct_scalars(text, child, 2, source_path, limits)?;
         if values.len() < 2 {
             return Ok(());
         }
@@ -127,7 +127,7 @@ fn set_first_scalar(
     limits: SchematicBundleLimits,
 ) -> Result<(), SourceBundleError> {
     if target.is_none() {
-        *target = direct_scalar_strings(text, child, 1, source_path, limits)?
+        *target = direct_scalars(text, child, 1, source_path, limits)?
             .into_iter()
             .next();
     }

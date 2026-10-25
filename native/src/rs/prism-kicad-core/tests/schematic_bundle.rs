@@ -508,7 +508,7 @@ fn hierarchy_occurrences_fold_parent_policy_without_mutating_definitions() {
 }
 
 #[test]
-fn hierarchy_missing_sources_cycles_and_occurrence_limits_fail_closed() {
+fn hierarchy_cycles_and_occurrence_limits_fail_closed_and_missing_sheets_are_empty() {
     let bundle = hierarchy_bundle();
     let limits = SchematicBundleLimits {
         max_occurrences: 4,
@@ -539,12 +539,12 @@ fn hierarchy_missing_sources_cycles_and_occurrence_limits_fail_closed() {
         SourceBundleLimits::default(),
     )
     .expect("missing-reference bundle boundary");
-    assert_eq!(
+    // KiCad loads a sheet whose file is absent as an empty sheet, so the rest of the
+    // design still builds; the bundle's builder warns `sheet-missing`.
+    let missing_index =
         SchematicBundleIndex::build(&missing_bundle, SchematicBundleLimits::default())
-            .expect_err("missing source")
-            .kind,
-        SourceBundleErrorKind::MissingSource
-    );
+            .expect("a missing sheet file is an empty sheet");
+    assert_eq!(missing_index.occurrences().len(), 1);
 
     let cycle_root = br#"(kicad_sch
       (sheet (uuid child) (property "Sheetfile" "sub/child.kicad_sch")))"#

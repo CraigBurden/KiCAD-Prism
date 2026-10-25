@@ -195,6 +195,43 @@ class DesignBundleJobTests(_Workspace, unittest.TestCase):
         self.assertEqual(result.details["stages"], {"parse": "failed", "board": "skipped", "models": "skipped"})
         self.assertEqual(len(self.builds()), 1)
         self.assertEqual(rows.get_bundle("p1", result.details["bundle_key"])["state"], "complete")
+        # The job completes, but its message and details name the failed stage.
+        self.assertEqual(result.message, "Design bundle incomplete: parse failed, board skipped, models skipped")
+        self.assertEqual((result.details["failed_stages"], result.details["partial_stages"]), (["parse"], []))
+
+    def test_a_partial_parse_is_reported_as_incomplete(self) -> None:
+        self.add_project()
+        set_modes("bundle build:parse=partial")
+        result = self.run_job(jobs.start_design_bundle_job("p1"))
+        self.assertEqual(result.details["stages"]["parse"], "partial")
+        self.assertTrue(result.message.startswith("Design bundle incomplete: parse partial"))
+        self.assertEqual(result.details["partial_stages"], ["parse"])
+
+    def test_a_whole_bundle_is_reported_ready(self) -> None:
+        self.add_project()
+        result = self.run_job(jobs.start_design_bundle_job("p1"))
+        self.assertEqual(result.message, "Design bundle ready: parse complete, board complete, models complete")
+        self.assertEqual((result.details["failed_stages"], result.details["partial_stages"]), ([], []))
+
+    def test_the_output_directory_is_recreated_when_removed_before_parse(self) -> None:
+        # The worker's first retention pass removes empty revision directories
+        # while the first job materializes its sources.
+        self.add_project()
+        job_id = jobs.start_design_bundle_job("p1")
+        payload = self.queue.rows[job_id]["payload"]
+        prepare_sources = jobs.prepare_sources
+
+        def swept(*args, **kwargs):
+            prepared = prepare_sources(*args, **kwargs)
+            revision = store.revision_dir("p1", payload["revision_key"])
+            self.assertTrue(revision.is_dir())
+            revision.rmdir()
+            revision.parent.rmdir()
+            return prepared
+
+        with mock.patch.object(jobs, "prepare_sources", side_effect=swept):
+            result = self.run_job(job_id)
+        self.assertEqual(result.details["stages"], {"parse": "complete", "board": "complete", "models": "complete"})
 
     def test_cli_failures_are_retryable_or_permanent_by_exit_code(self) -> None:
         self.add_project()
