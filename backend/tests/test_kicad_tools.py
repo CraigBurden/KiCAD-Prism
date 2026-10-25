@@ -6,12 +6,14 @@ for kicad-cli, so every behaviour here runs a real process.
 
 from __future__ import annotations
 
+import contextvars
 import io
 import os
 import stat
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
@@ -133,6 +135,28 @@ class LocalRunTests(unittest.TestCase):
         with redirect_stdout(quiet):
             tool.run(["a"], timeout=30)
         self.assertEqual(quiet.getvalue(), "")
+
+    def test_a_run_reports_its_own_peak_memory(self) -> None:
+        # 64 MiB held by the child: its peak covers that, and is the child's
+        # alone, not this test process's.
+        tool = self._tool("block = bytearray(64 * 1024 * 1024); block[::4096] = b'x' * len(block[::4096])")
+        result = tool.run([], timeout=30)
+        self.assertTrue(result.ok, result.detail())
+        if hasattr(os, "wait4"):
+            self.assertGreater(result.peak_rss_bytes, 64 * 1024 * 1024)
+            self.assertLess(result.peak_rss_bytes, 1024 * 1024 * 1024)
+
+    def test_runs_are_recorded_only_inside_a_recording(self) -> None:
+        tool = self._tool("sys.exit(2)")
+        tool.run([], timeout=30)
+        with kicad_tools.recording() as runs:
+            tool.run([], timeout=30)
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                pool.submit(contextvars.copy_context().run, tool.run, [], timeout=30).result()
+        tool.run([], timeout=30)
+        self.assertEqual(len(runs), 2)
+        self.assertEqual(set(runs[0]), {"tool", "exit", "elapsed_ms", "peak_rss_bytes"})
+        self.assertEqual((runs[0]["tool"], runs[0]["exit"]), ("kicad-cli", 2))
 
     def test_a_run_past_its_timeout_is_killed(self) -> None:
         marker = self.root / "finished"

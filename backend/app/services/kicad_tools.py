@@ -26,12 +26,15 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping, Protocol, Sequence
 
 if TYPE_CHECKING:  # pragma: no cover
     from app.core.config import Settings
@@ -68,6 +71,9 @@ class ToolResult:
     stdout: str = ""
     stderr: str = ""
     elapsed_ms: int = 0
+    #: The process's peak resident memory (``wait4``'s ``ru_maxrss``); 0 where
+    #: the platform does not report it.
+    peak_rss_bytes: int = 0
 
     @property
     def ok(self) -> bool:
@@ -103,6 +109,40 @@ class KicadTool(Protocol):
         env: Mapping[str, str] | None = None,
         tee: bool = False,
     ) -> ToolResult: ...
+
+
+# -- recording ----------------------------------------------------------------
+
+#: The runs of the code inside ``recording()``; ``None`` outside one.
+_recorded: ContextVar[list[dict[str, Any]] | None] = ContextVar("kicad_tool_runs", default=None)
+
+
+@contextmanager
+def recording() -> Iterator[list[dict[str, Any]]]:
+    """Collect every tool run inside the block: its tool, exit, wall time and peak memory.
+
+    A job wraps a step with it to report what the KiCad processes cost; worker
+    threads the step starts see it when they run in a copy of the context.
+    """
+
+    runs: list[dict[str, Any]] = []
+    token = _recorded.set(runs)
+    try:
+        yield runs
+    finally:
+        _recorded.reset(token)
+
+
+def _record(name: str, result: "ToolResult") -> "ToolResult":
+    runs = _recorded.get()
+    if runs is not None:
+        runs.append({
+            "tool": name,
+            "exit": result.returncode,
+            "elapsed_ms": result.elapsed_ms,
+            "peak_rss_bytes": result.peak_rss_bytes,
+        })
+    return result
 
 
 # -- discovery ----------------------------------------------------------------
@@ -231,12 +271,14 @@ class LocalTool:
         base = dict(os.environ)
         base.update(env or {})
         if not self._isolate:
-            return _run_process(argv, cwd=cwd, env=base, timeout=timeout, tee=tee, cancel=self._cancel)
+            return _record(
+                self.name, _run_process(argv, cwd=cwd, env=base, timeout=timeout, tee=tee, cancel=self._cancel)
+            )
         with tempfile.TemporaryDirectory(prefix=f"{self.name}-") as scratch:
-            return _run_process(
+            return _record(self.name, _run_process(
                 argv, cwd=cwd, env=isolated_env(Path(scratch), base),
                 timeout=timeout, tee=tee, cancel=self._cancel,
-            )
+            ))
 
 
 def _run_process(
@@ -282,6 +324,7 @@ def _run_process(
         reader.start()
 
     deadline = time.monotonic() + timeout
+    peak_rss_bytes = 0
     try:
         while True:
             remaining = deadline - time.monotonic()
@@ -291,12 +334,12 @@ def _run_process(
                     f"{' '.join(str(part) for part in argv[1:4])}",
                     timeout,
                 )
-            try:
-                returncode = process.wait(timeout=min(remaining, _CANCEL_POLL_SECONDS))
+            finished = _wait(process, min(remaining, _CANCEL_POLL_SECONDS))
+            if finished is not None:
+                returncode, peak_rss_bytes = finished
                 break
-            except subprocess.TimeoutExpired:
-                if cancel is not None:
-                    cancel()
+            if cancel is not None:
+                cancel()
     except BaseException:
         process.kill()
         process.wait()
@@ -312,7 +355,42 @@ def _run_process(
         stdout="".join(chunks["stdout"]),
         stderr="".join(chunks["stderr"]),
         elapsed_ms=int((time.perf_counter() - started) * 1000),
+        peak_rss_bytes=peak_rss_bytes,
     )
+
+
+#: How often a waiting run checks whether its process has exited.
+_WAIT_POLL_SECONDS = 0.05
+
+
+def _wait(process: subprocess.Popen[str], seconds: float) -> tuple[int, int] | None:
+    """``(exit code, peak resident bytes)`` once ``process`` exits within ``seconds``, else ``None``.
+
+    Where the platform has ``wait4`` the process is reaped with it, so its
+    resource usage (peak memory) is read without counting any other child.
+    """
+
+    if not hasattr(os, "wait4"):
+        try:
+            return process.wait(timeout=seconds), 0
+        except subprocess.TimeoutExpired:
+            return None
+    until = time.monotonic() + seconds
+    while True:
+        pid, status, usage = os.wait4(process.pid, os.WNOHANG)
+        if pid:
+            returncode = os.waitstatus_to_exitcode(status)
+            process.returncode = returncode
+            return returncode, rss_bytes(usage.ru_maxrss)
+        if time.monotonic() >= until:
+            return None
+        time.sleep(_WAIT_POLL_SECONDS)
+
+
+def rss_bytes(maxrss: int) -> int:
+    """``ru_maxrss`` in bytes: kilobytes on Linux, bytes on macOS."""
+
+    return maxrss if sys.platform == "darwin" else maxrss * 1024
 
 
 def kicad_cli(settings: "Settings | None" = None) -> LocalTool:
