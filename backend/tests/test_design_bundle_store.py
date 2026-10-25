@@ -305,6 +305,11 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(store.sweep_temporary_files(), 1)
         self.assertGreater(store.stored_bytes("proj-1"), 0)
 
+    def test_stored_bytes_are_the_archives_not_their_unpacked_cache(self) -> None:
+        self._cache()
+        self.assertEqual(store.stored_bytes("proj-1"), self.path.stat().st_size)
+        self.assertEqual(store.stored_bytes("no-such-project"), 0)
+
     def _cache(self) -> tuple[store.Archive, Path, tuple[str, str, str]]:
         archive = store.open_bundle("proj-1", RK, self.digest, self.manifest["bundle_key"])
         assert archive is not None
