@@ -1749,6 +1749,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (124, "drop_mesh_viewer_readiness"),
                 (129, "drop_system_builder_v2"),
                 (130, "sim_run_solved_commit"),
+                (131, "idempotency_keys"),
             ],
         )
 

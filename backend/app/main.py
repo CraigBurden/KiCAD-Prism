@@ -44,7 +44,7 @@ from app.api.health import router as health_router
 from app.api.plugin import router as plugin_router
 from app.api.git_http import router as git_http_router
 from app.api.agent import router as agent_router
-from app.services import password_credential_service, session_store_service
+from app.services import idempotency_store, password_credential_service, session_store_service
 from app.services.design_bundle.errors import install_handlers as install_design_data_handlers
 from app.services.schema_head import bring_every_schema_to_head
 from app.services.superseded_store_cleanup import cleanup_superseded_stores
@@ -53,6 +53,7 @@ from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
 from app.core.config import settings
 from app.core.security_headers import apply_security_headers
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -61,6 +62,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from app.core.api_version import ApiVersionMiddleware, install_versioned_openapi, operation_id
+from app.core.idempotency import IdempotencyMiddleware
 from urllib.parse import urlsplit
 
 # Configure logging
@@ -197,6 +199,10 @@ async def lifespan(app: FastAPI):
     configure_git()
     ensure_ssh_dir()
     bring_every_schema_to_head()
+    try:
+        await asyncio.to_thread(idempotency_store.sweep_expired)
+    except Exception as exc:
+        logger.warning("Could not sweep expired idempotency keys: %s", exc)
     cleanup_superseded_stores()
     from app.services.trackers.composition import initialize_tracker_composition
 
@@ -268,6 +274,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Inside the version rewrite so it sees /api/... paths. ADR scripting-and-mcp
+# §3.4: a repeated write with the same Idempotency-Key returns the first response.
+app.add_middleware(IdempotencyMiddleware)
 
 # Outermost: /api/v1/... is rewritten to /api/... before anything else sees it.
 app.add_middleware(ApiVersionMiddleware)

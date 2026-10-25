@@ -214,6 +214,25 @@ project destination. It requires the tracker credential root key on both API
 and general workers. See [Tracker integration](TRACKER_INTEGRATION.md) for
 `TRACKER_CREDENTIAL_ROOT_KEY*`, rotation, webhooks, and recovery.
 
+## Retrying writes safely
+
+A client that retries a write can send an `Idempotency-Key` header (1-255
+printable ASCII characters) on any `POST`, `PUT`, `PATCH` or `DELETE` under
+`/api/`. Prism keeps the first response for 24 hours, scoped to the caller and
+operation, and returns it again with `Idempotent-Replayed: true` instead of
+running the write twice.
+
+- The same key with a different body answers `422` `idempotency-key-reused`.
+- A retry that arrives while the first request is still running answers `409`
+  `idempotency-key-in-progress`.
+- An invalid key answers `400` `idempotency-key-invalid`.
+- A request whose body exceeds 1 MiB is not covered: it passes through and
+  carries `Idempotency-Key-Status: skipped-large-body`.
+- A `5xx` response is not stored, so the retry runs the write again.
+
+Keys live in the workspace database (`ws_idempotency_keys`) and are swept after
+24 hours.
+
 ## Project-level `.prism.json`
 
 Place `.prism.json` in a KiCad project root when auto-detection does not find the
