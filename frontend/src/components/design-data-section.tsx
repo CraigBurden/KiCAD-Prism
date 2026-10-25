@@ -19,6 +19,15 @@ interface IncompleteRevision {
     revisionKey: string;
     failedStages: string[];
     partialStages: string[];
+    /** The failed stages' errors; empty for a bundle built before they were recorded. */
+    reason?: string;
+}
+
+/** A bundle whose build failed outright, with the job's error. */
+interface FailedBuild {
+    commit: string | null;
+    revisionKey: string;
+    reason: string;
 }
 
 interface DesignBundleStatus {
@@ -29,6 +38,8 @@ interface DesignBundleStatus {
     incomplete?: { failed: number; partial: number };
     /** The newest incomplete revisions (at most 20). */
     incompleteRevisions?: IncompleteRevision[];
+    /** The newest failed builds (at most 20). */
+    failedBuilds?: FailedBuild[];
 }
 
 interface CommitsResponse {
@@ -146,6 +157,7 @@ export function DesignDataSection({ projectId, canEdit }: DesignDataSectionProps
         }
     }
     const incompleteRevisions = status?.incompleteRevisions ?? [];
+    const failedBuilds = status?.failedBuilds ?? [];
 
     return (
         <section className="space-y-2">
@@ -179,6 +191,23 @@ export function DesignDataSection({ projectId, canEdit }: DesignDataSectionProps
                                     {stage} partial
                                 </Badge>
                             ))}
+                            {revision.reason && <FailureReason reason={revision.reason} />}
+                        </li>
+                    ))}
+                </ul>
+            )}
+            {failedBuilds.length > 0 && (
+                <ul className="space-y-1" aria-label="Failed design data builds">
+                    {failedBuilds.map((build) => (
+                        <li key={build.revisionKey} className="flex min-w-0 items-center gap-2">
+                            <span
+                                className="truncate font-mono text-xs text-muted-foreground"
+                                title={build.commit ?? undefined}
+                            >
+                                {build.commit ? build.commit.slice(0, 8) : "—"}
+                            </span>
+                            <Badge variant="destructive">build failed</Badge>
+                            {build.reason && <FailureReason reason={build.reason} />}
                         </li>
                     ))}
                 </ul>
@@ -230,5 +259,14 @@ export function DesignDataSection({ projectId, canEdit }: DesignDataSectionProps
                 }}
             />
         </section>
+    );
+}
+
+/** Why a revision's design data failed: one truncated line, the whole text on hover. */
+function FailureReason({ reason }: { reason: string }) {
+    return (
+        <span className="min-w-0 truncate text-xs text-muted-foreground" title={reason}>
+            {reason}
+        </span>
     );
 }
