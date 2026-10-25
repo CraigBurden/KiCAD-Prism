@@ -204,8 +204,7 @@ impl<'a> DesignBuilder<'a> {
 
     fn build(mut self) -> Result<SchematicCompiledDesign, SourceBundleError> {
         let hierarchy_bindings = self.bind_hierarchy()?;
-        self.merge_global_labels()?;
-        self.merge_global_power()?;
+        self.merge_globals()?;
         let promotion = promote_bus_members(
             &self.compiled,
             self.index,
@@ -383,52 +382,36 @@ impl<'a> DesignBuilder<'a> {
         Ok(())
     }
 
-    fn merge_global_labels(&mut self) -> Result<(), SourceBundleError> {
+    /// Join every subgraph a global label or a global power pin names, keyed by that
+    /// name: a `+3V3` global label and a `+3V3` power symbol are one net, as in
+    /// KiCad's global pass (`CONNECTION_GRAPH::buildConnectionGraph`, `name_to_sgs`
+    /// over drivers at or above `GLOBAL_POWER_PIN`).
+    fn merge_globals(&mut self) -> Result<(), SourceBundleError> {
         let mut first_by_name = HashMap::<&str, usize>::new();
         let mut unions = Vec::new();
         for (flat_index, (occurrence_index, subgraph_index)) in self.flat.iter().enumerate() {
-            for label in &self.compiled[*occurrence_index].subgraphs[*subgraph_index].label_drivers
-            {
-                if label.kind != SchematicWireDriverKind::GlobalLabel {
-                    continue;
-                }
-                if let Some(first) = first_by_name.get(label.text.as_str()) {
+            let subgraph = &self.compiled[*occurrence_index].subgraphs[*subgraph_index];
+            let labels = subgraph
+                .label_drivers
+                .iter()
+                .filter(|label| label.kind == SchematicWireDriverKind::GlobalLabel)
+                .map(|label| label.text.as_str());
+            let power = subgraph
+                .pin_drivers
+                .iter()
+                .filter(|pin| {
+                    pin.is_power && pin.priority == SchematicDriverPriority::GlobalPowerPin
+                })
+                .map(|pin| pin.power_value.as_str());
+            for name in labels.chain(power) {
+                if let Some(first) = first_by_name.get(name) {
                     self.ensure_pending_union_capacity(unions.len())?;
                     unions.push((*first, flat_index));
                 } else {
                     if first_by_name.len() >= self.limits.max_merge_keys {
-                        return Err(
-                            self.limit_error("global-label merge-key count exceeds its limit")
-                        );
+                        return Err(self.limit_error("global merge-key count exceeds its limit"));
                     }
-                    first_by_name.insert(label.text.as_str(), flat_index);
-                }
-            }
-        }
-        for (left, right) in unions {
-            self.bounded_union(left, right)?;
-        }
-        Ok(())
-    }
-
-    fn merge_global_power(&mut self) -> Result<(), SourceBundleError> {
-        let mut first_by_name = HashMap::<&str, usize>::new();
-        let mut unions = Vec::new();
-        for (flat_index, (occurrence_index, subgraph_index)) in self.flat.iter().enumerate() {
-            for pin in &self.compiled[*occurrence_index].subgraphs[*subgraph_index].pin_drivers {
-                if !pin.is_power || pin.priority != SchematicDriverPriority::GlobalPowerPin {
-                    continue;
-                }
-                if let Some(first) = first_by_name.get(pin.power_value.as_str()) {
-                    self.ensure_pending_union_capacity(unions.len())?;
-                    unions.push((*first, flat_index));
-                } else {
-                    if first_by_name.len() >= self.limits.max_merge_keys {
-                        return Err(
-                            self.limit_error("global-power merge-key count exceeds its limit")
-                        );
-                    }
-                    first_by_name.insert(pin.power_value.as_str(), flat_index);
+                    first_by_name.insert(name, flat_index);
                 }
             }
         }

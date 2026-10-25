@@ -213,6 +213,7 @@ impl<'a> OccurrenceBuilder<'a> {
         let mut union = WirePointUnion::default();
         self.seed_carrier_points(&mut union)?;
         self.attach_junctions(&mut union, geometry.wire_index())?;
+        self.bridge_wire_entries(&mut union, &geometry)?;
         let mut labels = self.collect_labels(&mut union)?;
         self.attach_labels(&mut union, &labels, &geometry, &entry_index)?;
         let mut pins = self.collect_pins(&mut union)?;
@@ -285,6 +286,50 @@ impl<'a> OccurrenceBuilder<'a> {
             self.attach_point(union, junction.at, wire_index)?;
         }
         Ok(())
+    }
+
+    /// KiCad carries a bus wire entry's connection to every non-bus item at either
+    /// end (`SCH_BUS_WIRE_ENTRY::ConnectionPropagatesTo`), so an entry drawn between
+    /// two wires, a 45-degree jog, joins them. An entry whose other end is on a bus
+    /// stays a tap.
+    fn bridge_wire_entries(
+        &mut self,
+        union: &mut WirePointUnion,
+        geometry: &SchematicConnectivityGeometry,
+    ) -> Result<(), SourceBundleError> {
+        for entry in &self.definition.bus_entries {
+            let end = entry
+                .wire_end()
+                .ok_or_else(|| self.error("bus-entry endpoint overflows"))?;
+            if self.touches(entry.at, geometry.wire_index())?
+                && self.touches(end, geometry.wire_index())?
+                && !self.touches(entry.at, geometry.bus_index())?
+                && !self.touches(end, geometry.bus_index())?
+            {
+                self.attach_point(union, entry.at, geometry.wire_index())?;
+                self.attach_point(union, end, geometry.wire_index())?;
+                union.union_points(entry.at, end);
+            }
+        }
+        Ok(())
+    }
+
+    fn touches(
+        &mut self,
+        point: SchematicPoint,
+        index: &SchematicSegmentIndex,
+    ) -> Result<bool, SourceBundleError> {
+        let mut found = false;
+        index.for_each_containing(
+            point,
+            &mut self.attachment_query_work,
+            self.limits.max_attachment_query_work,
+            |_| {
+                found = true;
+                false
+            },
+        )?;
+        Ok(found)
     }
 
     fn collect_labels(

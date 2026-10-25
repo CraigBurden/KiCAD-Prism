@@ -248,7 +248,7 @@ impl StructuralGraphBuilder<'_> {
             let component_ref = self
                 .component_by_symbol
                 .get(&context.occurrence_index)
-                .and_then(|symbols| symbols.get(&pin.symbol_uuid))
+                .and_then(|symbols| symbols.get(&pin.symbol_index))
                 .cloned();
             let source_uuid = if pin.source_pin_uuid.is_empty() {
                 pin.symbol_uuid.as_str()

@@ -84,7 +84,9 @@ struct StructuralGraphBuilder<'a> {
     graph: CompiledSchematicGraphA0,
     definitions: HashMap<&'a str, DefinitionRefs>,
     occurrences: Vec<OccurrenceRefs>,
-    component_by_symbol: HashMap<usize, HashMap<String, String>>,
+    /// Each occurrence's component ids by symbol index: two placed symbols can share a
+    /// UUID (a copied unit), which KiCad keeps in an s-expression file.
+    component_by_symbol: HashMap<usize, HashMap<usize, String>>,
 }
 
 impl<'a> StructuralGraphBuilder<'a> {
@@ -396,7 +398,10 @@ impl<'a> StructuralGraphBuilder<'a> {
                 "compiled graph effective symbol cardinality does not match its definition",
             ));
         }
-        for (symbol, effective) in definition.symbols.iter().zip(effective.iter()) {
+        let mut uuid_uses = HashMap::<&str, usize>::new();
+        for (symbol_index, (symbol, effective)) in
+            definition.symbols.iter().zip(effective.iter()).enumerate()
+        {
             if is_power_symbol(definition, symbol)
                 || effective.reference.is_empty()
                 || effective.reference.starts_with('#')
@@ -417,8 +422,19 @@ impl<'a> StructuralGraphBuilder<'a> {
                 source_designator.len(),
                 effective.reference.len() * 2,
             ])?;
+            // KiCad keeps a UUID two placed symbols share (it only replaces duplicates on
+            // annotation); a later copy is identified by the UUID and its order of appearance.
+            let uses = uuid_uses.entry(symbol.uuid.as_str()).or_default();
+            let first_use = *uses == 0;
+            let source_uuid = if first_use {
+                symbol.uuid.clone()
+            } else {
+                format!("{}#{uses}", symbol.uuid)
+            };
+            *uses += 1;
+            self.budget.reserve([source_uuid.len()])?;
             let source_identity =
-                source_identity(&occurrence.legacy_address, &symbol.uuid, "", "", "", "");
+                source_identity(&occurrence.legacy_address, &source_uuid, "", "", "", "");
             let source_mapping = source_identity_mapping(&source_identity);
             let component_id = self
                 .allocator
@@ -449,8 +465,9 @@ impl<'a> StructuralGraphBuilder<'a> {
             self.component_by_symbol
                 .entry(occurrence.index)
                 .or_default()
-                .insert(symbol.uuid.clone(), component_id.clone());
-            if !symbol.uuid.is_empty() {
+                .insert(symbol_index, component_id.clone());
+            // The drawing has one element per UUID, so only the first copy links to it.
+            if first_use && !symbol.uuid.is_empty() {
                 self.append_graphical_link(
                     &owner.page,
                     GraphicalTargetType::SchComponentOccurrence,
