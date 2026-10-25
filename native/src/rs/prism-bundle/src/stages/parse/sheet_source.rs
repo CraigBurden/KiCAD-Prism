@@ -1,9 +1,9 @@
 //! Stage parse's top-level and sub-sheet lookup: KiCad's parent-relative path, a
 //! letter-case-only mismatch, or an absent file (cli-spec.md §5.2.2).
 
-use super::super::sheets::resolve;
 use super::{ParseRun, member};
 use crate::finding::Outcome;
+use prism_kicad_core::sheet_file;
 
 impl ParseRun<'_> {
     /// The schematics the design starts from, as KiCad 10 opens a project
@@ -19,7 +19,11 @@ impl ParseRun<'_> {
         let project_path = self.config.project_file.0.clone();
         let mut roots: Vec<String> = Vec::new();
         for sheet in &listed {
-            let found = match resolve(&project_path, &sheet.filename) {
+            let found = match sheet_file::resolve(
+                &project_path,
+                &sheet.filename,
+                sheet_file::Variables::default(),
+            ) {
                 Ok(resolved) => self.source_path(&project_path, &sheet.filename, resolved)?,
                 Err(_) => None,
             };
@@ -51,28 +55,22 @@ impl ParseRun<'_> {
         reference: &str,
         resolved: String,
     ) -> Outcome<Option<String>> {
-        if self.tree.exists(&resolved) {
-            return Ok(Some(resolved));
-        }
-        let folded = resolved.to_lowercase();
-        let matches: Vec<String> = self
-            .tree
-            .list("", &[".kicad_sch"])
-            .into_iter()
-            .filter(|candidate| candidate.to_lowercase() == folded)
-            .collect();
-        if let [actual] = matches.as_slice() {
+        let exists = self.tree.exists(&resolved);
+        let found = sheet_file::locate(&resolved, exists, || self.tree.list("", &[".kicad_sch"]));
+        let Some((actual, case_differs)) = found else {
+            return Ok(None);
+        };
+        if case_differs {
             self.warn(
                 "sheet-path-case",
                 format!(
                     "{} references {reference:?}; read {} instead, which differs only in letter case",
                     member(parent),
-                    member(actual)
+                    member(&actual)
                 ),
             )?;
-            return Ok(Some(actual.clone()));
         }
-        Ok(None)
+        Ok(Some(actual))
     }
 
     /// The source-set path of a sub-sheet `parent` references, or `None`.

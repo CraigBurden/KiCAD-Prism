@@ -174,6 +174,13 @@ impl SchematicBundleIndex {
         let parse_definitions_ns = elapsed_ns(definitions_started);
         let occurrences_started = profile.then(std::time::Instant::now);
         let project_settings = project_schematic_settings_with_limits(bundle.project(), limits)?;
+        let project_name = bundle
+            .project_path()
+            .map_or_else(String::new, portable_file_stem);
+        let variables = crate::sheet_file::Variables {
+            project_name: &project_name,
+            text: Some(&project_settings.text_variables),
+        };
         let roots = hierarchy_roots(
             bundle,
             &project_settings.top_level_sheets,
@@ -181,17 +188,20 @@ impl SchematicBundleIndex {
             &definition_by_path,
             limits,
         )?;
-        let occurrences =
-            realize_occurrences(bundle, roots, &definitions, &definition_by_path, limits)?;
+        let occurrences = realize_occurrences(
+            bundle,
+            roots,
+            &definitions,
+            &definition_by_path,
+            variables,
+            limits,
+        )?;
         let realize_occurrences_ns = elapsed_ns(occurrences_started);
         let indexes_started = profile.then(std::time::Instant::now);
         let legacy_symbol_instance_by_path = index_bundle_legacy_instances(&definitions);
         let identity_path = bundle
             .project_path()
             .unwrap_or_else(|| bundle.root_schematic_path());
-        let project_name = bundle
-            .project_path()
-            .map_or_else(String::new, portable_file_stem);
         let project_file = portable_file_name(identity_path).to_owned();
         let source_anchor = portable_parent(identity_path).to_owned();
         let bundle_identity_sha256 = bundle.bundle_identity_sha256();

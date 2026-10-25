@@ -9,6 +9,7 @@ use crate::{
     BoardModel, Produced, ProducerWarning, ProjectionError, ProjectionInput, Sources, document,
 };
 use prism_kicad_contracts::generated::prism_project_a0::ProjectA0;
+use prism_kicad_core::sheet_file;
 use prism_kicad_core::{Limits, Sexp, parse_with_limits};
 use serde_json::{Map, Value};
 use std::borrow::Cow;
@@ -173,7 +174,10 @@ impl<'a> Producer<'a> {
         stack: &[EmbeddedLayer<'_>],
     ) -> Option<Target> {
         let raw = raw.filter(|raw| !raw.is_empty())?;
-        let (variables, target) = self.resolve_parts(raw, kind, document_path, stack);
+        let (variables, mut target) = self.resolve_parts(raw, kind, document_path, stack);
+        if kind == RefKind::SheetFile {
+            target = self.sheet_case_match(target);
+        }
         self.references.push(build_reference(
             kind,
             document_path,
@@ -183,6 +187,30 @@ impl<'a> Producer<'a> {
             &extra,
         ));
         Some(target)
+    }
+
+    /// A sheet file that differs from a source-set schematic only in letter
+    /// case is that schematic, by KiCad's sheet file rule as the core and stage
+    /// parse read it ([`sheet_file::locate`], `sheet-path-case`, cli-spec
+    /// §5.2.2), or the target as is.
+    fn sheet_case_match(&self, target: Target) -> Target {
+        let Target::Repository {
+            path,
+            base,
+            in_sources: false,
+        } = &target
+        else {
+            return target;
+        };
+        let found = sheet_file::locate(path, false, || self.sources.list("", &[".kicad_sch"]));
+        match found {
+            Some((actual, _)) => Target::Repository {
+                path: actual,
+                base: *base,
+                in_sources: true,
+            },
+            None => target,
+        }
     }
 
     /// `project.py:497-517`: one document header.
