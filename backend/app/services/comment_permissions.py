@@ -33,6 +33,8 @@ from app.services import access_service
 
 DEFAULT_PROMOTE_MIN_ROLE: Role = "designer"
 STATUS_MIN_ROLE: Role = "designer"
+# Auth types that are a person at a browser: a session, or the local guest.
+PERSON_AUTH_TYPES = frozenset({"session", "guest"})
 
 # Kinds of stable actor identity. ``legacy`` never describes a live actor; it
 # marks rows whose author was recorded as free text before TR-01.
@@ -174,12 +176,12 @@ def resolve_actor(user: AuthenticatedUser) -> ActorIdentity:
 
 
 def require_write_scope(user: AuthenticatedUser) -> None:
-    """Bearer callers need ``api:write``; session cookies carry no scopes."""
+    """Bearer callers need ``comments:write`` (``api:write`` implies it); session cookies carry no scopes."""
     if user.auth_type == "session":
         return
-    if has_scope(user, "api:write"):
+    if has_scope(user, "comments:write"):
         return
-    raise CommentPermissionError("scope_required", "api:write scope required")
+    raise CommentPermissionError("scope_required", "comments:write scope required")
 
 
 def is_owner(actor: ActorIdentity, target: Authored) -> bool:
@@ -217,6 +219,9 @@ def authorize(
         raise CommentPermissionError("not_owner", "Only the author or an admin can change this comment")
 
     if action == CommentAction.RESOLVE:
+        # D6: only people resolve or reopen threads. A token may reply, never close.
+        if actor.auth_type not in PERSON_AUTH_TYPES:
+            raise CommentPermissionError("person_required", "Only a person signed in to Prism can resolve or reopen a thread")
         if actor.actor_kind == ACTOR_KIND_GUEST and linked:
             raise CommentPermissionError(
                 "publication_required",

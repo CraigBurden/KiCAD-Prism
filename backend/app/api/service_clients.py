@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
+from app.core.policy import KNOWN_SCOPES
 from app.core.roles import Role
 from app.core.security import AuthenticatedUser, require_admin
 from app.services import service_client_service
@@ -14,6 +15,14 @@ class CreateServiceClientRequest(BaseModel):
     name: str = Field(default="", max_length=120)
     role: Role = "viewer"
     scopes: list[str] = Field(default_factory=lambda: ["api:read"])
+
+    @field_validator("scopes")
+    @classmethod
+    def _known_scopes(cls, scopes: list[str]) -> list[str]:
+        unknown = sorted(set(scopes) - KNOWN_SCOPES - {"*"})
+        if unknown:
+            raise ValueError(f"unknown scopes: {', '.join(unknown)}")
+        return scopes
 
 
 class SetServiceClientEnabledRequest(BaseModel):

@@ -97,7 +97,7 @@ services (projects, design bundle, compare, comments, catalog, release, jobs)
   | `catalog_qa` | `catalog:qa` |
   | `admin`, `catalog_admin` | `admin` |
 
-- **Human-only actions.** `release`, `catalog_qa`, `admin`, `catalog_admin` and resolving or reopening a comment (a new `comment_resolve` action, split from `comment`; D6) are refused to MCP callers in the policy table itself, whatever scopes the token holds. A tool that reaches one returns an input-required result in URL mode: a link to the Prism page where a person acts. Personal access tokens may hold the release, QA and admin scopes for scripts the user runs knowingly; MCP clients may not request them. No token resolves a comment: resolving needs a session.
+- **Human-only actions.** `release`, `catalog_qa`, `admin` and `catalog_admin` are refused to MCP callers in the policy table itself (`human_only` rules in `policy.py`), whatever scopes the token holds. Resolving or reopening a comment is refused to every token, MCP or not (D6; the resolve rule in `comment_permissions.py`). A tool that reaches one returns an input-required result in URL mode: a link to the Prism page where a person acts. Personal access tokens may hold the release, QA and admin scopes for scripts the user runs knowingly; MCP clients may not request them. No token resolves a comment: resolving needs a session.
 - **Actor model.** Every write and audit record stores `user`, `auth_type`, `client_id`, `token_id` and an optional `agent_run_id` (passed by the client). Comments get `authorKind` (`person`, `agent`, `service`) and the client's name, so the UI can mark agent-authored comments.
 
 ### 3.6 Tokens and OAuth
