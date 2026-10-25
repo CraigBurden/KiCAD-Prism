@@ -66,9 +66,9 @@ services (projects, design bundle, compare, comments, catalog, release, jobs)
 
 ### 3.2 Typed, versioned API
 
-- **Mount.** One router tree is included twice: under `/api/v1` and, until v6, under `/api`. Only `/api/v1` appears in the published OpenAPI document. The browser keeps calling `/api` until the frontend moves over in one change.
-- **Every v1 route declares** `response_model`, `summary`, and an `operation_id` of the form `<area>_<verb>[_<object>]`, for example `projects_list` or `comments_create_reply`. Operation ids are stable: renaming one is a breaking change.
-- **Ratchet.** A CI check, like the module-size gate, records how many routes are untyped. The count may only go down. A route added without a `response_model` fails CI.
+- **Mount.** Routes are written once, under `/api`. `ApiVersionMiddleware` (`app/core/api_version.py`) rewrites `/api/v1/...` to `/api/...` before routing, so there is one route table and one set of handlers. Only `/api/v1` paths appear in the published OpenAPI document (`/api/v1/openapi.json`), and nothing outside `/api` (Git smart HTTP is not part of it). The browser keeps calling `/api` until the frontend moves over in one change.
+- **Operation ids.** An operation's id is its route function's name, unique across the API (`operation_id` in `app/core/api_version.py`), for example `list_projects` or `create_comment_reply`. Ids are stable: renaming a route function is a breaking change. A route gains a `summary` when it is typed.
+- **Ratchet.** `backend/openapi/operations.v1.json` records every operation's id, method, path, and whether its success response is typed; `tests/test_api_contract.py` compares the live document with it. An operation that disappears or moves fails, a typed one may not become untyped, and a new one must be typed, so the untyped count only goes down. At MCP-01, 72 of 307 operations are typed. After a deliberate change, `python -m app.core.api_contract --write` rewrites the snapshot and its diff is reviewed with the change.
 - **Target for v5.1:** every route a tool, the SDK or the CLI uses is typed, and at least 60% of all routes are.
 
 ### 3.3 Revision pinning
@@ -208,7 +208,7 @@ Design queries run in a **design-query service** over the revision's bundle proj
 
 ## 5. Consequences
 
-- **Two prefixes until v6.** `/api` and `/api/v1` both route, which doubles the route table. OpenAPI publishes `/api/v1` only, and v6 removes the alias for bearer callers.
+- **Two prefixes until v6.** `/api` and `/api/v1` both reach the same routes through one rewrite, not a second route table. OpenAPI publishes `/api/v1` only, and v6 removes the alias for bearer callers.
 - **Typing touches every API module**, a large but mechanical change. The ratchet lets it land incrementally.
 - **Frontend code moves to services** (§3.8), so the frontend will need fixture updates where it computed BOM and review groups itself.
 - **Schema changes:** migrations for personal access tokens, OAuth clients and grants, idempotency keys, events, and the actor columns.

@@ -1,0 +1,1537 @@
+{
+  "about": {
+    "method": "GET",
+    "path": "/api/v1/health/about",
+    "typed": true
+  },
+  "accept_project_import_proposal": {
+    "method": "POST",
+    "path": "/api/v1/catalog/import-proposals/{proposal_id}/accept",
+    "typed": false
+  },
+  "acknowledge_project_tracker": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/tracker/acknowledge",
+    "typed": true
+  },
+  "add_comment_reaction": {
+    "method": "PUT",
+    "path": "/api/v1/projects/{project_id}/comments/{comment_id}/reactions/{reaction}",
+    "typed": false
+  },
+  "add_mate": {
+    "method": "POST",
+    "path": "/api/v1/catalog/components/{component_id}/mates-with",
+    "typed": false
+  },
+  "add_reply": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/comments/{comment_id}/replies",
+    "typed": false
+  },
+  "admin_revoke_identity": {
+    "method": "POST",
+    "path": "/api/v1/admin/trackers/connectors/{connector_id}/identities/{user_id}/revoke",
+    "typed": true
+  },
+  "agent_token": {
+    "method": "POST",
+    "path": "/api/v1/agent/token",
+    "typed": true
+  },
+  "analyze_repository": {
+    "method": "POST",
+    "path": "/api/v1/projects/analyze",
+    "typed": false
+  },
+  "append_design_compare_debug_log": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/design-compare/debug-log",
+    "typed": false
+  },
+  "apply_metadata_batch": {
+    "method": "POST",
+    "path": "/api/v1/catalog/metadata/batches/{batch_id}/apply",
+    "typed": false
+  },
+  "approve_build": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/approvals",
+    "typed": false
+  },
+  "approve_metadata_batch_fields": {
+    "method": "POST",
+    "path": "/api/v1/catalog/metadata/batches/{batch_id}/approve-fields",
+    "typed": false
+  },
+  "archive_metadata_field": {
+    "method": "POST",
+    "path": "/api/v1/catalog/metadata/fields/{field_id}/archive",
+    "typed": false
+  },
+  "begin_oauth": {
+    "method": "POST",
+    "path": "/api/v1/trackers/connectors/{connector_id}/oauth/begin",
+    "typed": true
+  },
+  "benchmark_metrics": {
+    "method": "GET",
+    "path": "/api/v1/jobs/benchmark-metrics",
+    "typed": false
+  },
+  "browse_library_assets": {
+    "method": "GET",
+    "path": "/api/v1/catalog/assets/browse",
+    "typed": false
+  },
+  "bulk_accept_project_import_proposals": {
+    "method": "POST",
+    "path": "/api/v1/catalog/import-sessions/{session_id}/proposals/bulk-accept",
+    "typed": false
+  },
+  "cancel_job": {
+    "method": "POST",
+    "path": "/api/v1/jobs/{job_id}/cancel",
+    "typed": false
+  },
+  "catalog_health": {
+    "method": "GET",
+    "path": "/api/v1/catalog/health",
+    "typed": false
+  },
+  "change_own_password": {
+    "method": "POST",
+    "path": "/api/v1/auth/password/change",
+    "typed": false
+  },
+  "check_git_access": {
+    "method": "POST",
+    "path": "/api/v1/settings/git-access/check",
+    "typed": false
+  },
+  "check_release_tag": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/release-studio/tags/{tag}",
+    "typed": false
+  },
+  "clear_project_thumbnail": {
+    "method": "DELETE",
+    "path": "/api/v1/projects/{project_id}/thumbnail",
+    "typed": false
+  },
+  "compare_component_revisions": {
+    "method": "GET",
+    "path": "/api/v1/catalog/components/{component_id}/revisions/compare",
+    "typed": false
+  },
+  "complete_folder_snapshot": {
+    "method": "POST",
+    "path": "/api/v1/catalog/import-snapshots/folders/{snapshot_id}/complete",
+    "typed": false
+  },
+  "components_by_category": {
+    "method": "GET",
+    "path": "/api/v1/remote-provider/components-by-category",
+    "typed": false
+  },
+  "config": {
+    "method": "GET",
+    "path": "/api/v1/agent/config",
+    "typed": true
+  },
+  "connector_health": {
+    "method": "GET",
+    "path": "/api/v1/admin/trackers/connectors/{connector_id}/health",
+    "typed": true
+  },
+  "convert_models": {
+    "method": "POST",
+    "path": "/api/v1/catalog/components/{component_id}/models/convert",
+    "typed": false
+  },
+  "create_candidate": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/release-studio/candidates",
+    "typed": false
+  },
+  "create_catalog_component": {
+    "method": "POST",
+    "path": "/api/v1/catalog/components",
+    "typed": false
+  },
+  "create_comment": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/comments",
+    "typed": false
+  },
+  "create_comparison_comment": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/comparison-comments",
+    "typed": false
+  },
+  "create_component_representation": {
+    "method": "POST",
+    "path": "/api/v1/catalog/components/{component_id}/representations",
+    "typed": false
+  },
+  "create_connector": {
+    "method": "POST",
+    "path": "/api/v1/admin/trackers/connectors",
+    "typed": true
+  },
+  "create_folder": {
+    "method": "POST",
+    "path": "/api/v1/folders/",
+    "typed": false
+  },
+  "create_folder_snapshot": {
+    "method": "POST",
+    "path": "/api/v1/catalog/import-snapshots/folders",
+    "typed": false
+  },
+  "create_metadata_batch": {
+    "method": "POST",
+    "path": "/api/v1/catalog/metadata/batches",
+    "typed": false
+  },
+  "create_metadata_field": {
+    "method": "POST",
+    "path": "/api/v1/catalog/metadata/fields",
+    "typed": false
+  },
+  "create_project_import_session": {
+    "method": "POST",
+    "path": "/api/v1/catalog/import-sessions/projects",
+    "typed": false
+  },
+  "create_server_folder_snapshot": {
+    "method": "POST",
+    "path": "/api/v1/catalog/import-snapshots/folders/server",
+    "typed": false
+  },
+  "create_service_client": {
+    "method": "POST",
+    "path": "/api/v1/admin/service-clients",
+    "typed": false
+  },
+  "delete_access_user": {
+    "method": "DELETE",
+    "path": "/api/v1/settings/access/users/{email}",
+    "typed": false
+  },
+  "delete_catalog_component": {
+    "method": "DELETE",
+    "path": "/api/v1/catalog/components/{component_id}",
+    "typed": false
+  },
+  "delete_comment": {
+    "method": "DELETE",
+    "path": "/api/v1/projects/{project_id}/comments/{comment_id}",
+    "typed": false
+  },
+  "delete_component_representation": {
+    "method": "DELETE",
+    "path": "/api/v1/catalog/components/{component_id}/representations/{representation_id}",
+    "typed": false
+  },
+  "delete_connector": {
+    "method": "DELETE",
+    "path": "/api/v1/admin/trackers/connectors/{connector_id}",
+    "typed": true
+  },
+  "delete_design_compare": {
+    "method": "DELETE",
+    "path": "/api/v1/projects/{project_id}/design-compare/{job_id}",
+    "typed": false
+  },
+  "delete_folder": {
+    "method": "DELETE",
+    "path": "/api/v1/folders/{folder_id}",
+    "typed": false
+  },
+  "delete_project_endpoint": {
+    "method": "DELETE",
+    "path": "/api/v1/projects/{project_id}",
+    "typed": false
+  },
+  "delete_project_import_session": {
+    "method": "DELETE",
+    "path": "/api/v1/catalog/import-sessions/{session_id}",
+    "typed": true
+  },
+  "delete_reply": {
+    "method": "DELETE",
+    "path": "/api/v1/projects/{project_id}/comments/{comment_id}/replies/{reply_id}",
+    "typed": false
+  },
+  "delete_service_client": {
+    "method": "DELETE",
+    "path": "/api/v1/admin/service-clients/{client_id}",
+    "typed": false
+  },
+  "delete_setup": {
+    "method": "DELETE",
+    "path": "/api/v1/projects/{project_id}/sim/a0/setups/{setup_id}",
+    "typed": true
+  },
+  "delete_user_password": {
+    "method": "DELETE",
+    "path": "/api/v1/settings/access/users/{email}/password",
+    "typed": false
+  },
+  "design_compare_result": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/design-compare/{job_id}",
+    "typed": false
+  },
+  "design_compare_sidecar": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/design-compare/{job_id}/sidecars/{digest}",
+    "typed": false
+  },
+  "detach_component_asset": {
+    "method": "DELETE",
+    "path": "/api/v1/catalog/components/{component_id}/assets/{asset_type}",
+    "typed": false
+  },
+  "detach_component_asset_by_id": {
+    "method": "DELETE",
+    "path": "/api/v1/catalog/components/{component_id}/assets/id/{asset_id}",
+    "typed": false
+  },
+  "detect_project_paths": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/detect-paths",
+    "typed": false
+  },
+  "discover_folder_snapshot": {
+    "method": "POST",
+    "path": "/api/v1/catalog/import-snapshots/folders/{snapshot_id}/discover",
+    "typed": false
+  },
+  "download_asset": {
+    "method": "GET",
+    "path": "/api/v1/remote-provider/assets/{asset_id}",
+    "typed": false
+  },
+  "download_build_evidence": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/build-evidence",
+    "typed": false
+  },
+  "download_build_log": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/logs/{step_id}",
+    "typed": false
+  },
+  "download_build_vendor_pack": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/vendor-packs/{vendor_id}",
+    "typed": false
+  },
+  "download_dossier": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/dossier",
+    "typed": false
+  },
+  "download_file": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/download",
+    "typed": false
+  },
+  "download_member": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/members/{member_path}",
+    "typed": false
+  },
+  "download_preview": {
+    "method": "GET",
+    "path": "/api/v1/remote-provider/previews/{preview_id}",
+    "typed": false
+  },
+  "draft_setup": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/sim/a0/setups",
+    "typed": true
+  },
+  "export_import_proposals_csv": {
+    "method": "GET",
+    "path": "/api/v1/catalog/import-sessions/{session_id}/proposals.csv",
+    "typed": false
+  },
+  "export_inventory_csv": {
+    "method": "GET",
+    "path": "/api/v1/catalog/inventory/export.csv",
+    "typed": false
+  },
+  "export_kicad_dbl_bundle": {
+    "method": "POST",
+    "path": "/api/v1/catalog/exports/kicad-dbl",
+    "typed": false
+  },
+  "export_metadata_csv": {
+    "method": "GET",
+    "path": "/api/v1/catalog/metadata/export.csv",
+    "typed": false
+  },
+  "forget_git_host_key": {
+    "method": "DELETE",
+    "path": "/api/v1/settings/git-access/host-keys/{host}",
+    "typed": false
+  },
+  "generate_missing_previews": {
+    "method": "POST",
+    "path": "/api/v1/catalog/previews/generate-missing",
+    "typed": false
+  },
+  "generate_semantic_index": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/semantic-index/generate",
+    "typed": false
+  },
+  "generate_ssh_key": {
+    "method": "POST",
+    "path": "/api/v1/settings/ssh-key/generate",
+    "typed": false
+  },
+  "generate_webgpu_3d": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/webgpu-3d/generate",
+    "typed": false
+  },
+  "get_asset_content": {
+    "method": "GET",
+    "path": "/api/v1/remote-provider/assets/{asset_id}/content",
+    "typed": false
+  },
+  "get_auth_config": {
+    "method": "GET",
+    "path": "/api/v1/auth/config",
+    "typed": true
+  },
+  "get_build": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}",
+    "typed": false
+  },
+  "get_build_placement": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/placement",
+    "typed": false
+  },
+  "get_candidate": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/release-studio/candidates/{candidate_id}",
+    "typed": false
+  },
+  "get_catalog_asset_content": {
+    "method": "GET",
+    "path": "/api/v1/catalog/assets/{asset_id}/content",
+    "typed": false
+  },
+  "get_catalog_component": {
+    "method": "GET",
+    "path": "/api/v1/catalog/components/{component_id}",
+    "typed": false
+  },
+  "get_catalog_job": {
+    "method": "GET",
+    "path": "/api/v1/catalog/jobs/{job_id}",
+    "typed": false
+  },
+  "get_catalog_preview": {
+    "method": "GET",
+    "path": "/api/v1/catalog/previews/{preview_id}",
+    "typed": false
+  },
+  "get_catalog_usage": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/catalog-usage",
+    "typed": true
+  },
+  "get_comment_attachment": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/comment-attachments/{attachment_id}",
+    "typed": false
+  },
+  "get_comment_changes": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/comments/changes",
+    "typed": false
+  },
+  "get_comment_history": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/comments/{comment_id}/history",
+    "typed": false
+  },
+  "get_comment_thread": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/comments/{comment_id}/thread",
+    "typed": false
+  },
+  "get_comments": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/comments",
+    "typed": false
+  },
+  "get_comparison_comments": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/comparison-comments",
+    "typed": false
+  },
+  "get_comparison_discussion_report": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/comparison-comments/report",
+    "typed": false
+  },
+  "get_component": {
+    "method": "GET",
+    "path": "/api/v1/remote-provider/components/{component_id}",
+    "typed": false
+  },
+  "get_component_revision": {
+    "method": "GET",
+    "path": "/api/v1/catalog/components/{component_id}/revisions/{revision_id}",
+    "typed": false
+  },
+  "get_component_validation": {
+    "method": "GET",
+    "path": "/api/v1/catalog/components/{component_id}/validation",
+    "typed": false
+  },
+  "get_connector": {
+    "method": "GET",
+    "path": "/api/v1/admin/trackers/connectors/{connector_id}",
+    "typed": true
+  },
+  "get_current_session_user": {
+    "method": "GET",
+    "path": "/api/v1/auth/me",
+    "typed": true
+  },
+  "get_design_bundles": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/design-bundles",
+    "typed": false
+  },
+  "get_doc_file_content": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/docs/content",
+    "typed": false
+  },
+  "get_docs_files": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/docs",
+    "typed": false
+  },
+  "get_fabrication_layer": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/fabrication-view/layers/{layer_id}.svg",
+    "typed": false
+  },
+  "get_fabrication_view": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/fabrication-view",
+    "typed": false
+  },
+  "get_folder_contents": {
+    "method": "GET",
+    "path": "/api/v1/folders/contents",
+    "typed": false
+  },
+  "get_folder_tree": {
+    "method": "GET",
+    "path": "/api/v1/folders/tree",
+    "typed": false
+  },
+  "get_git_access": {
+    "method": "GET",
+    "path": "/api/v1/settings/git-access",
+    "typed": false
+  },
+  "get_inline_component": {
+    "method": "GET",
+    "path": "/api/v1/remote-provider/components/{component_id}/inline",
+    "typed": false
+  },
+  "get_job": {
+    "method": "GET",
+    "path": "/api/v1/jobs/{job_id}",
+    "typed": false
+  },
+  "get_job_artifact": {
+    "method": "GET",
+    "path": "/api/v1/jobs/{job_id}/artifact",
+    "typed": false
+  },
+  "get_job_events": {
+    "method": "GET",
+    "path": "/api/v1/jobs/{job_id}/events",
+    "typed": false
+  },
+  "get_job_logs": {
+    "method": "GET",
+    "path": "/api/v1/jobs/{job_id}/logs",
+    "typed": false
+  },
+  "get_metadata_batch": {
+    "method": "GET",
+    "path": "/api/v1/catalog/metadata/batches/{batch_id}",
+    "typed": false
+  },
+  "get_metadata_grid_preferences": {
+    "method": "GET",
+    "path": "/api/v1/catalog/metadata/grid-preferences",
+    "typed": false
+  },
+  "get_metadata_job": {
+    "method": "GET",
+    "path": "/api/v1/catalog/metadata/jobs/{job_id}",
+    "typed": false
+  },
+  "get_monorepo_structure": {
+    "method": "GET",
+    "path": "/api/v1/projects/monorepos/{repo_name}/structure",
+    "typed": false
+  },
+  "get_oauth_callback_url": {
+    "method": "GET",
+    "path": "/api/v1/admin/trackers/oauth-callback-url",
+    "typed": true
+  },
+  "get_output_fabrication_layer": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/fabrication-view/layers/{layer_id}.svg",
+    "typed": false
+  },
+  "get_output_fabrication_view": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/fabrication-view",
+    "typed": false
+  },
+  "get_output_placement": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/placement",
+    "typed": false
+  },
+  "get_part_manifest": {
+    "method": "GET",
+    "path": "/api/v1/remote-provider/parts/{part_id}",
+    "typed": false
+  },
+  "get_preview_job": {
+    "method": "GET",
+    "path": "/api/v1/catalog/previews/jobs/{job_id}",
+    "typed": false
+  },
+  "get_project_3d_model": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/3d-model",
+    "typed": false
+  },
+  "get_project_asset": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/asset/{asset_path}",
+    "typed": false
+  },
+  "get_project_branches": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/branches",
+    "typed": false
+  },
+  "get_project_comments_source_urls": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/comments/source-urls",
+    "typed": false
+  },
+  "get_project_commit_distance": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/commits/distance",
+    "typed": false
+  },
+  "get_project_commit_file": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/commits/{commit_hash}/file",
+    "typed": false
+  },
+  "get_project_commit_summary": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/commits/{commit_hash}/summary",
+    "typed": false
+  },
+  "get_project_commits": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/commits",
+    "typed": false
+  },
+  "get_project_config": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/config",
+    "typed": false
+  },
+  "get_project_description": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/description",
+    "typed": false
+  },
+  "get_project_detail": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}",
+    "typed": true
+  },
+  "get_project_files": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/files",
+    "typed": true
+  },
+  "get_project_ibom": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/ibom",
+    "typed": false
+  },
+  "get_project_import_session": {
+    "method": "GET",
+    "path": "/api/v1/catalog/import-sessions/{session_id}",
+    "typed": false
+  },
+  "get_project_name": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/name",
+    "typed": false
+  },
+  "get_project_overview": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/overview",
+    "typed": false
+  },
+  "get_project_pcb": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/pcb",
+    "typed": false
+  },
+  "get_project_properties": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/properties",
+    "typed": true
+  },
+  "get_project_readme": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/readme",
+    "typed": false
+  },
+  "get_project_releases": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/releases",
+    "typed": false
+  },
+  "get_project_schematic": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/schematic",
+    "typed": false
+  },
+  "get_project_subsheets": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/schematic/subsheets",
+    "typed": false
+  },
+  "get_project_thumbnail": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/thumbnail",
+    "typed": false
+  },
+  "get_project_thumbnail_version": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/thumbnail/{thumbnail_digest}",
+    "typed": false
+  },
+  "get_project_tracker": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/tracker",
+    "typed": true
+  },
+  "get_project_variants": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/variants",
+    "typed": false
+  },
+  "get_project_viewer_support_files": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/viewer/support-files",
+    "typed": false
+  },
+  "get_reply_history": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/comments/{comment_id}/replies/{reply_id}/history",
+    "typed": false
+  },
+  "get_semantic_index_identity": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/semantic-index/identity",
+    "typed": false
+  },
+  "get_semantic_index_status": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/semantic-index/status",
+    "typed": false
+  },
+  "get_signed_comment_attachment": {
+    "method": "GET",
+    "path": "/api/v1/public/comment-attachments/{project_id}/{attachment_id}",
+    "typed": false
+  },
+  "get_source": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/release-studio/source",
+    "typed": false
+  },
+  "get_ssh_key": {
+    "method": "GET",
+    "path": "/api/v1/settings/ssh-key",
+    "typed": true
+  },
+  "get_validation_job": {
+    "method": "GET",
+    "path": "/api/v1/catalog/validation/jobs/{job_id}",
+    "typed": false
+  },
+  "get_validation_report": {
+    "method": "GET",
+    "path": "/api/v1/catalog/validation/runs/{run_id}/{report_name}",
+    "typed": false
+  },
+  "get_validation_run": {
+    "method": "GET",
+    "path": "/api/v1/catalog/validation/runs/{run_id}",
+    "typed": false
+  },
+  "get_webgpu_3d_analytic": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/webgpu-3d/analytic",
+    "typed": false
+  },
+  "get_webgpu_3d_asset": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/webgpu-3d/assets/{source_revision_key}/{generator_build}/{asset_path}",
+    "typed": false
+  },
+  "get_webgpu_3d_status": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/webgpu-3d/status",
+    "typed": false
+  },
+  "get_workspace_bootstrap": {
+    "method": "GET",
+    "path": "/api/v1/workspace/bootstrap",
+    "typed": false
+  },
+  "impedance_template": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/release-studio/impedance-template.csv",
+    "typed": false
+  },
+  "import_access_help": {
+    "method": "POST",
+    "path": "/api/v1/projects/access-help",
+    "typed": false
+  },
+  "import_auxiliary_asset": {
+    "method": "POST",
+    "path": "/api/v1/catalog/components/{component_id}/assets/{asset_type}",
+    "typed": false
+  },
+  "import_footprint": {
+    "method": "POST",
+    "path": "/api/v1/catalog/components/{component_id}/footprint-import",
+    "typed": false
+  },
+  "import_inventory_csv": {
+    "method": "POST",
+    "path": "/api/v1/catalog/inventory/sync-csv",
+    "typed": false
+  },
+  "import_project": {
+    "method": "POST",
+    "path": "/api/v1/projects/import",
+    "typed": false
+  },
+  "import_proposals_csv": {
+    "method": "POST",
+    "path": "/api/v1/catalog/import-sessions/{session_id}/proposals.csv",
+    "typed": false
+  },
+  "import_symbol_library": {
+    "method": "POST",
+    "path": "/api/v1/catalog/components/{component_id}/symbol-import",
+    "typed": false
+  },
+  "infer_power_tree": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/sim/a0/power-tree",
+    "typed": true
+  },
+  "link_library_asset": {
+    "method": "POST",
+    "path": "/api/v1/catalog/components/{component_id}/assets/{asset_type}/link",
+    "typed": false
+  },
+  "list_access_users": {
+    "method": "GET",
+    "path": "/api/v1/settings/access/users",
+    "typed": true
+  },
+  "list_build_logs": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/logs",
+    "typed": false
+  },
+  "list_candidates": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/release-studio/candidates",
+    "typed": false
+  },
+  "list_catalog_categories": {
+    "method": "GET",
+    "path": "/api/v1/catalog/categories",
+    "typed": false
+  },
+  "list_catalog_components": {
+    "method": "GET",
+    "path": "/api/v1/catalog/components",
+    "typed": false
+  },
+  "list_categories": {
+    "method": "GET",
+    "path": "/api/v1/remote-provider/categories",
+    "typed": false
+  },
+  "list_component_audit": {
+    "method": "GET",
+    "path": "/api/v1/catalog/components/{component_id}/audit",
+    "typed": false
+  },
+  "list_component_releases": {
+    "method": "GET",
+    "path": "/api/v1/catalog/components/{component_id}/releases",
+    "typed": false
+  },
+  "list_component_reviews": {
+    "method": "GET",
+    "path": "/api/v1/catalog/components/{component_id}/reviews",
+    "typed": false
+  },
+  "list_component_revisions": {
+    "method": "GET",
+    "path": "/api/v1/catalog/components/{component_id}/revisions",
+    "typed": false
+  },
+  "list_component_usage": {
+    "method": "GET",
+    "path": "/api/v1/catalog/components/{component_id}/usage",
+    "typed": false
+  },
+  "list_connector_repositories": {
+    "method": "GET",
+    "path": "/api/v1/admin/trackers/connectors/{connector_id}/repositories",
+    "typed": true
+  },
+  "list_connectors": {
+    "method": "GET",
+    "path": "/api/v1/admin/trackers/connectors",
+    "typed": true
+  },
+  "list_document_sheets": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/sheets",
+    "typed": false
+  },
+  "list_engines": {
+    "method": "GET",
+    "path": "/api/v1/sim/a0/engines",
+    "typed": true
+  },
+  "list_folder_import_roots": {
+    "method": "GET",
+    "path": "/api/v1/catalog/import-sources/folder-roots",
+    "typed": false
+  },
+  "list_identities": {
+    "method": "GET",
+    "path": "/api/v1/trackers/identities",
+    "typed": true
+  },
+  "list_linkable_connectors": {
+    "method": "GET",
+    "path": "/api/v1/trackers/linkable-connectors",
+    "typed": true
+  },
+  "list_mates_with": {
+    "method": "GET",
+    "path": "/api/v1/catalog/components/{component_id}/mates-with",
+    "typed": false
+  },
+  "list_mention_candidates": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/comments/mention-candidates",
+    "typed": true
+  },
+  "list_metadata_fields": {
+    "method": "GET",
+    "path": "/api/v1/catalog/metadata/fields",
+    "typed": false
+  },
+  "list_models": {
+    "method": "GET",
+    "path": "/api/v1/catalog/components/{component_id}/models",
+    "typed": false
+  },
+  "list_monorepos": {
+    "method": "GET",
+    "path": "/api/v1/projects/monorepos",
+    "typed": true
+  },
+  "list_my_sessions": {
+    "method": "GET",
+    "path": "/api/v1/auth/sessions",
+    "typed": true
+  },
+  "list_project_import_proposals": {
+    "method": "GET",
+    "path": "/api/v1/catalog/import-sessions/{session_id}/proposals",
+    "typed": false
+  },
+  "list_project_import_sessions": {
+    "method": "GET",
+    "path": "/api/v1/catalog/import-sessions",
+    "typed": false
+  },
+  "list_projects": {
+    "method": "GET",
+    "path": "/api/v1/projects/",
+    "typed": true
+  },
+  "list_runs": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/sim/a0/runs",
+    "typed": true
+  },
+  "list_service_clients": {
+    "method": "GET",
+    "path": "/api/v1/admin/service-clients",
+    "typed": false
+  },
+  "list_setups": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/sim/a0/setups",
+    "typed": true
+  },
+  "list_tokens": {
+    "method": "GET",
+    "path": "/api/v1/agent/tokens",
+    "typed": true
+  },
+  "list_vendor_profiles": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/release-studio/vendor-profiles",
+    "typed": false
+  },
+  "live": {
+    "method": "GET",
+    "path": "/api/v1/health/live",
+    "typed": true
+  },
+  "login": {
+    "method": "POST",
+    "path": "/api/v1/auth/login",
+    "typed": true
+  },
+  "login_with_password": {
+    "method": "POST",
+    "path": "/api/v1/auth/login/password",
+    "typed": true
+  },
+  "logout": {
+    "method": "POST",
+    "path": "/api/v1/auth/logout",
+    "typed": false
+  },
+  "metadata_batch_report": {
+    "method": "GET",
+    "path": "/api/v1/catalog/metadata/batches/{batch_id}/report.csv",
+    "typed": false
+  },
+  "metadata_grid": {
+    "method": "GET",
+    "path": "/api/v1/catalog/metadata/grid",
+    "typed": false
+  },
+  "model_glb": {
+    "method": "GET",
+    "path": "/api/v1/catalog/models/{key}.glb",
+    "typed": false
+  },
+  "model_preview": {
+    "method": "GET",
+    "path": "/api/v1/catalog/components/{component_id}/models/{asset_id}/preview.svg",
+    "typed": false
+  },
+  "move_project_to_folder": {
+    "method": "POST",
+    "path": "/api/v1/folders/projects/{project_id}/move",
+    "typed": false
+  },
+  "move_projects_to_folder": {
+    "method": "POST",
+    "path": "/api/v1/folders/projects/move",
+    "typed": false
+  },
+  "oauth_callback": {
+    "method": "GET",
+    "path": "/api/v1/trackers/oauth/callback",
+    "typed": false
+  },
+  "patch_setup": {
+    "method": "PATCH",
+    "path": "/api/v1/projects/{project_id}/sim/a0/setups/{setup_id}",
+    "typed": true
+  },
+  "pause_connector": {
+    "method": "POST",
+    "path": "/api/v1/admin/trackers/connectors/{connector_id}/pause",
+    "typed": true
+  },
+  "pin_comment": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/comments/{comment_id}/pin",
+    "typed": false
+  },
+  "plugin_version": {
+    "method": "GET",
+    "path": "/api/v1/plugin/version",
+    "typed": true
+  },
+  "preflight_setup": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/sim/a0/setups/{setup_id}/preflight",
+    "typed": true
+  },
+  "preview_document_sheet": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/sheets/{sheet_key}.pdf",
+    "typed": false
+  },
+  "preview_metadata_csv": {
+    "method": "POST",
+    "path": "/api/v1/catalog/metadata/import-csv/preview",
+    "typed": false
+  },
+  "project_tracker_health": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/tracker/health",
+    "typed": true
+  },
+  "promote_comment_to_tracker": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/comments/{comment_id}/promote",
+    "typed": true
+  },
+  "publish_build": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/publish",
+    "typed": false
+  },
+  "push_comments": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/comments/push",
+    "typed": false
+  },
+  "read_catalog": {
+    "method": "GET",
+    "path": "/api/v1/sim/a0/catalog",
+    "typed": true
+  },
+  "read_layout": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/sim/a0/setups/{setup_id}/layout",
+    "typed": true
+  },
+  "read_result": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/sim/a0/runs/{run_id}/result",
+    "typed": true
+  },
+  "read_result_file": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/sim/a0/runs/{run_id}/files/{path}",
+    "typed": false
+  },
+  "read_run": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/sim/a0/runs/{run_id}",
+    "typed": true
+  },
+  "read_run_materialization": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/sim/a0/runs/{run_id}/materialization",
+    "typed": false
+  },
+  "read_run_setup": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/sim/a0/runs/{run_id}/setup",
+    "typed": true
+  },
+  "read_setup": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/sim/a0/setups/{setup_id}",
+    "typed": true
+  },
+  "ready": {
+    "method": "GET",
+    "path": "/api/v1/health/ready",
+    "typed": true
+  },
+  "reattach_comment": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/comments/{comment_id}/reattach",
+    "typed": false
+  },
+  "regenerate_component_previews": {
+    "method": "POST",
+    "path": "/api/v1/catalog/components/{component_id}/previews/regenerate",
+    "typed": false
+  },
+  "regenerate_design_bundles": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/design-bundles/regenerate",
+    "typed": false
+  },
+  "regenerate_project_thumbnail": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/thumbnail/regenerate",
+    "typed": false
+  },
+  "regenerate_project_thumbnails": {
+    "method": "POST",
+    "path": "/api/v1/projects/thumbnails/regenerate",
+    "typed": false
+  },
+  "reject_project_import_proposal": {
+    "method": "POST",
+    "path": "/api/v1/catalog/import-proposals/{proposal_id}/reject",
+    "typed": false
+  },
+  "release_queue": {
+    "method": "GET",
+    "path": "/api/v1/catalog/release-queue",
+    "typed": false
+  },
+  "remove_comment_reaction": {
+    "method": "DELETE",
+    "path": "/api/v1/projects/{project_id}/comments/{comment_id}/reactions/{reaction}",
+    "typed": false
+  },
+  "remove_mate": {
+    "method": "DELETE",
+    "path": "/api/v1/catalog/components/{component_id}/mates-with/{other_id}",
+    "typed": false
+  },
+  "replace_setup": {
+    "method": "PUT",
+    "path": "/api/v1/projects/{project_id}/sim/a0/setups/{setup_id}",
+    "typed": true
+  },
+  "repromote_comment_tracker": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/comments/{comment_id}/tracker/repromote",
+    "typed": true
+  },
+  "restore_metadata_field": {
+    "method": "POST",
+    "path": "/api/v1/catalog/metadata/fields/{field_id}/restore",
+    "typed": false
+  },
+  "resume_connector": {
+    "method": "POST",
+    "path": "/api/v1/admin/trackers/connectors/{connector_id}/resume",
+    "typed": true
+  },
+  "retry_comment_sync": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/comments/{comment_id}/tracker/retry",
+    "typed": true
+  },
+  "retry_project_import_follow_ups": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/import-follow-ups/retry",
+    "typed": false
+  },
+  "revoke_connector": {
+    "method": "POST",
+    "path": "/api/v1/admin/trackers/connectors/{connector_id}/revoke",
+    "typed": true
+  },
+  "revoke_other_sessions": {
+    "method": "POST",
+    "path": "/api/v1/auth/sessions/revoke-others",
+    "typed": false
+  },
+  "revoke_token": {
+    "method": "DELETE",
+    "path": "/api/v1/agent/tokens/{jti}",
+    "typed": true
+  },
+  "revoke_user_sessions": {
+    "method": "POST",
+    "path": "/api/v1/auth/sessions/revoke-user/{email}",
+    "typed": false
+  },
+  "rotate_service_client_secret": {
+    "method": "POST",
+    "path": "/api/v1/admin/service-clients/{client_id}/rotate-secret",
+    "typed": false
+  },
+  "run_artifact_maintenance": {
+    "method": "POST",
+    "path": "/api/v1/catalog/artifacts/maintenance",
+    "typed": false
+  },
+  "save_import_proposal_drafts": {
+    "method": "PUT",
+    "path": "/api/v1/catalog/import-sessions/{session_id}/proposals/drafts",
+    "typed": false
+  },
+  "save_metadata_grid_preferences": {
+    "method": "PUT",
+    "path": "/api/v1/catalog/metadata/grid-preferences",
+    "typed": false
+  },
+  "save_source_defaults": {
+    "method": "PUT",
+    "path": "/api/v1/projects/{project_id}/release-studio/source/defaults",
+    "typed": false
+  },
+  "scan_catalog_usage": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/catalog-usage/scan",
+    "typed": true
+  },
+  "scan_git_host_key": {
+    "method": "POST",
+    "path": "/api/v1/settings/git-access/host-keys/scan",
+    "typed": false
+  },
+  "search_catalog_assets": {
+    "method": "GET",
+    "path": "/api/v1/catalog/assets/search",
+    "typed": false
+  },
+  "search_components": {
+    "method": "GET",
+    "path": "/api/v1/remote-provider/search",
+    "typed": false
+  },
+  "search_projects": {
+    "method": "GET",
+    "path": "/api/v1/projects/search",
+    "typed": false
+  },
+  "set_model_alignment": {
+    "method": "PUT",
+    "path": "/api/v1/catalog/components/{component_id}/models/{asset_id}/alignment",
+    "typed": false
+  },
+  "set_service_client_enabled": {
+    "method": "PATCH",
+    "path": "/api/v1/admin/service-clients/{client_id}",
+    "typed": false
+  },
+  "set_user_password": {
+    "method": "PUT",
+    "path": "/api/v1/settings/access/users/{email}/password",
+    "typed": false
+  },
+  "share_reply_to_tracker": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/comments/{comment_id}/replies/{reply_id}/share",
+    "typed": true
+  },
+  "start_design_compare": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/design-compare",
+    "typed": false
+  },
+  "start_login": {
+    "method": "POST",
+    "path": "/api/v1/auth/login/start",
+    "typed": true
+  },
+  "submit_setup": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/sim/a0/setups/{setup_id}/submit",
+    "typed": true
+  },
+  "sync_project_endpoint": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/sync",
+    "typed": false
+  },
+  "test_connector": {
+    "method": "POST",
+    "path": "/api/v1/admin/trackers/connectors/{connector_id}/test",
+    "typed": true
+  },
+  "thread_sync_history": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/comments/{comment_id}/tracker/history",
+    "typed": true
+  },
+  "thread_sync_status": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/comments/{comment_id}/tracker",
+    "typed": true
+  },
+  "token": {
+    "method": "POST",
+    "path": "/api/v1/oauth/token",
+    "typed": false
+  },
+  "tracker_webhook": {
+    "method": "POST",
+    "path": "/api/v1/trackers/webhooks/{provider}/{connector_id}",
+    "typed": false
+  },
+  "transition_release_status": {
+    "method": "POST",
+    "path": "/api/v1/catalog/components/{component_id}/release",
+    "typed": false
+  },
+  "trigger_workflow": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/workflows",
+    "typed": false
+  },
+  "trust_git_host_key": {
+    "method": "POST",
+    "path": "/api/v1/settings/git-access/host-keys/trust",
+    "typed": false
+  },
+  "unlink_comment_tracker": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/comments/{comment_id}/tracker/unlink",
+    "typed": true
+  },
+  "unlink_identity": {
+    "method": "DELETE",
+    "path": "/api/v1/trackers/identities/{connector_id}",
+    "typed": true
+  },
+  "update_catalog_component": {
+    "method": "PATCH",
+    "path": "/api/v1/catalog/components/{component_id}",
+    "typed": false
+  },
+  "update_comment": {
+    "method": "PATCH",
+    "path": "/api/v1/projects/{project_id}/comments/{comment_id}",
+    "typed": false
+  },
+  "update_component_representation": {
+    "method": "PATCH",
+    "path": "/api/v1/catalog/components/{component_id}/representations/{representation_id}",
+    "typed": false
+  },
+  "update_connector": {
+    "method": "PATCH",
+    "path": "/api/v1/admin/trackers/connectors/{connector_id}",
+    "typed": true
+  },
+  "update_folder": {
+    "method": "PATCH",
+    "path": "/api/v1/folders/{folder_id}",
+    "typed": false
+  },
+  "update_metadata_field": {
+    "method": "PATCH",
+    "path": "/api/v1/catalog/metadata/fields/{field_id}",
+    "typed": false
+  },
+  "update_project_config": {
+    "method": "PUT",
+    "path": "/api/v1/projects/{project_id}/config",
+    "typed": false
+  },
+  "update_project_description": {
+    "method": "PUT",
+    "path": "/api/v1/projects/{project_id}/description",
+    "typed": false
+  },
+  "update_project_name": {
+    "method": "PUT",
+    "path": "/api/v1/projects/{project_id}/name",
+    "typed": false
+  },
+  "update_project_tracker": {
+    "method": "PUT",
+    "path": "/api/v1/projects/{project_id}/tracker",
+    "typed": true
+  },
+  "update_reply": {
+    "method": "PATCH",
+    "path": "/api/v1/projects/{project_id}/comments/{comment_id}/replies/{reply_id}",
+    "typed": false
+  },
+  "upload_comment_attachment": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/comment-attachments",
+    "typed": false
+  },
+  "upload_folder_snapshot_file": {
+    "method": "POST",
+    "path": "/api/v1/catalog/import-snapshots/folders/{snapshot_id}/files",
+    "typed": false
+  },
+  "upload_project_thumbnail": {
+    "method": "PUT",
+    "path": "/api/v1/projects/{project_id}/thumbnail",
+    "typed": false
+  },
+  "upsert_access_user": {
+    "method": "PUT",
+    "path": "/api/v1/settings/access/users/{email}",
+    "typed": true
+  },
+  "validate_catalog": {
+    "method": "POST",
+    "path": "/api/v1/catalog/validation/run",
+    "typed": false
+  },
+  "validate_component_klc": {
+    "method": "POST",
+    "path": "/api/v1/catalog/components/{component_id}/validate",
+    "typed": false
+  },
+  "validate_setup": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/sim/a0/setups/{setup_id}/validate",
+    "typed": true
+  },
+  "verify_component_audit": {
+    "method": "GET",
+    "path": "/api/v1/catalog/components/{component_id}/audit/verify",
+    "typed": false
+  },
+  "withdraw_build_approval": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/approvals/withdraw",
+    "typed": false
+  },
+  "workflow_summary": {
+    "method": "GET",
+    "path": "/api/v1/catalog/workflow/summary",
+    "typed": false
+  },
+  "write_layout": {
+    "method": "PUT",
+    "path": "/api/v1/projects/{project_id}/sim/a0/setups/{setup_id}/layout",
+    "typed": true
+  }
+}
