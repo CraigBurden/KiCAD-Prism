@@ -97,6 +97,27 @@ describe("DesignDataSection", () => {
         expect(within(items[1]).getByText("board partial")).toBeInTheDocument();
     });
 
+    it("keeps the counts current while a build runs and stops once it settles", async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        try {
+            const building = { ...STATUS, bundles: { complete: 0, building: 1, queued: 0, failed: 0 } };
+            const settled = { ...STATUS, bundles: { complete: 1, building: 0, queued: 0, failed: 0 } };
+            const statuses = [building, settled];
+            mocks.fetchJson.mockImplementation(async (url: string) =>
+                url.includes("/commits?") ? HEAD : (statuses.shift() ?? settled),
+            );
+            renderSection();
+            expect(await screen.findByText("0 stored · 3 reused · 1 building")).toBeInTheDocument();
+            await vi.advanceTimersByTimeAsync(5000);
+            expect(await screen.findByText("1 stored · 3 reused")).toBeInTheDocument();
+            const reads = mocks.fetchJson.mock.calls.filter(([url]) => String(url).endsWith("/design-bundles")).length;
+            await vi.advanceTimersByTimeAsync(15000);
+            expect(mocks.fetchJson.mock.calls.filter(([url]) => String(url).endsWith("/design-bundles"))).toHaveLength(reads);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("shows why a revision failed, in full on hover, and lists failed builds", async () => {
         const reason = "parse: source-unparseable: expected ')' (board/main.kicad_sch:12)";
         mocks.fetchJson.mockImplementation(async (url: string) =>

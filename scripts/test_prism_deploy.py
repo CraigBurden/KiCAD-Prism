@@ -9,11 +9,12 @@ bindings that stay exposed, and related settings drifting apart.
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
 
-from prism_deploy import render
+from prism_deploy import render, schemes
 from prism_deploy.apply import apply, load_existing_env, write_text
 from prism_deploy.build_identity import compose_environment, source_build_identity
 from prism_deploy.__main__ import load_answers
@@ -289,6 +290,195 @@ class EnvRenderingTests(unittest.TestCase):
             with self.subTest(scheme=scheme):
                 rendered = render.render_env(ENV_EXAMPLE, answers_for(scheme))
                 self.assertNotIn("CLOUDFLARE_API_TOKEN", rendered)
+
+
+    def test_a_key_documented_only_as_a_comment_is_written_in_its_place(self) -> None:
+        rendered = render.render_env(ENV_EXAMPLE, answers_for(HTTP_01))
+        lines = rendered.split("\n")
+        self.assertIn("PRISM_WORKER_MEMORY_BUDGET_MIB=6144", lines)
+        self.assertNotIn("# PRISM_WORKER_MEMORY_BUDGET_MIB=4096", lines)
+        self.assertLess(lines.index("PRISM_WORKER_MEMORY_BUDGET_MIB=6144"), lines.index("PRISM_WORKER_POLL_SECONDS=0.5"))
+        self.assertIn("SESSION_COOKIE_SECURE=true", lines)
+
+    def test_a_commented_example_never_replaces_the_live_line(self) -> None:
+        rendered = render.render_env(ENV_EXAMPLE, answers_for(HTTP_01))
+        self.assertIn("#   OIDC_ISSUER_URL=https://accounts.google.com", rendered)
+        self.assertIn("#   PRISM_ENV_FILE=prod.env docker compose --env-file prod.env up -d", rendered)
+        self.assertIn("OIDC_ISSUER_URL=https://sso.example.com/realms/eng\n", rendered)
+
+
+GIB = 1024**3
+BACKEND_CORE = REPOSITORY_ROOT / "backend" / "app" / "core"
+
+
+def _env(content: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line in content.split("\n"):
+        if line and not line.startswith("#") and "=" in line:
+            key, _, value = line.partition("=")
+            values[key] = value
+    return values
+
+
+class SizingPresetTests(unittest.TestCase):
+    """Presets must start: the backend validates these together at startup."""
+
+    def test_backend_defaults_mirrored_by_the_presets_have_not_moved(self) -> None:
+        bundle = (BACKEND_CORE / "design_bundle_config.py").read_text(encoding="utf-8")
+        self.assertIn("BACKSTOP_OVERHEAD_BYTES = GIB + GIB // 4", bundle)
+        caps = [int(x) for x in re.findall(r"_(?:PARSE|BOARD|MODELS)_MEMORY_BYTES: int = Field\(default=(\d+) \* GIB", bundle)]
+        self.assertEqual(len(caps), 3)
+        self.assertEqual(max(caps) * GIB, schemes.BUNDLE_LARGEST_STAGE_CAP_BYTES)
+        self.assertRegex(bundle, r"PRISM_DESIGN_BUNDLE_MEMORY_BUDGET_BYTES: int = Field\(\s*default=8 \* GIB")
+        memory = (BACKEND_CORE / "worker_memory.py").read_text(encoding="utf-8")
+        self.assertIn(f"MIN_BUDGET_MIB = {schemes.WORKER_MIN_BUDGET_MIB}", memory)
+        self.assertIn(f"MEMORY_UNIT_MIB = {schemes.WORKER_MEMORY_UNIT_MIB}", memory)
+
+    def test_bundle_concurrency_fits_the_bundle_memory_budget(self) -> None:
+        per_build = schemes.BUNDLE_LARGEST_STAGE_CAP_BYTES + schemes.BUNDLE_BACKSTOP_OVERHEAD_BYTES
+        for key, sizing in schemes.SIZINGS.items():
+            with self.subTest(sizing=key):
+                concurrency = int(sizing.values["PRISM_DESIGN_BUNDLE_CONCURRENCY"])
+                budget = int(sizing.values["PRISM_DESIGN_BUNDLE_MEMORY_BUDGET_BYTES"])
+                self.assertLessEqual(concurrency * per_build, budget)
+                self.assertGreaterEqual(budget, 8 * GIB)
+                # Each build also holds a general worker slot.
+                self.assertLessEqual(concurrency, int(sizing.values["PRISM_WORKER_CONCURRENCY"]))
+
+    def test_two_builds_need_the_documented_budget(self) -> None:
+        self.assertEqual(schemes.bundle_memory_budget_bytes(1), 8 * GIB)
+        self.assertEqual(schemes.bundle_memory_budget_bytes(2), 15569256448)
+        self.assertIn("15569256448", ENV_EXAMPLE)
+
+    def test_worker_memory_budget_is_half_the_worker_container(self) -> None:
+        expected = {"evaluation": "4096", "small-team": "6144", "large": "12288"}
+        for key, budget in expected.items():
+            with self.subTest(sizing=key):
+                values = schemes.SIZINGS[key].values
+                self.assertEqual(values["PRISM_WORKER_MEMORY_BUDGET_MIB"], budget)
+                container_mib = int(values["PRISM_WORKER_MEMORY_LIMIT"].removesuffix("g")) * 1024
+                self.assertLess(int(budget), container_mib)
+                # The heaviest job kind (Release Studio, 3328 MiB) must fit.
+                self.assertGreaterEqual(int(budget), 3328)
+                # Concurrent bundle builds reserve 2304 MiB each.
+                self.assertGreaterEqual(int(budget), 2304 * int(values["PRISM_DESIGN_BUNDLE_CONCURRENCY"]))
+
+    def test_large_runs_two_bundle_builds_and_smaller_presets_one(self) -> None:
+        self.assertEqual(schemes.SIZINGS["large"].values["PRISM_DESIGN_BUNDLE_CONCURRENCY"], "2")
+        for key in ("evaluation", "small-team"):
+            self.assertEqual(schemes.SIZINGS[key].values["PRISM_DESIGN_BUNDLE_CONCURRENCY"], "1")
+
+    def test_every_preset_key_is_read_by_the_app_or_compose(self) -> None:
+        sources = "".join(
+            path.read_text(encoding="utf-8")
+            for path in (*BACKEND_CORE.glob("*config.py"), REPOSITORY_ROOT / "docker-compose.yml")
+        )
+        for sizing in schemes.SIZINGS.values():
+            for key in sizing.values:
+                with self.subTest(key=key):
+                    self.assertRegex(sources, rf"\b{key}\b")
+
+    def test_every_preset_key_is_documented_in_the_template(self) -> None:
+        for sizing in schemes.SIZINGS.values():
+            for key in sizing.values:
+                with self.subTest(key=key):
+                    self.assertRegex(ENV_EXAMPLE, rf"(?m)^(# ?)?{key}=")
+
+    def test_the_preset_lands_in_the_generated_env(self) -> None:
+        values = _env(render.render_env(ENV_EXAMPLE, answers_for(HTTP_01, sizing="large")))
+        for key, value in schemes.SIZINGS["large"].values.items():
+            self.assertEqual(values[key], value, key)
+
+    def test_the_plan_records_what_the_preset_wrote(self) -> None:
+        plan = json.loads(render.render_plan(answers_for(HTTP_01)))
+        self.assertEqual(plan["sizing_values"], schemes.SIZINGS["small-team"].values)
+
+
+class CarriedValuesTests(unittest.TestCase):
+    """A re-run must not reset what an operator set in generated/.env."""
+
+    def _carried(self, existing: dict, previous_sizing=None, **overrides) -> dict:
+        answers = answers_for(HTTP_01, **overrides)
+        return render.carried_values(ENV_EXAMPLE, answers, existing, previous_sizing)
+
+    def test_settings_the_installer_does_not_ask_about_are_kept(self) -> None:
+        existing = {
+            "TRACKER_CREDENTIAL_ROOT_KEY": "a" * 64,
+            "GITHUB_TOKEN": "ghp_example",
+            "PRISM_DESIGN_BUNDLE_RETENTION_DAYS": "90",
+            "MY_FORGE_TOKEN": "custom-token-name",
+        }
+        carried = self._carried(existing)
+        self.assertEqual(carried, existing)
+        values = _env(render.render_env(ENV_EXAMPLE, answers_for(HTTP_01), carried))
+        for key, value in existing.items():
+            self.assertEqual(values[key], value, key)
+
+    def test_carried_secrets_are_masked_in_a_dry_run(self) -> None:
+        answers = answers_for(HTTP_01)
+        carried = {"TRACKER_CREDENTIAL_ROOT_KEY": "f" * 64, "GITHUB_TOKEN": "ghp_example", "GITLAB_TOKEN": ""}
+        redacted = render.redact(render.render_env(ENV_EXAMPLE, answers, carried), answers)
+        self.assertNotIn("f" * 64, redacted)
+        self.assertNotIn("ghp_example", redacted)
+        self.assertIn("TRACKER_CREDENTIAL_ROOT_KEY=<redacted>", redacted)
+        # Empty and non-secret settings stay legible.
+        self.assertIn("\nGITLAB_TOKEN=\n", redacted)
+        self.assertIn("TRACKER_CREDENTIAL_ROOT_KEY_ID=v1", redacted)
+        self.assertIn("OIDC_TOKEN_AUTH_METHOD=client_secret_post", redacted)
+
+    def test_values_equal_to_the_template_default_are_not_carried(self) -> None:
+        self.assertEqual(self._carried({"PRISM_DESIGN_BUNDLE_RETENTION_DAYS": "30"}), {})
+
+    def test_answers_win_for_the_settings_the_installer_asks_about(self) -> None:
+        carried = self._carried({"PUBLIC_BASE_URL": "https://old.example.com", "SESSION_SECRET": "old"})
+        self.assertEqual(carried, {})
+
+    def test_a_credential_for_another_scheme_is_dropped(self) -> None:
+        carried = self._carried({"CLOUDFLARE_API_TOKEN": "stale", "TS_AUTHKEY": "tskey-auth-stale"})
+        self.assertEqual(carried, {})
+
+    def test_a_preset_value_the_installer_wrote_follows_the_new_preset(self) -> None:
+        previous = schemes.SIZINGS["small-team"].values
+        carried = self._carried(dict(previous), previous_sizing=previous, sizing="large")
+        self.assertEqual(carried, {})
+
+    def test_a_preset_value_the_operator_changed_is_kept(self) -> None:
+        previous = schemes.SIZINGS["small-team"].values
+        existing = dict(previous, PRISM_WORKER_CONCURRENCY="6")
+        carried = self._carried(existing, previous_sizing=previous, sizing="large")
+        self.assertEqual(carried, {"PRISM_WORKER_CONCURRENCY": "6"})
+
+    def test_without_a_plan_record_known_preset_and_default_values_are_replaced(self) -> None:
+        # A deployment from before the plan recorded its preset: the new bundle
+        # settings still hold the template default.
+        existing = {
+            "UVICORN_WORKERS": "2",
+            "PRISM_DESIGN_BUNDLE_CONCURRENCY": "1",
+            "PRISM_DESIGN_BUNDLE_MEMORY_BUDGET_BYTES": "8589934592",
+            "PRISM_WORKER_MEMORY_LIMIT": "20g",
+        }
+        carried = self._carried(existing, sizing="large")
+        self.assertEqual(carried, {"PRISM_WORKER_MEMORY_LIMIT": "20g"})
+
+    def test_previous_deployment_reads_the_plan_beside_a_generated_env(self) -> None:
+        from prism_deploy.__main__ import previous_deployment
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_text(root / "generated" / ".env", "GITHUB_TOKEN=ghp_example\n")
+            write_text(root / "generated" / "deploy-plan.json", render.render_plan(answers_for(HTTP_01)))
+            existing, previous = previous_deployment(root, fresh=False)
+            self.assertEqual(existing, {"GITHUB_TOKEN": "ghp_example"})
+            self.assertEqual(previous, schemes.SIZINGS["small-team"].values)
+            self.assertEqual(previous_deployment(root, fresh=True), ({}, None))
+
+    def test_a_hand_written_env_has_no_preset_record(self) -> None:
+        from prism_deploy.__main__ import previous_deployment
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_text(root / ".env", "GITHUB_TOKEN=ghp_example\n")
+            self.assertEqual(previous_deployment(root, fresh=False), ({"GITHUB_TOKEN": "ghp_example"}, None))
 
 
 class CaddyfileTests(unittest.TestCase):
@@ -703,23 +893,23 @@ class ExistingDeploymentTests(unittest.TestCase):
     def test_reuses_a_hand_written_root_env(self) -> None:
         # The common upgrade path: a manual deployment with a working .env whose
         # POSTGRES_PASSWORD matches the already-initialised volume.
-        from prism_deploy.interview import _previous_settings
+        from prism_deploy.interview import previous_settings
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             write_text(root / ".env", "POSTGRES_PASSWORD=from-manual-setup\nOIDC_CLIENT_ID=old\n")
-            values, source = _previous_settings(root)
+            values, source = previous_settings(root)
             self.assertEqual(source, ".env")
             self.assertEqual(values["POSTGRES_PASSWORD"], "from-manual-setup")
 
     def test_generated_env_takes_precedence(self) -> None:
-        from prism_deploy.interview import _previous_settings
+        from prism_deploy.interview import previous_settings
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             write_text(root / ".env", "POSTGRES_PASSWORD=older\n")
             write_text(root / "generated" / ".env", "POSTGRES_PASSWORD=newer\n")
-            values, source = _previous_settings(root)
+            values, source = previous_settings(root)
             self.assertEqual(source, "generated/.env")
             self.assertEqual(values["POSTGRES_PASSWORD"], "newer")
 

@@ -105,6 +105,13 @@ frontend and backend to loopback, a redacted record of the run, and a
 `NEXT_STEPS.md` listing what remains manual. For DNS-01 it also builds the
 Caddy image with the provider module.
 
+The capacity preset sets API workers, job concurrency, the containers' CPU and
+memory ceilings, `PRISM_WORKER_MEMORY_BUDGET_MIB` (half the `prism-worker`
+container) and `PRISM_DESIGN_BUNDLE_CONCURRENCY` with the smallest
+`PRISM_DESIGN_BUNDLE_MEMORY_BUDGET_BYTES` the startup check accepts. Re-running
+the installer keeps every value you changed in `generated/.env`, including
+preset values.
+
 The committed templates (`deploy/Caddyfile*`, `deploy/release/Caddyfile*`) are
 rendered from the installer's site block by
 `python3 -m scripts.prism_deploy.static_caddyfiles --write`, so a proxy started
