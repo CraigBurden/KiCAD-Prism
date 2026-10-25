@@ -16,6 +16,7 @@ export interface AuthConfig {
     oidc_provider_name: string;
     password_auth_enabled?: boolean;
     workspace_name: string;
+    sim_studio_enabled?: boolean;
 }
 
 export interface PasswordLoginResult extends User {
