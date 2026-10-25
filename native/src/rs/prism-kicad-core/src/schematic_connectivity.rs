@@ -14,6 +14,7 @@ mod driver_selection;
 mod driver_types;
 mod graphical_ids;
 mod pin_naming;
+mod pin_power;
 mod render_ids;
 pub(crate) mod stacked_pins;
 mod wire_union;
@@ -24,6 +25,7 @@ pub use driver_types::{
 };
 pub use pin_naming::SchematicSubpartSettings;
 use pin_naming::{PinNaming, build_pin_namings};
+use pin_power::classify_pin_power;
 pub(crate) use render_ids::schematic_sheet_pin_group_id;
 use stacked_pins::expand_stacked_pin;
 use wire_union::WirePointUnion;
@@ -149,13 +151,6 @@ struct OccurrenceBuilder<'a> {
 
 struct PinSemantics {
     at: SchematicPoint,
-    priority: SchematicDriverPriority,
-    power_value: String,
-    is_power: bool,
-    implicit: bool,
-}
-
-struct PinPowerSemantics {
     priority: SchematicDriverPriority,
     power_value: String,
     is_power: bool,
@@ -470,11 +465,24 @@ impl<'a> OccurrenceBuilder<'a> {
         )?;
         let mut out = Vec::new();
         let mut hidden_nc_sequence = 0_i64;
+        let connectable_points = terminals
+            .iter()
+            .filter(|terminal| terminal.electrical_type != "no_connect")
+            .map(|terminal| terminal.at)
+            .collect::<HashSet<_>>();
         for (terminal, naming) in terminals.iter().copied().zip(&namings) {
             let Some(symbol) = effective.get(terminal.symbol_index) else {
                 continue;
             };
-            let semantics = self.pin_semantics(terminal, symbol, &mut hidden_nc_sequence)?;
+            // KiCad never propagates a connection through a no-connect pin
+            // (`SCH_PIN::ConnectionPropagatesTo`), so one that shares its point with a
+            // wire, label or another pin stays on its own, as a hidden one always does.
+            let isolate = terminal.electrical_type == "no_connect"
+                && (terminal.hidden
+                    || connectable_points.contains(&terminal.at)
+                    || union.root_for_point(terminal.at).is_some());
+            let semantics =
+                self.pin_semantics(terminal, symbol, isolate, &mut hidden_nc_sequence)?;
             self.push_terminal_pins(&mut out, union, terminal, semantics, naming)?;
         }
         Ok(out)
@@ -484,12 +492,13 @@ impl<'a> OccurrenceBuilder<'a> {
         &self,
         terminal: &crate::SchematicSymbolTerminal,
         symbol: &crate::SchematicEffectiveSymbol,
+        isolate: bool,
         hidden_nc_sequence: &mut i64,
     ) -> Result<PinSemantics, SourceBundleError> {
         let placed = &self.definition.symbols[terminal.symbol_index];
         let library = self.definition.library_symbol_for_placement(placed);
         let power = classify_pin_power(terminal, symbol, library);
-        let at = self.pin_connectivity_point(terminal, hidden_nc_sequence)?;
+        let at = self.pin_connectivity_point(terminal, isolate, hidden_nc_sequence)?;
         Ok(PinSemantics {
             at,
             priority: power.priority,
@@ -502,9 +511,10 @@ impl<'a> OccurrenceBuilder<'a> {
     fn pin_connectivity_point(
         &self,
         terminal: &crate::SchematicSymbolTerminal,
+        isolate: bool,
         hidden_nc_sequence: &mut i64,
     ) -> Result<SchematicPoint, SourceBundleError> {
-        if terminal.hidden && terminal.electrical_type == "no_connect" {
+        if isolate {
             let offset = 1_000_000_000_000_i64
                 .checked_add(*hidden_nc_sequence)
                 .ok_or_else(|| self.error("hidden no-connect sequence overflows"))?;
@@ -647,11 +657,16 @@ impl<'a> OccurrenceBuilder<'a> {
         labels: &[SchematicLabelDriver],
         pins: &[SchematicPinDriver],
     ) {
+        // KiCad joins same-sheet subgraphs whose drivers share a name ignoring the
+        // sheet path (`Name( true )` in `CONNECTION_GRAPH::buildConnectionGraph`), so a
+        // global label meets a local label or power port of the same text here.
         let mut by_name = HashMap::<&str, usize>::new();
         for label in labels.iter().filter(|label| {
             matches!(
                 label.kind,
-                SchematicWireDriverKind::LocalLabel | SchematicWireDriverKind::HierarchicalLabel
+                SchematicWireDriverKind::LocalLabel
+                    | SchematicWireDriverKind::HierarchicalLabel
+                    | SchematicWireDriverKind::GlobalLabel
             )
         }) {
             merge_named_point(&mut by_name, union, &label.text, label.at);
@@ -881,51 +896,6 @@ impl<'a> OccurrenceBuilder<'a> {
             message,
         )
     }
-}
-
-fn classify_pin_power(
-    terminal: &crate::SchematicSymbolTerminal,
-    symbol: &crate::SchematicEffectiveSymbol,
-    library: Option<&crate::SchematicLibrarySymbol>,
-) -> PinPowerSemantics {
-    let parent_is_power = symbol.lib_id != "power:PWR_FLAG"
-        && (symbol.lib_id.starts_with("power:") || library.is_some_and(|value| value.power));
-    if implicit_hidden_power(terminal, parent_is_power) {
-        return PinPowerSemantics {
-            priority: SchematicDriverPriority::GlobalPowerPin,
-            power_value: terminal.pin_name.clone(),
-            is_power: true,
-            implicit: true,
-        };
-    }
-    let is_power = parent_is_power && terminal.electrical_type == "power_in";
-    let priority =
-        if is_power && library.is_some_and(|value| value.power_kind.as_deref() == Some("local")) {
-            SchematicDriverPriority::LocalPowerPin
-        } else if is_power {
-            SchematicDriverPriority::GlobalPowerPin
-        } else {
-            SchematicDriverPriority::Pin
-        };
-    PinPowerSemantics {
-        priority,
-        power_value: if is_power {
-            symbol.value.clone()
-        } else {
-            String::new()
-        },
-        is_power,
-        implicit: false,
-    }
-}
-
-fn implicit_hidden_power(terminal: &crate::SchematicSymbolTerminal, parent_is_power: bool) -> bool {
-    !parent_is_power
-        && terminal.electrical_type == "power_in"
-        && terminal.hidden
-        && !terminal.pin_name.is_empty()
-        && terminal.pin_name != "~"
-        && terminal.pin_name != terminal.pin_number
 }
 
 fn merge_named_point<'a>(
