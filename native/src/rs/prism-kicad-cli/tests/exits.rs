@@ -831,3 +831,45 @@ fn absent_and_miscased_sub_sheets_warn() {
         "the case-insensitive match is read"
     );
 }
+
+/// KiCad 10 loads every sheet a project lists in `schematic.top_level_sheets`; the
+/// bundle reads one root, so each other listed sheet is a warning, not a silent drop.
+#[test]
+fn unread_top_level_sheets_warn() {
+    let project = r#"{"schematic": {"top_level_sheets": [
+        {"filename": "p.kicad_sch", "name": "p", "uuid": "00000000-0000-0000-0000-000000000001"},
+        {"filename": "second.kicad_sch", "name": "second", "uuid": "00000000-0000-0000-0000-000000000002"}]}}"#;
+    let tree = source_tree(&[
+        ("p.kicad_pro", project),
+        ("p.kicad_sch", SHEET),
+        ("second.kicad_sch", SHEET),
+    ]);
+    let built = parse_into(&tree.join("p.kicad_pro"), &tree.join("o.prism"));
+    assert_eq!(built.code, 0);
+    let warnings = built.document["warnings"].as_array().expect("warnings");
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0]["code"], "top-level-sheet-unread");
+}
+
+/// KiCad turns `\` into `/` in a sheet file name (`SCH_SHEET::SetFileName`); every
+/// reader of the hierarchy, the projections included, resolves it the same way.
+#[test]
+fn a_backslash_sheet_path_resolves() {
+    let root = SHEET.replace(
+        "(lib_symbols))",
+        "(lib_symbols) (sheet (at 0 0) (size 1 1) (uuid \"6c5f0000-0000-4000-8000-000000000004\") (property \"Sheetname\" \"S\")\n (property \"Sheetfile\" \"sub\\\\child.kicad_sch\")))",
+    );
+    let tree = source_tree(&[
+        ("p.kicad_pro", "{}"),
+        ("p.kicad_sch", &root),
+        ("sub/child.kicad_sch", SHEET),
+    ]);
+    let built = parse_into(&tree.join("p.kicad_pro"), &tree.join("o.prism"));
+    assert_eq!(built.code, 0, "{}", built.document);
+    assert_eq!(built.document["stages"][0]["status"], "complete");
+    assert!(
+        built.document["warnings"]
+            .as_array()
+            .is_none_or(Vec::is_empty)
+    );
+}

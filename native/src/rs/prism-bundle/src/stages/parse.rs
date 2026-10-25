@@ -391,6 +391,7 @@ impl ParseRun<'_> {
             Ok(project) => project,
             Err(finding) => return Ok(Err(finding)),
         };
+        self.warn_unread_top_level_sheets(&project.text)?;
         let sheets = match &self.config.root_schematic {
             Some(root) => match self.read_hierarchy(&root.0.clone())? {
                 Ok(sheets) => sheets,

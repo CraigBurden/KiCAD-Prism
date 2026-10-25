@@ -180,25 +180,28 @@ impl<'a> FootprintView<'a> {
                 Position::START,
             )
         })?;
-        if root.head.as_deref() != Some("footprint") {
-            return Err(source_error("Expected a footprint root", root.start));
-        }
+        // `(module …)` is the KiCad 5 spelling, which KiCad 10 still reads
+        // (`PCB_IO_KICAD_SEXPR_PARSER::parseFOOTPRINT_unchecked`).
+        let root_head = match root.head.as_deref() {
+            Some(head @ ("footprint" | "module")) => head.to_owned(),
+            _ => return Err(source_error("Expected a footprint root", root.start)),
+        };
 
         let child_selector = Selector {
             paths: Some(BTreeSet::from([
-                vec!["footprint".to_owned(), "property".to_owned()],
-                vec!["footprint".to_owned(), "pad".to_owned()],
-                vec!["footprint".to_owned(), "fp_text".to_owned()],
-                vec!["footprint".to_owned(), "fp_text_box".to_owned()],
-                vec!["footprint".to_owned(), "model".to_owned()],
-                vec!["footprint".to_owned(), "fp_line".to_owned()],
-                vec!["footprint".to_owned(), "fp_rect".to_owned()],
-                vec!["footprint".to_owned(), "fp_arc".to_owned()],
-                vec!["footprint".to_owned(), "fp_circle".to_owned()],
-                vec!["footprint".to_owned(), "fp_poly".to_owned()],
-                vec!["footprint".to_owned(), "fp_curve".to_owned()],
+                vec![root_head.clone(), "property".to_owned()],
+                vec![root_head.clone(), "pad".to_owned()],
+                vec![root_head.clone(), "fp_text".to_owned()],
+                vec![root_head.clone(), "fp_text_box".to_owned()],
+                vec![root_head.clone(), "model".to_owned()],
+                vec![root_head.clone(), "fp_line".to_owned()],
+                vec![root_head.clone(), "fp_rect".to_owned()],
+                vec![root_head.clone(), "fp_arc".to_owned()],
+                vec![root_head.clone(), "fp_circle".to_owned()],
+                vec![root_head.clone(), "fp_poly".to_owned()],
+                vec![root_head.clone(), "fp_curve".to_owned()],
                 vec![
-                    "footprint".to_owned(),
+                    root_head.clone(),
                     "embedded_files".to_owned(),
                     "file".to_owned(),
                 ],
@@ -235,7 +238,8 @@ impl<'a> FootprintView<'a> {
                 TokenKind::Left,
                 "Expected footprint opening parenthesis",
             )?;
-            expect_atom(lexer.next(), "footprint", "Expected footprint root")?;
+            let head = self.root.head.as_deref().unwrap_or("footprint");
+            expect_atom(lexer.next(), head, "Expected footprint root")?;
             let token = next_value(lexer.next(), "Expected footprint name")?;
             Ok(decoded(token))
         })()

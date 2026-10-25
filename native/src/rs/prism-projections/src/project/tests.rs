@@ -396,6 +396,10 @@ fn normalize_drops_dots_and_cancels_dot_dot() {
     assert_eq!(normalize(&[], "a/./b/../c"), ["a", "c"]);
     assert_eq!(normalize(&["x".to_owned()], "../y"), ["y"]);
     assert_eq!(normalize(&[], "../../y"), ["..", "..", "y"]);
+    assert_eq!(
+        normalize(&["x".to_owned()], "sub\\power.kicad_sch"),
+        ["x", "sub", "power.kicad_sch"]
+    );
 }
 
 /// The regex each hand-written scanner replaces. Every scanner's behavior is

@@ -137,7 +137,8 @@ pub(crate) fn zone_fill(node: &Node<'_>) -> Value {
         }
         out.insert("smoothing".to_owned(), Value::Object(smoothing));
     }
-    if let Some(uuid) = tree::child_text(node, "uuid") {
+    if let Some(uuid) = tree::child_text(node, "uuid").or_else(|| tree::child_text(node, "tstamp"))
+    {
         out.insert("uuid".to_owned(), Value::String(uuid));
     }
     Value::Object(out)

@@ -493,10 +493,12 @@ fn is_absolute_form(text: &str) -> bool {
     text.starts_with('/') || is_drive(text)
 }
 
-/// `project.py:120-134`: join `rest` to `base` lexically.
+/// `project.py:120-134`: join `rest` to `base` lexically. `\` separates segments
+/// as `/` does: KiCad turns it into `/` in a sheet file name (`SCH_SHEET::SetFileName`),
+/// and the core and the parse stage resolve it the same way.
 pub(super) fn normalize(base: &[String], rest: &str) -> Vec<String> {
     let mut stack: Vec<String> = base.to_vec();
-    for segment in rest.split('/') {
+    for segment in rest.split(['/', '\\']) {
         if segment.is_empty() || segment == "." {
             continue;
         }
