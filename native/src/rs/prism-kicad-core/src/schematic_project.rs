@@ -9,6 +9,9 @@ pub(crate) struct ProjectSchematicSettings {
     pub(crate) subparts: SchematicSubpartSettings,
     pub(crate) bus_aliases: Vec<ProjectBusAlias>,
     pub(crate) top_level_sheets: Vec<ProjectTopLevelSheet>,
+    /// The project's `text_variables`, which a sheet file name may use
+    /// (`sheet_file::expand`).
+    pub(crate) text_variables: std::collections::BTreeMap<String, String>,
 }
 
 /// One entry of a KiCad 10 project's `schematic.top_level_sheets`: a schematic KiCad
@@ -66,6 +69,7 @@ pub(crate) fn project_schematic_settings_with_limits(
             subparts: SchematicSubpartSettings::default(),
             bus_aliases: Vec::new(),
             top_level_sheets: Vec::new(),
+            text_variables: std::collections::BTreeMap::new(),
         });
     };
     let document = ProjectDocument::from_reader(
@@ -120,6 +124,7 @@ pub(crate) fn project_schematic_settings_with_limits(
         },
         bus_aliases,
         top_level_sheets: top_level_sheets_of(view.raw().get("schematic")),
+        text_variables: text_variables_of(view.raw().get("text_variables")),
     })
 }
 
@@ -166,4 +171,19 @@ fn setting_codepoint(
             )
         })
     })
+}
+
+/// A project's `text_variables`: each string value by name.
+fn text_variables_of(
+    value: Option<&serde_json::Value>,
+) -> std::collections::BTreeMap<String, String> {
+    value
+        .and_then(serde_json::Value::as_object)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|(name, value)| Some((name.clone(), value.as_str()?.to_owned())))
+                .collect()
+        })
+        .unwrap_or_default()
 }

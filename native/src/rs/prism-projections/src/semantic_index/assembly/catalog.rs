@@ -21,6 +21,7 @@
 
 use super::scan;
 use crate::{ProjectionError, ProjectionInput, Sources};
+use prism_kicad_core::sheet_file;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 
@@ -123,37 +124,42 @@ fn schematic_walk(input: &ProjectionInput<'_>, builder: &mut Builder) {
         pending.push(root);
     }
     pending.reverse();
+    let text_variables = sheet_file::text_variables(input.project.text);
+    let project_name = sheet_file::project_name(&input.config.project_file.0);
+    let variables = sheet_file::Variables {
+        project_name: &project_name,
+        text: Some(&text_variables),
+    };
     let mut visited: BTreeSet<String> = BTreeSet::new();
     while let Some(path) = pending.pop() {
-        let Some(resolved) = normalize(&path) else {
-            builder.source_unparseable(SOURCE_SCHEMATIC, basename(&path));
-            continue;
-        };
-        if !visited.insert(resolved.clone()) {
+        if !visited.insert(path.clone()) {
             continue;
         }
         // Source files must stay within the project snapshot; never follow a
         // file-authored path into the host filesystem.
-        if !within_project(&project_dir, &resolved) {
+        if !within_project(&project_dir, &path) {
             builder.source_unparseable(SOURCE_SCHEMATIC, basename(&path));
             continue;
         }
-        let records = read_text(input.sources, &resolved)
-            .or_else(|| {
-                let actual = case_insensitive_schematic(input.sources, &resolved)?;
-                read_text(input.sources, &actual)
-            })
-            .map(|text| scan::scan(&text, "kicad_sch"));
+        let records = read_text(input.sources, &path).map(|text| scan::scan(&text, "kicad_sch"));
         let Some(records) = records.filter(|records| records.readable) else {
-            builder.source_unparseable(SOURCE_SCHEMATIC, &resolved);
+            builder.source_unparseable(SOURCE_SCHEMATIC, &path);
             continue;
         };
         for name in &records.names {
             builder.add_schematic_name(name);
         }
-        let directory = parent_dir(&resolved);
         for sheet in records.sheets.iter().rev() {
-            pending.push(join(directory, sheet));
+            // KiCad's sheet file rule, as the core and stage parse read it.
+            let Ok(resolved) = sheet_file::resolve(&path, sheet, variables) else {
+                builder.source_unparseable(SOURCE_SCHEMATIC, basename(sheet));
+                continue;
+            };
+            let exists = input.sources.exists(&resolved);
+            let found = sheet_file::locate(&resolved, exists, || {
+                input.sources.list("", &[".kicad_sch"])
+            });
+            pending.push(found.map_or(resolved, |(actual, _)| actual));
         }
     }
 }
@@ -356,47 +362,6 @@ fn parent_dir(path: &str) -> &str {
 /// The last segment of a repository path.
 fn basename(path: &str) -> &str {
     path.rsplit_once('/').map_or(path, |(_, name)| name)
-}
-
-/// Join a directory and a sheet name (`Path.parent / name`).
-fn join(directory: &str, name: &str) -> String {
-    if directory.is_empty() {
-        name.to_owned()
-    } else {
-        format!("{directory}/{name}")
-    }
-}
-
-/// The one source-set schematic whose path equals `path` ignoring letter case, as
-/// stage parse reads a sub-sheet named in another case (cli-spec.md §5.2.2).
-fn case_insensitive_schematic(sources: &dyn Sources, path: &str) -> Option<String> {
-    let folded = path.to_lowercase();
-    let mut matches = sources
-        .list("", &[".kicad_sch"])
-        .into_iter()
-        .filter(|candidate| candidate.to_lowercase() == folded);
-    let actual = matches.next()?;
-    matches.next().is_none().then_some(actual)
-}
-
-/// Lexically resolve `.` and `..` (`Path.resolve`); `None` when it escapes
-/// above the repository root. `\` separates segments as `/` does, as KiCad reads a
-/// sheet file name (`SCH_SHEET::SetFileName`).
-fn normalize(path: &str) -> Option<String> {
-    if path.starts_with('/') {
-        return None;
-    }
-    let mut parts: Vec<&str> = Vec::new();
-    for part in path.split(['/', '\\']) {
-        match part {
-            "" | "." => {}
-            ".." => {
-                parts.pop()?;
-            }
-            name => parts.push(name),
-        }
-    }
-    Some(parts.join("/"))
 }
 
 /// Whether a repository path stays inside the project directory

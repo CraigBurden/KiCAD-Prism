@@ -48,6 +48,7 @@ pub mod schematic_plot_contract;
 mod schematic_plot_projector;
 pub mod schematic_plotter_ir;
 mod schematic_project;
+pub mod sheet_file;
 pub use schematic_project::{ProjectTopLevelSheet, project_top_level_sheets};
 mod schematic_segment_index;
 mod schematic_source;

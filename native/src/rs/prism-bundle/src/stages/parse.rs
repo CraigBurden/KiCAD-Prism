@@ -17,7 +17,6 @@
 use super::design::{self, Text};
 use super::keys::{source_entry, upgrade_invalid};
 use super::sexpr_check::{self, BOARD_FORMAT, CheckError, SCHEMATIC_FORMAT};
-use super::sheets::{Unresolved, resolve};
 use super::sources::SourceTree;
 use super::{Built, Document, Generator, MemberContent, MemberData, Reporter, internal, producers};
 use crate::finding::{Failure, Finding, Location, Outcome};
@@ -32,6 +31,7 @@ use crate::revision_key::{EffectiveConfig, default_config};
 use prism_kicad_contracts::generated::prism_revision_key_effective_config_a1 as cfg;
 use prism_kicad_contracts::generated::prism_revision_key_record_a1 as rk;
 use prism_kicad_contracts::generated::prism_semantic_index_a2::SemanticIndexA2;
+use prism_kicad_core::sheet_file::{self, Unresolved};
 use prism_kicad_core::{PcbLimits, PcbView, ProjectDocument, ProjectLimits};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -409,7 +409,13 @@ impl ParseRun<'_> {
             }
             None => Vec::new(),
         };
-        let sheets = match self.read_hierarchy(roots)? {
+        let text_variables = sheet_file::text_variables(&project.text);
+        let project_name = sheet_file::project_name(&self.config.project_file.0);
+        let variables = sheet_file::Variables {
+            project_name: &project_name,
+            text: Some(&text_variables),
+        };
+        let sheets = match self.read_hierarchy(roots, variables)? {
             Ok(sheets) => sheets,
             Err(finding) => return Ok(Err(finding)),
         };
@@ -453,7 +459,11 @@ impl ParseRun<'_> {
 
     /// Every schematic `roots` reach, breadth first; the first root leads, as
     /// the core's bundle takes it for the root schematic.
-    fn read_hierarchy(&mut self, roots: Vec<String>) -> Outcome<Result<Vec<Text>, Finding>> {
+    fn read_hierarchy(
+        &mut self,
+        roots: Vec<String>,
+        variables: sheet_file::Variables<'_>,
+    ) -> Outcome<Result<Vec<Text>, Finding>> {
         let mut seen: BTreeSet<String> = roots.iter().cloned().collect();
         let mut queue: VecDeque<_> = roots.into_iter().map(|root| (root, None)).collect();
         let mut sheets = Vec::new();
@@ -464,7 +474,7 @@ impl ParseRun<'_> {
             };
             for reference in references {
                 let at = Location::at_offset(member(&path), text.as_bytes(), reference.offset);
-                let child = resolve(&path, &reference.file)
+                let child = sheet_file::resolve(&path, &reference.file, variables)
                     .map_err(|why| outside(&path, &reference.file, why, &at))?;
                 let Some(child) = self.sheet_source(&path, &reference.file, child)? else {
                     continue;
