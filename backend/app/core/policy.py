@@ -1,8 +1,9 @@
 """Caller policy: may this caller do this action (to this owned resource)?
 
 One table answers it for every route. A rule names the roles that may act, the
-scope a bearer token needs, and whether a KiCad remote-provider token may act
-at all; checks run in that order (provider token, scope, role) and the first
+scope a bearer token needs, whether a KiCad remote-provider token may act at
+all, and whether the action is for people only (refused to MCP clients); checks
+run in that order (provider token, human-only, scope, role) and the first
 refusal wins. Session callers carry no scopes, so the scope check only applies
 to bearer tokens.
 
@@ -64,6 +65,12 @@ _PROVIDER_CATALOG = "KiCad remote-provider tokens cannot modify catalog resource
 _PROVIDER_ADMIN = "KiCad remote-provider tokens cannot access admin APIs"
 
 
+# MCP clients act for a person but are not one (ADR scripting-and-mcp §3.5): approving or
+# publishing a release, catalog QA and admin work stay with people, whatever the token holds.
+MCP_AUTH_TYPE = "mcp"
+_HUMAN_ONLY = "Only a person signed in to Prism can do this; open it in Prism"
+
+
 @dataclass(frozen=True)
 class Rule:
     roles: frozenset[Role]
@@ -72,38 +79,58 @@ class Rule:
     scopes: tuple[str, ...] = ()
     # None: KiCad remote-provider tokens may act. Otherwise the refusal detail.
     provider_refusal: str | None = _PROVIDER_READ
+    # Refused to MCP clients whatever scopes they hold.
+    human_only: bool = False
 
 
 RULES: dict[Action, Rule] = {
     # Project, comment, system and release reads, Git clone, the live comment stream.
     "read": Rule(ALL_ROLES, scopes=("api:read",)),
-    "comment": Rule(ALL_ROLES, scopes=("api:write",), provider_refusal=_PROVIDER_MODIFY),
+    "comment": Rule(ALL_ROLES, scopes=("comments:write",), provider_refusal=_PROVIDER_MODIFY),
     "design": Rule(
         frozenset({"designer", "admin"}),
         "Designer role required",
-        ("api:write",),
+        ("design:write",),
         _PROVIDER_MODIFY,
     ),
     # Approve or publish a project release. QA ranks below designer, so this is a set, not a minimum.
     "release": Rule(
         PROJECT_RELEASE_ACTOR_ROLES,
         "Designer, QA, or Admin role required",
-        ("api:write",),
+        ("release:approve",),
         _PROVIDER_MODIFY,
+        human_only=True,
     ),
-    "admin": Rule(frozenset({"admin"}), "Admin role required", ("api:write",), _PROVIDER_ADMIN),
+    "admin": Rule(frozenset({"admin"}), "Admin role required", ("admin",), _PROVIDER_ADMIN, human_only=True),
     "catalog_browse": Rule(CATALOG_BROWSE_ROLES, "Catalog read access required", ("api:read",)),
     "catalog_read": Rule(CATALOG_READ_ROLES, "Catalog read access required", ("api:read",)),
-    "catalog_write": Rule(CATALOG_WRITE_ROLES, "Catalog write access required", ("api:write",), _PROVIDER_CATALOG),
-    "catalog_qa": Rule(CATALOG_QA_ROLES, "Catalog QA access required", ("api:write",), _PROVIDER_CATALOG),
+    "catalog_write": Rule(CATALOG_WRITE_ROLES, "Catalog write access required", ("catalog:write",), _PROVIDER_CATALOG),
+    "catalog_qa": Rule(CATALOG_QA_ROLES, "Catalog QA access required", ("catalog:qa",), _PROVIDER_CATALOG, human_only=True),
     # Metadata field definitions, artifact maintenance, the same-person approval override.
-    "catalog_admin": Rule(frozenset({"admin"}), "Administrator access required", ("api:write",), _PROVIDER_CATALOG),
+    "catalog_admin": Rule(
+        frozenset({"admin"}), "Administrator access required", ("admin",), _PROVIDER_CATALOG, human_only=True
+    ),
     "remote_symbols": Rule(ALL_ROLES, scopes=("remote_symbols.read", "api:read"), provider_refusal=None),
 }
 
 
+# Area scopes (ADR scripting-and-mcp D3). ``api:write`` is the alias every token issued
+# before the split holds; it implies them all, so those tokens keep working.
+AREA_WRITE_SCOPES: tuple[str, ...] = (
+    "comments:write",
+    "design:write",
+    "catalog:write",
+    "release:approve",
+    "catalog:qa",
+    "admin",
+)
+KNOWN_SCOPES: frozenset[str] = frozenset({"api:read", "api:write", "remote_symbols.read", *AREA_WRITE_SCOPES})
+
 # A held scope that grants others: a client allowed to write may always read.
-IMPLIED_SCOPES: dict[str, tuple[str, ...]] = {"api:write": ("api:read",)}
+IMPLIED_SCOPES: dict[str, tuple[str, ...]] = {
+    "api:write": ("api:read", *AREA_WRITE_SCOPES),
+    **{scope: ("api:read",) for scope in AREA_WRITE_SCOPES},
+}
 
 
 def effective_scopes(scopes: list[str]) -> set[str]:
@@ -124,6 +151,8 @@ def refusal(caller: Caller, action: Action) -> str | None:
     rule = RULES[action]
     if caller.auth_type == PROVIDER_AUTH_TYPE and rule.provider_refusal is not None:
         return rule.provider_refusal
+    if rule.human_only and caller.auth_type == MCP_AUTH_TYPE:
+        return _HUMAN_ONLY
     if rule.scopes and caller.auth_type != "session" and not has_scope(caller, *rule.scopes):
         return f"{' or '.join(rule.scopes)} scope required"
     if caller.role not in rule.roles:
