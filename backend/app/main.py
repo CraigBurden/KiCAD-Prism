@@ -10,6 +10,7 @@ from app.core.gzip_config import (
 from app.api.auth import router as auth_router
 from app.api.fabrication_view import router as fabrication_view_router
 from app.api.projects import router as projects_router
+from app.api.project_bom import router as project_bom_router
 from app.api.project_semantic_index import router as project_semantic_index_router
 from app.api.project_viewer_3d import router as project_viewer_3d_router
 from app.api.project_properties import router as project_properties_router
@@ -275,6 +276,7 @@ app.add_middleware(ApiVersionMiddleware)
 # Include Routers
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
+app.include_router(project_bom_router, prefix="/api/projects", tags=["projects"])
 app.include_router(project_semantic_index_router, prefix="/api/projects", tags=["projects"])
 app.include_router(project_viewer_3d_router, prefix="/api/projects", tags=["projects"])
 app.include_router(project_properties_router, prefix="/api/projects", tags=["projects"])
