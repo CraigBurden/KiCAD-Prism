@@ -97,6 +97,33 @@ describe("DesignDataSection", () => {
         expect(within(items[1]).getByText("board partial")).toBeInTheDocument();
     });
 
+    it("shows why a revision failed, in full on hover, and lists failed builds", async () => {
+        const reason = "parse: source-unparseable: expected ')' (board/main.kicad_sch:12)";
+        mocks.fetchJson.mockImplementation(async (url: string) =>
+            url.includes("/commits?")
+                ? HEAD
+                : {
+                      ...STATUS,
+                      bundles: { complete: 2, building: 0, queued: 0, failed: 1 },
+                      incomplete: { failed: 1, partial: 0 },
+                      incompleteRevisions: [
+                          { commit: "b".repeat(40), revisionKey: "2".repeat(64), failedStages: ["parse"], partialStages: [], reason },
+                      ],
+                      failedBuilds: [
+                          { commit: "d".repeat(40), revisionKey: "4".repeat(64), reason: "KiCad cannot read board.kicad_pcb" },
+                      ],
+                  },
+        );
+        renderSection();
+        const incomplete = await screen.findByRole("list", { name: "Incomplete design data" });
+        expect(within(incomplete).getByText(reason)).toHaveAttribute("title", reason);
+        const failed = screen.getByRole("list", { name: "Failed design data builds" });
+        const [build] = within(failed).getAllByRole("listitem");
+        expect(within(build).getByText("dddddddd")).toBeInTheDocument();
+        expect(within(build).getByText("build failed")).toBeInTheDocument();
+        expect(within(build).getByText("KiCad cannot read board.kicad_pcb")).toBeInTheDocument();
+    });
+
     it("says the status is unavailable when the load fails", async () => {
         mocks.fetchJson.mockRejectedValue(new Error("nope"));
         renderSection();
