@@ -1359,11 +1359,6 @@ pub(super) fn looks_like_bus_label(source: &str) -> bool {
             && value[index + ch.len_utf8()..].contains('}')
     })
 }
-fn children<'a>(form: &'a Sexp, head: &str) -> impl Iterator<Item = &'a Sexp> {
-    list(form).into_iter().flatten().filter(move |value| {
-        list(value).and_then(|values| values.first()).and_then(text) == Some(head)
-    })
-}
 fn named_yes(form: &Sexp, head: &str) -> bool {
     child(form, head)
         .and_then(|value| scalar_at(value, 1))

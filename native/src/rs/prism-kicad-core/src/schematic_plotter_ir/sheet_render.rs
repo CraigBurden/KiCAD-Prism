@@ -364,10 +364,7 @@ fn append_property(
     retained: &mut RetainedBudget,
     ceilings: SheetCeilings,
 ) -> Result<(), Error> {
-    if named_flag(property, "hide")
-        || child(property, "effects").is_some_and(|effects| named_flag(effects, "hide"))
-        || is_private(property)
-    {
+    if hidden(property) {
         return Ok(());
     }
     let key = property_key(property).unwrap_or_default();
@@ -415,6 +412,13 @@ fn append_property(
         retained,
         ceilings,
     )
+}
+
+/// Hidden by a `hide` flag, or private (KiCad draws private items only in the symbol editor).
+fn hidden(property: &Sexp) -> bool {
+    named_flag(property, "hide")
+        || child(property, "effects").is_some_and(|effects| named_flag(effects, "hide"))
+        || is_private(property)
 }
 
 fn sheet_geometry(form: &Sexp) -> Result<SheetGeometry, Error> {
@@ -623,12 +627,6 @@ fn yes_child(form: &Sexp, name: &str, default: bool) -> bool {
     child(form, name)
         .and_then(|value| scalar_at(value, 1))
         .map_or(default, |value| value == "yes")
-}
-
-fn children<'a>(form: &'a Sexp, head: &str) -> impl Iterator<Item = &'a Sexp> {
-    list(form).into_iter().flatten().filter(move |value| {
-        list(value).and_then(|values| values.first()).and_then(text) == Some(head)
-    })
 }
 
 fn checked_count(current: usize, additional: usize, maximum: usize) -> Result<usize, Error> {

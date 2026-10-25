@@ -85,8 +85,11 @@ fn a_private_field_on_a_hierarchical_sheet_parses() {
         (property "Sheetfile" "child.kicad_sch" (at 0 0 0))
         (property private "Note" "kept private" (at 0 0 0) (hide yes))))"#;
     let child = br#"(kicad_sch (uuid child))"#;
-    index(&[("root.kicad_sch", root.as_slice()), ("child.kicad_sch", child.as_slice())])
-        .expect("a private sheet field is valid KiCad");
+    index(&[
+        ("root.kicad_sch", root.as_slice()),
+        ("child.kicad_sch", child.as_slice()),
+    ])
+    .expect("a private sheet field is valid KiCad");
 }
 
 fn single_index(root: &[u8]) -> Result<SchematicBundleIndex, SourceBundleError> {
@@ -95,7 +98,12 @@ fn single_index(root: &[u8]) -> Result<SchematicBundleIndex, SourceBundleError> 
 
 fn index(schematics: &[(&str, &[u8])]) -> Result<SchematicBundleIndex, SourceBundleError> {
     let mut buffers = vec![b"{}".to_vec()];
-    let mut sources = vec![descriptor("demo.kicad_pro", SourceKind::Project, 0, &buffers[0])];
+    let mut sources = vec![descriptor(
+        "demo.kicad_pro",
+        SourceKind::Project,
+        0,
+        &buffers[0],
+    )];
     for (slot, (path, bytes)) in schematics.iter().enumerate() {
         let slot = u32::try_from(slot + 1).expect("few test sources");
         sources.push(descriptor(path, SourceKind::Schematic, slot, bytes));

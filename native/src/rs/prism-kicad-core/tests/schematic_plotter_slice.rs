@@ -1,16 +1,19 @@
-use prism_kicad_contracts::generated::{
-    schematic_plot_document::SchematicPlotDocumentA0, shaping_record::ShapingRecordA0,
-};
+#[path = "support/schematic_plot_vectors.rs"]
+mod schematic_plot_vectors;
+use prism_kicad_contracts::generated::schematic_plot_document::SchematicPlotDocumentA0;
 use prism_kicad_contracts::validate_schematic_plot_document;
 use prism_kicad_core::{
     ErrorKind, PlotterFill, PlotterLineStyle, PlotterOperation, PlotterTextCacheLimits,
-    PlotterTextCacheResources, PlotterTextFont, PlotterTextHAlign, PlotterTextVAlign,
+    PlotterTextCacheResources, PlotterTextHAlign, PlotterTextVAlign,
     SchematicConnectivityRecordKind, SchematicDrawingSettings, SchematicPlotContext,
     SchematicPlotContractLimits, SchematicPlotDocument, SchematicPlotLimits,
     SchematicPlotOperation, SchematicPlotRecord, SchematicPlotVariables, schematic_plot_document,
     schematic_plot_document_json, schematic_plot_document_with_annotations,
     schematic_plot_document_with_graphics, schematic_plot_document_with_sheets,
     schematic_plot_document_with_sheets_profiled, schematic_plot_document_with_symbols,
+};
+use schematic_plot_vectors::{
+    METRIC_FONT_BYTES, metric_font, vector_context, vector_drawing_settings,
 };
 use serde_json::{Map, Value, json};
 
@@ -537,104 +540,6 @@ fn annotation_record_json(value: &prism_kicad_core::SchematicAnnotationRecord) -
         value.length_nm.map(|value| json!(value)),
     );
     Value::Object(object)
-}
-
-fn vector_context(vector: &Value) -> SchematicPlotContext {
-    let variables = vector
-        .get("project_variables")
-        .and_then(Value::as_object)
-        .into_iter()
-        .flat_map(|values| values.iter())
-        .map(|(name, value)| {
-            (
-                name.clone(),
-                value.as_str().expect("variable string").to_owned(),
-            )
-        });
-    SchematicPlotContext {
-        source_path: vector
-            .get("source_path")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        document_id: vector
-            .get("document_id")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        sheet_index: vector
-            .get("sheet_index")
-            .and_then(Value::as_u64)
-            .unwrap_or(1) as usize,
-        sheet_count: vector
-            .get("sheet_count")
-            .and_then(Value::as_u64)
-            .unwrap_or(1) as usize,
-        sheet_path: vector
-            .get("sheet_path")
-            .and_then(Value::as_str)
-            .unwrap_or("/")
-            .to_owned(),
-        sheet_instance_path: vector
-            .get("sheet_instance_path")
-            .and_then(Value::as_str)
-            .unwrap_or("/")
-            .to_owned(),
-        sheet_name: vector
-            .get("sheet_name")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_owned(),
-        project_variables: SchematicPlotVariables::from_entries(variables),
-        worksheet_source: vector
-            .get("worksheet_source")
-            .and_then(Value::as_str)
-            .map(|value| value.as_bytes().to_vec()),
-    }
-}
-
-fn vector_drawing_settings(vector: &Value) -> SchematicDrawingSettings {
-    let values = vector.get("drawing_settings");
-    SchematicDrawingSettings {
-        text_offset_ratio: values
-            .and_then(|value| value.get("text_offset_ratio"))
-            .and_then(Value::as_f64)
-            .unwrap_or(0.15),
-        default_line_width_nm: values
-            .and_then(|value| value.get("default_line_thickness"))
-            .and_then(Value::as_f64)
-            .map(|mils| (mils * 25_400.0).round_ties_even() as i64)
-            .unwrap_or(152_400),
-    }
-}
-
-const METRIC_FONT_BYTES: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../../tests/parity/fonts/shaping-variable-fixture.ttf"
-));
-
-fn metric_font() -> PlotterTextFont<'static> {
-    let vectors: Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../tests/parity/font_shaping_a0_vectors.json"
-    )))
-    .expect("shaping vectors");
-    let record: ShapingRecordA0 = vectors["records"]
-        .as_array()
-        .expect("shaping records")
-        .iter()
-        .find(|record| record["case_id"] == "fixture_default_variation_axis")
-        .cloned()
-        .map(serde_json::from_value)
-        .expect("metric shaping case")
-        .expect("metric shaping record");
-    PlotterTextFont {
-        face: "KiCad Monkey Shaping Fixture",
-        bold: false,
-        italic: false,
-        font_bytes: METRIC_FONT_BYTES,
-        shaping: record.input,
-        fake_bold: false,
-        fake_italic: false,
-    }
 }
 
 #[test]
@@ -2864,62 +2769,4 @@ fn malformed_paper_and_bitmap_encodings_fail_closed() {
             "{data}"
         );
     }
-}
-
-/// KiCad draws private fields and private library graphics only in the symbol
-/// editor (`SCH_PAINTER`). The same text without the flag is the control.
-#[test]
-fn private_fields_and_library_text_are_not_drawn() {
-    let vectors: Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../tests/parity/schematic_plotter_a0_vectors.json"
-    )))
-    .expect("shared vectors");
-    let vector = vectors["vectors"]
-        .as_array()
-        .expect("vectors")
-        .iter()
-        .find(|vector| vector["id"] == "placed-symbols-pins-fields-dnp-and-overplots")
-        .expect("symbol vector");
-    let base = vector["source"].as_str().expect("source");
-    let context = vector_context(vector);
-    let settings = vector_drawing_settings(vector);
-    let fonts = [metric_font()];
-    let resources = PlotterTextCacheResources {
-        fonts: &fonts,
-        limits: PlotterTextCacheLimits::default(),
-    };
-    let font = r#"(effects (font (face "KiCad Monkey Shaping Fixture") (size 1 1)))"#;
-    let drawn = |flag: &str| {
-        let source = base
-            .replacen(
-                "(symbol \"Demo:Part_1_1\"",
-                &format!("(symbol \"Demo:Part_1_1\"\n        (text {flag}\"LIBNOTE\" (at 0 0 0) {font})"),
-                1,
-            )
-            .replacen(
-                "(pin \"1\" (uuid \"placed-pin-1\"))",
-                &format!(
-                    "(property {flag}\"KLC\" \"FIELDNOTE\" (at 10 14 0) {font})\n    (pin \"1\" (uuid \"placed-pin-1\"))"
-                ),
-                1,
-            );
-        let document = schematic_plot_document_with_symbols(
-            &source,
-            SchematicPlotLimits::default(),
-            &context,
-            settings,
-            Some(&resources),
-        )
-        .expect("symbols plot");
-        schematic_plot_document_json(&document, SchematicPlotContractLimits::default())
-            .expect("plot json")
-            .to_string()
-    };
-    let public = drawn("");
-    assert!(public.contains("LIBNOTE") && public.contains("FIELDNOTE"), "control draws both");
-    let private = drawn("private ");
-    assert!(!private.contains("LIBNOTE"), "private library text is not drawn");
-    assert!(!private.contains("FIELDNOTE"), "a private field is not drawn");
-    assert!(!private.contains("\"KLC\""), "nor is its name drawn as text");
 }

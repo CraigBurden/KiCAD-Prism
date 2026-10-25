@@ -5,7 +5,7 @@ use super::{
     PlotBudget, SchematicDrawingSettings, SchematicPlotContext, SchematicPlotLimits,
     SchematicPlotOperation, SchematicPlotRecord, SchematicStyledThickSegment,
     SchematicSymbolInstanceRecord, SchematicSymbolOverplotRecord, SchematicSymbolPinAttrs,
-    SchematicSymbolPinBlock, SchematicTextOperation, child, child_string, is_private,
+    SchematicSymbolPinBlock, SchematicTextOperation, child, child_string, children, is_private,
     limit_error, list, mm_to_nm, model_error, number_at, parse_span, property_key, property_value,
     scalar_at, text, value_at,
 };
@@ -318,12 +318,6 @@ pub(super) fn append_symbol_records(
 
 fn direct_symbols(form: &Sexp) -> Vec<&Sexp> {
     children(form, "symbol").collect()
-}
-
-fn children<'a>(form: &'a Sexp, head: &'a str) -> impl Iterator<Item = &'a Sexp> {
-    list(form).into_iter().flatten().filter(move |child| {
-        list(child).and_then(|values| values.first()).and_then(text) == Some(head)
-    })
 }
 
 fn resolve_library(libraries: &[&Sexp], lib_name: &str, lib_id: &str) -> Option<usize> {
@@ -919,7 +913,7 @@ fn append_properties(
         String::new()
     };
     for property in &symbol.properties {
-        if hidden(property) || is_private(property) {
+        if hidden(property) {
             continue;
         }
         let key = property_key(property).unwrap_or_default();
@@ -1143,8 +1137,10 @@ fn pin_group_id(symbol_uuid: &str, pin_number: &str, source_uuid: &str) -> Strin
     format!("{symbol_uuid}__pin__{token}")
 }
 
+/// Hidden by a `hide` flag, or private (KiCad draws private items only in the symbol editor).
 fn hidden(form: &Sexp) -> bool {
-    child_yes(form, "hide", false)
+    is_private(form)
+        || child_yes(form, "hide", false)
         || list(form)
             .into_iter()
             .flatten()

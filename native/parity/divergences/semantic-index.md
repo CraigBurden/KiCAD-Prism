@@ -79,3 +79,11 @@ One runner entry, D1's a2 envelope, applies to every case: the goldens hold the 
 - Why: KiCad 10.0.6's netlist does the same. With the `project_bus_alias_hierarchy` fixture's aliases replaced by `CTRL: [INNER, CTRL_B], INNER: [CTRL_A]`, `CTRL_A` is not bused (`/CTRL_A` and `/MEMBER_SHEET/CTRL_A` stay separate nets); `INNER: [CTRL]` (a cycle) and `CTRL: [CTRL, CTRL_B]` give the same nets, with no error.
 - Consumer: every reader of the schematic nets (`design.json`, the semantic index, occurrences, system interface).
 - Fixtures: none of the parity cases nests or cycles aliases; `prism-kicad-core/tests/schematic_bus.rs` and `project_bus_alias_design.rs` pin the behaviour. `crate_version` 0.10.0.
+
+## D12. Sub-sheets: KiCad 9 private fields, letter-case matches and absent files
+
+- Today: kicad_monkey fails a schematic whose field carries KiCad 9's bare `private` flag, and fails the design when a sub-sheet file is absent.
+- Bundle: a private field is read like any other (KiCad's netlist keeps it; the plotter skips it, as KiCad draws it only in the symbol editor). A sub-sheet reference that matches exactly one source-set schematic only when letter case is ignored reads that file and warns `sheet-path-case`; an absent sub-sheet is empty and warns `sheet-missing` (cli-spec.md §5.2.2).
+- Why: KiCad 10.0.6 parses `(property private …)` and loads an absent sheet file empty (`SCH_IO_KICAD_SEXPR::loadHierarchy`). It opens a sheet file through the file system, so a letter-case-only mismatch resolves on Windows and macOS, where these designs are authored, and is empty on Linux. The bundle follows the authoring platforms.
+- Consumer: every reader of the schematic (`design.json`, the semantic index, occurrences, the plots).
+- Fixtures: none of the parity cases has private fields, a mis-cased or an absent sheet; `prism-kicad-core/tests/schematic_private_properties.rs`, `schematic_private_drawing.rs`, `schematic_bundle.rs` and `prism-kicad-cli/tests/exits.rs` pin the behaviour. `crate_version` 0.11.0.
