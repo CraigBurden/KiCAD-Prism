@@ -1,0 +1,183 @@
+//! Connectivity rules checked against KiCad 10.0.6's netlist
+//! (`eeschema/connection_graph.cpp`), one synthetic design per rule.
+
+use prism_kicad_contracts::generated::source_bundle_manifest::{
+    SourceBundleManifestA0, SourceBundleSource, SourceKind,
+};
+use prism_kicad_core::{
+    SchematicBundleIndex, SchematicBundleLimits, SchematicDesignNet, SourceBundle,
+    SourceBundleLimits, build_schematic_scalar_design_nets,
+};
+
+const PART: &str = r#"(symbol "Demo:Part"
+      (symbol "Demo:Part_1_1"
+        (pin passive line (at 0 0 0) (name "P") (number "1"))))"#;
+
+/// KiCad joins same-sheet subgraphs whose drivers share a name ignoring the sheet
+/// path, so a local label meets a global label of the same text.
+#[test]
+fn a_local_and_a_global_label_of_one_name_on_one_sheet_join() {
+    let root = format!(
+        r#"(kicad_sch (uuid root)
+          (lib_symbols {PART})
+          (global_label "SIG" (shape input) (at 0 0 0) (uuid global))
+          (label "SIG" (at 20 0 0) (uuid local))
+          {}
+          {})"#,
+        part("U1", 0.0, 0.0, "u1"),
+        part("U2", 20.0, 0.0, "u2"),
+    );
+    let design = design(&[("root.kicad_sch", root)]);
+    assert_eq!(net_of(&design, "U1.1"), net_of(&design, "U2.1"));
+    assert_eq!(net_of(&design, "U1.1").name, "SIG");
+}
+
+/// A no-connect pin never carries a connection (`SCH_PIN::ConnectionPropagatesTo`),
+/// so no-connect pins stacked on one point stay apart.
+#[test]
+fn stacked_no_connect_pins_stay_apart() {
+    let root = r#"(kicad_sch (uuid root)
+      (lib_symbols
+        (symbol "Demo:NC"
+          (symbol "Demo:NC_1_1"
+            (pin no_connect line (at 0 0 0) (name "NC") (number "1"))
+            (pin no_connect line (at 0 0 0) (name "NC") (number "2"))
+            (pin passive line (at 0 5 0) (name "P") (number "3")))))
+      (symbol (lib_id "Demo:NC") (at 0 0 0) (uuid nc)
+        (property "Reference" "U1") (property "Value" "NC")))"#;
+    let design = design(&[("root.kicad_sch", root.to_owned())]);
+    assert_ne!(net_of(&design, "U1.1"), net_of(&design, "U1.2"));
+}
+
+/// Buses that carry the same global label are one bus on every sheet.
+#[test]
+fn members_of_one_global_bus_join_across_sheets() {
+    let bus = |reference: &str, uuid: &str| {
+        format!(
+            r#"(bus (pts (xy 0 20) (xy 10 20)) (uuid {uuid}-bus))
+          (global_label "B[0..1]" (shape bidirectional) (at 0 20 0) (uuid {uuid}-name))
+          (bus_entry (at 2 20) (size 0 -5) (uuid {uuid}-entry))
+          (wire (pts (xy 2 15) (xy 2 10)) (uuid {uuid}-wire))
+          (label "B0" (at 2 10 0) (uuid {uuid}-member))
+          {}"#,
+            part(reference, 2.0, 10.0, uuid)
+        )
+    };
+    let root = format!(
+        r#"(kicad_sch (uuid root)
+          (lib_symbols {PART})
+          {}
+          (sheet (at 40 40) (size 10 10) (uuid sheet)
+            (property "Sheetname" "Child") (property "Sheetfile" "child.kicad_sch")))"#,
+        bus("U1", "root")
+    );
+    let child = format!(
+        "(kicad_sch (uuid child) (lib_symbols {PART}) {})",
+        bus("U2", "child")
+    );
+    let design = design(&[("root.kicad_sch", root), ("child.kicad_sch", child)]);
+    assert_eq!(net_of(&design, "U1.1"), net_of(&design, "U2.1"));
+}
+
+/// KiCad finds a placed symbol's library symbol by its exact `lib_id`; a sheet that
+/// also embeds `Local:VCC` (a local power port) keeps `power:VCC` global.
+#[test]
+fn a_power_port_resolves_its_own_library_symbol_before_a_base_name_match() {
+    let power = |reference: &str, x: f64, uuid: &str| {
+        format!(
+            r#"(symbol (lib_id "power:VCC") (at {x} 0 0) (uuid {uuid})
+            (property "Reference" "{reference}") (property "Value" "VX"))"#
+        )
+    };
+    let libraries = format!(
+        r#"(lib_symbols
+          (symbol "Local:VCC" (power local)
+            (symbol "Local:VCC_1_1" (pin power_in line (at 0 0 0) (name "VCC") (number "1"))))
+          (symbol "power:VCC" (power global)
+            (symbol "power:VCC_1_1" (pin power_in line (at 0 0 0) (name "VCC") (number "1"))))
+          {PART})"#
+    );
+    let root = format!(
+        r#"(kicad_sch (uuid root) {libraries}
+          {} {}
+          (sheet (at 40 40) (size 10 10) (uuid sheet)
+            (property "Sheetname" "Child") (property "Sheetfile" "child.kicad_sch")))"#,
+        power("#PWR01", 0.0, "pwr-root"),
+        part("U1", 0.0, 0.0, "u1")
+    );
+    let child = format!(
+        "(kicad_sch (uuid child) {libraries} {} {})",
+        power("#PWR02", 0.0, "pwr-child"),
+        part("U2", 0.0, 0.0, "u2")
+    );
+    let design = design(&[("root.kicad_sch", root), ("child.kicad_sch", child)]);
+    assert_eq!(net_of(&design, "U1.1"), net_of(&design, "U2.1"));
+    assert_eq!(net_of(&design, "U1.1").name, "VX");
+}
+
+fn part(reference: &str, x: f64, y: f64, uuid: &str) -> String {
+    format!(
+        r#"(symbol (lib_id "Demo:Part") (at {x} {y} 0) (uuid {uuid}-part)
+          (property "Reference" "{reference}") (property "Value" "Part"))"#
+    )
+}
+
+fn net_of<'a>(
+    design: &'a prism_kicad_core::SchematicScalarDesignNetlist,
+    terminal: &str,
+) -> &'a SchematicDesignNet {
+    design
+        .nets
+        .iter()
+        .find(|net| {
+            net.terminals
+                .iter()
+                .any(|t| format!("{}.{}", t.designator, t.pin) == terminal)
+        })
+        .unwrap_or_else(|| panic!("{terminal} is on a net"))
+}
+
+fn design(sheets: &[(&str, String)]) -> prism_kicad_core::SchematicScalarDesignNetlist {
+    let mut buffers = vec![b"{}".to_vec()];
+    let mut sources = vec![descriptor(
+        "design/demo.kicad_pro",
+        SourceKind::Project,
+        0,
+        &buffers[0],
+    )];
+    for (slot, (name, text)) in sheets.iter().enumerate() {
+        let slot = u32::try_from(slot + 1).expect("few sheets");
+        sources.push(descriptor(
+            &format!("design/{name}"),
+            SourceKind::Schematic,
+            slot,
+            text.as_bytes(),
+        ));
+        buffers.push(text.as_bytes().to_vec());
+    }
+    let bundle = SourceBundle::from_manifest(
+        SourceBundleManifestA0 {
+            project_path: Some("design/demo.kicad_pro".to_owned()),
+            root_schematic_path: "design/root.kicad_sch".to_owned(),
+            schema: "kicad_monkey.source_bundle_manifest.a0".to_owned(),
+            sources,
+            type_: "kicad_monkey.source_bundle_manifest".to_owned(),
+            version: "a0".to_owned(),
+        },
+        buffers,
+        SourceBundleLimits::default(),
+    )
+    .expect("source bundle");
+    let index = SchematicBundleIndex::build(&bundle, SchematicBundleLimits::default())
+        .expect("schematic index");
+    build_schematic_scalar_design_nets(&index, 1, Default::default()).expect("design nets")
+}
+
+fn descriptor(path: &str, kind: SourceKind, slot: u32, bytes: &[u8]) -> SourceBundleSource {
+    SourceBundleSource {
+        kind,
+        path: path.to_owned(),
+        slot: slot.into(),
+        source_bytes: bytes.len().to_string().into(),
+    }
+}

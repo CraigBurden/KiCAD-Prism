@@ -2,7 +2,7 @@
   "generator_digest": "fbe4dc1222c2fd94458ad8fab27d8762904a50ddb49b7963fdd03d675342bba7",
   "fixtures": {
     "fixtures/release-studio/cynthion": {
-      "design.json": "bff2346eb8a07411618885de3afd57ee56d36fff2d04477e7023bb2e605494a4",
+      "design.json": "d0fc5ab434bbfdb365583f9b74b43ffef77e6e0ba320206710b86267e2140f42",
       "projections/board-objects.json": "4d21eda1593bb61d2552dbc7ebb6bdbf396c931f17193e318cb9824466d0fc77",
       "projections/occurrences.json": "1ff21d597b2d969948b3552139d27c0dd2f0ac2215dd828e15a4ab136a234563",
       "projections/placements.json": "9e1c1bebb1f8f1fb8f49cd414cd1342d393baa782481ae5233b32bd785bc4f25",
@@ -374,7 +374,7 @@
       "viewer/models/components.glb": "0c71008fdfaa5afb747e85098f5e8e005ad20a515022c2e95a1d3eb6f314efa1"
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F0": {
-      "design.json": "4378918018a5c20c855650fc7d3846481c4ee57bbe945de53e338af445d792ce",
+      "design.json": "df6d607b6a8c3e463ff3713c50812130330bc7d68df817d31cdd6c9be4603f86",
       "projections/board-objects.json": "99f7f876e1f9cfff678089929d1e7df3368c50b051eb7515f9d079f3fd97dd34",
       "projections/occurrences.json": "28940aa848403eb30d88b3686800d2f347b7797267de9ac8559ebfb6c6e0b91a",
       "projections/placements.json": "f471f14c0476d362826d2cb12cd39b80c731c52226ead7abd94992980a05b9b1",
@@ -391,7 +391,7 @@
       "viewer/models/components.glb": "0c71008fdfaa5afb747e85098f5e8e005ad20a515022c2e95a1d3eb6f314efa1"
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F1": {
-      "design.json": "2abbbdc677e1d5f2f5733d68c7e072d831699083ac2c0d1f88a95a960b09c4d6",
+      "design.json": "09d8428b64a228527769bb488f044e4d96eb4595be38aa8efd7db07fb9543402",
       "projections/board-objects.json": "4920c5b64dc11089b295aa15da8cdcded1c79a60134bbeabcb4b06f742e3cf59",
       "projections/occurrences.json": "28940aa848403eb30d88b3686800d2f347b7797267de9ac8559ebfb6c6e0b91a",
       "projections/placements.json": "1788b327197481db519739892064fa29220ef0b779da239daacce055ee279712",
@@ -408,7 +408,7 @@
       "viewer/models/components.glb": "0c71008fdfaa5afb747e85098f5e8e005ad20a515022c2e95a1d3eb6f314efa1"
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F11.1": {
-      "design.json": "2abbbdc677e1d5f2f5733d68c7e072d831699083ac2c0d1f88a95a960b09c4d6",
+      "design.json": "09d8428b64a228527769bb488f044e4d96eb4595be38aa8efd7db07fb9543402",
       "projections/board-objects.json": "4920c5b64dc11089b295aa15da8cdcded1c79a60134bbeabcb4b06f742e3cf59",
       "projections/occurrences.json": "28940aa848403eb30d88b3686800d2f347b7797267de9ac8559ebfb6c6e0b91a",
       "projections/placements.json": "1788b327197481db519739892064fa29220ef0b779da239daacce055ee279712",
@@ -425,7 +425,7 @@
       "viewer/models/components.glb": "0c71008fdfaa5afb747e85098f5e8e005ad20a515022c2e95a1d3eb6f314efa1"
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F11.2": {
-      "design.json": "6e0494b11389b35c3003a2a770e08eb17467a41a914ae8c140d56c58d90f5333",
+      "design.json": "a0a0285d9296797fb9d993a0071abe5462fffd1089c0563b874d40dc8d51310e",
       "projections/board-objects.json": "66f366531190f8dda8b7339fe81d265aca8bdd07d7a5e9a2bc3f067954fca212",
       "projections/occurrences.json": "28940aa848403eb30d88b3686800d2f347b7797267de9ac8559ebfb6c6e0b91a",
       "projections/placements.json": "1788b327197481db519739892064fa29220ef0b779da239daacce055ee279712",
@@ -442,7 +442,7 @@
       "viewer/models/components.glb": "0c71008fdfaa5afb747e85098f5e8e005ad20a515022c2e95a1d3eb6f314efa1"
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F2": {
-      "design.json": "e12513804407f351ce7dabed0e719e567955c51ea4506d991adf99746bd414dd",
+      "design.json": "8bd666a793bd09f45d8a8470a065ae56c6b6d425f45be2dc4eb5cd4c379b478f",
       "projections/board-objects.json": "04dd66d821ac65afe41143cbe7eeb82bf0ec32a2462fab1b15a52406b22a578b",
       "projections/occurrences.json": "f9513e183c6716669d303e3e76973ee2e655cb3d552aea98801477b0accd8571",
       "projections/placements.json": "4cd169392cb1b986f0ef56e38fd245279a3dbbab5f4fa75a4a4d77f2c29c5419",
@@ -459,7 +459,7 @@
       "viewer/models/components.glb": "0c71008fdfaa5afb747e85098f5e8e005ad20a515022c2e95a1d3eb6f314efa1"
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F3": {
-      "design.json": "11b4c4225c0bc19fedcc16a1e0a9a30dd4964c4a30aa111b8f7b4e1042f1e9c4",
+      "design.json": "6c7a5463e19cc74c8f034ba271318902d0a31c807af9b118ffd6bf6056936070",
       "projections/board-objects.json": "57871fee8ec6705385c208787ba10e91505d6dd2012e4d30ce9daf4bd50de19b",
       "projections/occurrences.json": "4c5f2cf9d8c957b9f404540980f70aa7e1a21e0c4cb90330ab9807f82b29918e",
       "projections/placements.json": "391b5861c940ce83dd2fe2db4e62216cff8e0a891f6343f96de49b829d329fbc",
@@ -476,7 +476,7 @@
       "viewer/models/components.glb": "0c71008fdfaa5afb747e85098f5e8e005ad20a515022c2e95a1d3eb6f314efa1"
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F4": {
-      "design.json": "230dfa6f45ef869751f6fa0204b3a8c693e3c6a050eb23178e9bcf4d94f4c962",
+      "design.json": "e1f5ff1afb259471b110a1ca04becc99571df8dccfa6a5e8b78e1e313a0bb850",
       "projections/board-objects.json": "a3f849d29b343adc0b7e0ad24455e2a63b0af0e0f63acbd2ec4708f6e1fdb381",
       "projections/occurrences.json": "e6a9febd55f73558d8103bb88ebbcc6b198d0608cf6966d63c7402d37a1b87ad",
       "projections/placements.json": "af59b2fc5e09837c51ef597070b5106a0afd6e1cc2dbab9f02b3b1196bf8d24d",
@@ -493,7 +493,7 @@
       "viewer/models/components.glb": "0c71008fdfaa5afb747e85098f5e8e005ad20a515022c2e95a1d3eb6f314efa1"
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F5": {
-      "design.json": "2bd8da77ee813d9b390bd6fb741649d05480071c30bbb303b395feb088a9517d",
+      "design.json": "bfab1f75e781c4ff78eae73921d071b639f146ddc114725e2cfe1ff4d5349278",
       "projections/board-objects.json": "ebbb11b417e36f3d8782f69787cf3b4e40f6ef5cda28d20b15c5e2032b93357a",
       "projections/occurrences.json": "28940aa848403eb30d88b3686800d2f347b7797267de9ac8559ebfb6c6e0b91a",
       "projections/placements.json": "066dfc779831abb2c3238e8ca1147bc22f6a14288ab707c871344f0118f54c3a",
@@ -510,7 +510,7 @@
       "viewer/models/components.glb": "0c71008fdfaa5afb747e85098f5e8e005ad20a515022c2e95a1d3eb6f314efa1"
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F6": {
-      "design.json": "4378918018a5c20c855650fc7d3846481c4ee57bbe945de53e338af445d792ce",
+      "design.json": "df6d607b6a8c3e463ff3713c50812130330bc7d68df817d31cdd6c9be4603f86",
       "projections/board-objects.json": "99f7f876e1f9cfff678089929d1e7df3368c50b051eb7515f9d079f3fd97dd34",
       "projections/occurrences.json": "28940aa848403eb30d88b3686800d2f347b7797267de9ac8559ebfb6c6e0b91a",
       "projections/placements.json": "f471f14c0476d362826d2cb12cd39b80c731c52226ead7abd94992980a05b9b1",
@@ -527,7 +527,7 @@
       "viewer/models/components.glb": "0c71008fdfaa5afb747e85098f5e8e005ad20a515022c2e95a1d3eb6f314efa1"
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F7": {
-      "design.json": "c7b020e51ade55482b522c8cc9e0bee695b40ce425a4e4fa1283b6cd97e3550a",
+      "design.json": "dd6b9f0a4b3921dc8bb8c0eee4e24160aea6e4a2771152d6395175f84404dbbb",
       "projections/board-objects.json": "b8ce0b17edfe2be325f13100ce1a88af4f69c36f0c01656d4172d9c86e532cd9",
       "projections/occurrences.json": "28940aa848403eb30d88b3686800d2f347b7797267de9ac8559ebfb6c6e0b91a",
       "projections/placements.json": "bb23cad82236b83d792a4f405f9fd5662d17dc009c3c93436b1927d79c891348",
@@ -544,7 +544,7 @@
       "viewer/models/components.glb": "0c71008fdfaa5afb747e85098f5e8e005ad20a515022c2e95a1d3eb6f314efa1"
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F8": {
-      "design.json": "9b7b554b65c27903ffb31b3eefe7e589234c4b5240b898e1c71c5db83661e678",
+      "design.json": "9b11ef930c7321d32ff6f59814283e935e66f3f9603bf0ffe73acb45edf91a88",
       "projections/board-objects.json": "84a461356b6ffb28cea3c2fdadde82057806a69cc0a6b2023711bbbb5f350b0a",
       "projections/occurrences.json": "28940aa848403eb30d88b3686800d2f347b7797267de9ac8559ebfb6c6e0b91a",
       "projections/placements.json": "f471f14c0476d362826d2cb12cd39b80c731c52226ead7abd94992980a05b9b1",
@@ -561,7 +561,7 @@
       "viewer/models/components.glb": "0c71008fdfaa5afb747e85098f5e8e005ad20a515022c2e95a1d3eb6f314efa1"
     },
     "backend/tests/fixtures/system_builder/sources/mini_obc/F9": {
-      "design.json": "8919df43f0b1b3f864299dfb55fbba321794d0a88f1f3e38a6035edcb3797b20",
+      "design.json": "20e35a95b6dcd1c497269fd65725f047ceae62bbfe8fee272ddb6f35e3285878",
       "projections/board-objects.json": "d5123013a9934b9fddbac82d5e78bf255a35d4431f81b2a9adaf10c35e0e159f",
       "projections/occurrences.json": "0c0f315e6b34c6dd5241f3e801015f0e62648ebb79fad8c2b6c3f9fc432bc79a",
       "projections/placements.json": "d02ecab386dd2a6ea5c8fefabc386fd85d3404dcfd7f38b24659bb2b44735a35",
@@ -578,8 +578,8 @@
       "viewer/models/components.glb": "0c71008fdfaa5afb747e85098f5e8e005ad20a515022c2e95a1d3eb6f314efa1"
     },
     "backend/tests/fixtures/system_builder/sources/mini_payload/F0": {
-      "bundle.json": "0ca468a032585aef9cd8b39c3de16bfdb97c924ca4677f665886e4ca017b7260",
-      "design.json": "c9faf8aa1fa8b6a1143056df0e1502b0cdfcf4a86b2e98b8e8e3d5beeef2793a",
+      "bundle.json": "5a2f004b27c202f9f772d90bf59f646c0ffbfdce46947294aed8813da59be553",
+      "design.json": "10963b344f965feaa0da7cb0e5690edb12d5e2e90df602805a5cd09ee28929b7",
       "projections/board-objects.json": "7e404e9c026479f7f0b970545531298fa6e4cfaa9fc31a7094f12715b8aa99af",
       "projections/occurrences.json": "3b88ea110a64d2d2e288a86d1d1bf872ea012857f32426d4ee0763ec55599d6c",
       "projections/placements.json": "63bece864893acd6464d8f77b8de86824e35b9750bcbc4adbf2772a87f79e058",
@@ -593,7 +593,7 @@
       "sources/mini_payload.kicad_sch": "ad719052378eb570c74f48979d01fa0964217d6fac78728f713df16b8b97a05d"
     },
     "backend/tests/fixtures/system_builder/sources/mini_power/F0": {
-      "design.json": "3efd3707e21e78556f36c7babcb5dfc129a596afd0545ac0fd9ee5eeacc3e70d",
+      "design.json": "1862586edd149a2af13575f3b356a0e1779ca344dc2bb554c075a7260115dd9b",
       "projections/board-objects.json": "fb2ea74ccb1e0092dd1f38c5aa1f2c1a62f328e48c1187af74b29fae945a76c3",
       "projections/occurrences.json": "561f09f9973a3cbbb6ac76a3d7a7841920c6c94a64540f165fb41392ce9e0112",
       "projections/placements.json": "076829b23ab590f0f559be4fbee1ecd57b9e74e5d6463666b6b2cb080e313878",
@@ -609,7 +609,7 @@
       "viewer/models/components.glb": "0c71008fdfaa5afb747e85098f5e8e005ad20a515022c2e95a1d3eb6f314efa1"
     },
     "backend/tests/fixtures/system_builder/sources/mini_power/F10": {
-      "design.json": "be0424a466d1ec7984793ceba6678dfeec6d0b402652b4becc6f0238e8d2a867",
+      "design.json": "9c544df275a65c25ee2076a413ef52bdb4bec270ba2b5ead8696965b9946599f",
       "projections/board-objects.json": "36170e8f30364da118522e0c9a5a74090fe2efea32554158e00d3e02bb46fc30",
       "projections/occurrences.json": "b593176efaf45060a93d7bb870d04c8b00d3e9946d59ac17e308c4808f15e087",
       "projections/placements.json": "f45dda2d23837e9d419d54df386a6872d97b5425558c65a0ff2a0e724f61581f",
@@ -628,7 +628,7 @@
   "per_target": {
     "aarch64-macos": {
       "fixtures/release-studio/cynthion": {
-        "bundle.json": "2d7c265db28bd926e8bf2c4fad6d7895b8ca5a07907c7471f25fc7eb1cce0d46",
+        "bundle.json": "054153878e7cc164ed43c2bc16ee0a186d6a77f1cd0c8676419895cff1a6882a",
         "materialization/board.kmpack": "ad1825ca4e339d22c402c8bc04b87f26b6bc69bdc710eae63b59e3809a9929dc"
       },
       "fixtures/release-studio/synthetic": {
@@ -680,59 +680,59 @@
         "materialization/board.kmpack": "ee8508ba1b2cbe24e0831d61351dedc115d10d9565ad472ce497635421110be9"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F0": {
-        "bundle.json": "7a624f96f90e440b58a5c981bfcd50023e38dcd9286b621851d8440b7a5c3a1b",
+        "bundle.json": "d7aa0342ac5fa27acadcb3befded235f32439dd2546533268ff9cec4e1a5fe5f",
         "materialization/board.kmpack": "e9f29583c650c7b4c4d389008746bccd6f5e67c22f657f37e57eb9b1d289c694"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F1": {
-        "bundle.json": "7b30d4ecc58ffa7d8d6c335807e82c98d15d0805a91c01710c1c88d0a50228eb",
+        "bundle.json": "1664bcbb746aa26dc63b68510f63d0033b0eebfd583a05fcab24298975951969",
         "materialization/board.kmpack": "82329e4c168ca67ba21982da3a6cc2cf8168134c533780e2cc3fee0c45cb5850"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F11.1": {
-        "bundle.json": "7b30d4ecc58ffa7d8d6c335807e82c98d15d0805a91c01710c1c88d0a50228eb",
+        "bundle.json": "1664bcbb746aa26dc63b68510f63d0033b0eebfd583a05fcab24298975951969",
         "materialization/board.kmpack": "82329e4c168ca67ba21982da3a6cc2cf8168134c533780e2cc3fee0c45cb5850"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F11.2": {
-        "bundle.json": "7f5c9ff37b5fc40bfe3e6031a29663b477421dd9c957990c1c50f00cac9b9841",
+        "bundle.json": "5a92fd714cab1b06e868984df3bfe12ccabb2643397befb53f2f13eb723fc420",
         "materialization/board.kmpack": "9ff77b05ed6c131b1b8d7a2adc6e7215e50a514cfb97a0d1ceb8a9196d10c761"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F2": {
-        "bundle.json": "55cca25d65195fd91ffcd0fa2cd1cfa6e270c9e22c789b7e6c9a402ac9a48f76",
+        "bundle.json": "9e4e9842321e994b713a54ab5b2318fffe227bcabd4bff39bf958212b5d3c7f3",
         "materialization/board.kmpack": "9de6a47a6ae4460ab7ff01d8d8c5faa64cbc4df15888811378018bb5a00a6833"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F3": {
-        "bundle.json": "c95e163d61141ba4ed15e03a9a57ce0aa2b5e5287cee3fd96552bea74f399b9b",
+        "bundle.json": "2636ebf4512a4bf6aa2d5c304203ddda0c57526bbc7553dc0c5e8f94d77c2d1d",
         "materialization/board.kmpack": "6d8e7c165e89108e75c9baad8ae6c655831b119a8ef3fcbcad749df61dd4ede2"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F4": {
-        "bundle.json": "fa644039ff80f6aee1a317e06675f49faa7d8f44bc984b6e8bbc4bfae1fe672b",
+        "bundle.json": "c1b02b1880735036a1943e12cb902b524523119aff458ca9a94fc4306cf5c770",
         "materialization/board.kmpack": "d44893bcbd5d96e69cc023d65089f7af57329bf5480de8cc2c905a4b622d3044"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F5": {
-        "bundle.json": "98500f85b5c0ae2cada2d0e02479298be57ee16c985cc01298eb0b338a2a29a8",
+        "bundle.json": "da1cd4da131e927d8f22daf70a82f300ff9ab21305f1eca4db5dbd6103172aa3",
         "materialization/board.kmpack": "a340095ec4958e75d031fac5a08fa94da1d3613b989a6e640fe8093b23aa92c6"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F6": {
-        "bundle.json": "7a624f96f90e440b58a5c981bfcd50023e38dcd9286b621851d8440b7a5c3a1b",
+        "bundle.json": "d7aa0342ac5fa27acadcb3befded235f32439dd2546533268ff9cec4e1a5fe5f",
         "materialization/board.kmpack": "e9f29583c650c7b4c4d389008746bccd6f5e67c22f657f37e57eb9b1d289c694"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F7": {
-        "bundle.json": "c9a6c59e56c46693fe083c1c0a7d52a9d3d67566471924f5a85dc9cca0fbdca0",
+        "bundle.json": "60d0b673d1ecee2c08e7376a8d3847fd357aa5957aafc63d70ac575660c39dc3",
         "materialization/board.kmpack": "1a994657b535827fcca66e89275abad661d995f7b872188f8aee5768629a9762"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F8": {
-        "bundle.json": "53ab7640a8bf500931b4bf9d0b71e8ac3a6f1de17965c8bb974bb3218a40f1db",
+        "bundle.json": "0c9ee6be2b98b3c3c4335e9fa09ae010c2e5ef1d8f83a3e3f7d6531a86cbb9ad",
         "materialization/board.kmpack": "e9f29583c650c7b4c4d389008746bccd6f5e67c22f657f37e57eb9b1d289c694"
       },
       "backend/tests/fixtures/system_builder/sources/mini_obc/F9": {
-        "bundle.json": "3ddccb71b65fb375354a6becddab7e93411f7fda46bf2a1da7c91d42178d7013",
+        "bundle.json": "cc9c619c2b399d917307e19756a0b7a404d0723d3ac633cb543c9cd38cfdaaa4",
         "materialization/board.kmpack": "dac59d0e816fc9bcd18c3610a070a85e49879c6ff55b2bc841493b5384081c16"
       },
       "backend/tests/fixtures/system_builder/sources/mini_power/F0": {
-        "bundle.json": "0c7eee2af6aa91b7485b3f1a9f1b04428a3b0db206054f9a7362dc52f4042e2f",
+        "bundle.json": "2306dde1a1b37424aff8f29bd90857ec53dc61f36fe9ec29992cc6e42455d50c",
         "materialization/board.kmpack": "ec3b753a688a6ec95d8674924318e6b9655f9c0be1a8d1534a8f8cf0331d4f96"
       },
       "backend/tests/fixtures/system_builder/sources/mini_power/F10": {
-        "bundle.json": "f385680b593697ae252aa05c39dfd4d029e66c6c4b90129af30f10aa90110353",
+        "bundle.json": "486ca639aa50afc2109fd2f3fc625a716019eb52b6d5d3c0f63dba55a85df70f",
         "materialization/board.kmpack": "ab3e6de8407310338dc20ab6a89773e731e338ef94e4a1d8d2e11c7216e54f50"
       }
     }
