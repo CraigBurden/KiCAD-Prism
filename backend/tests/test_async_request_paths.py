@@ -444,7 +444,7 @@ class ViewerSourceReadsDoNotBlockTheLoopTests(unittest.TestCase):
         user = security.AuthenticatedUser(email="v@example.com", name="V", role="viewer")
 
         async def scenario() -> bool:
-            read = asyncio.create_task(viewer_api.get_project_schematic("prj", None, user))
+            read = asyncio.create_task(viewer_api.get_project_schematic("prj", request=None, commit=None, user=user))
             await asyncio.get_running_loop().run_in_executor(None, blocked.entered.wait, 2)
             probe_finished = await _lightweight_probe_completes_while(read)
             blocked.gate.set()
@@ -471,7 +471,7 @@ class ViewerSourceReadsDoNotBlockTheLoopTests(unittest.TestCase):
 
         async def scenario() -> list:
             calls = [
-                asyncio.create_task(viewer_api.get_project_schematic("prj", None, user))
+                asyncio.create_task(viewer_api.get_project_schematic("prj", request=None, commit=None, user=user))
                 for _ in range(MAX_CONCURRENT_LARGE_READS + 4)
             ]
             await asyncio.get_running_loop().run_in_executor(None, counter.borrowed.wait, 2)

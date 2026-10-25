@@ -19,6 +19,7 @@ from app.api._helpers import (
     _row_to_project,
     require_output_type,
     resolve_path_within_root,
+    revision_cache_headers,
 )
 from app.core.errors import caller_errors, value_errors_as
 from app.core.config import settings
@@ -820,6 +821,7 @@ async def get_project_readme(
 async def get_project_asset(
     project_id: str,
     asset_path: str,
+    request: Request,
     commit: Optional[str] = None,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
@@ -828,10 +830,12 @@ async def get_project_asset(
     Typically used for README image references.
     """
     project = get_project_for_role_or_404(project_id, user.role)
-    return await run_bounded_io(_asset_response, project, asset_path, commit)
+    return await run_bounded_io(_asset_response, project, asset_path, commit, request)
 
 
-def _asset_response(project: project_service.Project, asset_path: str, commit: Optional[str]):
+def _asset_response(
+    project: project_service.Project, asset_path: str, commit: Optional[str], request: Request
+):
     if commit:
         commit_file = project_outputs.read_commit_file(
             project,
@@ -839,7 +843,9 @@ def _asset_response(project: project_service.Project, asset_path: str, commit: O
             asset_path,
             not_found_detail="Asset not found",
         )
-        return commit_file_response(commit_file, inline=True)
+        return commit_file_response(
+            commit_file, inline=True, headers=revision_cache_headers(commit), request=request
+        )
 
     file_path = resolve_path_within_root(project.path, asset_path, invalid_detail="Invalid asset path")
 
@@ -1088,21 +1094,23 @@ def _commit_file_response_for_project(
 @router.get("/{project_id}/ibom")
 async def get_project_ibom(
     project_id: str,
+    request: Request,
     commit: Optional[str] = None,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     project = get_project_for_role_or_404(project_id, user.role)
-    return await run_bounded_io(_ibom_response, project, commit)
+    return await run_bounded_io(_ibom_response, project, commit, request)
 
 
-def _ibom_response(project: project_service.Project, commit: Optional[str]):
+def _ibom_response(project: project_service.Project, commit: Optional[str], request: Request):
     if commit:
         config = project_outputs.path_config_at(project, commit)
         commit_file = _find_commit_ibom(project, commit, config)
         return commit_file_response(
             commit_file,
             inline=True,
-            headers={"Cache-Control": "public, max-age=60"},
+            headers=revision_cache_headers(commit),
+            request=request,
         )
 
     path = project_service.find_ibom_file(project.path)
