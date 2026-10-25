@@ -45,6 +45,24 @@ fn body_style_selects_the_alternate_body_like_convert() {
     }
 }
 
+/// A label carries any number of user fields, each with its own `(at …)`
+/// (`SCH_IO_KICAD_SEXPR_PARSER::parseSchText`, `T_property`).
+#[test]
+fn labels_with_many_fields_parse() {
+    let fields: String = (0..12)
+        .map(|n| format!(r#"(property "F{n}" "v" (at 0 0 0) (hide yes))"#))
+        .collect();
+    let root = format!(
+        r#"(kicad_sch (version 20260306) (uuid root)
+          (label "L" (at 0 0 0) (uuid 1d6e5c4b-3a29-4810-9f7e-6d5c4b3a2910) {fields})
+          (global_label "G" (shape input) (at 0 0 0)
+            (uuid 2e7f6d5c-4b3a-4921-8a0f-7e6d5c4b3a21) {fields})
+          (hierarchical_label "H" (shape input) (at 0 0 0)
+            (uuid 3f8a7e6d-5c4b-4a32-9b1a-8f7e6d5c4b32) {fields}))"#
+    );
+    design(&[("root.kicad_sch", &root)]).expect("labels with fields");
+}
+
 fn net_of(design: &Value, designator: &str, pin: &str) -> Option<String> {
     design["nets"].as_array()?.iter().find_map(|net| {
         net["terminals"]
