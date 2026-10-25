@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
-from app.api._helpers import get_project_for_role_or_404
+from app.api._helpers import get_project_for_role_or_404, gzip_served_path
 from app.core.errors import caller_errors, value_errors_as
 from app.core.security import AuthenticatedUser, require_designer, require_viewer
 from app.services import semantic_index_service
@@ -76,4 +76,7 @@ async def get_semantic_index_identity(
         headers = {"Cache-Control": "private, max-age=300", "ETag": etag, **artifact.headers}
         if request.headers.get("if-none-match") == etag:
             return Response(status_code=304, headers=headers)
-        return FileResponse(path, media_type="application/json", headers=headers)
+        served = await asyncio.to_thread(
+            gzip_served_path, request, path, "application/json", f"{source_revision_key}-{artifact.generator}", headers
+        )
+        return FileResponse(served, media_type="application/json", headers=headers)
