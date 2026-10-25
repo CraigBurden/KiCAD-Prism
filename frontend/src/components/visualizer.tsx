@@ -1309,6 +1309,13 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             : []),
         [pcbContent, viewerSupportFiles],
     );
+    // One bundle failure fails the index and the open view alike; the view
+    // below already says it, so the banner does not repeat the same text.
+    const viewFailure = activeTab === "sch" ? schematicError : activeTab === "pcb" ? pcbError : null;
+    const bannerIndexError = semanticIndexError
+        && !(viewFailure?.kind === "failed" && viewFailure.detail === semanticIndexError)
+        ? semanticIndexError
+        : null;
     const schematicViewerKey = buildViewerKey("schematic", projectId, commit);
     const pcbViewerKey = buildViewerKey("pcb", projectId, commit);
 
@@ -1393,7 +1400,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 </Button>
             </div>
 
-            {semanticIndexPending || semanticIndexError || workingTreeDirty ? (
+            {semanticIndexPending || bannerIndexError || workingTreeDirty ? (
                 <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b bg-muted/20 px-3 py-1.5">
                     {semanticIndexPending ? (
                         <DesignDataPending
@@ -1401,9 +1408,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                             onRetry={semanticIndexLoading ? undefined : retrySemanticIndexRead}
                         />
                     ) : null}
-                    {semanticIndexError ? (
+                    {bannerIndexError ? (
                         <DesignDataFailed
-                            detail={semanticIndexError}
+                            detail={bannerIndexError}
                             onRetry={() => { void generateSemanticIdentity(); }}
                             className="flex-row items-center gap-2 text-left"
                         />

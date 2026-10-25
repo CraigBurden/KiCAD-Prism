@@ -81,7 +81,23 @@ async def get_design_bundles(
             "partial": sum(1 for item in incomplete if not item["failedStages"]),
         },
         "incompleteRevisions": incomplete[:_INCOMPLETE_LISTED],
+        "failedBuilds": _failed_builds(bundles)[:_INCOMPLETE_LISTED],
     }
+
+
+def _failed_builds(bundles: list[dict]) -> list[dict]:
+    """Bundles whose build failed outright, newest first, with the job's error."""
+
+    found = []
+    for bundle in sorted(bundles, key=lambda row: str(row.get("updated_at") or ""), reverse=True):
+        if bundle.get("state") != "failed":
+            continue
+        found.append({
+            "commit": bundle.get("commit_sha"),
+            "revisionKey": bundle.get("revision_key"),
+            "reason": str(bundle.get("error") or ""),
+        })
+    return found
 
 
 def _incomplete(bundles: list[dict]) -> list[dict]:
@@ -98,6 +114,9 @@ def _incomplete(bundles: list[dict]) -> list[dict]:
                 "revisionKey": bundle.get("revision_key"),
                 "failedStages": stages["failed"],
                 "partialStages": stages["partial"],
+                # The failed stages' errors, recorded when the stage was
+                # published; empty for a bundle built before that.
+                "reason": str(bundle.get("error") or ""),
             })
     return found
 

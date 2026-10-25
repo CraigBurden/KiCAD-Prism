@@ -448,13 +448,31 @@ def sweep_temporary_files(*, now: float | None = None) -> int:
 
 
 def stored_bytes(project_id: str) -> int:
-    """Bytes the project's archives and caches hold (ADR §11 G2: sizes are reported)."""
+    """Bytes the project's archives hold (ADR §11 G2: sizes are reported).
 
+    Only the ``<generator digest>.prism`` files beside each revision key: the
+    unpacked cache under them is disposable and swept on its own
+    (``prune_cache_store``). Walking it statted every extracted source of every
+    version, which took seconds on a large project over a bind mount.
+    """
+
+    base = root() / project_id
     total = 0
-    for dirpath, _, filenames in os.walk(root() / project_id):
-        for name in filenames:
-            try:
-                total += os.lstat(os.path.join(dirpath, name)).st_size
-            except OSError:
-                continue
+    try:
+        revisions = list(os.scandir(base))
+    except OSError:
+        return 0
+    for revision in revisions:
+        if not revision.is_dir(follow_symlinks=False):
+            continue
+        try:
+            entries = list(os.scandir(revision.path))
+        except OSError:
+            continue
+        for entry in entries:
+            if entry.name.endswith(".prism") and entry.is_file(follow_symlinks=False):
+                try:
+                    total += entry.stat(follow_symlinks=False).st_size
+                except OSError:
+                    continue
     return total
