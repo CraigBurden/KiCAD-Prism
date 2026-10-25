@@ -132,8 +132,39 @@ discards the staging ACME account, and restarts, without re-asking anything.
 Secrets are read back from the generated `.env`, so the database password and
 session secret are preserved.
 
-`generated/` contains live credentials and is excluded from Git. Back it up
-with the rest of the deployment state.
+`generated/` contains live credentials and is excluded from Git and from the
+Docker build context. `scripts/prism_backup.py` archives it with the rest of the
+deployment state.
+
+The generated `.env` sets `PRISM_ENV_FILE=generated/.env`, and the generated
+overlay pins the same file as `env_file` for `backend`, `catalog-worker` and
+`prism-worker`, so every setting in it reaches those containers, not only the
+ones `docker-compose.yml` lists under `environment:`.
+
+#### Additional Caddy sites
+
+Re-running the installer rewrites `generated/Caddyfile`. Put any other site
+the same Caddy should serve in `sites/<name>.caddy` at the deployment root
+instead. The installer creates `sites/`, mounts it read-only at
+`/etc/caddy/sites`, and the generated Caddyfile starts with
+`import /etc/caddy/sites/*.caddy`. Files are imported in name order before
+Prism's own site, so the first one may open with a global options block (for
+example `default_sni`). An empty `sites/` is valid.
+
+```caddyfile
+# sites/wiki.caddy
+wiki.example.com {
+	reverse_proxy wiki:3000
+}
+```
+
+Reload after editing:
+
+```bash
+docker compose --env-file generated/.env -f docker-compose.yml \
+  -f docker-compose.proxy.yml -f generated/docker-compose.generated.yml \
+  exec caddy caddy reload --config /etc/caddy/Caddyfile
+```
 
 The remainder of this section describes the same configuration by hand, which
 is still supported and is what the installer produces.
@@ -482,7 +513,12 @@ A complete installation contains three persistence domains:
 | `data/projects` | Git checkouts, catalog assets, generated artifacts, caches, and exports |
 | `data/ssh` | Prism Git identity and known-host state |
 
-All three are required for complete recovery. Do not place them on ephemeral
+Also keep `data/secrets` (Release Studio signing key), the Caddy data volume
+(ACME account and issued certificates), `generated/` and `sites/` when the
+deployment has them. `scripts/prism_backup.py` captures all of these; see
+[Upgrades and backups](UPGRADES.md).
+
+The three domains above are required for complete recovery. Do not place them on ephemeral
 container storage.
 
 ## Private Git hosting

@@ -45,9 +45,13 @@ A recoverable backup contains one consistent set of:
    default);
 3. the directory the backend mounts at `/root/.ssh` (`data/ssh` by default);
 4. the deployed `.env`;
-5. the release bundle or source revision record.
+5. the release bundle or source revision record;
+6. when present: `data/secrets` (Release Studio signing key), the Caddy data
+   volume (ACME account and issued certificates), and the installer's
+   `generated/` files plus operator Caddy sites in `sites/`.
 
-`scripts/prism_backup.py` reads the two directories from the selected Compose
+`scripts/prism_backup.py` captures all of these and records the running images
+and build. It reads the two directories from the selected Compose
 configuration and records them in the archive manifest, so an overlay that
 moves storage is archived from where it actually lives. Only bind mounts inside
 the deployment directory are supported, and the two directories must be
