@@ -222,6 +222,13 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     const [ibomUrl, setIbomUrl] = useState<string | null>(null);
     const [schematicContentLoaded, setSchematicContentLoaded] = useState(false);
     const [pcbContentLoaded, setPcbContentLoaded] = useState(false);
+    // The board loads without waiting for its tab, but not alongside the
+    // schematic a user is looking at: on a large design the two share the
+    // link and the board can be tens of MB. Once released it stays released,
+    // so a tab switch never aborts a board read part way.
+    const pcbLoadGate = activeTab !== "sch" || schematicContentLoaded;
+    const [pcbLoadReleased, setPcbLoadReleased] = useState(pcbLoadGate);
+    if (pcbLoadGate && !pcbLoadReleased) setPcbLoadReleased(true);
     const [schematicPending, setSchematicPending] = useState(false);
     const [pcbPending, setPcbPending] = useState(false);
     const [schematicError, setSchematicError] = useState<DesignDataReadFailure | null>(null);
@@ -425,6 +432,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     fetchApi(appendCommit(`${baseUrl}/ibom`), { signal }),
                     fetchApi(`${baseUrl}/comments/mention-candidates`, { signal }),
                 ]);
+                // Only the status is wanted here: the Assembly tab's frame loads
+                // the page itself, and the page is several MB.
+                void ibomRes.body?.cancel().catch(() => undefined);
                 if (cancelled) return;
 
                 if (ibomRes.ok) {
@@ -662,8 +672,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     // Load PCB content eagerly, not on first PCB-tab visit. Waiting until the tab
     // was opened left the board unloaded behind a "open the PCB tab" placeholder;
     // fetching up front means the board is ready the moment the tab is shown.
+    // It starts once the schematic on screen has loaded (pcbLoadReleased).
     useEffect(() => {
-        if (pcbContentLoaded) return;
+        if (pcbContentLoaded || !pcbLoadReleased) return;
         const controller = new AbortController();
         const signal = controller.signal;
         let cancelled = false;
@@ -704,7 +715,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             cancelled = true;
             controller.abort();
         };
-    }, [pcbContentLoaded, projectId, appendCommit]);
+    }, [pcbContentLoaded, pcbLoadReleased, projectId, appendCommit]);
 
     // A read that ended pending keeps its settled state so the view can offer
     // "Check again"; clearing the settled flag starts the read again.
