@@ -277,3 +277,58 @@ fn bad_inputs_are_exit_three() {
     let document: Value = failed.document.clone();
     assert_eq!(document["category"], "input");
 }
+
+/// A 3D model the key lists but the worker could not materialize (an LFS
+/// object it does not have) is left out with a `model-unavailable` warning
+/// (bundle-format.md §2.2). Stage parse's own read-set check (I14) accepts the
+/// build; `bundle reuse` refuses to serve it (condition 3).
+#[test]
+fn an_unavailable_model_builds_with_a_warning_and_is_not_reused() {
+    let repo = repository("reuse-unavailable-model");
+    write(
+        &repo,
+        "a/p.kicad_pcb",
+        b"(kicad_pcb (version 20240108) (generator \"pcbnew\")\n  (footprint \"parts:R\" (layer \"F.Cu\") (uuid \"00000000-0000-0000-0000-0000000000f1\") (at 0 0)\n    (model \"${KIPRJMOD}/models/R.step\")))\n",
+    );
+    write(
+        &repo,
+        "a/models/R.step",
+        b"ISO-10303-21;\nEND-ISO-10303-21;\n",
+    );
+    commit(&repo);
+    let (record, key) = key_record(&repo, "built.json", &[]);
+    std::fs::remove_file(repo.join("a/models/R.step")).unwrap();
+    let out = repo.join("out/a.prism");
+    let built = run(&[
+        "bundle",
+        "build",
+        s(&repo.join("a/p.kicad_pro")),
+        "--source-root",
+        s(&repo),
+        "--stage",
+        "parse",
+        "-o",
+        s(&out),
+        "--revision-key",
+        &key,
+        "--key-record",
+        s(&record),
+        "--quiet",
+    ]);
+    assert_eq!(built.code, 0, "{}", built.document);
+    assert_eq!(built.document["stages"][0]["status"], "complete");
+    let codes: Vec<&str> = built.document["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|warning| warning["code"].as_str())
+        .collect();
+    assert!(codes.contains(&"model-unavailable"), "{codes:?}");
+    let answered = reuse(&out, &record);
+    assert_eq!(answered.code, 0, "{}", answered.document);
+    assert_eq!(answered.document["holds"], false);
+    assert_eq!(
+        answered.document["failure"]["condition"],
+        "model-unavailable"
+    );
+}

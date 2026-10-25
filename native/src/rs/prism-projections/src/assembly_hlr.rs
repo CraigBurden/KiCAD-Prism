@@ -271,7 +271,12 @@ pub struct AssemblyHlrRequest<'a> {
 /// Build `models/assembly-hlr.json`.
 pub fn produce(request: AssemblyHlrRequest<'_>) -> Result<Produced<AssemblyHlrA0>, HlrError> {
     let view = PcbView::parse(request.board_text, PcbLimits::default()).map_err(|error| {
-        HlrError::Internal(format!("assembly-hlr: the board does not parse: {error}"))
+        // The byte count lets a failure be compared with the member's size in
+        // the manifest: stage board parsed the same member before this ran.
+        HlrError::Internal(format!(
+            "assembly-hlr: the board does not parse ({} bytes): {error}",
+            request.board_text.len()
+        ))
     })?;
     let thickness = board_thickness(&view)?;
     let models = models_by_footprint(&view)?;

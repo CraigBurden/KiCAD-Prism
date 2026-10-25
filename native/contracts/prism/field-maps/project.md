@@ -232,6 +232,7 @@ Nothing else is consulted: no environment variable, no file outside the sources,
    - The segments are now relative to the repository root.
      - A leading `..`: `outside-repository`, `path` = the segments joined by `/`.
      - Otherwise `repository`, `path` = the segments joined by `/`, a `RepoPath`. `inSources` is true when the materialized source set holds `path`, or any `path/…`.
+     - Kind `sheet-file` whose `path` is not in the source set but matches exactly one source-set schematic when letter case is ignored: `path` is that schematic and `inSources` is true. This is KiCad's sheet file rule as the core and stage parse apply it (`prism_kicad_core::sheet_file`, cli-spec §5.2.2 `sheet-path-case`), so the projection walks the hierarchy the bundle was built from.
 6. **Library path.** Drop empty and `.` segments; a `..` removes the last segment.
    - A `..` with nothing to remove: `unresolved` / `outside-library-root`.
    - No segments left: `unresolved` / `empty-path`.

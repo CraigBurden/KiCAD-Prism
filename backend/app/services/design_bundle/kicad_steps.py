@@ -19,6 +19,7 @@ disk cache upgrades each file once.
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import os
 import re
@@ -283,7 +284,8 @@ def upgrade_sources(
 
     workers = min(settings.PRISM_DESIGN_BUNDLE_UPGRADE_WORKERS, len(selected))
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="kicad-upgrade") as pool:
-        futures = [pool.submit(upgrade, path, board) for path, _, board in selected]
+        # Each in a copy of this context, so a job's ``kicad_tools.recording()`` sees the runs.
+        futures = [pool.submit(contextvars.copy_context().run, upgrade, path, board) for path, _, board in selected]
         for future in futures:
             future.result()
     return [{"path": path, "upgraded_from_version": version} for path, version, _ in selected]

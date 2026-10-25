@@ -6,6 +6,7 @@ use super::sheet_parse::default_sheet;
 use super::{SchematicDefinition, SchematicOccurrence, SchematicSheet, schematic_limit};
 use crate::schematic_bundle_limits::SchematicBundleLimits;
 use crate::schematic_project::ProjectTopLevelSheet;
+use crate::sheet_file::Variables;
 use crate::source_bundle::{SourceBundle, SourceBundleError, SourceBundleErrorKind};
 use std::collections::{HashMap, HashSet};
 
@@ -33,8 +34,12 @@ pub(super) fn hierarchy_roots(
     let mut seen = HashSet::new();
     let mut found = Vec::new();
     for entry in listed {
-        let Some(source) =
-            bundle.resolve_schematic(anchor, &entry.filename, limits.max_path_bytes)?
+        let Some(source) = bundle.resolve_schematic(
+            anchor,
+            &entry.filename,
+            Variables::default(),
+            limits.max_path_bytes,
+        )?
         else {
             continue;
         };
@@ -95,6 +100,7 @@ pub(super) fn realize_occurrences(
     roots: Vec<HierarchyRoot>,
     definitions: &[SchematicDefinition],
     definition_by_path: &HashMap<String, usize>,
+    variables: Variables<'_>,
     limits: SchematicBundleLimits,
 ) -> Result<Vec<SchematicOccurrence>, SourceBundleError> {
     let mut occurrences = Vec::new();
@@ -157,6 +163,7 @@ pub(super) fn realize_occurrences(
                     let Some(child_source) = bundle.resolve_schematic(
                         &enter.source_path,
                         &child.sheet_file,
+                        variables,
                         limits.max_path_bytes,
                     )?
                     else {

@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 
-import { readCatalog } from "./api";
+import { fetchAuthConfig } from "@/lib/auth";
 
 let availability: Promise<boolean> | null = null;
 
-/** Whether the backend serves Simulation Studio (PRISM_SIM_STUDIO_ENABLED); its routes 404 otherwise. */
+/**
+ * Whether the backend serves Simulation Studio (PRISM_SIM_STUDIO_ENABLED), as
+ * the app configuration says; its routes 404 otherwise, so they are not probed.
+ */
 export function simStudioAvailable(): Promise<boolean> {
-    availability ??= readCatalog().then(() => true, () => false);
+    availability ??= fetchAuthConfig().then((config) => config.sim_studio_enabled === true, () => false);
     return availability;
 }
 

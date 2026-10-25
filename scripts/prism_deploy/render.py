@@ -8,6 +8,7 @@ Docker daemon, and it is the reason this module holds no I/O helpers.
 from __future__ import annotations
 
 import json
+import re
 import secrets
 
 from . import schemes
@@ -32,6 +33,7 @@ SECRET_KEYS = frozenset(
     {"POSTGRES_PASSWORD", "SESSION_SECRET", "OIDC_CLIENT_SECRET", "TS_AUTHKEY"}
 )
 REDACTION = "<redacted>"
+_SECRET_NAME = re.compile(r"^[A-Z][A-Z0-9_]*(TOKEN|SECRET|PASSWORD|_KEY)$")
 
 
 def generate_secret(length: int = 48) -> str:
@@ -77,8 +79,11 @@ def redact(content: str, answers: dict) -> str:
 
     lines = []
     for line in content.split("\n"):
-        key, separator, _ = line.partition("=")
-        if separator and key.strip() in keys:
+        key, separator, value = line.partition("=")
+        # Values kept from an earlier .env (tokens, root keys) are not answers,
+        # so the value pass cannot know them; their names give them away.
+        named_secret = bool(value.strip()) and _SECRET_NAME.search(key.strip()) is not None
+        if separator and (key.strip() in keys or named_secret):
             lines.append(f"{key}={REDACTION}")
         else:
             lines.append(line)
@@ -151,22 +156,88 @@ def normalise(answers: dict) -> dict:
     return result
 
 
-def render_env(example: str, answers: dict) -> str:
+_ASSIGNMENT = re.compile(r"^(# ?)?([A-Z][A-Z0-9_]*)=(.*)$")
+
+
+def template_defaults(example: str) -> dict[str, str]:
+    """The uncommented assignments in .env.example: what a key gets by default."""
+    defaults: dict[str, str] = {}
+    for raw in example.replace("\r\n", "\n").split("\n"):
+        match = _ASSIGNMENT.match(raw.strip())
+        if match and not match.group(1):
+            defaults.setdefault(match.group(2), match.group(3))
+    return defaults
+
+
+def _scheme_keys() -> set[str]:
+    """Keys only one scheme's answers set; a leftover from another is dropped."""
+    keys = {"TS_AUTHKEY", "PRISM_CADDY_IMAGE"}
+    for provider in DNS_PROVIDERS.values():
+        keys.add(provider.env_var)
+        keys.update(companion.key for companion in provider.companions)
+    return keys
+
+
+def carried_values(
+    example: str,
+    answers: dict,
+    existing: dict[str, str],
+    previous_sizing: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Values from an earlier .env that a re-run keeps instead of overwriting.
+
+    Answers win for the settings the installer asks about; the interview
+    already offers the earlier values as defaults. A sizing setting keeps the
+    earlier value only when an operator changed it: it differs from what the
+    installer wrote last time (``previous_sizing``, from the plan), or, for a
+    deployment without that record, from the template default and every
+    preset. Everything else the operator set -- tokens, root keys, allowlists,
+    tuned limits -- is kept, so a re-run never silently resets it.
+    """
+    sizing = SIZINGS[answers["sizing"]].values
+    owned = env_values(answers)
+    defaults = template_defaults(example)
+    scheme_keys = _scheme_keys()
+    previous_sizing = previous_sizing or {}
+    kept: dict[str, str] = {}
+    for key, value in existing.items():
+        if key in scheme_keys:
+            continue
+        if key in sizing:
+            if key in previous_sizing:
+                written_by_installer = value == previous_sizing[key]
+            else:
+                written_by_installer = value == defaults.get(key) or any(
+                    value == preset.values.get(key) for preset in SIZINGS.values()
+                )
+            if not written_by_installer:
+                kept[key] = value
+        elif key not in owned and value != defaults.get(key):
+            kept[key] = value
+    return kept
+
+
+def render_env(example: str, answers: dict, carried: dict[str, str] | None = None) -> str:
     """Rewrite .env.example in place, preserving its comments and ordering.
 
     Keys the operator did not set keep the template's documented defaults, so
     the generated file stays readable and reviewable rather than becoming a
-    bare list of assignments.
+    bare list of assignments. A key the template documents only as a comment
+    (``# KEY=...``) is written in that place. ``carried`` holds values kept
+    from an earlier .env (``carried_values``) and wins over the presets.
     """
-    values = env_values(answers)
+    values = {**env_values(answers), **(carried or {})}
     pending = dict(values)
     lines: list[str] = []
+    template = example.replace("\r\n", "\n").split("\n")
+    assigned = set(template_defaults(example))
 
-    for raw in example.replace("\r\n", "\n").split("\n"):
-        stripped = raw.strip()
-        if stripped and not stripped.startswith("#") and "=" in raw:
-            key = raw.split("=", 1)[0].strip()
-            if key in pending:
+    for raw in template:
+        match = _ASSIGNMENT.match(raw.strip())
+        if match:
+            commented, key = match.group(1), match.group(2)
+            # A commented example stands in only for a key with no live line.
+            if key in pending and (not commented or key not in assigned):
                 lines.append(f"{key}={pending.pop(key)}")
                 continue
         lines.append(raw)
@@ -435,6 +506,8 @@ def render_plan(answers: dict) -> str:
         for key, value in answers.items()
     }
     redacted.pop("extra_provider_env", None)
+    # What the preset wrote, so a re-run can tell an operator's change from it.
+    redacted["sizing_values"] = SIZINGS[answers["sizing"]].values
     return json.dumps(redacted, indent=2, sort_keys=True) + "\n"
 
 
@@ -680,10 +753,10 @@ def _backup_section() -> list[str]:
     ]
 
 
-def render_all(example: str, answers: dict) -> dict[str, str]:
+def render_all(example: str, answers: dict, carried: dict[str, str] | None = None) -> dict[str, str]:
     """Every artifact for this deployment, keyed by path relative to the root."""
     files = {
-        "generated/.env": render_env(example, answers),
+        "generated/.env": render_env(example, answers, carried),
         "generated/docker-compose.generated.yml": render_compose(answers),
         "generated/deploy-plan.json": render_plan(answers),
         "generated/NEXT_STEPS.md": render_next_steps(answers),

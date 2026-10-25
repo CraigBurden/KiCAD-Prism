@@ -77,6 +77,14 @@ class BundleRead:
             raise KeyError(path)
         return int(member["bytes"])
 
+    def sha256(self, path: str) -> str:
+        """A ready member's SHA-256, from the verified manifest: its content identity."""
+
+        member = self.opened.archive.member(path) if self.opened.archive is not None else None
+        if member is None:
+            raise KeyError(path)
+        return str(member["sha256"])
+
     def extract(self, paths: Iterable[str]) -> Path:
         """Ready members as files in the verified version directory (§8)."""
 
