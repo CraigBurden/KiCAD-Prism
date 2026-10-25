@@ -920,7 +920,7 @@ fn realize_occurrences(
                 let human_address = occurrence.human_address.clone();
                 occurrences.push(occurrence);
                 work.push(HierarchyWork::Exit(enter.source_path.clone()));
-                for (child_index, child) in definition.sheets.iter().enumerate().rev() {
+                for (child_index, child) in distinct_sheets(&definition.sheets).enumerate().rev() {
                     let Some(child_source) = bundle.resolve_schematic(
                         &enter.source_path,
                         &child.sheet_file,
@@ -949,6 +949,33 @@ fn realize_occurrences(
         }
     }
     Ok(occurrences)
+}
+
+/// A sheet's UUID names its occurrence path. KiCad keeps a UUID two sheets share
+/// (`SCH_SCREENS::ReplaceDuplicateTimeStamps` leaves sheets to a @todo), so a later
+/// sibling sharing one is numbered here to keep the occurrences apart.
+fn distinct_sheets(
+    sheets: &[SchematicSheet],
+) -> impl DoubleEndedIterator<Item = SchematicSheet> + ExactSizeIterator {
+    let mut seen = HashMap::<String, usize>::new();
+    sheets
+        .iter()
+        .map(|sheet| {
+            let key = if sheet.uuid.is_empty() {
+                &sheet.sheet_file
+            } else {
+                &sheet.uuid
+            };
+            let uses = seen.entry(key.clone()).or_default();
+            *uses += 1;
+            let mut sheet = sheet.clone();
+            if *uses > 1 {
+                sheet.uuid = format!("{key}#{}", *uses - 1);
+            }
+            sheet
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
 }
 
 fn materialize_occurrence(

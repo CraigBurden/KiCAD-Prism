@@ -1089,16 +1089,11 @@ fn symbol_instance_lookup_is_project_aware_and_keeps_the_later_duplicate() {
         .definition("design/root.kicad_sch")
         .expect("root")
         .symbols[0];
-    // KiCad keeps one instance per project and path, the later replacing the earlier
-    // (`SCH_SYMBOL::AddHierarchicalReference`).
-    assert_eq!(
-        symbol
-            .instance_for_project("alpha", "/same")
-            .expect("same-project duplicate resolves")
-            .expect("alpha path")
-            .reference,
-        "A2"
-    );
+    // KiCad keeps the later of a project's repeated paths (AddHierarchicalReference).
+    let alpha = symbol
+        .instance_for_project("alpha", "/same")
+        .expect("resolves");
+    assert_eq!(alpha.expect("alpha path").reference, "A2");
     assert_eq!(
         symbol
             .instance_for_project("beta", "/same/")
@@ -1112,8 +1107,7 @@ fn symbol_instance_lookup_is_project_aware_and_keeps_the_later_duplicate() {
             .unique_instance_for_path("/same")
             .expect_err("cross-project path must be ambiguous")
             .matches,
-        2,
-        "one record per project once alpha's duplicate collapses"
+        2
     );
     assert_eq!(
         symbol

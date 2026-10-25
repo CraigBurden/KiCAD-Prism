@@ -143,6 +143,118 @@ fn a_repeated_instance_path_keeps_the_later_record() {
     assert!(net_of(&design, "R1", "1").is_none());
 }
 
+/// KiCad keeps duplicate UUIDs in an s-expression file: it replaces them only for
+/// legacy files and on annotation (`SCH_SCREENS::ReplaceDuplicateTimeStamps`, called
+/// from `files-io.cpp` for legacy loads), and a copied design block produces them.
+/// Each case is one kind of item sharing a UUID.
+#[test]
+fn duplicate_uuids_are_kept_as_kicad_keeps_them() {
+    let cases = [
+        (
+            "two local labels",
+            r#"(label "A" (at 0 0 0) (uuid dup)) (label "B" (at 20 0 0) (uuid dup))"#,
+        ),
+        (
+            "two global labels",
+            r#"(global_label "A" (shape input) (at 0 0 0) (uuid dup))
+               (global_label "B" (shape input) (at 20 0 0) (uuid dup))"#,
+        ),
+        (
+            "two hierarchical labels",
+            r#"(hierarchical_label "A" (shape input) (at 0 0 0) (uuid dup))
+               (hierarchical_label "B" (shape input) (at 20 0 0) (uuid dup))"#,
+        ),
+        (
+            "a label and a symbol",
+            r#"(label "A" (at 0 0 0) (uuid 7e8f9a0b-1c2d-4e3f-8a4b-5c6d7e8f9a0b))"#,
+        ),
+        (
+            "a pin and its symbol",
+            r#"(label "A" (at 40 0 0) (uuid lbl))"#,
+        ),
+    ];
+    for (case, items) in cases {
+        let pin_uuid = if case == "a pin and its symbol" {
+            "7e8f9a0b-1c2d-4e3f-8a4b-5c6d7e8f9a0b"
+        } else {
+            "pin-uuid"
+        };
+        let root = format!(
+            r#"(kicad_sch (version 20260306) (uuid root)
+              (lib_symbols
+                (symbol "Demo:R"
+                  (property "Reference" "R" (at 0 0 0))
+                  (symbol "Demo:R_1_1"
+                    (pin passive line (at 0 0 0) (length 0) (name "~") (number "1")))))
+              {items}
+              (symbol (lib_id "Demo:R") (at 0 0 0) (unit 1)
+                (uuid 7e8f9a0b-1c2d-4e3f-8a4b-5c6d7e8f9a0b)
+                (property "Reference" "R1" (at 0 0 0))
+                (pin "1" (uuid {pin_uuid}))))"#
+        );
+        design(&[("root.kicad_sch", &root)]).unwrap_or_else(|error| panic!("{case}: {error}"));
+    }
+}
+
+/// Two sheets or two sheet pins sharing a UUID load in KiCad too.
+#[test]
+fn duplicate_sheet_and_sheet_pin_uuids_are_kept() {
+    let sheet = |at: u32, uuid: &str, pin_uuid: &str| {
+        format!(
+            r#"(sheet (at {at} 0) (size 10 10) (uuid {uuid})
+              (property "Sheetname" "S{at}" (at 0 0 0))
+              (property "Sheetfile" "child.kicad_sch" (at 0 0 0))
+              (pin "P" input (at {at} 5 180) (uuid {pin_uuid})))"#
+        )
+    };
+    let child = r#"(kicad_sch (version 20260306) (uuid child)
+      (hierarchical_label "P" (shape input) (at 0 0 0) (uuid hl)))"#;
+    for (case, sheets) in [
+        (
+            "two sheet pins",
+            format!(
+                "{}{}",
+                sheet(0, "8f9a0b1c-2d3e-4f4a-8b5c-6d7e8f9a0b1c", "pin"),
+                sheet(20, "9a0b1c2d-3e4f-4a5b-9c6d-7e8f9a0b1c2d", "pin")
+            ),
+        ),
+        (
+            "two sheets",
+            format!(
+                "{}{}",
+                sheet(0, "8f9a0b1c-2d3e-4f4a-8b5c-6d7e8f9a0b1c", "pin-a"),
+                sheet(20, "8f9a0b1c-2d3e-4f4a-8b5c-6d7e8f9a0b1c", "pin-b")
+            ),
+        ),
+    ] {
+        let root = format!("(kicad_sch (version 20260306) (uuid root) {sheets})");
+        design(&[("root.kicad_sch", &root), ("child.kicad_sch", child)])
+            .unwrap_or_else(|error| panic!("{case}: {error}"));
+    }
+}
+
+/// A uuid is optional on every item; KiCad assigns a fresh one (`parseSchText`,
+/// `parseSchematicSymbol`), so a hand- or script-written file without them loads.
+#[test]
+fn items_without_a_uuid_load() {
+    let root = r#"(kicad_sch (version 20260306) (uuid root)
+      (lib_symbols
+        (symbol "Demo:R"
+          (property "Reference" "R" (at 0 0 0))
+          (symbol "Demo:R_1_1"
+            (pin passive line (at 0 0 0) (length 0) (name "~") (number "1")))))
+      (global_label "G" (shape input) (at 0 0 0))
+      (hierarchical_label "H" (shape input) (at 20 0 0))
+      (label "L" (at 40 0 0))
+      (symbol (lib_id "Demo:R") (at 0 0 0) (unit 1)
+        (property "Reference" "R1" (at 0 0 0)))
+      (symbol (lib_id "Demo:R") (at 20 0 0) (unit 1)
+        (property "Reference" "R2" (at 0 0 0))))"#;
+    let design = design(&[("root.kicad_sch", root)]).expect("items without a uuid");
+    assert_eq!(net_of(&design, "R1", "1").as_deref(), Some("G"));
+    assert_eq!(net_of(&design, "R2", "1").as_deref(), Some("/H"));
+}
+
 fn net_of(design: &Value, designator: &str, pin: &str) -> Option<String> {
     design["nets"].as_array()?.iter().find_map(|net| {
         net["terminals"]

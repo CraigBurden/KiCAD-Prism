@@ -12,7 +12,7 @@ use prism_kicad_contracts::generated::compiled_schematic_graph::{
     UnitOccurrence,
 };
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroU64;
 mod connectivity;
 
@@ -87,6 +87,9 @@ struct StructuralGraphBuilder<'a> {
     /// Each occurrence's component ids by symbol index: two placed symbols can share a
     /// UUID (a copied unit), which KiCad keeps in an s-expression file.
     component_by_symbol: HashMap<usize, HashMap<usize, String>>,
+    /// The (page, element) selectors already linked. Items sharing a UUID share a
+    /// drawing element; the first one links to it.
+    linked_selectors: HashSet<(String, String)>,
 }
 
 impl<'a> StructuralGraphBuilder<'a> {
@@ -127,6 +130,7 @@ impl<'a> StructuralGraphBuilder<'a> {
             definitions: HashMap::new(),
             occurrences: Vec::with_capacity(index.occurrences().len()),
             component_by_symbol: HashMap::new(),
+            linked_selectors: HashSet::new(),
         })
     }
 
@@ -425,8 +429,7 @@ impl<'a> StructuralGraphBuilder<'a> {
             // KiCad keeps a UUID two placed symbols share (it only replaces duplicates on
             // annotation); a later copy is identified by the UUID and its order of appearance.
             let uses = uuid_uses.entry(symbol.uuid.as_str()).or_default();
-            let first_use = *uses == 0;
-            let source_uuid = if first_use {
+            let source_uuid = if *uses == 0 {
                 symbol.uuid.clone()
             } else {
                 format!("{}#{uses}", symbol.uuid)
@@ -466,8 +469,7 @@ impl<'a> StructuralGraphBuilder<'a> {
                 .entry(occurrence.index)
                 .or_default()
                 .insert(symbol_index, component_id.clone());
-            // The drawing has one element per UUID, so only the first copy links to it.
-            if first_use && !symbol.uuid.is_empty() {
+            if !symbol.uuid.is_empty() {
                 self.append_graphical_link(
                     &owner.page,
                     GraphicalTargetType::SchComponentOccurrence,
@@ -513,6 +515,12 @@ impl<'a> StructuralGraphBuilder<'a> {
         target_ref: &str,
         element_id: &str,
     ) -> Result<(), SourceBundleError> {
+        if !self
+            .linked_selectors
+            .insert((page_ref.to_owned(), element_id.to_owned()))
+        {
+            return Ok(());
+        }
         ensure_capacity(
             self.graph.graphical_artifact_links.len(),
             self.limits.max_graphical_artifact_links,
