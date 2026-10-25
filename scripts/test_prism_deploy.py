@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 
 from prism_deploy import render
-from prism_deploy.apply import load_existing_env, write_text
+from prism_deploy.apply import apply, load_existing_env, write_text
 from prism_deploy.build_identity import compose_environment, source_build_identity
 from prism_deploy.__main__ import load_answers
 from prism_deploy.schemes import (
@@ -358,6 +358,62 @@ class StaticCaddyfileTests(unittest.TestCase):
                 site = installer[installer.index("prism.example.com {"):]
                 hostname = "prism.example.com" if scheme == HTTP_01 else "kicad-prism.corp.internal"
                 self.assertIn(site.replace("prism.example.com", hostname, 1), rendered[name])
+
+
+class OperatorSitesTests(unittest.TestCase):
+    """Hand-added Caddy sites live outside generated/ and survive a re-run."""
+
+    def test_caddyfile_imports_operator_sites_before_its_own_site(self) -> None:
+        for scheme in (HTTP_01, DNS_01, INTERNAL_CA):
+            with self.subTest(scheme=scheme):
+                config = render.render_caddyfile(answers_for(scheme))
+                self.assertIn("\nimport /etc/caddy/sites/*.caddy\n", config)
+                self.assertLess(config.index("import "), config.index("prism.example.com {"))
+
+    def test_overlay_mounts_the_sites_directory_when_caddy_runs(self) -> None:
+        self.assertIn("./sites:/etc/caddy/sites:ro", render.render_compose(answers_for(HTTP_01)))
+        self.assertNotIn("/etc/caddy/sites", render.render_compose(answers_for(EXTERNAL_PROXY)))
+
+    def test_apply_creates_the_sites_directory_and_leaves_its_files_alone(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            files = render.render_all(ENV_EXAMPLE, answers_for(HTTP_01))
+            apply(root, files)
+            self.assertTrue((root / "sites").is_dir())
+            (root / "sites/wiki.caddy").write_text("wiki.example.com {}\n", encoding="utf-8")
+            apply(root, files)
+            self.assertEqual((root / "sites/wiki.caddy").read_text(encoding="utf-8"), "wiki.example.com {}\n")
+
+
+class EnvFileForwardingTests(unittest.TestCase):
+    def test_overlay_pins_the_generated_env_file_for_every_reader(self) -> None:
+        for scheme in SCHEMES:
+            with self.subTest(scheme=scheme):
+                overlay = render.render_compose(answers_for(scheme))
+                for service in ("backend", "catalog-worker", "prism-worker"):
+                    block = overlay[overlay.index(f"\n  {service}:\n"):]
+                    block = block[: block.index("\n\n")]
+                    self.assertIn("env_file: !override", block)
+                    self.assertIn("- path: generated/.env", block)
+
+    def test_generated_env_names_itself(self) -> None:
+        rendered = render.render_env(ENV_EXAMPLE, answers_for(HTTP_01))
+        self.assertIn("\nPRISM_ENV_FILE=generated/.env\n", rendered)
+
+
+class AsciiConsoleTests(unittest.TestCase):
+    def test_glyphs_degrade_to_ascii_when_the_console_cannot_encode_them(self) -> None:
+        import contextlib
+        import io
+        from unittest.mock import patch
+
+        from prism_deploy import tui
+
+        output = io.StringIO()
+        with patch.object(tui, "UNICODE", False), contextlib.redirect_stdout(output):
+            tui.write("╭─ ✓ done │ ❯ next …")
+        self.assertEqual(output.getvalue(), "+- + done | > next ...\n")
+        output.getvalue().encode("cp1252")
 
 
 class ComposeTests(unittest.TestCase):
