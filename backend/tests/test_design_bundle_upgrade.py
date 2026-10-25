@@ -67,6 +67,16 @@ def test_every_older_closure_file_is_upgraded_in_place(tmp_path: Path, upgrades)
     assert sorted(upgrades) == [("child.kicad_sch", False, False), ("p.kicad_pcb", True, True), ("p.kicad_sch", False, True)]
 
 
+def test_a_sheet_named_in_another_letter_case_is_upgraded(tmp_path: Path, upgrades) -> None:
+    src = _tree(tmp_path / "src")
+    (src / "p.kicad_sch").write_text(
+        '(kicad_sch (version 20260306) (property "Sheetfile" "CHILD.kicad_sch"))', encoding="utf-8"
+    )
+    paths = [entry["path"] for entry in kicad_steps.upgrade_sources(src, CONFIG, FORMATS)]
+    # The file's own spelling, as stage parse reads it, on any file system.
+    assert paths == ["p.kicad_pcb", "child.kicad_sch"]
+
+
 def test_two_trees_sharing_a_cache_upgrade_a_shared_file_once(tmp_path: Path, upgrades) -> None:
     base, head = _tree(tmp_path / "base"), _tree(tmp_path / "head", child_text="edited")
     cache = kicad_steps.UpgradeCache()

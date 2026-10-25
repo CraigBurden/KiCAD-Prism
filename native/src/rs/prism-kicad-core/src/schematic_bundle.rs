@@ -9,8 +9,9 @@ use crate::schematic_source::{
     SchematicBusAlias, SchematicBusEntry, SchematicConnectivity, SchematicJunction, SchematicLabel,
     SchematicLegacySymbolInstance, SchematicLibrarySymbol, SchematicNoConnect,
     SchematicPlacedSymbol, SchematicPolyline, SchematicSheetPin, SchematicSymbolProperty,
-    parse_bus_aliases, parse_embedded_library_symbols, parse_legacy_symbol_instances,
-    parse_placed_symbols, parse_sheet_pin, parse_source_carriers,
+    direct_scalars, parse_bus_aliases, parse_embedded_library_symbols,
+    parse_legacy_symbol_instances, parse_placed_symbols, parse_sheet_pin, parse_source_carriers,
+    property_scalars,
 };
 use crate::schematic_terminals::{SchematicSymbolTerminal, resolve_symbol_terminals};
 use crate::sexpr::{Lexer, Token, TokenKind, decode_quoted};
@@ -550,17 +551,19 @@ fn parse_sheet_property(
             "sheet property count exceeds its limit",
         ));
     }
-    let values = direct_scalar_strings(text, span, 2, source_path, limits)?;
-    if values.len() < 2 {
+    let property = property_scalars(text, span, source_path, limits)?;
+    if property.count < 2 {
         return Err(SourceBundleError::new(
             SourceBundleErrorKind::Schematic,
             Some(source_path),
             "sheet property requires a name and value",
         ));
     }
+    let values = [property.key, property.value];
     sheet.properties.push(SchematicSymbolProperty {
         key: values[0].clone(),
         value: values[1].clone(),
+        private: property.private,
     });
     match values[0].as_str() {
         "Sheetname" | "Sheet name" if !state.sheet_name_seen => {
@@ -654,7 +657,7 @@ fn set_once_scalar(
             ),
         ));
     }
-    let values = direct_scalar_strings(source, span, 1, source_path, limits)?;
+    let values = direct_scalars(source, span, 1, source_path, limits)?;
     let value = values.into_iter().next().ok_or_else(|| {
         SourceBundleError::new(
             SourceBundleErrorKind::Schematic,
@@ -686,7 +689,7 @@ fn set_once_required_string(
             ),
         ));
     }
-    let values = direct_scalar_strings(source, span, 1, source_path, limits)?;
+    let values = direct_scalars(source, span, 1, source_path, limits)?;
     *target = values.into_iter().next().ok_or_else(|| {
         SourceBundleError::new(
             SourceBundleErrorKind::Schematic,
@@ -847,7 +850,7 @@ fn direct_yes_no(
     source_path: &str,
     limits: SchematicBundleLimits,
 ) -> Result<bool, SourceBundleError> {
-    match direct_scalar_strings(source, span, 1, source_path, limits)?
+    match direct_scalars(source, span, 1, source_path, limits)?
         .first()
         .map(String::as_str)
     {
@@ -859,104 +862,6 @@ fn direct_yes_no(
             "schematic boolean requires yes or no",
         )),
     }
-}
-
-fn direct_scalar_strings(
-    source: &str,
-    span: &FormSpan,
-    maximum: usize,
-    source_path: &str,
-    limits: SchematicBundleLimits,
-) -> Result<Vec<String>, SourceBundleError> {
-    let text = span
-        .text(source)
-        .map_err(|error| schematic_error(source_path, error))?;
-    let mut lexer = Lexer::new(text);
-    let left = next_token(&mut lexer, source_path)?;
-    let head = next_token(&mut lexer, source_path)?;
-    if left.kind != TokenKind::Left || head.kind != TokenKind::Atom {
-        return Err(SourceBundleError::new(
-            SourceBundleErrorKind::Schematic,
-            Some(source_path),
-            "selected form has an invalid header",
-        ));
-    }
-    let mut depth = 1_usize;
-    let mut values = Vec::new();
-    for token in lexer {
-        let token = token.map_err(|error| schematic_error(source_path, error))?;
-        if collect_direct_scalar(token, &mut depth, &mut values, maximum, source_path, limits)? {
-            break;
-        }
-    }
-    Ok(values)
-}
-
-fn collect_direct_scalar(
-    token: Token<'_>,
-    depth: &mut usize,
-    values: &mut Vec<String>,
-    maximum: usize,
-    source_path: &str,
-    limits: SchematicBundleLimits,
-) -> Result<bool, SourceBundleError> {
-    match token.kind {
-        TokenKind::Left => *depth = depth.saturating_add(1),
-        TokenKind::Right => {
-            *depth = depth.saturating_sub(1);
-            return Ok(*depth == 0);
-        }
-        _ if *depth == 1 => push_direct_scalar(token, values, maximum, source_path, limits)?,
-        _ => {}
-    }
-    Ok(false)
-}
-
-fn push_direct_scalar(
-    token: Token<'_>,
-    values: &mut Vec<String>,
-    maximum: usize,
-    source_path: &str,
-    limits: SchematicBundleLimits,
-) -> Result<(), SourceBundleError> {
-    if values.len() >= maximum {
-        return Err(schematic_limit(
-            source_path,
-            "direct scalar count exceeds its limit",
-        ));
-    }
-    if token.lexeme.len() > limits.max_decoded_string_bytes.saturating_add(2) {
-        return Err(schematic_limit(
-            source_path,
-            "decoded string exceeds its limit",
-        ));
-    }
-    let value = decoded(token);
-    if value.len() > limits.max_decoded_string_bytes {
-        return Err(schematic_limit(
-            source_path,
-            "decoded string exceeds its limit",
-        ));
-    }
-    values.push(value.into_owned());
-    Ok(())
-}
-
-fn next_token<'a>(
-    lexer: &mut Lexer<'a>,
-    source_path: &str,
-) -> Result<Token<'a>, SourceBundleError> {
-    lexer
-        .next()
-        .transpose()
-        .map_err(|error| schematic_error(source_path, error))?
-        .ok_or_else(|| {
-            SourceBundleError::new(
-                SourceBundleErrorKind::Schematic,
-                Some(source_path),
-                "selected form ended before its header",
-            )
-        })
 }
 
 fn decoded(token: Token<'_>) -> Cow<'_, str> {
@@ -1045,11 +950,14 @@ fn realize_occurrences(
                 occurrences.push(occurrence);
                 work.push(HierarchyWork::Exit(enter.source_path.clone()));
                 for (child_index, child) in definition.sheets.iter().enumerate().rev() {
-                    let child_source = bundle.resolve_schematic(
+                    let Some(child_source) = bundle.resolve_schematic(
                         &enter.source_path,
                         &child.sheet_file,
                         limits.max_path_bytes,
-                    )?;
+                    )?
+                    else {
+                        continue;
+                    };
                     let child_path = child_source.path().to_owned();
                     work.push(HierarchyWork::Enter(Box::new(HierarchyEnter {
                         source_path: child_path,

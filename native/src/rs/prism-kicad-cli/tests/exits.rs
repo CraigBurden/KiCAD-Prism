@@ -240,18 +240,6 @@ fn recorded_content_failures_exit_nine() {
         0,
         "a failed bundle is valid"
     );
-    let missing_sheet = SHEET.replace(
-        "(lib_symbols))",
-        "(lib_symbols) (sheet (at 0 0) (size 1 1) (uuid \"6c5f0000-0000-4000-8000-000000000002\") (property \"Sheetname\" \"S\")\n (property \"Sheetfile\" \"gone.kicad_sch\")))",
-    );
-    let tree = source_tree(&[("p.kicad_pro", "{}"), ("p.kicad_sch", &missing_sheet)]);
-    let gone = parse_into(&tree.join("p.kicad_pro"), &tree.join("o.prism"));
-    assert_eq!(gone.code, 9);
-    let error = &gone.document["stages"][0]["error"];
-    assert_eq!(
-        (error["code"].as_str(), error["location"]["line"].as_u64()),
-        (Some("source-missing"), Some(2))
-    );
     let no_copper = "(kicad_pcb (version 20260206) (generator \"pcbnew\") (general (thickness 1.6)) (layers (25 \"Edge.Cuts\" user)) (setup) (net 0 \"\"))\n";
     let board = source_tree(&[("x.kicad_pro", "{}"), ("x.kicad_pcb", no_copper)]);
     let archive = board.join("x.prism");
@@ -800,4 +788,46 @@ fn artwork_refuses_an_unknown_view_and_a_bundle_without_models() {
     ]);
     assert_eq!(pending.code, 7);
     assert_eq!(pending.document["code"], "stage-order");
+}
+
+/// KiCad loads a sub-sheet whose file is absent as an empty sheet, and reads one whose
+/// reference differs only in letter case; stage parse does both, with a warning.
+#[test]
+fn absent_and_miscased_sub_sheets_warn() {
+    let missing_sheet = SHEET.replace(
+        "(lib_symbols))",
+        "(lib_symbols) (sheet (at 0 0) (size 1 1) (uuid \"6c5f0000-0000-4000-8000-000000000002\") (property \"Sheetname\" \"S\")\n (property \"Sheetfile\" \"gone.kicad_sch\")))",
+    );
+    // KiCad loads a sheet whose file is absent as an empty sheet; so does stage parse,
+    // with a warning instead of failing the design.
+    let tree = source_tree(&[("p.kicad_pro", "{}"), ("p.kicad_sch", &missing_sheet)]);
+    let gone = parse_into(&tree.join("p.kicad_pro"), &tree.join("o.prism"));
+    assert_eq!(gone.code, 0);
+    assert_eq!(gone.document["stages"][0]["status"], "complete");
+    assert_eq!(gone.document["warnings"][0]["code"], "sheet-missing");
+    // A reference that differs from the file only in letter case reads that file, as
+    // the Windows and macOS file systems the designs are authored on do.
+    let cased_sheet = SHEET.replace(
+        "(lib_symbols))",
+        "(lib_symbols) (sheet (at 0 0) (size 1 1) (uuid \"6c5f0000-0000-4000-8000-000000000003\") (property \"Sheetname\" \"S\")\n (property \"Sheetfile\" \"subsheets/Child.kicad_sch\")))",
+    );
+    let tree = source_tree(&[
+        ("p.kicad_pro", "{}"),
+        ("p.kicad_sch", &cased_sheet),
+        ("Subsheets/child.kicad_sch", SHEET),
+    ]);
+    let out = tree.join("o.prism");
+    let cased = parse_into(&tree.join("p.kicad_pro"), &out);
+    assert_eq!(cased.code, 0);
+    assert_eq!(cased.document["warnings"][0]["code"], "sheet-path-case");
+    let limits = Limits::defaults(Work::Verify);
+    let reader = BundleReader::open(std::fs::read(&out).unwrap(), &limits).unwrap();
+    assert!(
+        reader
+            .manifest()
+            .members
+            .iter()
+            .any(|member| member.path.0 == "sources/Subsheets/child.kicad_sch"),
+        "the case-insensitive match is read"
+    );
 }

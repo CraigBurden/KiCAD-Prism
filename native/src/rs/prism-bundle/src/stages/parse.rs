@@ -282,6 +282,7 @@ struct ParseRun<'a> {
 }
 
 mod projections;
+mod sheet_source;
 
 pub(super) fn member(path: &str) -> String {
     format!("{SOURCES_PREFIX}{path}")
@@ -435,7 +436,7 @@ impl ParseRun<'_> {
         }
     }
 
-    fn read_hierarchy(&self, root: &str) -> Outcome<Result<Vec<Text>, Finding>> {
+    fn read_hierarchy(&mut self, root: &str) -> Outcome<Result<Vec<Text>, Finding>> {
         let mut seen = BTreeSet::from([root.to_owned()]);
         let mut queue = VecDeque::from([(root.to_owned(), None)]);
         let mut sheets = Vec::new();
@@ -448,6 +449,9 @@ impl ParseRun<'_> {
                 let at = Location::at_offset(member(&path), text.as_bytes(), reference.offset);
                 let child = resolve(&path, &reference.file)
                     .map_err(|why| outside(&path, &reference.file, why, &at))?;
+                let Some(child) = self.sheet_source(&path, &reference.file, child)? else {
+                    continue;
+                };
                 if seen.insert(child.clone()) {
                     queue.push_back((child, Some(at)));
                 }

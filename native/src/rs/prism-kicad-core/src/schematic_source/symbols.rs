@@ -1,6 +1,6 @@
 use super::{
     SchematicPoint, carrier_form_spans, child_point, child_scalar, direct_scalars, limit_error,
-    parse_symbol_instances, source_error,
+    parse_symbol_instances, property_scalars, source_error,
 };
 use crate::schematic_bundle::SchematicBundleLimits;
 use crate::sexpr_projection::FormSpan;
@@ -350,6 +350,9 @@ fn merge_index_entry(target: &mut Option<InstanceIndexEntry>, entry: InstanceInd
 pub struct SchematicSymbolProperty {
     pub key: String,
     pub value: String,
+    /// KiCad 9's `private` flag: a field KiCad draws only in the symbol editor and leaves
+    /// out of BOMs. Its netlist export still carries it.
+    pub private: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -577,10 +580,11 @@ fn parse_properties(
                 "symbol property count exceeds its limit",
             ));
         }
-        let values = direct_scalars(source, span, 2, source_path, limits)?;
+        let property = property_scalars(source, span, source_path, limits)?;
         properties.push(SchematicSymbolProperty {
-            key: values.first().cloned().unwrap_or_default(),
-            value: values.get(1).cloned().unwrap_or_default(),
+            key: property.key,
+            value: property.value,
+            private: property.private,
         });
     }
     Ok(properties)
