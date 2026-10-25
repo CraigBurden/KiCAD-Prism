@@ -215,6 +215,12 @@ class DesignBundleJobTests(_Workspace, unittest.TestCase):
         self.assertEqual(result.message, "Design bundle ready: parse complete, board complete, models complete")
         self.assertEqual((result.details["failed_stages"], result.details["partial_stages"]), ([], []))
         self.assertEqual(rows.get_bundle("p1", result.details["bundle_key"])["error"], "")
+        # The KiCad steps that ran report their cost beside prism-kicad's invocations.
+        steps = {step["step"]: step for step in result.details.get("kicad_steps", [])}
+        self.assertTrue(steps, "no KiCad step was recorded")
+        for step in steps.values():
+            self.assertEqual(set(step), {"step", "runs", "exit", "elapsed_ms", "peak_rss_bytes"})
+            self.assertGreaterEqual(step["runs"], 1)
 
     def test_the_output_directory_is_recreated_when_removed_before_parse(self) -> None:
         # The worker's first retention pass removes empty revision directories
