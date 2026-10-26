@@ -89,6 +89,11 @@
     "path": "/api/v1/catalog/import-sessions/{session_id}/proposals/bulk-accept",
     "typed": true
   },
+  "cache_stats": {
+    "method": "GET",
+    "path": "/api/v1/ops/caches",
+    "typed": true
+  },
   "cancel_job": {
     "method": "POST",
     "path": "/api/v1/jobs/{job_id}/cancel",
@@ -372,6 +377,11 @@
   "draft_setup": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/sim/a0/setups",
+    "typed": true
+  },
+  "event_and_webhook_health": {
+    "method": "GET",
+    "path": "/api/v1/ops/event-health",
     "typed": true
   },
   "export_import_proposals_csv": {
@@ -1197,6 +1207,11 @@
   "plugin_version": {
     "method": "GET",
     "path": "/api/v1/plugin/version",
+    "typed": true
+  },
+  "pool_and_workers": {
+    "method": "GET",
+    "path": "/api/v1/ops/pool-and-workers",
     "typed": true
   },
   "preflight_setup": {

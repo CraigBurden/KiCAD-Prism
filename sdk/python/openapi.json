@@ -1599,6 +1599,166 @@
         "title": "BulkImportAcceptanceItem",
         "type": "object"
       },
+      "BundleStore": {
+        "properties": {
+          "archive_bytes": {
+            "title": "Archive Bytes",
+            "type": "integer"
+          },
+          "archives": {
+            "title": "Archives",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "archives",
+          "archive_bytes"
+        ],
+        "title": "BundleStore",
+        "type": "object"
+      },
+      "CacheEntry": {
+        "properties": {
+          "disk_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disk Bytes"
+          },
+          "disk_files": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disk Files"
+          },
+          "disk_partial": {
+            "default": false,
+            "title": "Disk Partial",
+            "type": "boolean"
+          },
+          "hit_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hit Rate"
+          },
+          "hits": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hits"
+          },
+          "misses": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Misses"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "newest_access": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Newest Access"
+          },
+          "oldest_access": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Access"
+          },
+          "table_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table Bytes"
+          },
+          "table_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table Rows"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CacheEntry",
+        "type": "object"
+      },
+      "CacheStats": {
+        "properties": {
+          "bundle_store": {
+            "$ref": "#/components/schemas/BundleStore"
+          },
+          "caches": {
+            "items": {
+              "$ref": "#/components/schemas/CacheEntry"
+            },
+            "title": "Caches",
+            "type": "array"
+          },
+          "window_minutes": {
+            "title": "Window Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "window_minutes",
+          "caches",
+          "bundle_store"
+        ],
+        "title": "CacheStats",
+        "type": "object"
+      },
       "CandidateCreated": {
         "additionalProperties": true,
         "properties": {
@@ -7066,6 +7226,34 @@
         "title": "DeletedCommentView",
         "type": "object"
       },
+      "DeliveryHealth": {
+        "properties": {
+          "deliveries": {
+            "title": "Deliveries",
+            "type": "integer"
+          },
+          "error_rate": {
+            "title": "Error Rate",
+            "type": "number"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deliveries",
+          "ok",
+          "failed",
+          "error_rate"
+        ],
+        "title": "DeliveryHealth",
+        "type": "object"
+      },
       "DesignAssemblyOut": {
         "properties": {
           "dnp": {
@@ -8159,6 +8347,69 @@
           "file"
         ],
         "title": "DrillTool",
+        "type": "object"
+      },
+      "EventAndWebhookHealth": {
+        "properties": {
+          "events_last_hour": {
+            "items": {
+              "$ref": "#/components/schemas/EventKindCount"
+            },
+            "title": "Events Last Hour",
+            "type": "array"
+          },
+          "head_cursor": {
+            "title": "Head Cursor",
+            "type": "integer"
+          },
+          "oldest_retained_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Retained At"
+          },
+          "retention_days": {
+            "title": "Retention Days",
+            "type": "integer"
+          },
+          "webhooks": {
+            "items": {
+              "$ref": "#/components/schemas/WebhookHealth"
+            },
+            "title": "Webhooks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "head_cursor",
+          "retention_days",
+          "events_last_hour",
+          "webhooks"
+        ],
+        "title": "EventAndWebhookHealth",
+        "type": "object"
+      },
+      "EventKindCount": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "count"
+        ],
+        "title": "EventKindCount",
         "type": "object"
       },
       "EventOut": {
@@ -13276,6 +13527,35 @@
         "title": "OAuthBeginResponse",
         "type": "object"
       },
+      "OldestQueued": {
+        "properties": {
+          "age_seconds": {
+            "title": "Age Seconds",
+            "type": "number"
+          },
+          "oldest_queued_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Queued At"
+          },
+          "worker_pool": {
+            "title": "Worker Pool",
+            "type": "string"
+          }
+        },
+        "required": [
+          "worker_pool",
+          "age_seconds"
+        ],
+        "title": "OldestQueued",
+        "type": "object"
+      },
       "OpsStatus": {
         "properties": {
           "enabled": {
@@ -13886,6 +14166,84 @@
           "status"
         ],
         "title": "PlacementPart",
+        "type": "object"
+      },
+      "PoolAndWorkers": {
+        "properties": {
+          "memory_budget_mib": {
+            "title": "Memory Budget Mib",
+            "type": "integer"
+          },
+          "oldest_queued": {
+            "items": {
+              "$ref": "#/components/schemas/OldestQueued"
+            },
+            "title": "Oldest Queued",
+            "type": "array"
+          },
+          "pool": {
+            "additionalProperties": true,
+            "title": "Pool",
+            "type": "object"
+          },
+          "process": {
+            "$ref": "#/components/schemas/ProcessInfo"
+          },
+          "queue": {
+            "items": {
+              "$ref": "#/components/schemas/QueueDepth"
+            },
+            "title": "Queue",
+            "type": "array"
+          },
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/ResourceUsage"
+            },
+            "title": "Resources",
+            "type": "array"
+          },
+          "workers": {
+            "items": {
+              "$ref": "#/components/schemas/WorkerInfo"
+            },
+            "title": "Workers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "process",
+          "pool",
+          "workers",
+          "resources",
+          "queue",
+          "oldest_queued",
+          "memory_budget_mib"
+        ],
+        "title": "PoolAndWorkers",
+        "type": "object"
+      },
+      "ProcessInfo": {
+        "properties": {
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "pid": {
+            "title": "Pid",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "host",
+          "pid",
+          "kind"
+        ],
+        "title": "ProcessInfo",
         "type": "object"
       },
       "Project": {
@@ -15372,6 +15730,34 @@
         "title": "PushCommentsView",
         "type": "object"
       },
+      "QueueDepth": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "worker_pool": {
+            "title": "Worker Pool",
+            "type": "string"
+          }
+        },
+        "required": [
+          "worker_pool",
+          "kind",
+          "status",
+          "count"
+        ],
+        "title": "QueueDepth",
+        "type": "object"
+      },
       "ReattachCommentRequest": {
         "properties": {
           "commit": {
@@ -16214,6 +16600,34 @@
           "project_root"
         ],
         "title": "ResolvedPaths",
+        "type": "object"
+      },
+      "ResourceUsage": {
+        "properties": {
+          "capacity": {
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "free": {
+            "title": "Free",
+            "type": "integer"
+          },
+          "in_use": {
+            "title": "In Use",
+            "type": "integer"
+          },
+          "resource": {
+            "title": "Resource",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource",
+          "capacity",
+          "in_use",
+          "free"
+        ],
+        "title": "ResourceUsage",
         "type": "object"
       },
       "ReviewDecision": {
@@ -19383,6 +19797,100 @@
         "title": "WebhookDeliveryView",
         "type": "object"
       },
+      "WebhookHealth": {
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "cursor": {
+            "title": "Cursor",
+            "type": "integer"
+          },
+          "deliveries_24h": {
+            "$ref": "#/components/schemas/DeliveryHealth"
+          },
+          "event_kinds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Event Kinds",
+            "type": "array"
+          },
+          "failing_since": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failing Since"
+          },
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "lag": {
+            "title": "Lag",
+            "type": "integer"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Status"
+          },
+          "next_attempt_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Attempt At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "host",
+          "status",
+          "event_kinds",
+          "cursor",
+          "lag",
+          "attempts",
+          "deliveries_24h"
+        ],
+        "title": "WebhookHealth",
+        "type": "object"
+      },
       "WebhookSecret": {
         "description": "A rotated secret, shown once.",
         "properties": {
@@ -19631,6 +20139,103 @@
           "createdAt"
         ],
         "title": "WebhookView",
+        "type": "object"
+      },
+      "WorkerInfo": {
+        "properties": {
+          "concurrency": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrency"
+          },
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
+          },
+          "memory_budget_mib": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Budget Mib"
+          },
+          "pid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pid"
+          },
+          "pool": {
+            "title": "Pool",
+            "type": "string"
+          },
+          "running_jobs": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Running Jobs",
+            "type": "array"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "worker_id": {
+            "title": "Worker Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "worker_id",
+          "pool",
+          "stale"
+        ],
+        "title": "WorkerInfo",
         "type": "object"
       },
       "WorkflowQueued": {
@@ -26494,6 +27099,93 @@
         "summary": "Exchange client credentials for a service token",
         "tags": [
           "oauth"
+        ]
+      }
+    },
+    "/api/v1/ops/caches": {
+      "get": {
+        "operationId": "cache_stats",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "window_minutes",
+            "required": false,
+            "schema": {
+              "default": 60,
+              "maximum": 10080,
+              "minimum": 1,
+              "title": "Window Minutes",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CacheStats"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cache hit rates, table sizes and bounded on-disk sizes",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/api/v1/ops/event-health": {
+      "get": {
+        "operationId": "event_and_webhook_health",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventAndWebhookHealth"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Event-log head, retention and webhook lag and delivery health",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/api/v1/ops/pool-and-workers": {
+      "get": {
+        "operationId": "pool_and_workers",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolAndWorkers"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "This process's pool, live workers, resource slots and queue depth",
+        "tags": [
+          "ops"
         ]
       }
     },
