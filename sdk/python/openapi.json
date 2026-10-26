@@ -1599,6 +1599,329 @@
         "title": "BulkImportAcceptanceItem",
         "type": "object"
       },
+      "BundleBuildProfileOut": {
+        "properties": {
+          "archive_bytes": {
+            "title": "Archive Bytes",
+            "type": "integer"
+          },
+          "bundle_key": {
+            "title": "Bundle Key",
+            "type": "string"
+          },
+          "cache": {
+            "$ref": "#/components/schemas/BundleCacheOut"
+          },
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "design_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Design Key"
+          },
+          "error": {
+            "title": "Error",
+            "type": "string"
+          },
+          "failed_stages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Failed Stages",
+            "type": "array"
+          },
+          "invocations": {
+            "items": {
+              "$ref": "#/components/schemas/BundleInvocationOut"
+            },
+            "title": "Invocations",
+            "type": "array"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "job_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Status"
+          },
+          "kicad_steps": {
+            "items": {
+              "$ref": "#/components/schemas/BundleKicadStepOut"
+            },
+            "title": "Kicad Steps",
+            "type": "array"
+          },
+          "partial_stages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Partial Stages",
+            "type": "array"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "queue_wait_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Wait Seconds"
+          },
+          "revision_key": {
+            "title": "Revision Key",
+            "type": "string"
+          },
+          "slowest_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slowest Step"
+          },
+          "stages": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Stages",
+            "type": "object"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "wall_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wall Seconds"
+          }
+        },
+        "required": [
+          "project_id",
+          "bundle_key",
+          "revision_key",
+          "state",
+          "archive_bytes",
+          "invocations",
+          "kicad_steps",
+          "cache",
+          "stages",
+          "failed_stages",
+          "partial_stages",
+          "error"
+        ],
+        "title": "BundleBuildProfileOut",
+        "type": "object"
+      },
+      "BundleCacheOut": {
+        "properties": {
+          "models_cache_hit": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Models Cache Hit"
+          },
+          "refill_cache_hit": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refill Cache Hit"
+          },
+          "upgrade_cache_hits": {
+            "title": "Upgrade Cache Hits",
+            "type": "integer"
+          },
+          "upgrade_cache_misses": {
+            "title": "Upgrade Cache Misses",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "upgrade_cache_hits",
+          "upgrade_cache_misses"
+        ],
+        "title": "BundleCacheOut",
+        "type": "object"
+      },
+      "BundleInvocationOut": {
+        "properties": {
+          "elapsed_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elapsed Ms"
+          },
+          "executable": {
+            "title": "Executable",
+            "type": "string"
+          },
+          "exit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit"
+          },
+          "peak_rss_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Rss Bytes"
+          },
+          "subcommand": {
+            "title": "Subcommand",
+            "type": "string"
+          }
+        },
+        "required": [
+          "executable",
+          "subcommand"
+        ],
+        "title": "BundleInvocationOut",
+        "type": "object"
+      },
+      "BundleKicadStepOut": {
+        "properties": {
+          "elapsed_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elapsed Ms"
+          },
+          "exit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit"
+          },
+          "peak_rss_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Rss Bytes"
+          },
+          "runs": {
+            "title": "Runs",
+            "type": "integer"
+          },
+          "step": {
+            "title": "Step",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "runs"
+        ],
+        "title": "BundleKicadStepOut",
+        "type": "object"
+      },
       "BundleStore": {
         "properties": {
           "archive_bytes": {
@@ -3625,6 +3948,74 @@
           "url"
         ],
         "title": "CheckAccessRequest",
+        "type": "object"
+      },
+      "ClaimAttemptOut": {
+        "properties": {
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "fence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fence"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seconds"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "worker_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Id"
+          }
+        },
+        "required": [
+          "outcome"
+        ],
+        "title": "ClaimAttemptOut",
         "type": "object"
       },
       "ClaimLatency": {
@@ -10878,6 +11269,57 @@
         "title": "JobCancelRequested",
         "type": "object"
       },
+      "JobEventOut": {
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "details": {
+            "additionalProperties": true,
+            "title": "Details",
+            "type": "object"
+          },
+          "event_type": {
+            "title": "Event Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percent"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "event_type",
+          "stage",
+          "details"
+        ],
+        "title": "JobEventOut",
+        "type": "object"
+      },
       "JobEvents": {
         "additionalProperties": true,
         "properties": {
@@ -10900,6 +11342,51 @@
         "title": "JobEvents",
         "type": "object"
       },
+      "JobLockOut": {
+        "properties": {
+          "fence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fence"
+          },
+          "lease_expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease Expires At"
+          },
+          "lease_owner": {
+            "title": "Lease Owner",
+            "type": "string"
+          },
+          "lock_key": {
+            "title": "Lock Key",
+            "type": "string"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lock_key",
+          "mode",
+          "lease_owner"
+        ],
+        "title": "JobLockOut",
+        "type": "object"
+      },
       "JobLogs": {
         "additionalProperties": true,
         "properties": {
@@ -10920,6 +11407,40 @@
           "lines"
         ],
         "title": "JobLogs",
+        "type": "object"
+      },
+      "JobPhasesOut": {
+        "properties": {
+          "claims": {
+            "items": {
+              "$ref": "#/components/schemas/ClaimAttemptOut"
+            },
+            "title": "Claims",
+            "type": "array"
+          },
+          "queue_wait": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QueueWaitOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/StageRunOut"
+            },
+            "title": "Stages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "claims",
+          "stages"
+        ],
+        "title": "JobPhasesOut",
         "type": "object"
       },
       "JobRecord": {
@@ -11492,6 +12013,255 @@
           "result_url"
         ],
         "title": "JobStatus",
+        "type": "object"
+      },
+      "JobSummaryOut": {
+        "properties": {
+          "attempt": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt"
+          },
+          "cancel_requested_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancel Requested At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "error_code": {
+            "title": "Error Code",
+            "type": "string"
+          },
+          "error_message": {
+            "title": "Error Message",
+            "type": "string"
+          },
+          "exit_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Code"
+          },
+          "fence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fence"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "lease_owner": {
+            "title": "Lease Owner",
+            "type": "string"
+          },
+          "max_attempts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Attempts"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "repository_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repository Id"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "worker_pool": {
+            "title": "Worker Pool",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "kind",
+          "status",
+          "stage",
+          "worker_pool",
+          "lease_owner",
+          "error_code",
+          "error_message"
+        ],
+        "title": "JobSummaryOut",
+        "type": "object"
+      },
+      "JobTimelineOut": {
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/JobEventOut"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "events_truncated": {
+            "title": "Events Truncated",
+            "type": "boolean"
+          },
+          "job": {
+            "$ref": "#/components/schemas/JobSummaryOut"
+          },
+          "locks": {
+            "items": {
+              "$ref": "#/components/schemas/JobLockOut"
+            },
+            "title": "Locks",
+            "type": "array"
+          },
+          "log_tail": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Log Tail",
+            "type": "array"
+          },
+          "payload_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Payload Keys",
+            "type": "array"
+          },
+          "phases": {
+            "$ref": "#/components/schemas/JobPhasesOut"
+          },
+          "resource_slots": {
+            "items": {
+              "$ref": "#/components/schemas/ResourceSlotOut"
+            },
+            "title": "Resource Slots",
+            "type": "array"
+          },
+          "result_metadata_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Result Metadata Keys",
+            "type": "array"
+          }
+        },
+        "required": [
+          "job",
+          "events",
+          "events_truncated",
+          "phases",
+          "resource_slots",
+          "locks",
+          "log_tail",
+          "payload_keys",
+          "result_metadata_keys"
+        ],
+        "title": "JobTimelineOut",
         "type": "object"
       },
       "JobUpdateRate": {
@@ -15758,6 +16528,45 @@
         "title": "QueueDepth",
         "type": "object"
       },
+      "QueueWaitOut": {
+        "properties": {
+          "claimed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Claimed At"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seconds"
+          }
+        },
+        "title": "QueueWaitOut",
+        "type": "object"
+      },
       "ReattachCommentRequest": {
         "properties": {
           "commit": {
@@ -16600,6 +17409,51 @@
           "project_root"
         ],
         "title": "ResolvedPaths",
+        "type": "object"
+      },
+      "ResourceSlotOut": {
+        "properties": {
+          "fence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fence"
+          },
+          "lease_expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease Expires At"
+          },
+          "lease_owner": {
+            "title": "Lease Owner",
+            "type": "string"
+          },
+          "resource_name": {
+            "title": "Resource Name",
+            "type": "string"
+          },
+          "slot_number": {
+            "title": "Slot Number",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "resource_name",
+          "slot_number",
+          "lease_owner"
+        ],
+        "title": "ResourceSlotOut",
         "type": "object"
       },
       "ResourceUsage": {
@@ -17600,6 +18454,52 @@
           "forge"
         ],
         "title": "SourceResponse",
+        "type": "object"
+      },
+      "StageRunOut": {
+        "properties": {
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seconds"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          }
+        },
+        "required": [
+          "stage"
+        ],
+        "title": "StageRunOut",
         "type": "object"
       },
       "StartDesignCompareResponse": {
@@ -27168,6 +28068,60 @@
         ]
       }
     },
+    "/api/v1/ops/jobs/{job_id}/timeline": {
+      "get": {
+        "operationId": "get_job_timeline",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "log_lines",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Log Lines",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobTimelineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "A job's queue wait, claim attempts, stage durations and redacted log tail",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
     "/api/v1/ops/pool-and-workers": {
       "get": {
         "operationId": "pool_and_workers",
@@ -27184,6 +28138,80 @@
           }
         },
         "summary": "This process's pool, live workers, resource slots and queue depth",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/api/v1/ops/projects/{project_id}/bundle-profile": {
+      "get": {
+        "operationId": "get_bundle_build_profile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "commit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Commit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "job_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BundleBuildProfileOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "A design bundle build's per-invocation and per-KiCad-step profile",
         "tags": [
           "ops"
         ]

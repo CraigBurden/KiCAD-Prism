@@ -449,6 +449,11 @@
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/placement",
     "typed": true
   },
+  "get_bundle_build_profile": {
+    "method": "GET",
+    "path": "/api/v1/ops/projects/{project_id}/bundle-profile",
+    "typed": true
+  },
   "get_candidate": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/candidates/{candidate_id}",
@@ -617,6 +622,11 @@
   "get_job_logs": {
     "method": "GET",
     "path": "/api/v1/jobs/{job_id}/logs",
+    "typed": true
+  },
+  "get_job_timeline": {
+    "method": "GET",
+    "path": "/api/v1/ops/jobs/{job_id}/timeline",
     "typed": true
   },
   "get_mcp_governance": {
