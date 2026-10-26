@@ -15,18 +15,27 @@ untrusted data from Prism.
 A route may take a JSON body: ``Tool.args`` returns it as a third item, and the
 in-process request carries it with ``content-type: application/json``. The
 caller's ``authorization`` header is still the only credential.
+
+Writes (ADR §10): a write tool's ``idempotencyKey`` argument travels as the
+``Idempotency-Key`` header. Two outcomes are not tool results, because the
+client has to act on them rather than the model: a route's
+``insufficient_scope`` challenge raises ``ScopeChallenge`` (D14), and a step
+only a person may take raises ``HandoffRequired`` (D15). ``/mcp`` turns them
+into an HTTP 403 and a URL elicitation.
 """
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
-from typing import Any
+import uuid
+from typing import Any, NoReturn
 from urllib.parse import quote, unquote, urlencode
 
 from jsonschema import Draft202012Validator
 
-from app.services.mcp.registry import Tool
+from app.services.mcp.registry import IDEMPOTENCY_KEY, Tool
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +45,39 @@ UNTRUSTED_META = {"source": "prism", "untrusted": True}
 #: The text block is a compact rendering, not the payload's transport. A
 #: megabyte of BOM is still in ``structuredContent``; the text says it was cut.
 MAX_TEXT_BYTES = 20_000
+
+
+class ScopeChallenge(Exception):
+    """A route refused the caller for a scope that consent could grant (D14)."""
+
+    def __init__(self, challenge: str, detail: str) -> None:
+        super().__init__(detail)
+        self.challenge = challenge
+        self.detail = detail
+
+
+class HandoffRequired(Exception):
+    """The step needs a person in Prism; ``url`` is where they take it (D15)."""
+
+    def __init__(self, url: str, message: str) -> None:
+        super().__init__(message)
+        self.url = url
+        self.message = message
+        self.elicitation_id = uuid.uuid4().hex
+
+    def elicitation(self) -> dict[str, Any]:
+        return {
+            "mode": "url",
+            "elicitationId": self.elicitation_id,
+            "url": self.url,
+            "message": self.message,
+        }
+
+
+def handoff(url: str, message: str) -> NoReturn:
+    """Stop a tool and hand the step to a person at ``url``."""
+
+    raise HandoffRequired(url, message)
 
 
 def _json(value: Any) -> str:
@@ -180,11 +222,19 @@ async def _call_route(
     query: str,
     authorization: str,
     body: dict[str, Any] | None = None,
+    *,
+    idempotency_key: str | None = None,
 ) -> tuple[int, bytes]:
-    """One in-process ASGI request, carrying only the caller's bearer token."""
+    """One in-process ASGI request, carrying only the caller's bearer token.
+
+    A ``403`` carrying an ``insufficient_scope`` challenge raises
+    ``ScopeChallenge`` instead of returning, whichever tool made the call.
+    """
 
     payload = _json(body).encode("utf-8") if body is not None else b""
     headers = [(b"authorization", authorization.encode("utf-8"))]
+    if idempotency_key and method.upper() != "GET":
+        headers.append((b"idempotency-key", idempotency_key.encode("utf-8")))
     if body is not None:
         headers.extend(
             [
@@ -230,7 +280,22 @@ async def _call_route(
         for message in messages
         if message["type"] == "http.response.body"
     )
-    return int(start["status"]), response_body
+    status = int(start["status"])
+    if status == 403:
+        challenge = _scope_challenge(start.get("headers") or [])
+        if challenge is not None:
+            _code, detail = _error_detail(_error_body(status, response_body), status)
+            raise ScopeChallenge(challenge, detail)
+    return status, response_body
+
+
+def _scope_challenge(headers: list[tuple[bytes, bytes]]) -> str | None:
+    for name, value in headers:
+        if name.lower() == b"www-authenticate":
+            text = value.decode("latin-1")
+            if 'error="insufficient_scope"' in text:
+                return text
+    return None
 
 
 async def call_route(
@@ -263,6 +328,17 @@ async def call_tool(
 ) -> dict[str, Any]:
     """Invoke ``tool`` as the caller; never raises for a refused route."""
 
+    arguments = dict(arguments) if isinstance(arguments, dict) else arguments
+    idempotency_key = None
+    if tool.write and isinstance(arguments, dict):
+        idempotency_key = arguments.pop(IDEMPOTENCY_KEY, None)
+        if idempotency_key is not None and (
+            not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 255
+        ):
+            return _failure(
+                "invalid-arguments",
+                "Invalid arguments: idempotencyKey must be a string of 1 to 255 characters",
+            )
     problems = _argument_errors(tool, arguments)
     if problems:
         message = "Invalid arguments: " + "; ".join(problems)
@@ -278,15 +354,18 @@ async def call_tool(
     except (KeyError, TypeError, ValueError) as error:
         return _failure("invalid-arguments", f"Invalid arguments: {error}")
 
+    request = functools.partial(_call_route, idempotency_key=idempotency_key)
     if tool.execute is not None:
         try:
-            return await tool.execute(app, dict(arguments), authorization, _call_route)
+            return await tool.execute(app, dict(arguments), authorization, request)
+        except (ScopeChallenge, HandoffRequired):
+            raise
         except Exception:  # noqa: BLE001 - a tool never leaks exception detail
             logger.exception("MCP tool %s failed", tool.name)
             return _failure("internal", "internal: the Prism request failed")
 
     try:
-        status, raw = await _call_route(
+        status, raw = await request(
             app,
             tool.route[0],
             path,
@@ -294,6 +373,8 @@ async def call_tool(
             authorization,
             body,
         )
+    except ScopeChallenge:
+        raise
     except Exception:  # noqa: BLE001 - never leak exception detail across MCP
         logger.exception("MCP tool %s failed to reach its route", tool.name)
         return _failure("internal", "internal: the Prism request failed")
@@ -312,10 +393,13 @@ async def call_tool(
 
 __all__ = [
     "DATA_PREFIX",
+    "HandoffRequired",
+    "ScopeChallenge",
     "MAX_TEXT_BYTES",
     "call_route",
     "call_tool",
     "error_result",
+    "handoff",
     "not_found_error",
     "success_result",
     "text_block",
