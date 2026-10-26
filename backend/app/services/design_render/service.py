@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from app.services.ops import stats as ops_stats
 from app.core.errors import Invalid
 from app.services import derived_assets, kicad_tools
 from app.services.design_bundle import consumer
@@ -228,6 +229,7 @@ def start_render(project: Any, request: Mapping[str, Any], *, requested_by: str 
         status = str(existing.get("status") or "")
         png = derived_assets.find_render_png(getattr(project, "path", ""), identity, anchor=anchor)
         if status == "completed" and png is not None:
+            ops_stats.incr("render_cache.hit")
             return {"renderId": identity, "status": "completed"}
         job_id = str(existing.get("jobId") or "")
         job = _jobs().get(job_id) if job_id else None
@@ -257,6 +259,7 @@ def start_render(project: Any, request: Mapping[str, Any], *, requested_by: str 
         status="queued", job_id=str(queued["job_id"]),
     )
     _write(project, identity, record, anchor=anchor)
+    ops_stats.incr("render_cache.miss")
     return {"renderId": identity, "jobId": str(queued["job_id"]), "status": "queued"}
 
 
