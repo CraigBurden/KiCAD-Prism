@@ -15,6 +15,7 @@ from app.core.links import (  # noqa: E402
     parse_resource_uri,
     project_url,
     resource_uri,
+    view_url,
 )
 
 BASE = "https://prism.example.com"
@@ -113,6 +114,76 @@ class ResourceUriTests(unittest.TestCase):
             resource_uri("prj_1", SHA[:12], "component")
         with self.assertRaises(ValueError):
             resource_uri("prj_1", SHA, "widget")
+
+
+class ViewUrlTests(unittest.TestCase):
+    def test_parameters_are_written_in_the_fixed_order(self) -> None:
+        self.assertEqual(
+            view_url(
+                BASE,
+                "prj_1",
+                tab="pcb",
+                commit=SHA,
+                sel=("U1",),
+                nets=("GND",),
+                page="/Sheet 1/",
+                bbox=(1, 2, 3, 4),
+                insets=True,
+            ),
+            f"{BASE}/project/prj_1?section=visualizers&tab=pcb&commit={SHA}"
+            "&sel=U1&nets=GND&page=%2FSheet+1%2F&bbox=1,2,3,4&insets=1",
+        )
+
+    def test_empty_values_are_dropped(self) -> None:
+        self.assertEqual(
+            view_url(BASE, "prj_1", sel=(), nets=(), bbox=None, insets=False),
+            f"{BASE}/project/prj_1?section=visualizers",
+        )
+        self.assertEqual(
+            view_url(BASE, "prj_1", tab="", commit=None),
+            f"{BASE}/project/prj_1?section=visualizers",
+        )
+
+    def test_list_items_are_quoted_one_at_a_time(self) -> None:
+        url = view_url(
+            BASE,
+            "prj_1",
+            sel=("U1", "R,2", "A/B", "C D", "板"),
+            nets=("Power/+12V", "GND"),
+        )
+        self.assertIn("sel=U1,R%252C2,A%252FB,C%2520D,%25E6%259D%25BF&", url)
+        self.assertIn("nets=Power%252F%252B12V,GND", url)
+        self.assertIn("sel=U1", view_url(BASE, "prj_1", sel="U1"))
+
+    def test_lists_read_back_the_way_the_frontend_reads_them(self) -> None:
+        # lib/view-state-url.ts: URLSearchParams.get (one decode), split on
+        # commas, decodeURIComponent each item.
+        from urllib.parse import parse_qs, unquote, urlsplit
+
+        items = ["U1", "R,2", "A/B", "C D", "板", "50%"]
+        query = parse_qs(urlsplit(view_url(BASE, "prj_1", sel=items, nets=items)).query)
+        for key in ("sel", "nets"):
+            self.assertEqual([unquote(part) for part in query[key][0].split(",")], items)
+
+    def test_bbox_numbers_have_no_trailing_zeros(self) -> None:
+        self.assertIn(
+            "bbox=1,2.5,3.125,-0.5",
+            view_url(BASE, "prj_1", bbox=(1.0, 2.50, 3.125, -0.5)),
+        )
+        self.assertIn(
+            "bbox=0,0,12,8",
+            view_url(BASE, "prj_1", bbox=(0.0, -0.0, 12.000, 8.0)),
+        )
+
+    def test_the_project_id_stays_one_path_segment(self) -> None:
+        self.assertEqual(
+            view_url(BASE, "a/b c", tab="sch"),
+            f"{BASE}/project/a%2Fb%20c?section=visualizers&tab=sch",
+        )
+
+    def test_empty_base_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            view_url("  ", "prj_1")
 
 
 if __name__ == "__main__":

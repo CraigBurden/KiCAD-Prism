@@ -261,6 +261,21 @@ synced, bundle built or failed, job progress and completion, comparison done,
 comment changed, release candidate built or approved). `PRISM_EVENT_RETENTION_DAYS`
 is how many days of events are kept (default 30); startup deletes older rows.
 
+### Outbound webhooks
+
+Administrators register signed HTTPS endpoints in Settings or through
+`/api/settings/webhooks`; each receives the events its kinds and projects admit,
+signed with Standard Webhooks (`webhook-id`, `webhook-timestamp`,
+`webhook-signature`). Delivery retries with a 30-second doubling backoff up to one
+hour, and an endpoint that has failed for 24 hours is marked `failing` until an
+administrator re-enables it. The signing secret is encrypted with
+`TRACKER_CREDENTIAL_ROOT_KEY` and is shown once, at create or rotate.
+
+| Setting | Purpose |
+| --- | --- |
+| Outbound webhooks (`/api/settings/webhooks`) | one signed HTTP `POST` per new event, in log order, with retries and a 30-day delivery history |
+| `PRISM_WEBHOOK_ALLOW_PRIVATE` | permits `http` and private, loopback or link-local targets for a local test receiver (default `false`; production endpoints must be `https` on a public address) |
+
 ## Project-level `.prism.json`
 
 Place `.prism.json` in a KiCad project root when auto-detection does not find the

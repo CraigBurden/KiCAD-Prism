@@ -58,12 +58,29 @@ TOOL_ORDER = [
     "get_release_status",
     "compare_revisions",
     "get_changes",
+    "sync_project",
+    "start_release_build",
+    "request_release_approval",
+    "create_catalog_draft",
+    "update_import_proposal",
     "add_comment",
     "reply_to_comment",
     "resolve_comment",
 ]
 
-WRITE_TOOLS = frozenset({"add_comment", "reply_to_comment", "resolve_comment"})
+#: Tools that change Prism; every other listed tool is a read.
+WRITE_TOOLS = frozenset(
+    {
+        "sync_project",
+        "start_release_build",
+        "request_release_approval",
+        "create_catalog_draft",
+        "update_import_proposal",
+        "add_comment",
+        "reply_to_comment",
+        "resolve_comment",
+    }
+)
 
 
 def unique(prefix: str) -> str:
@@ -290,7 +307,7 @@ class McpServerTests(unittest.TestCase):
 
     # --------------------------------------------------------------- tools
 
-    def test_tools_list_is_deterministic_and_typed(self) -> None:
+    def test_tools_list_is_deterministic_and_annotates_writes(self) -> None:
         first = self.mcp({"jsonrpc": "2.0", "id": 5, "method": "tools/list"}, headers=self.headers)
         second = self.mcp({"jsonrpc": "2.0", "id": 6, "method": "tools/list"}, headers=self.headers)
         self.assertEqual(first["result"], second["result"])
@@ -301,6 +318,7 @@ class McpServerTests(unittest.TestCase):
             with self.subTest(tool=tool["name"]):
                 if tool["name"] in WRITE_TOOLS:
                     self.assertFalse(tool["annotations"]["readOnlyHint"])
+                    self.assertFalse(tool["annotations"]["destructiveHint"])
                     self.assertIn("idempotencyKey", tool["inputSchema"]["properties"])
                 else:
                     self.assertEqual(
@@ -311,6 +329,7 @@ class McpServerTests(unittest.TestCase):
                             "openWorldHint": False,
                         },
                     )
+                    self.assertNotIn("idempotencyKey", tool["inputSchema"]["properties"])
                 self.assertEqual(tool["inputSchema"]["type"], "object")
                 self.assertIn("properties", tool["inputSchema"])
         by_name = {tool["name"]: tool for tool in listed}
@@ -373,6 +392,45 @@ class McpServerTests(unittest.TestCase):
         self.assertTrue(result["isError"])
         self.assertIn("project_id", result["content"][0]["text"])
         self.assertEqual(result["structuredContent"]["error"]["code"], "invalid-arguments")
+
+    # --------------------------------------------------------------- writes
+
+    def assert_refused(self, name: str, arguments: dict) -> None:
+        result = self.mcp(call(name, arguments), headers=self.headers)["result"]
+        self.assertTrue(result["isError"], result)
+        self.assertEqual(result["structuredContent"]["error"]["code"], "forbidden")
+        self.assertIn("forbidden", result["content"][0]["text"])
+
+    def test_a_viewer_without_design_write_cannot_sync(self) -> None:
+        self.assert_refused("sync_project", {"project_id": self._project()})
+
+    def test_a_viewer_without_design_write_cannot_start_a_release_build(self) -> None:
+        self.assert_refused(
+            "start_release_build",
+            {"project_id": self._project(), "commit": COMMIT},
+        )
+
+    def test_a_viewer_without_catalog_write_cannot_create_a_catalog_draft(self) -> None:
+        self.assert_refused(
+            "create_catalog_draft",
+            {
+                "value": "10k",
+                "description": "Resistor 10k 1%",
+                "datasheet": "https://example.test/r.pdf",
+                "manufacturer": "Acme",
+                "manufacturer_part_number": "R-10K",
+                "change_summary": "Create a resistor draft",
+            },
+        )
+
+    def test_a_viewer_without_catalog_write_cannot_save_import_drafts(self) -> None:
+        self.assert_refused(
+            "update_import_proposal",
+            {
+                "session_id": unique("session"),
+                "drafts": {"proposal": {"metadata_overrides": {"value": "10k"}}},
+            },
+        )
 
     def test_an_unknown_tool_is_a_protocol_error(self) -> None:
         response = self.mcp(
@@ -469,13 +527,35 @@ class McpServerTests(unittest.TestCase):
         component = mcp_tools.present(
             "get_component",
             {"project_id": "project/one", "reference": "U1"},
-            {"structuredContent": {"revision": {"commit": COMMIT}, "component": {"reference": "U1"}}},
+            {
+                "structuredContent": {
+                    "revision": {"commit": COMMIT},
+                    "component": {"reference": "U1", "footprint": "QFN-32"},
+                }
+            },
         )["structuredContent"]
         expected_uri = f"prism://project/project%2Fone/rev/{COMMIT}/component/U1"
         self.assertEqual(component["uri"], expected_uri)
         self.assertEqual(component["component"]["uri"], expected_uri)
-        self.assertTrue(component["link"].startswith(f"{BASE}/project/"))
-        self.assertIn(f"commit={COMMIT}", component["link"])
+        self.assertEqual(
+            component["link"],
+            f"{BASE}/project/project%2Fone?section=visualizers&tab=pcb"
+            f"&commit={COMMIT}&sel=U1",
+        )
+        self.assertEqual(component["component"]["link"], component["link"])
+
+        symbol = mcp_tools.present(
+            "get_component",
+            {"project_id": "project/one", "reference": "U2"},
+            {
+                "structuredContent": {
+                    "revision": {"commit": COMMIT},
+                    "component": {"reference": "U2", "footprint": ""},
+                }
+            },
+        )["structuredContent"]
+        self.assertIn("tab=sch", symbol["link"])
+        self.assertIn("sel=U2", symbol["link"])
 
         net = mcp_tools.present(
             "get_net",
@@ -486,6 +566,11 @@ class McpServerTests(unittest.TestCase):
             net["uri"], f"prism://project/project%2Fone/rev/{COMMIT}/net/Power%2F%2B12V"
         )
         self.assertEqual(net["net"]["uri"], net["uri"])
+        self.assertEqual(
+            net["link"],
+            f"{BASE}/project/project%2Fone?section=visualizers&tab=pcb"
+            f"&commit={COMMIT}&nets=Power%252F%252B12V",
+        )
 
         bom = mcp_tools.present(
             "get_bom",
@@ -494,6 +579,35 @@ class McpServerTests(unittest.TestCase):
         )["structuredContent"]
         self.assertEqual(bom["uri"], f"prism://project/project%2Fone/rev/{COMMIT}/bom")
         self.assertIn("tab=bom", bom["link"])
+
+    def test_search_rows_link_to_what_they_name(self) -> None:
+        found = mcp_tools.present(
+            "find_in_design",
+            {"project_id": "project/one", "query": "U"},
+            {
+                "structuredContent": {
+                    "revision": {"commit": COMMIT},
+                    "results": [
+                        {"kind": "component", "reference": "U1", "footprint": "QFN-32"},
+                        {"kind": "component", "reference": "U2", "footprint": ""},
+                        {"kind": "net", "name": "Power/+12V"},
+                    ],
+                }
+            },
+        )["structuredContent"]
+        rows = found["results"]
+        self.assertEqual(
+            rows[0]["link"],
+            f"{BASE}/project/project%2Fone?section=visualizers&tab=pcb"
+            f"&commit={COMMIT}&sel=U1",
+        )
+        self.assertIn("tab=sch", rows[1]["link"])
+        self.assertIn("sel=U2", rows[1]["link"])
+        self.assertEqual(
+            rows[2]["link"],
+            f"{BASE}/project/project%2Fone?section=visualizers&tab=pcb"
+            f"&commit={COMMIT}&nets=Power%252F%252B12V",
+        )
 
 
 if __name__ == "__main__":

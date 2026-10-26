@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.config import settings
-from app.core.links import project_url, resource_uri
+from app.core.links import resource_uri, view_url
 from app.services.mcp.registry import READ_ONLY_ANNOTATIONS, Tool, register
 
 # The render tool needs its own multi-step invocation, so it registers itself
@@ -378,24 +378,41 @@ def _full_sha(value: Any) -> str | None:
     return None
 
 
-def _link(project_id: str, commit: str | None, *, tab: str) -> str | None:
+def _link(
+    project_id: str,
+    commit: str | None,
+    *,
+    tab: str,
+    sel: tuple[str, ...] = (),
+    nets: tuple[str, ...] = (),
+) -> str | None:
     base = settings.PUBLIC_BASE_URL.strip().rstrip("/")
     if not base:
         return None
-    return project_url(
-        base,
-        project_id,
-        section="visualizers",
-        tab=tab,
-        commit=commit,
-    )
+    return view_url(base, project_id, tab=tab, commit=commit, sel=sel, nets=nets)
 
 
-def _cite(structured: dict[str, Any], project_id: str, commit: str, kind: str, key: str | None) -> None:
+def _cite(
+    structured: dict[str, Any],
+    project_id: str,
+    commit: str,
+    kind: str,
+    key: str | None,
+    *,
+    tab: str | None = None,
+    sel: tuple[str, ...] = (),
+    nets: tuple[str, ...] = (),
+) -> None:
     """Add ``link``/``uri`` at the top level and, when given, on the element."""
 
     uri = resource_uri(project_id, commit, kind, key)
-    link = _link(project_id, commit, tab={"component": "sch", "net": "pcb", "bom": "bom"}[kind])
+    link = _link(
+        project_id,
+        commit,
+        tab=tab or {"component": "sch", "net": "pcb", "bom": "bom"}[kind],
+        sel=sel,
+        nets=nets,
+    )
     structured["uri"] = uri
     if link:
         structured["link"] = link
@@ -406,6 +423,45 @@ def _cite(structured: dict[str, Any], project_id: str, commit: str, kind: str, k
             element["link"] = link
 
 
+def _view_tab(element: dict[str, Any]) -> str:
+    """A component with a footprint opens on the board; a symbol-only one on its sheet."""
+
+    return "pcb" if str(element.get("footprint") or "").strip() else "sch"
+
+
+def _cite_search_hits(
+    structured: dict[str, Any], project_id: str, commit: str
+) -> None:
+    """Give each search row the link that opens it in the viewer."""
+
+    results = structured.get("results")
+    if not isinstance(results, list):
+        return
+    for row in results:
+        if not isinstance(row, dict):
+            continue
+        if row.get("kind") == "component":
+            reference = str(row.get("reference") or "")
+            link = _link(
+                project_id,
+                commit,
+                tab=_view_tab(row),
+                sel=(reference,) if reference else (),
+            )
+        elif row.get("kind") == "net":
+            name = str(row.get("name") or "")
+            link = _link(
+                project_id,
+                commit,
+                tab="pcb",
+                nets=(name,) if name else (),
+            )
+        else:
+            continue
+        if link:
+            row["link"] = link
+
+
 def present(tool_name: str, arguments: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
     """Shape one tool result: the status filter, the comparison rows, then citations."""
 
@@ -413,6 +469,9 @@ def present(tool_name: str, arguments: dict[str, Any], result: dict[str, Any]) -
         from app.services.mcp import tools_compare
 
         return tools_compare.present(tool_name, arguments, result)
+
+    if tool_name in _write_tools.WRITE_TOOL_NAMES:
+        return _write_tools.present(tool_name, arguments, result)
 
     structured = result.get("structuredContent")
     if not isinstance(structured, dict):
@@ -441,9 +500,34 @@ def present(tool_name: str, arguments: dict[str, Any], result: dict[str, Any]) -
         commit = _full_sha(revision.get("commit") if isinstance(revision, dict) else None)
         if commit:
             if tool_name == "get_component":
-                _cite(structured, project_id, commit, "component", str(arguments.get("reference") or "") or None)
+                reference = str(arguments.get("reference") or "")
+                _cite(
+                    structured,
+                    project_id,
+                    commit,
+                    "component",
+                    reference or None,
+                    tab=_view_tab(structured.get("component") or {}),
+                    sel=(reference,) if reference else (),
+                )
             else:
-                _cite(structured, project_id, commit, "net", str(arguments.get("net") or "") or None)
+                name = str(arguments.get("net") or "")
+                _cite(
+                    structured,
+                    project_id,
+                    commit,
+                    "net",
+                    name or None,
+                    tab="pcb",
+                    nets=(name,) if name else (),
+                )
+        return result
+
+    if tool_name == "find_in_design":
+        revision = structured.get("revision") or {}
+        commit = _full_sha(revision.get("commit") if isinstance(revision, dict) else None)
+        if commit:
+            _cite_search_hits(structured, project_id, commit)
         return result
 
     if tool_name == "get_bom":
@@ -466,6 +550,9 @@ __all__ = ["present"]
 # ``tools/list`` keeps that order.
 from app.services.mcp import tools_compare as _tools_compare  # noqa: E402, F401
 
+# The write tools register after the read set too, so a client that lists tools
+# sees every read first and every write after.
+from app.services.mcp import tools_writes as _write_tools  # noqa: E402, F401
 # The write tools follow the read set; they are declared in their own module
 # because they carry the policy action a write needs (ADR §10).
 from app.services.mcp import tools_comments as _tools_comments  # noqa: E402, F401
