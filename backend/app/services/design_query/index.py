@@ -117,13 +117,19 @@ def natural_key(text: str) -> tuple[tuple[int, Any], ...]:
 
 
 def _ordered(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Exact matches first, then natural reference or name order."""
+    """Best match first, then natural reference or name order.
+
+    Exact matches rank first, then reference and net-name prefixes, then value
+    and net-name substrings, then other field values. Without the tiers a
+    query like "R" listed every part with an "r" in its description ahead of
+    the resistors.
+    """
 
     keyed: list[tuple[tuple[int, tuple[tuple[int, Any], ...], str], dict[str, Any]]] = []
     for hit in hits:
         label = str(hit.get("reference") or hit.get("name") or "")
-        exact = bool(hit.pop("_exact", False))
-        keyed.append(((0 if exact else 1, natural_key(label), label), hit))
+        rank = int(hit.pop("_rank", 3))
+        keyed.append(((rank, natural_key(label), label), hit))
     keyed.sort(key=lambda item: item[0])
     return [hit for _, hit in keyed]
 
@@ -165,12 +171,13 @@ def _component_hits(index: dict[str, Any], needle: str) -> list[dict[str, Any]]:
         folded = reference.casefold()
         matched: str | None = None
         field: str | None = None
+        rank = 3
         if folded == needle:
-            matched = "reference"
+            matched, rank = "reference", 0
         elif folded.startswith(needle):
-            matched = "reference"
+            matched, rank = "reference", 1
         elif needle in str(component.get("value") or "").casefold():
-            matched = "value"
+            matched, rank = "value", 2
         else:
             for name, value in (component.get("fields") or {}).items():
                 if needle in str(value or "").casefold():
@@ -187,7 +194,7 @@ def _component_hits(index: dict[str, Any], needle: str) -> list[dict[str, Any]]:
                 "footprint": str(component.get("footprint") or ""),
                 "matched": matched,
                 "field": field,
-                "_exact": folded == needle,
+                "_rank": rank,
             }
         )
     return hits
@@ -197,7 +204,8 @@ def _net_hits(index: dict[str, Any], needle: str) -> list[dict[str, Any]]:
     hits: list[dict[str, Any]] = []
     for net in _nets(index):
         name = str(net.get("name") or "")
-        if needle not in name.casefold():
+        folded = name.casefold()
+        if needle not in folded:
             continue
         hits.append(
             {
@@ -208,7 +216,7 @@ def _net_hits(index: dict[str, Any], needle: str) -> list[dict[str, Any]]:
                 "footprint": None,
                 "matched": "name",
                 "field": None,
-                "_exact": name.casefold() == needle,
+                "_rank": 0 if folded == needle else 1 if folded.startswith(needle) else 2,
             }
         )
     return hits

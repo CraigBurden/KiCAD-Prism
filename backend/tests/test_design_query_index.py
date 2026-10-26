@@ -57,6 +57,24 @@ class FindTests(unittest.TestCase):
         hits = design_index.find(index, "r", {"component"})
         self.assertEqual([hit["reference"] for hit in hits], ["R2", "R10"])
 
+    def test_references_rank_ahead_of_field_matches(self) -> None:
+        # Found by a real MCP client: "R" listed every part with an "r" in its
+        # description ahead of the resistors.
+        index = {
+            "components": [
+                {"reference": "C1", "value": "10uF", "fields": {"Description": "Ceramic capacitor"}},
+                {"reference": "J1", "value": "USB-C Receptacle", "fields": {}},
+                {"reference": "R2", "value": "1k", "fields": {}},
+                {"reference": "R1", "value": "10k", "fields": {}},
+            ],
+            "nets": [{"name": "VBUS_R", "pins": []}],
+        }
+        hits = design_index.find(index, "r", {"component", "net"})
+        self.assertEqual(
+            [hit["reference"] or hit["name"] for hit in hits],
+            ["R1", "R2", "J1", "VBUS_R", "C1"],
+        )
+
     def test_a_value_matches_by_substring(self) -> None:
         hits = design_index.find(self.index, "lm317", {"component"})
         self.assertEqual([hit["reference"] for hit in hits], ["U1"])

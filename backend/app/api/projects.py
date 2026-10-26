@@ -304,12 +304,10 @@ async def search_projects(
 ):
     """
     Search across all projects (standalone and monorepo sub-projects).
-    Uses SQL LIKE — no full hydration needed.
+    Uses SQL LIKE — no full hydration needed. An empty query lists every project
+    the caller may see, by name, up to ``limit``.
     """
     query = q.strip()
-    if not query:
-        return {"results": []}
-
     rows = await asyncio.to_thread(workspace.search_projects, query, limit, user.role)
     results = []
     for r in rows:

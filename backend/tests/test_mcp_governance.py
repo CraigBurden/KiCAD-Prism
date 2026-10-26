@@ -412,7 +412,9 @@ class McpGovernanceTests(unittest.TestCase):
     def test_the_audited_revision_comes_from_the_result_then_the_argument(self) -> None:
         self.assertEqual(audit.result_revision({"revision": {"commit": COMMIT}}, {}), COMMIT)
         self.assertEqual(audit.result_revision({"commit": COMMIT}, {}), COMMIT)
+        self.assertEqual(audit.result_revision({"anchor": {"commit": COMMIT}}, {}), COMMIT)
         self.assertEqual(audit.result_revision({}, {"revision": "main"}), "main")
+        self.assertEqual(audit.result_revision({}, {"commit": "main"}), "main")
         self.assertIsNone(audit.result_revision({}, {}))
 
     def test_a_failing_audit_insert_does_not_fail_the_call(self) -> None:

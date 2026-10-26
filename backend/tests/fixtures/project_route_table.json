@@ -182,7 +182,7 @@
   "GET /api/projects/": "30de0c75dd4445a021601667a7a5f21735fa5749f4ad439b2f62528a367f7ed7",
   "GET /api/projects/monorepos": "eca2fa5eb7941998011ef96c25ae6b2355f945b650e998a1801d67dc9aa6ef8c",
   "GET /api/projects/monorepos/{repo_name}/structure": "d8467bb71261d1afbcd9aff322b4821a0091080cd468bece980cb1b5587133c6",
-  "GET /api/projects/search": "012ddab3ac9b6ad6be144388b9bb937a8cbdcf610fae8dc4a63a4b003468b285",
+  "GET /api/projects/search": "01b1a3c6d63ccff29e8b0f2894990884ffe3c5234098cb4bf0d0336e3acf749a",
   "GET /api/projects/{project_id}": "0a91a231fb8de5f5a42b8817b1239dd0f74e6aa7a53e8d74c1021941d177bcd9",
   "GET /api/projects/{project_id}/3d-model": "1afef6596b726ee23b72cdd73678aa30efd77593a4690d700ae25bf0abd26e96",
   "GET /api/projects/{project_id}/asset/{asset_path}": "2089fb0876c120f2d412807fd50a737efe83ed5cd6277736ff43abea4ad5a623",
