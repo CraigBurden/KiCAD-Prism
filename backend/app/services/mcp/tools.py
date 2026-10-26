@@ -559,3 +559,7 @@ from app.services.mcp import tools_writes as _write_tools  # noqa: E402, F401
 # The write tools follow the read set; they are declared in their own module
 # because they carry the policy action a write needs (ADR §10).
 from app.services.mcp import tools_comments as _tools_comments  # noqa: E402, F401
+
+# Ops reads register last: they are listed only while ops is on, and then after
+# every design tool (ADR §11, OPS-04a).
+from app.services.mcp import tools_ops_jobs as _tools_ops_jobs  # noqa: E402, F401

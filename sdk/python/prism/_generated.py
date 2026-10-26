@@ -331,6 +331,53 @@ class BulkImportAcceptanceItem(TypedDict, total=False):
     status: str
 
 
+class BundleBuildProfileOut(TypedDict, total=False):
+    archive_bytes: int
+    bundle_key: str
+    cache: BundleCacheOut
+    commit: str | None
+    completed_at: str | None
+    design_key: str | None
+    error: str
+    failed_stages: list[str]
+    invocations: list[BundleInvocationOut]
+    job_id: str | None
+    job_status: str | None
+    kicad_steps: list[BundleKicadStepOut]
+    partial_stages: list[str]
+    project_id: str
+    queue_wait_seconds: float | None
+    revision_key: str
+    slowest_step: str | None
+    stages: dict[str, str]
+    started_at: str | None
+    state: str
+    wall_seconds: float | None
+
+
+class BundleCacheOut(TypedDict, total=False):
+    models_cache_hit: bool | None
+    refill_cache_hit: bool | None
+    upgrade_cache_hits: int
+    upgrade_cache_misses: int
+
+
+class BundleInvocationOut(TypedDict, total=False):
+    elapsed_ms: float | None
+    executable: str
+    exit: int | None
+    peak_rss_bytes: int | None
+    subcommand: str
+
+
+class BundleKicadStepOut(TypedDict, total=False):
+    elapsed_ms: float | None
+    exit: int | None
+    peak_rss_bytes: int | None
+    runs: int
+    step: str
+
+
 class CandidateCreated(TypedDict, total=True):
     job: JobRecord
 
@@ -634,6 +681,15 @@ class ChangePasswordRequest(TypedDict, total=True):
 
 class CheckAccessRequest(TypedDict, total=True):
     url: str
+
+
+class ClaimAttemptOut(TypedDict, total=False):
+    ended_at: str | None
+    fence: int | None
+    outcome: str
+    seconds: float | None
+    started_at: str | None
+    worker_id: str | None
 
 
 class ClaimLatency(TypedDict, total=True):
@@ -1968,14 +2024,37 @@ class JobCancelRequested(TypedDict, total=True):
     status: str | None
 
 
+class JobEventOut(TypedDict, total=False):
+    created_at: str | None
+    details: dict[str, Any]
+    event_type: str
+    id: int
+    percent: float | None
+    stage: str
+
+
 class JobEvents(TypedDict, total=True):
     events: list[app__api__jobs__JobEvent]
     job_id: str
 
 
+class JobLockOut(TypedDict, total=False):
+    fence: int | None
+    lease_expires_at: str | None
+    lease_owner: str
+    lock_key: str
+    mode: str
+
+
 class JobLogs(TypedDict, total=True):
     job_id: str
     lines: list[str]
+
+
+class JobPhasesOut(TypedDict, total=False):
+    claims: list[ClaimAttemptOut]
+    queue_wait: QueueWaitOut | None
+    stages: list[StageRunOut]
 
 
 class JobRecord(TypedDict, total=True):
@@ -2047,6 +2126,41 @@ class JobStatus(TypedDict, total=False):
     started_at: str | None
     status: str | None
     updated_at: str | None
+
+
+class JobSummaryOut(TypedDict, total=False):
+    attempt: int | None
+    cancel_requested_at: str | None
+    completed_at: str | None
+    created_at: str | None
+    error_code: str
+    error_message: str
+    exit_code: int | None
+    fence: int | None
+    job_id: str
+    kind: str
+    lease_owner: str
+    max_attempts: int | None
+    priority: int | None
+    project_id: str | None
+    repository_id: str | None
+    stage: str
+    started_at: str | None
+    status: str
+    updated_at: str | None
+    worker_pool: str
+
+
+class JobTimelineOut(TypedDict, total=True):
+    events: list[JobEventOut]
+    events_truncated: bool
+    job: JobSummaryOut
+    locks: list[JobLockOut]
+    log_tail: list[str]
+    payload_keys: list[str]
+    phases: JobPhasesOut
+    resource_slots: list[ResourceSlotOut]
+    result_metadata_keys: list[str]
 
 
 class JobUpdateRate(TypedDict, total=True):
@@ -2868,6 +2982,12 @@ class PushCommentsView(TypedDict, total=True):
     success: bool
 
 
+class QueueWaitOut(TypedDict, total=False):
+    claimed_at: str | None
+    created_at: str | None
+    seconds: float | None
+
+
 class ReattachCommentRequest(TypedDict, total=False):
     commit: str
     elementId: str | None
@@ -3022,6 +3142,14 @@ class ResolvedPaths(TypedDict, total=False):
     schematic: str | None
     subsheets_dir: str | None
     thumbnail_dir: str | None
+
+
+class ResourceSlotOut(TypedDict, total=False):
+    fence: int | None
+    lease_expires_at: str | None
+    lease_owner: str
+    resource_name: str
+    slot_number: int
 
 
 class ReviewDecision(TypedDict, total=True):
@@ -3235,6 +3363,13 @@ class SourceResponse(TypedDict, total=True):
     forge: ForgeSummary
     ipc: IpcOptions
     source: SourceDiscovery
+
+
+class StageRunOut(TypedDict, total=False):
+    ended_at: str | None
+    seconds: float | None
+    stage: str
+    started_at: str | None
 
 
 class StartDesignCompareResponse(TypedDict, total=True):
@@ -4447,6 +4582,15 @@ class GeneratedClient:
             path_params={"project_id": project_id, "build_id": build_id},
         )
 
+    def get_bundle_build_profile(self, project_id: str, *, commit: str | None = None, job_id: str | None = None) -> BundleBuildProfileOut:
+        """A design bundle build's per-invocation and per-KiCad-step profile"""
+        return self._request(
+            "GET",
+            "/api/v1/ops/projects/{project_id}/bundle-profile",
+            path_params={"project_id": project_id},
+            query={"commit": commit, "job_id": job_id},
+        )
+
     def get_candidate(self, project_id: str, candidate_id: str) -> CandidateWithBuilds:
         """Read one release candidate with its build attempts"""
         return self._request(
@@ -4730,6 +4874,15 @@ class GeneratedClient:
             "/api/v1/jobs/{job_id}/logs",
             path_params={"job_id": job_id},
             query={"tail": tail},
+        )
+
+    def get_job_timeline(self, job_id: str, *, log_lines: int = 50) -> JobTimelineOut:
+        """A job's queue wait, claim attempts, stage durations and redacted log tail"""
+        return self._request(
+            "GET",
+            "/api/v1/ops/jobs/{job_id}/timeline",
+            path_params={"job_id": job_id},
+            query={"log_lines": log_lines},
         )
 
     def get_mcp_governance(self) -> McpGovernanceView:
