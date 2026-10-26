@@ -12,6 +12,11 @@ class AcceptProjectImportProposalRequest(TypedDict, total=False):
     metadata_overrides: dict[str, Any]
 
 
+class AccessUserDeletedResponse(TypedDict, total=True):
+    deleted: str
+    sessions_revoked: int
+
+
 class AcknowledgeRequest(TypedDict, total=True):
     visibility: str
 
@@ -48,6 +53,24 @@ class AnalyzeRequest(TypedDict, total=False):
 
 class ApplyMetadataBatchRequest(TypedDict, total=False):
     item_ids: list[str]
+
+
+class ApprovalDecision(TypedDict, total=True):
+    approvals: ApprovalState
+
+
+class ApprovalState(TypedDict, total=True):
+    blocked_reason: str
+    both_approved: bool
+    can_approve_designer: bool
+    can_approve_qa: bool
+    can_publish: bool
+    can_withdraw: bool
+    designer: ReviewDecision | None
+    electrical_errors: list[str]
+    published: PublishRecord | None
+    qa: ReviewDecision | None
+    unpinned_models: list[UnpinnedModel]
 
 
 class AssetBrowseResult(TypedDict, total=True):
@@ -122,6 +145,11 @@ class AuthConfig(TypedDict, total=False):
     workspace_name: str
 
 
+class AuthSuccessResponse(TypedDict, total=True):
+    """The answer to a session mutation that has nothing else to say."""
+    success: bool
+
+
 class BenchmarkMetrics(TypedDict, total=True):
     """Queue latency, job write rate and the API's pool counters."""
     activeJobs: int
@@ -133,6 +161,11 @@ class BenchmarkMetrics(TypedDict, total=True):
     jobCount: int
     jobUpdateRatePerSecond: JobUpdateRate
     since: str
+
+
+class BoardSize(TypedDict, total=True):
+    height: float
+    width: float
 
 
 class Body_agent_token(TypedDict, total=True):
@@ -207,6 +240,56 @@ class BomOut(TypedDict, total=True):
     lines: list[BomLineOut]
 
 
+class BuildDetail(TypedDict, total=True):
+    approvals: ApprovalState
+    build: BuildRecord
+    candidate: CandidateRecord
+    configuration: dict[str, Any]
+    evidence: list[EvidenceRecord]
+    fingerprints: dict[str, FingerprintRecord]
+    forge: ForgeSummary
+    forge_release: ForgeRelease | None
+    members: list[MemberRecord]
+    vendor_readiness: list[VendorReadiness]
+
+
+class BuildLogStep(TypedDict, total=True):
+    argv: list[str]
+    elapsed_ms: int | float
+    returncode: int | None
+    skipped_reason: str
+    status: str
+    step_id: str
+    step_type: str
+
+
+class BuildLogs(TypedDict, total=True):
+    steps: list[BuildLogStep]
+    timings: list[Any]
+
+
+class BuildRecord(TypedDict, total=True):
+    """One ``ws_release_builds`` row."""
+    attempt: int
+    candidate_id: str
+    completed_at: str | None
+    created_at: str
+    dossier_artifact_id: str | None
+    dossier_digest: str
+    error_code: str
+    error_message: str
+    evidence_artifact_id: str | None
+    fence: int
+    id: str
+    job_id: str | None
+    manifest_digest: str
+    started_at: str | None
+    status: str
+    timings: Any
+    toolchain: dict[str, Any]
+    warnings: list[Any]
+
+
 class BulkAcceptItem(TypedDict, total=False):
     asset_links: dict[str, str]
     asset_selections: dict[str, list[str]]
@@ -219,6 +302,54 @@ class BulkAcceptRequest(TypedDict, total=False):
     items: list[BulkAcceptItem]
 
 
+class BulkImportAcceptance(TypedDict, total=True):
+    accepted: int
+    failed: int
+    results: list[BulkImportAcceptanceItem]
+
+
+class BulkImportAcceptanceItem(TypedDict, total=False):
+    component_id: str | None
+    error: str | None
+    proposal_id: str
+    status: str
+
+
+class CandidateCreated(TypedDict, total=True):
+    job: JobRecord
+
+
+class CandidateList(TypedDict, total=True):
+    candidates: list[CandidateWithBuilds]
+
+
+class CandidateRecord(TypedDict, total=True):
+    """One ``ws_release_candidates`` row."""
+    authored_overrides: dict[str, Any]
+    build_key: str
+    commit_sha: str
+    config_key: str
+    configuration_document: dict[str, Any] | None
+    configuration_snapshot_captured: bool
+    created_at: str
+    created_by: str
+    generator_build: str
+    hermetic: bool
+    id: str
+    input_closure_digest: str
+    non_hermetic_reasons: list[Any]
+    policy_document: dict[str, Any] | None
+    policy_snapshot_captured: bool
+    project_id: str
+    repository_id: str
+    self_contained: bool | None
+    status: str
+    technical_config_digest: str
+    toolchain_digest: str
+    updated_at: str
+    variant: str
+
+
 class CandidateRequest(TypedDict, total=False):
     board: str
     bom_preset: str
@@ -229,6 +360,34 @@ class CandidateRequest(TypedDict, total=False):
     manufacturing: dict[str, Any]
     schematic: str
     stackup_pdf_b64: str
+    variant: str
+
+
+class CandidateWithBuilds(TypedDict, total=True):
+    authored_overrides: dict[str, Any]
+    build_key: str
+    builds: list[ListedBuild]
+    commit_sha: str
+    config_key: str
+    configuration_document: dict[str, Any] | None
+    configuration_snapshot_captured: bool
+    created_at: str
+    created_by: str
+    generator_build: str
+    hermetic: bool
+    id: str
+    input_closure_digest: str
+    latest_build: ListedBuild | None
+    non_hermetic_reasons: list[Any]
+    policy_document: dict[str, Any] | None
+    policy_snapshot_captured: bool
+    project_id: str
+    repository_id: str
+    self_contained: bool | None
+    status: str
+    technical_config_digest: str
+    toolchain_digest: str
+    updated_at: str
     variant: str
 
 
@@ -394,6 +553,11 @@ model accepts keys it does not name."""
     worker_pool: str
 
 
+class CatalogJobQueued(TypedDict, total=True):
+    job_id: str
+    status: str
+
+
 class CatalogJobWithEvents(TypedDict, total=True):
     artifact_key: str | None
     attempt: int
@@ -438,6 +602,15 @@ class CatalogJobWithEvents(TypedDict, total=True):
     worker_pool: str
 
 
+class CategoryCount(TypedDict, total=True):
+    count: int
+    name: str
+
+
+class CategoryList(TypedDict, total=True):
+    categories: list[CategoryCount]
+
+
 class ChangePasswordRequest(TypedDict, total=True):
     current_password: str
     new_password: str
@@ -451,6 +624,76 @@ class ClaimLatency(TypedDict, total=True):
     max: float
     p50: float
     p95: float
+
+
+class CommentAnchorView(TypedDict, total=False):
+    baseCommit: str | None
+    commit: str | None
+    compareCommit: str | None
+    designKey: str | None
+    projectFile: str | None
+    selectedSide: str | None
+    source: str | None
+    sourceRevisionKey: str | None
+    state: str
+
+
+class CommentAttachmentUploadView(TypedDict, total=False):
+    filename: str
+    height: int | None
+    id: str
+    mediaType: str
+    size: int
+    state: str
+    url: str
+    width: int | None
+
+
+class CommentAttachmentView(TypedDict, total=False):
+    filename: str
+    height: int | None
+    id: str
+    mediaType: str
+    size: int
+    state: str
+    width: int | None
+
+
+class CommentChangesPage(TypedDict, total=True):
+    changes: list[CommentLiveChange]
+    cursor: int
+    hasMore: bool
+
+
+class CommentHistoryEntry(TypedDict, total=True):
+    changeKind: str
+    commentClass: str | None
+    content: str | None
+    contentFormat: str | None
+    editedAt: str
+    editorAuthType: str | None
+    editorClientId: str | None
+    editorDisplay: str
+    editorKind: str
+    editorUserId: str | None
+    mentions: list[str] | None
+    origin: str
+    revision: int
+    severity: str | None
+    status: str | None
+    targetId: str
+    targetKind: str
+
+
+class CommentLiveChange(TypedDict, total=True):
+    """One replayable change, as ``comment_live_events.changes_after`` projects it."""
+    baseCommit: str | None
+    changeKind: str
+    commentId: str
+    compareCommit: str | None
+    createdAt: str
+    cursor: int
+    scope: str
 
 
 class CommentLiveMetrics(TypedDict, total=True):
@@ -469,6 +712,126 @@ class CommentLocation(TypedDict, total=False):
     page: str
     x: float
     y: float
+
+
+class CommentLocationView(TypedDict, total=False):
+    bounds: list[float] | None
+    layer: str
+    page: str
+    x: float
+    y: float
+
+
+class CommentPermissionsView(TypedDict, total=False):
+    canDelete: bool | None
+    canEdit: bool | None
+    canPublish: bool | None
+    canReply: bool | None
+    canResolve: bool | None
+    canRetry: bool | None
+    canShare: bool | None
+
+
+class CommentReactionView(TypedDict, total=False):
+    count: int
+    mine: bool
+    reaction: str
+    users: list[str]
+
+
+class CommentReplySyncView(TypedDict, total=False):
+    externalCommentId: str | None
+    externalUrl: str | None
+    reason: str | None
+    state: str
+
+
+class CommentReplyView(TypedDict, total=False):
+    attachments: list[CommentAttachmentView] | None
+    author: str
+    authorClientId: str | None
+    authorKind: str
+    authorUserId: str | None
+    content: str
+    contentFormat: str
+    deletedAt: str | None
+    editedAt: str | None
+    id: str
+    origin: str
+    permissions: CommentPermissionsView | None
+    reactions: list[CommentReactionView] | None
+    revision: int
+    sync: CommentReplySyncView | None
+    syncState: str | None
+    timestamp: str
+    updatedAt: str
+
+
+class CommentThreadView(TypedDict, total=True):
+    comment: CommentView | None
+    cursor: int
+
+
+class CommentView(TypedDict, total=False):
+    """One root thread, whether read or returned by a write."""
+    anchor: CommentAnchorView
+    anchorKind: str | None
+    attachments: list[CommentAttachmentView] | None
+    author: str
+    authorClientId: str | None
+    authorKind: str
+    authorUserId: str | None
+    baseCommit: str | None
+    commentClass: str
+    compareCommit: str | None
+    comparisonDomain: str | None
+    content: str
+    contentFormat: str
+    context: str
+    deletedAt: str | None
+    editedAt: str | None
+    elementId: str | None
+    elementRef: str | None
+    elementType: str | None
+    filePath: str | None
+    forgeIssueId: str | None
+    forgeIssueUrl: str | None
+    forgeProvider: str | None
+    forgeSyncState: str | None
+    id: str
+    location: CommentLocationView
+    mentions: list[str]
+    metadata: dict[str, Any] | None
+    permissions: CommentPermissionsView | None
+    reactions: list[CommentReactionView] | None
+    replies: list[CommentReplyView]
+    revision: int
+    scope: str
+    semanticItemId: str | None
+    severity: str
+    status: str
+    timestamp: str
+    tracker: TrackerProjectionView | None
+    updatedAt: str
+
+
+class CommentsListing(TypedDict, total=True):
+    """A snapshot listing (canvas or one comparison pair)."""
+    comments: list[CommentView]
+    cursor: int
+    meta: CommentsMetaView
+
+
+class CommentsMetaView(TypedDict, total=True):
+    generator: str
+    version: str
+
+
+class CommentsSourceRelativeUrls(TypedDict, total=True):
+    delete_url_template: str
+    list_url: str
+    patch_url_template: str
+    reply_url_template: str
 
 
 class CommitDistance(TypedDict, total=True):
@@ -546,6 +909,92 @@ class ComponentAsset(TypedDict, total=True):
     source_group: str
     target_library: str
     target_name: str
+
+
+class ComponentDeleteResult(TypedDict, total=True):
+    ok: bool
+
+
+class ComponentDetail(TypedDict, total=True):
+    assets: list[dict[str, Any]]
+    availability_state: str
+    category: str
+    datasheet_url: str
+    default_representation_id: str
+    description: str
+    effective_representation_id: str
+    footprint_preview_url: str
+    id: str
+    identity_kind: str
+    inline_url: str
+    library_name: str
+    manifest_url: str
+    manufacturer: str
+    missing_assets: list[str]
+    mpn: str
+    name: str
+    package_name: str
+    place_enabled: bool
+    preview_status: dict[str, Any]
+    release_status: str
+    released_revisions: list[ReleasedRevision]
+    representations: list[dict[str, Any]]
+    revision_id: str
+    slug: str
+    summary: str
+    supply: dict[str, Any]
+    symbol_name: str
+    symbol_preview_url: str
+    version: str
+    workflow_stage: str
+
+
+class ComponentMutation(TypedDict, total=True):
+    """A write that answers with the component's fresh payload."""
+    component: CatalogComponent | None
+
+
+class ComponentPage(TypedDict, total=True):
+    has_more: bool
+    items: list[ComponentPayload]
+    page: int
+    page_size: int
+    pages: int | None
+    total: int | None
+
+
+class ComponentPayload(TypedDict, total=True):
+    """One released component as ``_component_payload`` shapes it for KiCad."""
+    assets: list[dict[str, Any]]
+    availability_state: str
+    category: str
+    datasheet_url: str
+    default_representation_id: str
+    description: str
+    effective_representation_id: str
+    footprint_preview_url: str
+    id: str
+    identity_kind: str
+    inline_url: str
+    library_name: str
+    manifest_url: str
+    manufacturer: str
+    missing_assets: list[str]
+    mpn: str
+    name: str
+    package_name: str
+    place_enabled: bool
+    preview_status: dict[str, Any]
+    release_status: str
+    representations: list[dict[str, Any]]
+    revision_id: str
+    slug: str
+    summary: str
+    supply: dict[str, Any]
+    symbol_name: str
+    symbol_preview_url: str
+    version: str
+    workflow_stage: str
 
 
 class ComponentPreview(TypedDict, total=True):
@@ -783,6 +1232,14 @@ class DatabasePoolMetrics(TypedDict, total=True):
     pool: dict[str, Any]
 
 
+class DeleteDesignCompareResponse(TypedDict, total=True):
+    status: str
+
+
+class DeletedCommentView(TypedDict, total=True):
+    deleted: str
+
+
 class DesignAssemblyOut(TypedDict, total=False):
     dnp: bool | None
     excludeFromBoard: bool | None
@@ -810,10 +1267,47 @@ class DesignCompareDebugEvent(TypedDict, total=False):
     timestamp: str
 
 
+class DesignCompareDebugLogResponse(TypedDict, total=True):
+    path: str
+    status: str
+
+
 class DesignCompareRequest(TypedDict, total=False):
     base: str
     head: str
     include_unchanged: bool
+
+
+class DesignCompareResult(TypedDict, total=False):
+    """A comparison result: the finished v2 manifest, or the partial tab document.
+
+The tabs themselves are ``prism-kicad``'s documents and are passed through
+untouched, so they stay ``dict`` and every key the models miss is allowed."""
+    base: str | dict[str, Any] | None
+    bom: dict[str, Any] | None
+    counts: dict[str, Any] | None
+    fabrication: dict[str, Any] | None
+    files: dict[str, Any] | None
+    head: str | dict[str, Any] | None
+    modes: dict[str, str] | None
+    pcb: dict[str, Any] | None
+    projectDiff: dict[str, Any] | None
+    readiness: dict[str, Any] | None
+    resultSchema: str | None
+    revisions: dict[str, Any] | None
+    routeMetrics: dict[str, Any] | None
+    schema: str | None
+    schematic: dict[str, Any] | None
+    sidecars: dict[str, DesignCompareSidecarRef] | None
+    stackup: dict[str, Any] | None
+
+
+class DesignCompareSidecarRef(TypedDict, total=False):
+    """One sidecar's manifest entry; the route adds its ``url``."""
+    digest: str | None
+    mediaType: str | None
+    sizeBytes: int | None
+    url: str | None
 
 
 class DesignComponent(TypedDict, total=False):
@@ -892,15 +1386,50 @@ class DestinationBody(TypedDict, total=False):
     visibility: str | None
 
 
+class DetectedPaths(TypedDict, total=True):
+    detected: PathConfig
+    validation: PathConfigValidation
+
+
 class DocFileContent(TypedDict, total=True):
     content: str
     path: str
+
+
+class DocumentReadiness(TypedDict, total=True):
+    progress: int
+    stage: str
+
+
+class DocumentSheet(TypedDict, total=True):
+    key: str
+    pdf: SheetPdf
+
+
+class DocumentSheetList(TypedDict, total=True):
+    sheets: list[DocumentSheet]
 
 
 class DraftSetupRequest(TypedDict, total=False):
     commit: str | None
     kind: str
     name: str
+
+
+class DrillSummary(TypedDict, total=True):
+    holes: int
+    slots: int
+    smallest: float | None
+    tools: list[DrillTool]
+
+
+class DrillTool(TypedDict, total=True):
+    diameter: float
+    file: str
+    function: str
+    hits: int
+    plated: bool
+    slots: int
 
 
 class EventOut(TypedDict, total=True):
@@ -915,6 +1444,38 @@ class EventOut(TypedDict, total=True):
 class EventPage(TypedDict, total=True):
     events: list[EventOut]
     next: int
+
+
+class EvidenceRecord(TypedDict, total=True):
+    build_id: str
+    counts: dict[str, Any]
+    created_at: str
+    id: str
+    kind: str
+    report_digest: str
+
+
+class FabricationLayer(TypedDict, total=True):
+    colour: str
+    file: str
+    function: str
+    id: str
+    kind: str
+    name: str
+    role: str
+    side: str
+    warnings: list[str]
+
+
+class FabricationView(TypedDict, total=True):
+    board: list[float] | None
+    bounds: list[float] | None
+    copperLayers: int
+    drill: DrillSummary
+    layers: list[FabricationLayer]
+    present: bool
+    renderVersion: int
+    size: BoardSize | None
 
 
 class FailedBuild(TypedDict, total=True):
@@ -933,9 +1494,22 @@ class FileItem(TypedDict, total=True):
     type: str
 
 
+class FingerprintRecord(TypedDict, total=True):
+    build_id: str
+    domain: str
+    fidelity: str
+    fingerprint: str
+    inputs: dict[str, Any]
+
+
 class FolderApprovalRequest(TypedDict, total=False):
     approved_component_ids: list[str]
     footprint_resolutions: dict[str, str]
+
+
+class FolderBulkMoveResult(TypedDict, total=True):
+    message: str
+    moved: int
 
 
 class FolderContents(TypedDict, total=True):
@@ -943,9 +1517,84 @@ class FolderContents(TypedDict, total=True):
     projects: list[Project]
 
 
+class FolderDeleted(TypedDict, total=True):
+    message: str
+
+
+class FolderDiscovery(TypedDict, total=True):
+    components: list[FolderDiscoveryComponent]
+    directory_signature: str
+    discovery_file_count: int
+    existing_component_count: int
+    inventory_file_count: int
+    required_paths: list[str]
+
+
+class FolderDiscoveryComponent(TypedDict, total=True):
+    existing_component: FolderDiscoveryMatch | None
+    findings: list[FolderDiscoveryFinding]
+    footprint: FolderDiscoveryFootprint
+    footprint_reference: str
+    id: str
+    library: str
+    metadata: FolderDiscoveryMetadata
+    models: list[FolderDiscoveryModel]
+    symbol: FolderDiscoverySymbol
+    symbol_name: str
+
+
+class FolderDiscoveryFinding(TypedDict, total=True):
+    code: str
+    message: str
+    severity: str
+
+
+class FolderDiscoveryFootprint(TypedDict, total=True):
+    candidates: list[FolderDiscoveryFootprintFile]
+    selected: FolderDiscoveryFootprintFile | None
+    status: str
+
+
+class FolderDiscoveryFootprintFile(TypedDict, total=True):
+    filename_name: str
+    library: str
+    name: str
+    relative_path: str
+
+
+class FolderDiscoveryMatch(TypedDict, total=True):
+    """The catalog part an identity already belongs to (``existing_component``)."""
+    component_id: str
+    is_active: bool
+    manufacturer: str
+    manufacturer_part_number: str
+    name: str
+    revision_id: str
+    version: int
+
+
+class FolderDiscoveryMetadata(TypedDict, total=True):
+    datasheet: str
+    description: str
+    fields: dict[str, str]
+    manufacturer: str
+    manufacturer_part_number: str
+    value: str
+
+
+class FolderDiscoveryModel(TypedDict, total=True):
+    candidates: list[dict[str, Any]]
+    reference: str
+    status: str
+
+
 class FolderDiscoveryRequest(TypedDict, total=False):
     files: list[FolderInventoryFile]
     footprint_resolutions: dict[str, str]
+
+
+class FolderDiscoverySymbol(TypedDict, total=True):
+    relative_path: str
 
 
 class FolderImportRoot(TypedDict, total=True):
@@ -960,6 +1609,11 @@ class FolderImportRootPage(TypedDict, total=True):
 class FolderInventoryFile(TypedDict, total=False):
     relative_path: str
     size_bytes: int
+
+
+class FolderMoveResult(TypedDict, total=True):
+    """One project moved to a folder."""
+    message: str
 
 
 class FolderNode(TypedDict, total=True):
@@ -986,21 +1640,169 @@ class FolderRecord(TypedDict, total=True):
     visibility_mode: str | None
 
 
+class FolderSnapshot(TypedDict, total=True):
+    """A ``catalog_import_snapshots`` row as ``create_snapshot`` returns it.
+
+``created_at`` and ``completed_at`` arrive as ``datetime`` values from
+PostgreSQL. The route's JSON has always carried their ISO spelling
+(``+00:00``, not Pydantic's ``Z``), so the model states the wire type and
+converts the raw value instead of re-serializing it."""
+    completed_at: str | None
+    created_at: str
+    created_by: str
+    display_name: str
+    file_count: int
+    id: str
+    manifest_sha256: str
+    size_bytes: int
+    source_locator: str
+    source_type: str
+    status: str
+
+
+class FolderSnapshotFile(TypedDict, total=True):
+    relative_path: str
+    sha256: str
+    size_bytes: int
+
+
 class FolderSnapshotRequest(TypedDict, total=False):
     display_name: str
+
+
+class FootprintImportResult(TypedDict, total=False):
+    component: CatalogComponent | None
+    discovered_footprints: list[str] | None
+    mode: str
+    selected_footprint: str | None
+
+
+class ForgeRelease(TypedDict, total=True):
+    tag: str
+    url: str
+
+
+class ForgeSummary(TypedDict, total=True):
+    host: str
+    kind: str
+    name: str
+    owner_repo: str
+    token_configured: bool
+    token_hint: str
 
 
 class GenerateSSHKeyRequest(TypedDict, total=False):
     email: str
 
 
+class GenerateSSHKeyResponse(TypedDict, total=False):
+    fingerprint: str | None
+    public_key: str | None
+    success: bool
+
+
+class GeneratorTag(TypedDict, total=True):
+    build: str
+    name: str
+    version: str
+
+
+class GitAccessCheckResponse(TypedDict, total=True):
+    """A live ``ls-remote`` answer, plus how to grant access if it was refused."""
+    authorized: bool
+    default_branch: str | None
+    deploy_key_url: str | None
+    forge: str
+    instructions: str
+    message: str
+    reachable: bool
+    reason: str
+
+
+class GitAccessKeyView(TypedDict, total=True):
+    """The workspace key and what an operator can confirm about it."""
+    comment: str | None
+    created_at: str | None
+    exists: bool
+    fingerprint: str | None
+    key_type: str | None
+    public_key: str | None
+
+
+class GitAccessRepositoryView(TypedDict, total=False):
+    """One imported repository's access state, without a network call."""
+    deploy_key_url: str | None
+    forge: str | None
+    guidance: str | None
+    host: str | None
+    host_trusted: bool | None
+    id: str | None
+    last_synced_at: str | None
+    name: str | None
+    url: str
+
+
+class GitAccessResponse(TypedDict, total=True):
+    key: GitAccessKeyView
+    repositories: list[GitAccessRepositoryView]
+    tools: dict[str, bool]
+    trusted_hosts: list[str]
+
+
 class HTTPValidationError(TypedDict, total=False):
     detail: list[ValidationError]
+
+
+class HostKeyForgetResponse(TypedDict, total=True):
+    host: str
+    removed: bool
 
 
 class HostKeyRequest(TypedDict, total=False):
     host: str
     port: int
+
+
+class HostKeyScanResponse(TypedDict, total=True):
+    already_trusted: bool
+    fingerprints: list[str]
+    host: str
+
+
+class HostKeyTrustResponse(TypedDict, total=True):
+    fingerprints: list[str]
+    host: str
+    trusted: bool
+
+
+class ImportAccessHelp(TypedDict, total=True):
+    """What to do about a repository Prism cannot read."""
+    account_key_url: str | None
+    deploy_key_url: str | None
+    fingerprint: str | None
+    forge: str
+    host: str
+    host_trusted: bool
+    instructions: str
+    key_exists: bool
+    public_key: str | None
+
+
+class ImportFollowUp(TypedDict, total=False):
+    """One derived job and whether an import could queue it."""
+    error: str | None
+    job_id: str | None
+    operation: str
+    project_id: str
+    status: str
+
+
+class ImportFollowUpsRetried(TypedDict, total=True):
+    follow_ups: list[ImportFollowUp]
+    job_ids: list[str]
+    message: str
+    project_id: str
+    status: str
 
 
 class ImportProposal(TypedDict, total=True):
@@ -1018,6 +1820,11 @@ class ImportProposal(TypedDict, total=True):
     session_id: str
     status: str
     updated_at: str
+
+
+class ImportProposalAcceptance(TypedDict, total=True):
+    component: CatalogComponent | None
+    proposal: ImportProposal | None
 
 
 class ImportProposalPage(TypedDict, total=True):
@@ -1048,8 +1855,31 @@ class ImportSession(TypedDict, total=True):
     updated_at: str
 
 
+class ImportSessionCreated(TypedDict, total=True):
+    candidate_count: int
+    created_at: str
+    created_by: str
+    error_message: str
+    id: str
+    job_id: str
+    project_id: str
+    project_ids: list[str]
+    project_revisions: dict[str, str]
+    proposal_count: int
+    scope: str
+    selection: dict[str, Any]
+    source_revision: str
+    status: str
+    updated_at: str
+
+
 class ImportSessionPage(TypedDict, total=True):
     items: list[ImportSession]
+
+
+class ImportedProposalCsv(TypedDict, total=True):
+    saved: int
+    skipped_unknown_rows: int
 
 
 class IncompleteCounts(TypedDict, total=True):
@@ -1066,6 +1896,41 @@ class IncompleteRevision(TypedDict, total=True):
     revisionKey: str | None
 
 
+class InlineBundle(TypedDict, total=True):
+    compression: str
+    data: str
+    display_name: str
+    library: str
+    part_id: str
+    representation_id: str
+    symbol_name: str
+
+
+class InventoryImportResult(TypedDict, total=True):
+    errors: list[str]
+    not_found: int
+    updated: int
+
+
+class IpcOption(TypedDict, total=True):
+    label: str
+    value: str
+
+
+class IpcOptions(TypedDict, total=True):
+    assembly: list[IpcOption]
+    manufacturing: list[IpcOption]
+    silkscreen_colour: list[IpcOption]
+    solder_mask_colour: list[IpcOption]
+    via_treatment: list[IpcOption]
+
+
+class JobCancelRequested(TypedDict, total=True):
+    """A cancel request: the status the service reports may be a terminal one."""
+    job_id: str
+    status: str | None
+
+
 class JobEvents(TypedDict, total=True):
     events: list[app__api__jobs__JobEvent]
     job_id: str
@@ -1074,6 +1939,51 @@ class JobEvents(TypedDict, total=True):
 class JobLogs(TypedDict, total=True):
     job_id: str
     lines: list[str]
+
+
+class JobRecord(TypedDict, total=True):
+    """One ``ws_jobs`` row as ``JobService.enqueue`` answers it."""
+    artifact_key: str | None
+    attempt: int
+    available_at: str | None
+    cache_hit: bool
+    cancel_requested_at: str | None
+    completed_at: str | None
+    created_at: str | None
+    deduplicated: bool
+    error_code: str
+    error_message: str
+    fence: int
+    heartbeat_at: str | None
+    job_id: str
+    kind: str
+    lease_expires_at: str | None
+    lease_owner: str
+    lock_requirements: list[Any]
+    log_path: str | None
+    max_attempts: int
+    message: str
+    payload: dict[str, Any]
+    percent: float
+    priority: int
+    project_id: str | None
+    repository_id: str | None
+    requested_by: str
+    resource_requirements: dict[str, Any]
+    result_digest: str | None
+    result_metadata: dict[str, Any]
+    result_path: str | None
+    stage: str
+    started_at: str | None
+    status: str
+    updated_at: str | None
+    worker_pool: str
+
+
+class JobStarted(TypedDict, total=True):
+    """A route that queued a job and reported the status the service chose."""
+    job_id: str
+    status: str
 
 
 class JobStatus(TypedDict, total=False):
@@ -1107,6 +2017,26 @@ class JobUpdateRate(TypedDict, total=True):
     p95: float
 
 
+class KicadDblBundle(TypedDict, total=True):
+    category_count: int
+    component_count: int
+    export_root: str
+    fp_lib_table: str
+    linux_dbl: str
+    missing_models: list[KicadDblMissingModel]
+    model_count: int
+    sqlite_path: str
+    sym_lib_table: str
+    windows_dbl: str
+
+
+class KicadDblMissingModel(TypedDict, total=True):
+    asset_id: str
+    component_id: str
+    reason: str
+    revision_id: str
+
+
 class KindStatusCount(TypedDict, total=True):
     count: int
     kind: str
@@ -1125,6 +2055,30 @@ class LinkAssetRequest(TypedDict, total=False):
     file_path: str
     target_library: str
     target_name: str
+
+
+class ListedBuild(TypedDict, total=True):
+    """A build as ``store.list_builds`` joins it to its publish record."""
+    attempt: int
+    candidate_id: str
+    completed_at: str | None
+    created_at: str
+    dossier_artifact_id: str | None
+    dossier_digest: str
+    error_code: str
+    error_message: str
+    evidence_artifact_id: str | None
+    fence: int
+    id: str
+    job_id: str | None
+    manifest_digest: str
+    published: bool
+    published_tag: str
+    started_at: str | None
+    status: str
+    timings: Any
+    toolchain: dict[str, Any]
+    warnings: list[Any]
 
 
 class LocalInventory(TypedDict, total=True):
@@ -1152,6 +2106,18 @@ class LoginStartResponse(TypedDict, total=True):
     authorization_url: str
 
 
+class ManifestAsset(TypedDict, total=True):
+    asset_type: str
+    content_type: str
+    download_url: str
+    name: str
+    required: bool
+    sha256: str
+    size_bytes: int
+    target_library: str
+    target_name: str
+
+
 class MateOut(TypedDict, total=True):
     componentId: str
     createdAt: str
@@ -1167,6 +2133,40 @@ class MatePage(TypedDict, total=True):
 
 class MateRequest(TypedDict, total=True):
     componentId: str
+
+
+class McpClientAdminView(TypedDict, total=False):
+    client_name: str
+    created_at: str
+    host: str
+    id: str
+    last_used_at: str | None
+    scopes: list[str]
+    user_email: str
+
+
+class McpClientView(TypedDict, total=False):
+    """A connected client as its owner may see it; never a token or a hash."""
+    client_name: str
+    created_at: str
+    host: str
+    id: str
+    last_used_at: str | None
+    scopes: list[str]
+
+
+class MemberRecord(TypedDict, total=True):
+    build_id: str
+    canonicalizer: str
+    created_at: str
+    domains: list[str]
+    id: str
+    media_type: str
+    member_kind: str
+    path: str
+    released_digest: str
+    size_bytes: int
+    source_raw_digest: str
 
 
 class MentionCandidate(TypedDict, total=True):
@@ -1210,11 +2210,36 @@ class MetadataBatchItemRequest(TypedDict, total=False):
     patch: dict[str, str]
 
 
+class MetadataBatchStarted(TypedDict, total=True):
+    batch_id: str
+    job_id: str
+    status: str
+
+
 class MetadataChange(TypedDict, total=True):
     after: str
     before: str
     field: str
     status: str
+
+
+class MetadataCsvPreview(TypedDict, total=True):
+    applied_items: int
+    change_summary: str
+    created_at: str
+    created_by: str
+    failed_items: int
+    id: str
+    items: list[MetadataBatchItem]
+    schema_version: str
+    skipped_unchanged_rows: int
+    source: str
+    source_rows: int
+    status: str
+    total_items: int
+    unknown_fields: list[Any]
+    updated_at: str
+    valid_items: int
 
 
 class MetadataField(TypedDict, total=True):
@@ -1279,12 +2304,24 @@ class MetadataGridPreferencesRequest(TypedDict, total=False):
     widths: dict[str, int]
 
 
+class MissingPart(TypedDict, total=True):
+    package: str
+    ref: str
+    status: str
+    value: str
+
+
 class ModelAlignment(TypedDict, total=True):
     offsetMm: list[float]
     rotationDeg: list[float]
     scale: float
     updatedAt: str | None
     updatedBy: str | None
+
+
+class ModelConversionJob(TypedDict, total=True):
+    jobId: str | None
+    status: str | None
 
 
 class ModelGlb(TypedDict, total=True):
@@ -1350,6 +2387,17 @@ class OAuthBeginResponse(TypedDict, total=True):
     authorizeUrl: str
 
 
+class PartManifest(TypedDict, total=True):
+    assets: list[ManifestAsset]
+    display_name: str
+    library_name: str
+    license: str
+    part_id: str
+    representation_id: str
+    summary: str
+    symbol_name: str
+
+
 class PasswordLoginRequest(TypedDict, total=False):
     email: str
     password: str
@@ -1381,6 +2429,14 @@ class PathConfig(TypedDict, total=False):
     workflows: list[Any] | None
 
 
+class PathConfigValidation(TypedDict, total=True):
+    """A path configuration checked against the project on disk."""
+    errors: list[str]
+    resolved: dict[str, str]
+    valid: bool
+    warnings: list[str]
+
+
 class PersonalTokenView(TypedDict, total=False):
     """A token as its owner (or an admin) may see it: no secret, no hash."""
     created_at: str
@@ -1396,6 +2452,17 @@ class PersonalTokenView(TypedDict, total=False):
 
 class PinCommentRequest(TypedDict, total=True):
     commit: str
+
+
+class PlacedPart(TypedDict, total=True):
+    package: str
+    ref: str
+    rotation: float
+    side: str
+    status: str
+    value: str
+    x: float
+    y: float
 
 
 class PlacementCounts(TypedDict, total=True):
@@ -1430,17 +2497,6 @@ class PlacementPart(TypedDict, total=True):
     value: str
     x: float
     y: float
-
-
-class PlacementView(TypedDict, total=True):
-    """The parts of a folder's position files, checked against its BOM."""
-    counts: PlacementCounts
-    files: PlacementFiles
-    hasBom: bool
-    missing: list[PlacementMissingPart]
-    parts: list[PlacementPart]
-    present: bool
-    warnings: list[str]
 
 
 class Project(TypedDict, total=False):
@@ -1485,6 +2541,18 @@ class ProjectBranches(TypedDict, total=True):
     default_ref: str | None
 
 
+class ProjectCommentsSourceUrls(TypedDict, total=True):
+    """The helper URLs a KiCad comments source needs for one project."""
+    base_url: str | None
+    delete_url_template: str
+    list_url: str
+    patch_url_template: str
+    project_id: str
+    project_name: str
+    relative: CommentsSourceRelativeUrls
+    reply_url_template: str
+
+
 class ProjectCommit(TypedDict, total=True):
     author: str
     date: str
@@ -1520,12 +2588,31 @@ class ProjectComponentSelectionRequest(TypedDict, total=False):
     schematic_uuid: str
 
 
+class ProjectConfigSaved(TypedDict, total=True):
+    config: PathConfig
+    resolved: ResolvedPaths
+    validation: PathConfigValidation
+
+
+class ProjectDeleted(TypedDict, total=False):
+    """A removed project and what happened to its files and repository."""
+    message: str
+    removed_files: bool
+    repository_deleted: bool
+    warning: str | None
+
+
 class ProjectDescription(TypedDict, total=True):
     description: str
 
 
 class ProjectDescriptionRequest(TypedDict, total=True):
     description: str
+
+
+class ProjectDescriptionUpdated(TypedDict, total=True):
+    description: str
+    message: str
 
 
 class ProjectImportRequest(TypedDict, total=False):
@@ -1542,6 +2629,11 @@ class ProjectName(TypedDict, total=True):
 
 class ProjectNameRequest(TypedDict, total=True):
     display_name: str
+
+
+class ProjectNameUpdated(TypedDict, total=True):
+    display_name: str
+    message: str
 
 
 class ProjectOverview(TypedDict, total=True):
@@ -1659,11 +2751,37 @@ class ProjectVariantCatalog(TypedDict, total=True):
     variants: list[VariantCatalogEntry]
 
 
+class PublishRecord(TypedDict, total=True):
+    acknowledged_models: list[str]
+    asset_names: list[str]
+    build_id: str
+    commit_sha: str
+    created_at: str
+    dossier_digest: str
+    forge_url: str
+    id: str
+    project_id: str
+    published_by: str
+    tag: str
+
+
 class PublishRequest(TypedDict, total=False):
     acknowledged_models: list[str]
     notes: str
     tag: str
     title: str
+
+
+class PublishResult(TypedDict, total=True):
+    filename: str
+    publish: PublishRecord
+    release: ForgeRelease
+
+
+class PushCommentsView(TypedDict, total=True):
+    comments_path: str
+    message: str
+    success: bool
 
 
 class ReattachCommentRequest(TypedDict, total=False):
@@ -1681,6 +2799,15 @@ class RegenerateRequest(TypedDict, total=False):
 
 class RegenerateThumbnailsRequest(TypedDict, total=True):
     project_ids: list[str]
+
+
+class RegeneratedBundles(TypedDict, total=True):
+    """What a manual regenerate dropped, and the rebuild it queued."""
+    commit: str | None
+    jobId: str | None
+    removedAliases: int
+    removedBundles: int
+    scope: str
 
 
 class ReleaseQueuePage(TypedDict, total=True):
@@ -1704,6 +2831,22 @@ class ReleaseStatusRequest(TypedDict, total=False):
     review_note: str
     self_approval_override_reason: str
     workflow_stage: str
+
+
+class ReleaseTagCheck(TypedDict, total=True):
+    exists: bool
+    tag: str
+
+
+class ReleasedRevision(TypedDict, total=True):
+    released_at: str
+    revision_id: str
+    version: int
+
+
+class ReplyCreatedView(TypedDict, total=True):
+    comment: CommentView
+    reply: CommentReplyView
 
 
 class Representation(TypedDict, total=True):
@@ -1749,6 +2892,19 @@ class ResolvedPaths(TypedDict, total=False):
     thumbnail_dir: str | None
 
 
+class ReviewDecision(TypedDict, total=True):
+    acknowledged_models: list[str]
+    actor: str
+    build_id: str
+    created_at: str
+    decision: str
+    dossier_digest: str
+    id: str
+    note: str
+    project_id: str
+    slot: str
+
+
 class ReviewDecisionRequest(TypedDict, total=False):
     acknowledged_models: list[str]
     note: str
@@ -1781,6 +2937,12 @@ class RevisionComparisonSummary(TypedDict, total=True):
     representationChanges: int
 
 
+class RevokeSessionsResponse(TypedDict, total=False):
+    """How many sessions a revoke ended, and the account it targeted."""
+    email: str | None
+    revoked: int
+
+
 class RoleAssignmentResponse(TypedDict, total=False):
     email: str
     has_password: bool
@@ -1801,9 +2963,19 @@ class SaveImportDraftsRequest(TypedDict, total=False):
     drafts: dict[str, dict[str, Any]]
 
 
+class SavedImportDrafts(TypedDict, total=True):
+    saved: int
+
+
 class ScanRequest(TypedDict, total=False):
     commit: str | None
     force: bool
+
+
+class SemanticIndexGenerateQueued(TypedDict, total=True):
+    """The bundle build that produces the index: queued, or already reusable."""
+    job_id: str
+    status: str
 
 
 class SemanticIndexGenerateRequest(TypedDict, total=False):
@@ -1835,6 +3007,46 @@ class ServerFolderImportRequest(TypedDict, total=False):
     subpath: str
 
 
+class ServiceClientDeleted(TypedDict, total=True):
+    ok: bool
+
+
+class ServiceClientList(TypedDict, total=True):
+    items: list[ServiceClientOut]
+
+
+class ServiceClientOut(TypedDict, total=True):
+    client_id: str
+    created_at: str
+    enabled: bool
+    last_used_at: str | None
+    name: str
+    role: str
+    scopes: list[str]
+    updated_at: str
+
+
+class ServiceClientWithSecret(TypedDict, total=True):
+    """A created or rotated client, whose secret is shown once."""
+    client_id: str
+    client_secret: str
+    created_at: str
+    enabled: bool
+    last_used_at: str | None
+    name: str
+    role: str
+    scopes: list[str]
+    updated_at: str
+
+
+class ServiceToken(TypedDict, total=True):
+    """A client-credentials access token as the OAuth route returns it."""
+    access_token: str
+    expires_in: int
+    scope: str
+    token_type: str
+
+
 class SetPasswordRequest(TypedDict, total=False):
     must_change: bool
     password: str
@@ -1844,11 +3056,64 @@ class SetServiceClientEnabledRequest(TypedDict, total=True):
     enabled: bool
 
 
+class SetUserPasswordResponse(TypedDict, total=True):
+    email: str
+    must_change: bool
+    sessions_revoked: int
+
+
+class SheetPdf(TypedDict, total=True):
+    media_type: str
+    path: str
+    released_digest: str
+
+
+class SourceDefaults(TypedDict, total=True):
+    board: str
+    bom_preset: str
+    schematic: str
+    variant: str
+
+
 class SourceDefaultsRequest(TypedDict, total=False):
     board: str
     bom_preset: str
     schematic: str
     variant: str
+
+
+class SourceDefaultsResponse(TypedDict, total=True):
+    defaults: SourceDefaults
+
+
+class SourceDiscovery(TypedDict, total=True):
+    board: str
+    boards: list[str]
+    bom_presets: list[str]
+    default_bom_preset: str
+    project: str
+    schematic: str
+    schematics: list[str]
+    variant: str
+    variants: list[str]
+
+
+class SourceResponse(TypedDict, total=True):
+    forge: ForgeSummary
+    ipc: IpcOptions
+    source: SourceDiscovery
+
+
+class StartDesignCompareResponse(TypedDict, total=True):
+    job_id: str
+
+
+class StatusReadiness(TypedDict, total=True):
+    available_assets: list[str]
+    progress: int
+    revision: str
+    schema: str
+    stage: str
 
 
 class SubmitSetupRequest(TypedDict, total=True):
@@ -1885,10 +3150,51 @@ class SupplySource(TypedDict, total=True):
     uom: str
 
 
+class SymbolImportResult(TypedDict, total=False):
+    """``selection_required`` stops before writing; ``imported`` carries the component."""
+    component: CatalogComponent | None
+    discovered_symbols: list[str] | None
+    mode: str
+    selected_symbol: str | None
+
+
+class SyncQueued(TypedDict, total=True):
+    """The sync route adds how the queueing went, not just the id."""
+    job_id: str
+    message: str
+    status: str
+
+
 class ThreadPoolMetrics(TypedDict, total=True):
     borrowedTokens: int
     queueDepth: int
     totalTokens: int
+
+
+class ThumbnailCleared(TypedDict, total=True):
+    job_id: str | None
+    message: str
+    status: str
+    thumbnail_source: str
+
+
+class ThumbnailQueued(TypedDict, total=True):
+    job_id: str
+    message: str
+    status: str
+
+
+class ThumbnailUploaded(TypedDict, total=True):
+    message: str
+    status: str
+    thumbnail_source: str
+
+
+class ThumbnailsQueued(TypedDict, total=True):
+    count: int
+    job_ids: list[str]
+    message: str
+    status: str
 
 
 class TokenExchangeResponse(TypedDict, total=True):
@@ -1896,6 +3202,38 @@ class TokenExchangeResponse(TypedDict, total=True):
     expires_in: int
     scope: str
     token_type: str
+
+
+class TrackerDestinationView(TypedDict, total=True):
+    connectorId: str
+    containerKind: str
+    containerPath: str
+    generation: int
+
+
+class TrackerProjectionView(TypedDict, total=False):
+    bodyAuthority: str | None
+    destination: TrackerDestinationView | None
+    externalId: str | None
+    externalNumber: str | None
+    externalUrl: str | None
+    lastError: dict[str, Any] | None
+    linkState: str | None
+    notPromotableReason: str | None
+    pausedReason: str | None
+    pendingIntent: str | None
+    promoteMinRole: str | None
+    provider: str | None
+    remoteState: Any
+    remoteUpdatedAt: str | None
+    syncState: str | None
+
+
+class UnpinnedModel(TypedDict, total=True):
+    key: str
+    location: str
+    reference: str
+    source_path: str
 
 
 class UpdateCommentRequest(TypedDict, total=False):
@@ -1966,6 +3304,11 @@ class UpdateRepresentationRequest(TypedDict, total=False):
 
 class UpsertRoleRequest(TypedDict, total=True):
     role: str
+
+
+class UserPasswordDeletedResponse(TypedDict, total=True):
+    deleted: bool
+    email: str
 
 
 class UserSession(TypedDict, total=False):
@@ -2055,6 +3398,26 @@ class VariantCatalogEntry(TypedDict, total=True):
     sources: list[str]
 
 
+class VendorProfileList(TypedDict, total=True):
+    profiles: list[VendorProfileOut]
+
+
+class VendorProfileOut(TypedDict, total=True):
+    description: str
+    id: str
+    pack_filename: str
+    required_pack_artifacts: list[str]
+    title: str
+
+
+class VendorReadiness(TypedDict, total=True):
+    missing_requirements: list[str]
+    ready: bool
+    required_artifacts: list[str]
+    title: str
+    vendor_id: str
+
+
 class ViewerSupportFile(TypedDict, total=True):
     content: str
     filename: str
@@ -2064,9 +3427,50 @@ class ViewerSupportFiles(TypedDict, total=True):
     files: list[ViewerSupportFile]
 
 
+class WebGpu3dAnalytic(TypedDict, total=False):
+    asset_base: str
+    assets: dict[str, str]
+    cache_key: str | None
+    readiness: DocumentReadiness
+    schema: str
+
+
 class WebGpu3dGenerateRequest(TypedDict, total=False):
     commit: str | None
     force: bool
+
+
+class WebGpu3dGenerated(TypedDict, total=False):
+    job_id: str | None
+
+
+class WebGpu3dStatus(TypedDict, total=False):
+    available: bool
+    build_fingerprint: str
+    bundle_url: str | None
+    commit: str | None
+    error: str | None
+    generator: GeneratorTag
+    job_id: str | None
+    message: str | None
+    readiness: StatusReadiness
+    schema: str
+    sourceRevisionKey: str
+    source_fingerprint: str
+    status: str
+
+
+class WebhookAccepted(TypedDict, total=True):
+    """What a stored delivery answers: the inbox row that now waits for the worker."""
+    created: bool
+    deliveryId: str
+    event: str
+    hintCount: int
+    ok: bool
+
+
+class WorkflowQueued(TypedDict, total=True):
+    job_id: str
 
 
 class WorkflowRequest(TypedDict, total=False):
@@ -2101,6 +3505,27 @@ class app__api__catalog_admin_models__JobEvent(TypedDict, total=True):
     stage: str
 
 
+class app__api__fabrication_view__PlacementView(TypedDict, total=True):
+    """The parts of a folder's position files, checked against its BOM."""
+    counts: PlacementCounts
+    files: PlacementFiles
+    hasBom: bool
+    missing: list[PlacementMissingPart]
+    parts: list[PlacementPart]
+    present: bool
+    warnings: list[str]
+
+
+class app__api__fabrication_view_models__PlacementView(TypedDict, total=True):
+    counts: PlacementCounts
+    files: PlacementFiles
+    hasBom: bool
+    missing: list[MissingPart]
+    parts: list[PlacedPart]
+    present: bool
+    warnings: list[str]
+
+
 class app__api__jobs__JobEvent(TypedDict, total=True):
     created_at: str
     details: dict[str, Any]
@@ -2120,8 +3545,8 @@ class GeneratedClient:
             "/api/v1/health/about",
         )
 
-    def accept_project_import_proposal(self, proposal_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Accept Project Import Proposal"""
+    def accept_project_import_proposal(self, proposal_id: str, *, body: dict[str, Any] | None = None) -> ImportProposalAcceptance:
+        """Accept an import proposal"""
         return self._request(
             "POST",
             "/api/v1/catalog/import-proposals/{proposal_id}/accept",
@@ -2138,8 +3563,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def add_comment_reaction(self, project_id: str, comment_id: str, reaction: str, *, replyId: str | None = None) -> Any:
-        """Add Comment Reaction"""
+    def add_comment_reaction(self, project_id: str, comment_id: str, reaction: str, *, replyId: str | None = None) -> CommentView:
+        """Add a reaction to a comment or reply"""
         return self._request(
             "PUT",
             "/api/v1/projects/{project_id}/comments/{comment_id}/reactions/{reaction}",
@@ -2147,8 +3572,8 @@ class GeneratedClient:
             query={"replyId": replyId},
         )
 
-    def add_mate(self, component_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Add Mate"""
+    def add_mate(self, component_id: str, *, body: dict[str, Any] | None = None) -> MatePage:
+        """Mark two parts as mating"""
         return self._request(
             "POST",
             "/api/v1/catalog/components/{component_id}/mates-with",
@@ -2156,8 +3581,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def add_reply(self, project_id: str, comment_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Add Reply"""
+    def add_reply(self, project_id: str, comment_id: str, *, body: dict[str, Any] | None = None) -> ReplyCreatedView:
+        """Reply to an existing comment"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/comments/{comment_id}/replies",
@@ -2180,16 +3605,16 @@ class GeneratedClient:
             "/api/v1/agent/token",
         )
 
-    def analyze_repository(self, *, body: dict[str, Any] | None = None) -> Any:
-        """Analyze Repository"""
+    def analyze_repository(self, *, body: dict[str, Any] | None = None) -> JobStarted:
+        """Start analyzing a repository for import"""
         return self._request(
             "POST",
             "/api/v1/projects/analyze",
             body=body,
         )
 
-    def append_design_compare_debug_log(self, project_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Append Design Compare Debug Log"""
+    def append_design_compare_debug_log(self, project_id: str, *, body: dict[str, Any] | None = None) -> DesignCompareDebugLogResponse:
+        """Append one comparison-view transition event to the debug log"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/design-compare/debug-log",
@@ -2197,8 +3622,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def apply_metadata_batch(self, batch_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Apply Metadata Batch"""
+    def apply_metadata_batch(self, batch_id: str, *, body: dict[str, Any] | None = None) -> MetadataBatchStarted:
+        """Apply a metadata batch"""
         return self._request(
             "POST",
             "/api/v1/catalog/metadata/batches/{batch_id}/apply",
@@ -2206,8 +3631,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def approve_build(self, project_id: str, build_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Approve Build"""
+    def approve_build(self, project_id: str, build_id: str, *, body: dict[str, Any] | None = None) -> ApprovalDecision:
+        """Record a designer or QA approval on a build"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/approvals",
@@ -2215,16 +3640,16 @@ class GeneratedClient:
             body=body,
         )
 
-    def approve_metadata_batch_fields(self, batch_id: str) -> Any:
-        """Approve Metadata Batch Fields"""
+    def approve_metadata_batch_fields(self, batch_id: str) -> MetadataBatch:
+        """Approve a batch's proposed fields"""
         return self._request(
             "POST",
             "/api/v1/catalog/metadata/batches/{batch_id}/approve-fields",
             path_params={"batch_id": batch_id},
         )
 
-    def archive_metadata_field(self, field_id: str) -> Any:
-        """Archive Metadata Field"""
+    def archive_metadata_field(self, field_id: str) -> MetadataField:
+        """Archive a metadata field"""
         return self._request(
             "POST",
             "/api/v1/catalog/metadata/fields/{field_id}/archive",
@@ -2256,8 +3681,8 @@ class GeneratedClient:
             query={"asset_type": asset_type, "q": q, "limit": limit},
         )
 
-    def bulk_accept_project_import_proposals(self, session_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Bulk Accept Project Import Proposals"""
+    def bulk_accept_project_import_proposals(self, session_id: str, *, body: dict[str, Any] | None = None) -> BulkImportAcceptance:
+        """Accept several import proposals"""
         return self._request(
             "POST",
             "/api/v1/catalog/import-sessions/{session_id}/proposals/bulk-accept",
@@ -2265,8 +3690,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def cancel_job(self, job_id: str) -> Any:
-        """Cancel Job"""
+    def cancel_job(self, job_id: str) -> JobCancelRequested:
+        """Ask a job to cancel"""
         return self._request(
             "POST",
             "/api/v1/jobs/{job_id}/cancel",
@@ -2281,32 +3706,32 @@ class GeneratedClient:
             query={"check_files": check_files},
         )
 
-    def change_own_password(self, *, body: dict[str, Any] | None = None) -> Any:
-        """Change Own Password"""
+    def change_own_password(self, *, body: dict[str, Any] | None = None) -> AuthSuccessResponse:
+        """Change the signed-in user's local password"""
         return self._request(
             "POST",
             "/api/v1/auth/password/change",
             body=body,
         )
 
-    def check_git_access(self, *, body: dict[str, Any] | None = None) -> Any:
-        """Check Git Access"""
+    def check_git_access(self, *, body: dict[str, Any] | None = None) -> GitAccessCheckResponse:
+        """Check whether Prism may read one repository right now"""
         return self._request(
             "POST",
             "/api/v1/settings/git-access/check",
             body=body,
         )
 
-    def check_release_tag(self, project_id: str, tag: str) -> Any:
-        """Check Release Tag"""
+    def check_release_tag(self, project_id: str, tag: str) -> ReleaseTagCheck:
+        """Whether the forge already has a release tag"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/release-studio/tags/{tag}",
             path_params={"project_id": project_id, "tag": tag},
         )
 
-    def clear_project_thumbnail(self, project_id: str) -> Any:
-        """Clear Project Thumbnail"""
+    def clear_project_thumbnail(self, project_id: str) -> ThumbnailCleared:
+        """Drop an uploaded thumbnail and fall back to the rendered board"""
         return self._request(
             "DELETE",
             "/api/v1/projects/{project_id}/thumbnail",
@@ -2322,8 +3747,8 @@ class GeneratedClient:
             query={"before": before, "after": after},
         )
 
-    def complete_folder_snapshot(self, snapshot_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Complete Folder Snapshot"""
+    def complete_folder_snapshot(self, snapshot_id: str, *, body: dict[str, Any] | None = None) -> ImportSessionCreated:
+        """Complete a folder snapshot and start its import"""
         return self._request(
             "POST",
             "/api/v1/catalog/import-snapshots/folders/{snapshot_id}/complete",
@@ -2331,8 +3756,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def components_by_category(self, *, category: str, page: int = 1, page_size: int = 50, include_total: bool = False) -> Any:
-        """Components By Category"""
+    def components_by_category(self, *, category: str, page: int = 1, page_size: int = 50, include_total: bool = False) -> ComponentPage:
+        """List the released components in one category"""
         return self._request(
             "GET",
             "/api/v1/remote-provider/components-by-category",
@@ -2354,8 +3779,8 @@ class GeneratedClient:
             path_params={"connector_id": connector_id},
         )
 
-    def convert_models(self, component_id: str, *, revisionId: str | None = None) -> Any:
-        """Convert Models"""
+    def convert_models(self, component_id: str, *, revisionId: str | None = None) -> ModelConversionJob:
+        """Queue STEP to GLB conversion"""
         return self._request(
             "POST",
             "/api/v1/catalog/components/{component_id}/models/convert",
@@ -2363,8 +3788,8 @@ class GeneratedClient:
             query={"revisionId": revisionId},
         )
 
-    def create_candidate(self, project_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Create Candidate"""
+    def create_candidate(self, project_id: str, *, body: dict[str, Any] | None = None) -> CandidateCreated:
+        """Queue a release build (idempotent on the candidate's build key)"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/release-studio/candidates",
@@ -2372,16 +3797,16 @@ class GeneratedClient:
             body=body,
         )
 
-    def create_catalog_component(self, *, body: dict[str, Any] | None = None) -> Any:
-        """Create Catalog Component"""
+    def create_catalog_component(self, *, body: dict[str, Any] | None = None) -> CatalogComponent:
+        """Create a catalog component"""
         return self._request(
             "POST",
             "/api/v1/catalog/components",
             body=body,
         )
 
-    def create_comment(self, project_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Create Comment"""
+    def create_comment(self, project_id: str, *, body: dict[str, Any] | None = None) -> CommentView:
+        """Create a comment on the design"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/comments",
@@ -2389,8 +3814,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def create_comparison_comment(self, project_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Create Comparison Comment"""
+    def create_comparison_comment(self, project_id: str, *, body: dict[str, Any] | None = None) -> CommentView:
+        """Create a comparison, file, group or item discussion"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/comparison-comments",
@@ -2398,8 +3823,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def create_component_representation(self, component_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Create Component Representation"""
+    def create_component_representation(self, component_id: str, *, body: dict[str, Any] | None = None) -> CatalogComponent:
+        """Add a component representation"""
         return self._request(
             "POST",
             "/api/v1/catalog/components/{component_id}/representations",
@@ -2415,32 +3840,32 @@ class GeneratedClient:
             body=body,
         )
 
-    def create_folder(self, *, body: dict[str, Any] | None = None) -> Any:
-        """Create Folder"""
+    def create_folder(self, *, body: dict[str, Any] | None = None) -> FolderRecord:
+        """Create a folder"""
         return self._request(
             "POST",
             "/api/v1/folders/",
             body=body,
         )
 
-    def create_folder_snapshot(self, *, body: dict[str, Any] | None = None) -> Any:
-        """Create Folder Snapshot"""
+    def create_folder_snapshot(self, *, body: dict[str, Any] | None = None) -> FolderSnapshot:
+        """Create a folder import snapshot"""
         return self._request(
             "POST",
             "/api/v1/catalog/import-snapshots/folders",
             body=body,
         )
 
-    def create_metadata_batch(self, *, body: dict[str, Any] | None = None) -> Any:
-        """Create Metadata Batch"""
+    def create_metadata_batch(self, *, body: dict[str, Any] | None = None) -> MetadataBatch:
+        """Stage a metadata batch"""
         return self._request(
             "POST",
             "/api/v1/catalog/metadata/batches",
             body=body,
         )
 
-    def create_metadata_field(self, *, body: dict[str, Any] | None = None) -> Any:
-        """Create Metadata Field"""
+    def create_metadata_field(self, *, body: dict[str, Any] | None = None) -> MetadataField:
+        """Create a metadata field"""
         return self._request(
             "POST",
             "/api/v1/catalog/metadata/fields",
@@ -2455,56 +3880,56 @@ class GeneratedClient:
             body=body,
         )
 
-    def create_project_import_session(self, *, body: dict[str, Any] | None = None) -> Any:
-        """Create Project Import Session"""
+    def create_project_import_session(self, *, body: dict[str, Any] | None = None) -> ImportSessionCreated:
+        """Start a project component import"""
         return self._request(
             "POST",
             "/api/v1/catalog/import-sessions/projects",
             body=body,
         )
 
-    def create_server_folder_snapshot(self, *, body: dict[str, Any] | None = None) -> Any:
-        """Create Server Folder Snapshot"""
+    def create_server_folder_snapshot(self, *, body: dict[str, Any] | None = None) -> ImportSessionCreated:
+        """Import a server folder"""
         return self._request(
             "POST",
             "/api/v1/catalog/import-snapshots/folders/server",
             body=body,
         )
 
-    def create_service_client(self, *, body: dict[str, Any] | None = None) -> Any:
-        """Create Service Client"""
+    def create_service_client(self, *, body: dict[str, Any] | None = None) -> ServiceClientWithSecret:
+        """Create a machine client and show its secret once"""
         return self._request(
             "POST",
             "/api/v1/admin/service-clients",
             body=body,
         )
 
-    def delete_access_user(self, email: str) -> Any:
-        """Delete Access User"""
+    def delete_access_user(self, email: str) -> AccessUserDeletedResponse:
+        """Withdraw an account's role and end its sessions"""
         return self._request(
             "DELETE",
             "/api/v1/settings/access/users/{email}",
             path_params={"email": email},
         )
 
-    def delete_catalog_component(self, component_id: str) -> Any:
-        """Delete Catalog Component"""
+    def delete_catalog_component(self, component_id: str) -> ComponentDeleteResult:
+        """Delete a catalog component"""
         return self._request(
             "DELETE",
             "/api/v1/catalog/components/{component_id}",
             path_params={"component_id": component_id},
         )
 
-    def delete_comment(self, project_id: str, comment_id: str) -> Any:
-        """Delete Comment"""
+    def delete_comment(self, project_id: str, comment_id: str) -> DeletedCommentView:
+        """Delete a comment"""
         return self._request(
             "DELETE",
             "/api/v1/projects/{project_id}/comments/{comment_id}",
             path_params={"project_id": project_id, "comment_id": comment_id},
         )
 
-    def delete_component_representation(self, component_id: str, representation_id: str) -> Any:
-        """Delete Component Representation"""
+    def delete_component_representation(self, component_id: str, representation_id: str) -> CatalogComponent:
+        """Delete a component representation"""
         return self._request(
             "DELETE",
             "/api/v1/catalog/components/{component_id}/representations/{representation_id}",
@@ -2519,16 +3944,16 @@ class GeneratedClient:
             path_params={"connector_id": connector_id},
         )
 
-    def delete_design_compare(self, project_id: str, job_id: str) -> Any:
-        """Delete Design Compare"""
+    def delete_design_compare(self, project_id: str, job_id: str) -> DeleteDesignCompareResponse:
+        """Cancel a comparison or forget its finished result"""
         return self._request(
             "DELETE",
             "/api/v1/projects/{project_id}/design-compare/{job_id}",
             path_params={"project_id": project_id, "job_id": job_id},
         )
 
-    def delete_folder(self, folder_id: str, *, cascade: bool = True) -> Any:
-        """Delete Folder"""
+    def delete_folder(self, folder_id: str, *, cascade: bool = True) -> FolderDeleted:
+        """Delete a folder"""
         return self._request(
             "DELETE",
             "/api/v1/folders/{folder_id}",
@@ -2536,8 +3961,8 @@ class GeneratedClient:
             query={"cascade": cascade},
         )
 
-    def delete_project_endpoint(self, project_id: str) -> Any:
-        """Delete Project Endpoint"""
+    def delete_project_endpoint(self, project_id: str) -> ProjectDeleted:
+        """Delete a project and, where Prism owns them, its files"""
         return self._request(
             "DELETE",
             "/api/v1/projects/{project_id}",
@@ -2552,16 +3977,16 @@ class GeneratedClient:
             path_params={"session_id": session_id},
         )
 
-    def delete_reply(self, project_id: str, comment_id: str, reply_id: str) -> Any:
-        """Delete Reply"""
+    def delete_reply(self, project_id: str, comment_id: str, reply_id: str) -> CommentView:
+        """Delete a reply"""
         return self._request(
             "DELETE",
             "/api/v1/projects/{project_id}/comments/{comment_id}/replies/{reply_id}",
             path_params={"project_id": project_id, "comment_id": comment_id, "reply_id": reply_id},
         )
 
-    def delete_service_client(self, client_id: str) -> Any:
-        """Delete Service Client"""
+    def delete_service_client(self, client_id: str) -> ServiceClientDeleted:
+        """Delete a machine client"""
         return self._request(
             "DELETE",
             "/api/v1/admin/service-clients/{client_id}",
@@ -2576,16 +4001,16 @@ class GeneratedClient:
             path_params={"project_id": project_id, "setup_id": setup_id},
         )
 
-    def delete_user_password(self, email: str) -> Any:
-        """Delete User Password"""
+    def delete_user_password(self, email: str) -> UserPasswordDeletedResponse:
+        """Remove a user's local password"""
         return self._request(
             "DELETE",
             "/api/v1/settings/access/users/{email}/password",
             path_params={"email": email},
         )
 
-    def design_compare_result(self, project_id: str, job_id: str) -> Any:
-        """Design Compare Result"""
+    def design_compare_result(self, project_id: str, job_id: str) -> DesignCompareResult:
+        """Read a comparison's result"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/design-compare/{job_id}",
@@ -2593,39 +4018,39 @@ class GeneratedClient:
         )
 
     def design_compare_sidecar(self, project_id: str, job_id: str, digest: str) -> Any:
-        """Design Compare Sidecar"""
+        """Download one comparison sidecar"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/design-compare/{job_id}/sidecars/{digest}",
             path_params={"project_id": project_id, "job_id": job_id, "digest": digest},
         )
 
-    def detach_component_asset(self, component_id: str, asset_type: str) -> Any:
-        """Detach Component Asset"""
+    def detach_component_asset(self, component_id: str, asset_type: str) -> ComponentMutation:
+        """Detach an auxiliary asset from a component"""
         return self._request(
             "DELETE",
             "/api/v1/catalog/components/{component_id}/assets/{asset_type}",
             path_params={"component_id": component_id, "asset_type": asset_type},
         )
 
-    def detach_component_asset_by_id(self, component_id: str, asset_id: str) -> Any:
-        """Detach Component Asset By Id"""
+    def detach_component_asset_by_id(self, component_id: str, asset_id: str) -> ComponentMutation:
+        """Detach an asset from a component by id"""
         return self._request(
             "DELETE",
             "/api/v1/catalog/components/{component_id}/assets/id/{asset_id}",
             path_params={"component_id": component_id, "asset_id": asset_id},
         )
 
-    def detect_project_paths(self, project_id: str) -> Any:
-        """Detect Project Paths"""
+    def detect_project_paths(self, project_id: str) -> DetectedPaths:
+        """Auto-detect a project's paths without saving them"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/detect-paths",
             path_params={"project_id": project_id},
         )
 
-    def discover_folder_snapshot(self, snapshot_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Discover Folder Snapshot"""
+    def discover_folder_snapshot(self, snapshot_id: str, *, body: dict[str, Any] | None = None) -> FolderDiscovery:
+        """Discover components in a folder snapshot"""
         return self._request(
             "POST",
             "/api/v1/catalog/import-snapshots/folders/{snapshot_id}/discover",
@@ -2634,7 +4059,7 @@ class GeneratedClient:
         )
 
     def download_asset(self, asset_id: str, *, rev: str, representation: str = '', exp: int, sig: str) -> Any:
-        """Download Asset"""
+        """Download one signed asset for placement"""
         return self._request(
             "GET",
             "/api/v1/remote-provider/assets/{asset_id}",
@@ -2643,7 +4068,7 @@ class GeneratedClient:
         )
 
     def download_build_evidence(self, project_id: str, build_id: str) -> Any:
-        """Download Build Evidence"""
+        """Download a build's captured evidence archive"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/build-evidence",
@@ -2651,7 +4076,7 @@ class GeneratedClient:
         )
 
     def download_build_log(self, project_id: str, build_id: str, step_id: str) -> Any:
-        """Download Build Log"""
+        """Serve one build step's full log"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/logs/{step_id}",
@@ -2659,7 +4084,7 @@ class GeneratedClient:
         )
 
     def download_build_vendor_pack(self, project_id: str, build_id: str, vendor_id: str) -> Any:
-        """Download Build Vendor Pack"""
+        """Download one vendor pack for a build"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/vendor-packs/{vendor_id}",
@@ -2667,7 +4092,7 @@ class GeneratedClient:
         )
 
     def download_dossier(self, project_id: str, build_id: str) -> Any:
-        """Download Dossier"""
+        """Download a build's dossier archive"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/dossier",
@@ -2684,7 +4109,7 @@ class GeneratedClient:
         )
 
     def download_member(self, project_id: str, build_id: str, member_path: str, *, disposition: str = 'inline') -> Any:
-        """Download Member"""
+        """Serve one released member out of the dossier, digest-checked"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/members/{member_path}",
@@ -2693,7 +4118,7 @@ class GeneratedClient:
         )
 
     def download_preview(self, preview_id: str) -> Any:
-        """Download Preview"""
+        """Download a rendered symbol or footprint preview"""
         return self._request(
             "GET",
             "/api/v1/remote-provider/previews/{preview_id}",
@@ -2724,8 +4149,8 @@ class GeneratedClient:
             "/api/v1/catalog/inventory/export.csv",
         )
 
-    def export_kicad_dbl_bundle(self) -> Any:
-        """Export Kicad Dbl Bundle"""
+    def export_kicad_dbl_bundle(self) -> KicadDblBundle:
+        """Export a KiCad database library bundle"""
         return self._request(
             "POST",
             "/api/v1/catalog/exports/kicad-dbl",
@@ -2739,23 +4164,23 @@ class GeneratedClient:
             query={"field": field},
         )
 
-    def forget_git_host_key(self, host: str) -> Any:
-        """Forget Git Host Key"""
+    def forget_git_host_key(self, host: str) -> HostKeyForgetResponse:
+        """Forget a pinned Git host key"""
         return self._request(
             "DELETE",
             "/api/v1/settings/git-access/host-keys/{host}",
             path_params={"host": host},
         )
 
-    def generate_missing_previews(self) -> Any:
-        """Generate Missing Previews"""
+    def generate_missing_previews(self) -> CatalogJobQueued:
+        """Generate missing component previews"""
         return self._request(
             "POST",
             "/api/v1/catalog/previews/generate-missing",
         )
 
-    def generate_semantic_index(self, project_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Generate Semantic Index"""
+    def generate_semantic_index(self, project_id: str, *, body: dict[str, Any] | None = None) -> SemanticIndexGenerateQueued:
+        """Queue the bundle build that generates the revision's semantic index"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/semantic-index/generate",
@@ -2763,16 +4188,16 @@ class GeneratedClient:
             body=body,
         )
 
-    def generate_ssh_key(self, *, body: dict[str, Any] | None = None) -> Any:
-        """Generate Ssh Key"""
+    def generate_ssh_key(self, *, body: dict[str, Any] | None = None) -> GenerateSSHKeyResponse:
+        """Generate a new workspace SSH key"""
         return self._request(
             "POST",
             "/api/v1/settings/ssh-key/generate",
             body=body,
         )
 
-    def generate_webgpu_3d(self, project_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Generate Webgpu 3D"""
+    def generate_webgpu_3d(self, project_id: str, *, body: dict[str, Any] | None = None) -> WebGpu3dGenerated:
+        """Queue the revision's design bundle, optionally rebuilding it"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/webgpu-3d/generate",
@@ -2781,7 +4206,7 @@ class GeneratedClient:
         )
 
     def get_asset_content(self, asset_id: str) -> Any:
-        """Get Asset Content"""
+        """Serve an asset's stored library file to the panel"""
         return self._request(
             "GET",
             "/api/v1/remote-provider/assets/{asset_id}/content",
@@ -2795,24 +4220,24 @@ class GeneratedClient:
             "/api/v1/auth/config",
         )
 
-    def get_build(self, project_id: str, build_id: str) -> Any:
-        """Get Build"""
+    def get_build(self, project_id: str, build_id: str) -> BuildDetail:
+        """A build with its configuration, readiness and sign-offs"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/release-studio/builds/{build_id}",
             path_params={"project_id": project_id, "build_id": build_id},
         )
 
-    def get_build_placement(self, project_id: str, build_id: str) -> Any:
-        """Get Build Placement"""
+    def get_build_placement(self, project_id: str, build_id: str) -> app__api__fabrication_view_models__PlacementView:
+        """Pick-and-place parts of a build, checked against its BOM"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/placement",
             path_params={"project_id": project_id, "build_id": build_id},
         )
 
-    def get_candidate(self, project_id: str, candidate_id: str) -> Any:
-        """Get Candidate"""
+    def get_candidate(self, project_id: str, candidate_id: str) -> CandidateWithBuilds:
+        """Read one release candidate with its build attempts"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/release-studio/candidates/{candidate_id}",
@@ -2862,15 +4287,15 @@ class GeneratedClient:
         )
 
     def get_comment_attachment(self, project_id: str, attachment_id: str) -> Any:
-        """Get Comment Attachment"""
+        """Download a comment attachment"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/comment-attachments/{attachment_id}",
             path_params={"project_id": project_id, "attachment_id": attachment_id},
         )
 
-    def get_comment_changes(self, project_id: str, *, after: int = 0) -> Any:
-        """Get Comment Changes"""
+    def get_comment_changes(self, project_id: str, *, after: int = 0) -> CommentChangesPage:
+        """Replay a project's comment changes after a cursor"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/comments/changes",
@@ -2878,16 +4303,16 @@ class GeneratedClient:
             query={"after": after},
         )
 
-    def get_comment_history(self, project_id: str, comment_id: str) -> Any:
-        """Get Comment History"""
+    def get_comment_history(self, project_id: str, comment_id: str) -> list[CommentHistoryEntry]:
+        """List a comment's revisions"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/comments/{comment_id}/history",
             path_params={"project_id": project_id, "comment_id": comment_id},
         )
 
-    def get_comment_thread(self, project_id: str, comment_id: str, *, revision: str | None = None) -> Any:
-        """Get Comment Thread"""
+    def get_comment_thread(self, project_id: str, comment_id: str, *, revision: str | None = None) -> CommentThreadView:
+        """Get one comment thread for a live refresh"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/comments/{comment_id}/thread",
@@ -2895,8 +4320,8 @@ class GeneratedClient:
             query={"revision": revision},
         )
 
-    def get_comments(self, project_id: str, *, revision: str | None = None) -> Any:
-        """Get Comments"""
+    def get_comments(self, project_id: str, *, revision: str | None = None) -> CommentsListing:
+        """List a project's comment threads"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/comments",
@@ -2904,8 +4329,8 @@ class GeneratedClient:
             query={"revision": revision},
         )
 
-    def get_comparison_comments(self, project_id: str, *, base: str, compare: str, domain: str | None = None) -> Any:
-        """Get Comparison Comments"""
+    def get_comparison_comments(self, project_id: str, *, base: str, compare: str, domain: str | None = None) -> CommentsListing:
+        """List a comparison's discussion threads"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/comparison-comments",
@@ -2914,7 +4339,7 @@ class GeneratedClient:
         )
 
     def get_comparison_discussion_report(self, project_id: str, *, base: str, compare: str, domain: str | None = None) -> Any:
-        """Get Comparison Discussion Report"""
+        """Download a comparison's discussion report"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/comparison-comments/report",
@@ -2931,8 +4356,8 @@ class GeneratedClient:
             query={"domain": domain},
         )
 
-    def get_component(self, component_id: str, *, representation: str = '', revision: str = '') -> Any:
-        """Get Component"""
+    def get_component(self, component_id: str, *, representation: str = '', revision: str = '') -> ComponentDetail:
+        """The released component, with the revisions placement may serve"""
         return self._request(
             "GET",
             "/api/v1/remote-provider/components/{component_id}",
@@ -3016,15 +4441,15 @@ class GeneratedClient:
         )
 
     def get_fabrication_layer(self, project_id: str, build_id: str, layer_id: str) -> Any:
-        """Get Fabrication Layer"""
+        """One layer of a build's fabrication package as SVG"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/fabrication-view/layers/{layer_id}.svg",
             path_params={"project_id": project_id, "build_id": build_id, "layer_id": layer_id},
         )
 
-    def get_fabrication_view(self, project_id: str, build_id: str) -> Any:
-        """Get Fabrication View"""
+    def get_fabrication_view(self, project_id: str, build_id: str) -> FabricationView:
+        """Layers, board size and drill tools of a build's fabrication package"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/fabrication-view",
@@ -3046,15 +4471,15 @@ class GeneratedClient:
             "/api/v1/folders/tree",
         )
 
-    def get_git_access(self) -> Any:
-        """Get Git Access"""
+    def get_git_access(self) -> GitAccessResponse:
+        """Read the workspace key, pinned hosts and repository access state"""
         return self._request(
             "GET",
             "/api/v1/settings/git-access",
         )
 
-    def get_inline_component(self, component_id: str, *, representation: str = '', revision: str = '') -> Any:
-        """Get Inline Component"""
+    def get_inline_component(self, component_id: str, *, representation: str = '', revision: str = '') -> InlineBundle:
+        """The component's library files in KiCad's inline bundle"""
         return self._request(
             "GET",
             "/api/v1/remote-provider/components/{component_id}/inline",
@@ -3136,7 +4561,7 @@ class GeneratedClient:
         )
 
     def get_output_fabrication_layer(self, project_id: str, layer_id: str, *, type: str = 'manufacturing', folder: str = '', commit: str | None = None) -> Any:
-        """Get Output Fabrication Layer"""
+        """One layer of an output folder's package as SVG"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/fabrication-view/layers/{layer_id}.svg",
@@ -3144,8 +4569,8 @@ class GeneratedClient:
             query={"type": type, "folder": folder, "commit": commit},
         )
 
-    def get_output_fabrication_view(self, project_id: str, *, type: str = 'manufacturing', folder: str = '', commit: str | None = None) -> Any:
-        """Get Output Fabrication View"""
+    def get_output_fabrication_view(self, project_id: str, *, type: str = 'manufacturing', folder: str = '', commit: str | None = None) -> FabricationView:
+        """Layers, board size and drill tools of the Gerbers in one output folder"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/fabrication-view",
@@ -3153,7 +4578,7 @@ class GeneratedClient:
             query={"type": type, "folder": folder, "commit": commit},
         )
 
-    def get_output_placement(self, project_id: str, *, type: str = 'manufacturing', folder: str = '', commit: str | None = None) -> PlacementView:
+    def get_output_placement(self, project_id: str, *, type: str = 'manufacturing', folder: str = '', commit: str | None = None) -> app__api__fabrication_view__PlacementView:
         """Placed parts of a folder's position files, checked against its BOM"""
         return self._request(
             "GET",
@@ -3162,8 +4587,8 @@ class GeneratedClient:
             query={"type": type, "folder": folder, "commit": commit},
         )
 
-    def get_part_manifest(self, part_id: str, *, representation: str = '', revision: str = '') -> Any:
-        """Get Part Manifest"""
+    def get_part_manifest(self, part_id: str, *, representation: str = '', revision: str = '') -> PartManifest:
+        """The signed asset manifest KiCad uses to place a part"""
         return self._request(
             "GET",
             "/api/v1/remote-provider/parts/{part_id}",
@@ -3214,8 +4639,8 @@ class GeneratedClient:
             path_params={"project_id": project_id},
         )
 
-    def get_project_comments_source_urls(self, project_id: str, *, base_url: str | None = None) -> Any:
-        """Get Project Comments Source Urls"""
+    def get_project_comments_source_urls(self, project_id: str, *, base_url: str | None = None) -> ProjectCommentsSourceUrls:
+        """List comment source URLs for a KiCad comments source"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/comments/source-urls",
@@ -3420,8 +4845,8 @@ class GeneratedClient:
             query={"commit": commit},
         )
 
-    def get_reply_history(self, project_id: str, comment_id: str, reply_id: str) -> Any:
-        """Get Reply History"""
+    def get_reply_history(self, project_id: str, comment_id: str, reply_id: str) -> list[CommentHistoryEntry]:
+        """List a reply's revisions"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/comments/{comment_id}/replies/{reply_id}/history",
@@ -3455,8 +4880,8 @@ class GeneratedClient:
             query={"exp": exp, "sig": sig},
         )
 
-    def get_source(self, project_id: str, *, commit_sha: str) -> Any:
-        """Get Source"""
+    def get_source(self, project_id: str, *, commit_sha: str) -> SourceResponse:
+        """Discover KiCad sources, variants and BOM presets at a commit"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/release-studio/source",
@@ -3495,8 +4920,8 @@ class GeneratedClient:
             path_params={"run_id": run_id},
         )
 
-    def get_webgpu_3d_analytic(self, project_id: str, *, commit: str | None = None) -> Any:
-        """Get Webgpu 3D Analytic"""
+    def get_webgpu_3d_analytic(self, project_id: str, *, commit: str | None = None) -> WebGpu3dAnalytic:
+        """The viewer's analytic bundle document for a revision"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/webgpu-3d/analytic",
@@ -3505,15 +4930,15 @@ class GeneratedClient:
         )
 
     def get_webgpu_3d_asset(self, project_id: str, source_revision_key: str, generator_build: str, asset_path: str) -> Any:
-        """Get Webgpu 3D Asset"""
+        """Serve one design-bundle member by revision key and generator"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/webgpu-3d/assets/{source_revision_key}/{generator_build}/{asset_path}",
             path_params={"project_id": project_id, "source_revision_key": source_revision_key, "generator_build": generator_build, "asset_path": asset_path},
         )
 
-    def get_webgpu_3d_status(self, project_id: str, *, commit: str | None = None) -> Any:
-        """Get Webgpu 3D Status"""
+    def get_webgpu_3d_status(self, project_id: str, *, commit: str | None = None) -> WebGpu3dStatus:
+        """The 3D tab's status for a revision, queueing its design bundle"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/webgpu-3d/status",
@@ -3529,62 +4954,62 @@ class GeneratedClient:
         )
 
     def impedance_template(self, project_id: str) -> Any:
-        """Impedance Template"""
+        """Download the controlled-impedance template"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/release-studio/impedance-template.csv",
             path_params={"project_id": project_id},
         )
 
-    def import_access_help(self, *, body: dict[str, Any] | None = None) -> Any:
-        """Import Access Help"""
+    def import_access_help(self, *, body: dict[str, Any] | None = None) -> ImportAccessHelp:
+        """Where to register the key for a repository Prism cannot read"""
         return self._request(
             "POST",
             "/api/v1/projects/access-help",
             body=body,
         )
 
-    def import_auxiliary_asset(self, component_id: str, asset_type: str) -> Any:
-        """Import Auxiliary Asset"""
+    def import_auxiliary_asset(self, component_id: str, asset_type: str) -> ComponentMutation:
+        """Attach an auxiliary asset to a component"""
         return self._request(
             "POST",
             "/api/v1/catalog/components/{component_id}/assets/{asset_type}",
             path_params={"component_id": component_id, "asset_type": asset_type},
         )
 
-    def import_footprint(self, component_id: str) -> Any:
-        """Import Footprint"""
+    def import_footprint(self, component_id: str) -> FootprintImportResult:
+        """Import a footprint for a component"""
         return self._request(
             "POST",
             "/api/v1/catalog/components/{component_id}/footprint-import",
             path_params={"component_id": component_id},
         )
 
-    def import_inventory_csv(self) -> Any:
-        """Import Inventory Csv"""
+    def import_inventory_csv(self) -> InventoryImportResult:
+        """Import inventory from CSV"""
         return self._request(
             "POST",
             "/api/v1/catalog/inventory/sync-csv",
         )
 
-    def import_project(self, *, body: dict[str, Any] | None = None) -> Any:
-        """Import Project"""
+    def import_project(self, *, body: dict[str, Any] | None = None) -> JobStarted:
+        """Start importing a repository"""
         return self._request(
             "POST",
             "/api/v1/projects/import",
             body=body,
         )
 
-    def import_proposals_csv(self, session_id: str) -> Any:
-        """Import Proposals Csv"""
+    def import_proposals_csv(self, session_id: str) -> ImportedProposalCsv:
+        """Apply an edited import CSV"""
         return self._request(
             "POST",
             "/api/v1/catalog/import-sessions/{session_id}/proposals.csv",
             path_params={"session_id": session_id},
         )
 
-    def import_symbol_library(self, component_id: str) -> Any:
-        """Import Symbol Library"""
+    def import_symbol_library(self, component_id: str) -> SymbolImportResult:
+        """Import a symbol for a component"""
         return self._request(
             "POST",
             "/api/v1/catalog/components/{component_id}/symbol-import",
@@ -3600,8 +5025,8 @@ class GeneratedClient:
             query={"commit": commit},
         )
 
-    def link_library_asset(self, component_id: str, asset_type: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Link Library Asset"""
+    def link_library_asset(self, component_id: str, asset_type: str, *, body: dict[str, Any] | None = None) -> ComponentMutation:
+        """Link a stored library asset to a component"""
         return self._request(
             "POST",
             "/api/v1/catalog/components/{component_id}/assets/{asset_type}/link",
@@ -3616,6 +5041,13 @@ class GeneratedClient:
             "/api/v1/settings/access/users",
         )
 
+    def list_all_mcp_clients(self) -> list[McpClientAdminView]:
+        """List All Mcp Clients"""
+        return self._request(
+            "GET",
+            "/api/v1/auth/mcp-clients/all",
+        )
+
     def list_all_personal_tokens(self) -> list[PersonalTokenView]:
         """List All Personal Tokens"""
         return self._request(
@@ -3623,16 +5055,16 @@ class GeneratedClient:
             "/api/v1/auth/tokens/all",
         )
 
-    def list_build_logs(self, project_id: str, build_id: str) -> Any:
-        """List Build Logs"""
+    def list_build_logs(self, project_id: str, build_id: str) -> BuildLogs:
+        """Which steps have a log, how long each took, and how it ended"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/logs",
             path_params={"project_id": project_id, "build_id": build_id},
         )
 
-    def list_candidates(self, project_id: str, *, config_key: str | None = None) -> Any:
-        """List Candidates"""
+    def list_candidates(self, project_id: str, *, config_key: str | None = None) -> CandidateList:
+        """List release candidates with their build attempts"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/release-studio/candidates",
@@ -3655,8 +5087,8 @@ class GeneratedClient:
             query={"q": q, "source": source, "availability_state": availability_state, "workflow_stage": workflow_stage, "validation_status": validation_status, "category": category, "include_inactive": include_inactive, "page": page, "page_size": page_size, "sort_by": sort_by, "sort_dir": sort_dir, "lightweight": lightweight},
         )
 
-    def list_categories(self) -> Any:
-        """List Categories"""
+    def list_categories(self) -> CategoryList:
+        """List the released components' categories"""
         return self._request(
             "GET",
             "/api/v1/remote-provider/categories",
@@ -3718,8 +5150,8 @@ class GeneratedClient:
             "/api/v1/admin/trackers/connectors",
         )
 
-    def list_document_sheets(self, project_id: str, build_id: str) -> Any:
-        """List Document Sheets"""
+    def list_document_sheets(self, project_id: str, build_id: str) -> DocumentSheetList:
+        """List the composed documentation sheets of a build"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/sheets",
@@ -3768,6 +5200,13 @@ class GeneratedClient:
             "GET",
             "/api/v1/catalog/components/{component_id}/mates-with",
             path_params={"component_id": component_id},
+        )
+
+    def list_mcp_clients(self) -> list[McpClientView]:
+        """List Mcp Clients"""
+        return self._request(
+            "GET",
+            "/api/v1/auth/mcp-clients",
         )
 
     def list_mention_candidates(self, project_id: str) -> list[MentionCandidate]:
@@ -3846,8 +5285,8 @@ class GeneratedClient:
             path_params={"project_id": project_id},
         )
 
-    def list_service_clients(self) -> Any:
-        """List Service Clients"""
+    def list_service_clients(self) -> ServiceClientList:
+        """List the machine clients that may call the API"""
         return self._request(
             "GET",
             "/api/v1/admin/service-clients",
@@ -3869,8 +5308,8 @@ class GeneratedClient:
             query={"all_users": all_users},
         )
 
-    def list_vendor_profiles(self, project_id: str) -> Any:
-        """List Vendor Profiles"""
+    def list_vendor_profiles(self, project_id: str) -> VendorProfileList:
+        """List the vendor pack profiles Release Studio offers"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/release-studio/vendor-profiles",
@@ -3900,8 +5339,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def logout(self) -> Any:
-        """Logout"""
+    def logout(self) -> AuthSuccessResponse:
+        """Revoke this browser's session"""
         return self._request(
             "POST",
             "/api/v1/auth/logout",
@@ -3940,8 +5379,8 @@ class GeneratedClient:
             query={"view": view, "offset": offset, "rotation": rotation, "scale": scale, "partner": partner},
         )
 
-    def move_project_to_folder(self, project_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Move Project To Folder"""
+    def move_project_to_folder(self, project_id: str, *, body: dict[str, Any] | None = None) -> FolderMoveResult:
+        """Move one project to a folder"""
         return self._request(
             "POST",
             "/api/v1/folders/projects/{project_id}/move",
@@ -3949,16 +5388,16 @@ class GeneratedClient:
             body=body,
         )
 
-    def move_projects_to_folder(self, *, body: dict[str, Any] | None = None) -> Any:
-        """Move Projects To Folder"""
+    def move_projects_to_folder(self, *, body: dict[str, Any] | None = None) -> FolderBulkMoveResult:
+        """Move several projects to a folder in one transaction"""
         return self._request(
             "POST",
             "/api/v1/folders/projects/move",
             body=body,
         )
 
-    def oauth_callback(self, *, code: str = '', state: str = '') -> Any:
-        """Oauth Callback"""
+    def oauth_callback(self, *, code: str = '', state: str = '') -> None:
+        """Complete account linking and return the browser to the app"""
         return self._request(
             "GET",
             "/api/v1/trackers/oauth/callback",
@@ -3982,8 +5421,8 @@ class GeneratedClient:
             path_params={"connector_id": connector_id},
         )
 
-    def pin_comment(self, project_id: str, comment_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Pin Comment"""
+    def pin_comment(self, project_id: str, comment_id: str, *, body: dict[str, Any] | None = None) -> CommentView:
+        """Pin an unpinned comment to an exact commit"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/comments/{comment_id}/pin",
@@ -4007,15 +5446,15 @@ class GeneratedClient:
         )
 
     def preview_document_sheet(self, project_id: str, build_id: str, sheet_key: str) -> Any:
-        """Preview Document Sheet"""
+        """Preview one composed documentation sheet"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/sheets/{sheet_key}.pdf",
             path_params={"project_id": project_id, "build_id": build_id, "sheet_key": sheet_key},
         )
 
-    def preview_metadata_csv(self) -> Any:
-        """Preview Metadata Csv"""
+    def preview_metadata_csv(self) -> MetadataCsvPreview:
+        """Preview a metadata CSV import"""
         return self._request(
             "POST",
             "/api/v1/catalog/metadata/import-csv/preview",
@@ -4037,8 +5476,8 @@ class GeneratedClient:
             path_params={"project_id": project_id, "comment_id": comment_id},
         )
 
-    def publish_build(self, project_id: str, build_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Publish Build"""
+    def publish_build(self, project_id: str, build_id: str, *, body: dict[str, Any] | None = None) -> PublishResult:
+        """Zip the dossier, attach selected vendor packs, and publish the forge release"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/publish",
@@ -4046,8 +5485,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def push_comments(self, project_id: str) -> Any:
-        """Push Comments"""
+    def push_comments(self, project_id: str) -> PushCommentsView:
+        """Export the comment snapshot to the project's comments.json"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/comments/push",
@@ -4078,7 +5517,7 @@ class GeneratedClient:
         )
 
     def read_result_file(self, project_id: str, run_id: str, path: str) -> Any:
-        """Read Result File"""
+        """Download one file a run produced"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/sim/a0/runs/{run_id}/files/{path}",
@@ -4094,7 +5533,7 @@ class GeneratedClient:
         )
 
     def read_run_materialization(self, project_id: str, run_id: str) -> Any:
-        """Read Run Materialization"""
+        """The bundle's analytic pack the engine solved against"""
         return self._request(
             "GET",
             "/api/v1/projects/{project_id}/sim/a0/runs/{run_id}/materialization",
@@ -4124,8 +5563,8 @@ class GeneratedClient:
             "/api/v1/health/ready",
         )
 
-    def reattach_comment(self, project_id: str, comment_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Reattach Comment"""
+    def reattach_comment(self, project_id: str, comment_id: str, *, body: dict[str, Any] | None = None) -> CommentView:
+        """Reattach a comment for a commit's descendants"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/comments/{comment_id}/reattach",
@@ -4133,16 +5572,16 @@ class GeneratedClient:
             body=body,
         )
 
-    def regenerate_component_previews(self, component_id: str) -> Any:
-        """Regenerate Component Previews"""
+    def regenerate_component_previews(self, component_id: str) -> CatalogComponent:
+        """Regenerate a component's previews"""
         return self._request(
             "POST",
             "/api/v1/catalog/components/{component_id}/previews/regenerate",
             path_params={"component_id": component_id},
         )
 
-    def regenerate_design_bundles(self, project_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Regenerate Design Bundles"""
+    def regenerate_design_bundles(self, project_id: str, *, body: dict[str, Any] | None = None) -> RegeneratedBundles:
+        """Drop the bundles in scope and queue a rebuild that skips reuse"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/design-bundles/regenerate",
@@ -4150,24 +5589,24 @@ class GeneratedClient:
             body=body,
         )
 
-    def regenerate_project_thumbnail(self, project_id: str) -> Any:
-        """Regenerate Project Thumbnail"""
+    def regenerate_project_thumbnail(self, project_id: str) -> ThumbnailQueued:
+        """Queue a fresh board thumbnail render"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/thumbnail/regenerate",
             path_params={"project_id": project_id},
         )
 
-    def regenerate_project_thumbnails(self, *, body: dict[str, Any] | None = None) -> Any:
-        """Regenerate Project Thumbnails"""
+    def regenerate_project_thumbnails(self, *, body: dict[str, Any] | None = None) -> ThumbnailsQueued:
+        """Queue board thumbnail renders for several projects"""
         return self._request(
             "POST",
             "/api/v1/projects/thumbnails/regenerate",
             body=body,
         )
 
-    def reject_project_import_proposal(self, proposal_id: str) -> Any:
-        """Reject Project Import Proposal"""
+    def reject_project_import_proposal(self, proposal_id: str) -> ImportProposal:
+        """Reject an import proposal"""
         return self._request(
             "POST",
             "/api/v1/catalog/import-proposals/{proposal_id}/reject",
@@ -4182,8 +5621,8 @@ class GeneratedClient:
             query={"q": q, "workflow_stage": workflow_stage, "page": page, "page_size": page_size},
         )
 
-    def remove_comment_reaction(self, project_id: str, comment_id: str, reaction: str, *, replyId: str | None = None) -> Any:
-        """Remove Comment Reaction"""
+    def remove_comment_reaction(self, project_id: str, comment_id: str, reaction: str, *, replyId: str | None = None) -> CommentView:
+        """Remove a reaction from a comment or reply"""
         return self._request(
             "DELETE",
             "/api/v1/projects/{project_id}/comments/{comment_id}/reactions/{reaction}",
@@ -4191,8 +5630,8 @@ class GeneratedClient:
             query={"replyId": replyId},
         )
 
-    def remove_mate(self, component_id: str, other_id: str) -> Any:
-        """Remove Mate"""
+    def remove_mate(self, component_id: str, other_id: str) -> MatePage:
+        """Remove a mating between two parts"""
         return self._request(
             "DELETE",
             "/api/v1/catalog/components/{component_id}/mates-with/{other_id}",
@@ -4216,8 +5655,8 @@ class GeneratedClient:
             path_params={"project_id": project_id, "comment_id": comment_id},
         )
 
-    def restore_metadata_field(self, field_id: str) -> Any:
-        """Restore Metadata Field"""
+    def restore_metadata_field(self, field_id: str) -> MetadataField:
+        """Restore a metadata field"""
         return self._request(
             "POST",
             "/api/v1/catalog/metadata/fields/{field_id}/restore",
@@ -4240,8 +5679,8 @@ class GeneratedClient:
             path_params={"project_id": project_id, "comment_id": comment_id},
         )
 
-    def retry_project_import_follow_ups(self, project_id: str) -> Any:
-        """Retry Project Import Follow Ups"""
+    def retry_project_import_follow_ups(self, project_id: str) -> ImportFollowUpsRetried:
+        """Retry the metadata and thumbnail jobs an import could not queue"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/import-follow-ups/retry",
@@ -4256,8 +5695,16 @@ class GeneratedClient:
             path_params={"connector_id": connector_id},
         )
 
-    def revoke_other_sessions(self) -> Any:
-        """Revoke Other Sessions"""
+    def revoke_mcp_client(self, grant_id: str) -> None:
+        """Revoke Mcp Client"""
+        return self._request(
+            "DELETE",
+            "/api/v1/auth/mcp-clients/{grant_id}",
+            path_params={"grant_id": grant_id},
+        )
+
+    def revoke_other_sessions(self) -> RevokeSessionsResponse:
+        """Sign out everywhere except this browser"""
         return self._request(
             "POST",
             "/api/v1/auth/sessions/revoke-others",
@@ -4279,31 +5726,31 @@ class GeneratedClient:
             path_params={"jti": jti},
         )
 
-    def revoke_user_sessions(self, email: str) -> Any:
-        """Revoke User Sessions"""
+    def revoke_user_sessions(self, email: str) -> RevokeSessionsResponse:
+        """Terminate every session belonging to an account"""
         return self._request(
             "POST",
             "/api/v1/auth/sessions/revoke-user/{email}",
             path_params={"email": email},
         )
 
-    def rotate_service_client_secret(self, client_id: str) -> Any:
-        """Rotate Service Client Secret"""
+    def rotate_service_client_secret(self, client_id: str) -> ServiceClientWithSecret:
+        """Replace a machine client's secret and show the new one once"""
         return self._request(
             "POST",
             "/api/v1/admin/service-clients/{client_id}/rotate-secret",
             path_params={"client_id": client_id},
         )
 
-    def run_artifact_maintenance(self) -> Any:
-        """Run Artifact Maintenance"""
+    def run_artifact_maintenance(self) -> CatalogJobQueued:
+        """Run artifact maintenance"""
         return self._request(
             "POST",
             "/api/v1/catalog/artifacts/maintenance",
         )
 
-    def save_import_proposal_drafts(self, session_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Save Import Proposal Drafts"""
+    def save_import_proposal_drafts(self, session_id: str, *, body: dict[str, Any] | None = None) -> SavedImportDrafts:
+        """Save import proposal drafts"""
         return self._request(
             "PUT",
             "/api/v1/catalog/import-sessions/{session_id}/proposals/drafts",
@@ -4311,16 +5758,16 @@ class GeneratedClient:
             body=body,
         )
 
-    def save_metadata_grid_preferences(self, *, body: dict[str, Any] | None = None) -> Any:
-        """Save Metadata Grid Preferences"""
+    def save_metadata_grid_preferences(self, *, body: dict[str, Any] | None = None) -> MetadataGridPreferences:
+        """Save metadata grid preferences"""
         return self._request(
             "PUT",
             "/api/v1/catalog/metadata/grid-preferences",
             body=body,
         )
 
-    def save_source_defaults(self, project_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Save Source Defaults"""
+    def save_source_defaults(self, project_id: str, *, body: dict[str, Any] | None = None) -> SourceDefaultsResponse:
+        """Remember the Source picks for the next release"""
         return self._request(
             "PUT",
             "/api/v1/projects/{project_id}/release-studio/source/defaults",
@@ -4337,8 +5784,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def scan_git_host_key(self, *, body: dict[str, Any] | None = None) -> Any:
-        """Scan Git Host Key"""
+    def scan_git_host_key(self, *, body: dict[str, Any] | None = None) -> HostKeyScanResponse:
+        """Scan a Git host's SSH key fingerprint"""
         return self._request(
             "POST",
             "/api/v1/settings/git-access/host-keys/scan",
@@ -4353,8 +5800,8 @@ class GeneratedClient:
             query={"asset_type": asset_type, "q": q, "limit": limit},
         )
 
-    def search_components(self, *, q: str = '', page: int = 1, page_size: int = 50, include_total: bool = False) -> Any:
-        """Search Components"""
+    def search_components(self, *, q: str = '', page: int = 1, page_size: int = 50, include_total: bool = False) -> ComponentPage:
+        """Search the released components KiCad may place"""
         return self._request(
             "GET",
             "/api/v1/remote-provider/search",
@@ -4378,8 +5825,8 @@ class GeneratedClient:
             query={"q": q, "limit": limit},
         )
 
-    def set_model_alignment(self, component_id: str, asset_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Set Model Alignment"""
+    def set_model_alignment(self, component_id: str, asset_id: str, *, body: dict[str, Any] | None = None) -> ModelPage:
+        """Save a model's alignment"""
         return self._request(
             "PUT",
             "/api/v1/catalog/components/{component_id}/models/{asset_id}/alignment",
@@ -4387,8 +5834,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def set_service_client_enabled(self, client_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Set Service Client Enabled"""
+    def set_service_client_enabled(self, client_id: str, *, body: dict[str, Any] | None = None) -> ServiceClientOut:
+        """Enable or disable a machine client"""
         return self._request(
             "PATCH",
             "/api/v1/admin/service-clients/{client_id}",
@@ -4396,8 +5843,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def set_user_password(self, email: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Set User Password"""
+    def set_user_password(self, email: str, *, body: dict[str, Any] | None = None) -> SetUserPasswordResponse:
+        """Set or reset a user's local password"""
         return self._request(
             "PUT",
             "/api/v1/settings/access/users/{email}/password",
@@ -4413,8 +5860,8 @@ class GeneratedClient:
             path_params={"project_id": project_id, "comment_id": comment_id, "reply_id": reply_id},
         )
 
-    def start_design_compare(self, project_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Start Design Compare"""
+    def start_design_compare(self, project_id: str, *, body: dict[str, Any] | None = None) -> StartDesignCompareResponse:
+        """Queue a design comparison between two commits"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/design-compare",
@@ -4438,8 +5885,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def sync_project_endpoint(self, project_id: str) -> Any:
-        """Sync Project Endpoint"""
+    def sync_project_endpoint(self, project_id: str) -> SyncQueued:
+        """Queue a sync with the project's remote"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/sync",
@@ -4470,23 +5917,23 @@ class GeneratedClient:
             path_params={"project_id": project_id, "comment_id": comment_id},
         )
 
-    def token(self) -> Any:
-        """Token"""
+    def token(self) -> ServiceToken:
+        """Exchange client credentials for a service token"""
         return self._request(
             "POST",
             "/api/v1/oauth/token",
         )
 
-    def tracker_webhook(self, provider: str, connector_id: str) -> Any:
-        """Tracker Webhook"""
+    def tracker_webhook(self, provider: str, connector_id: str) -> WebhookAccepted:
+        """Accept a signed tracker webhook delivery into the inbox"""
         return self._request(
             "POST",
             "/api/v1/trackers/webhooks/{provider}/{connector_id}",
             path_params={"provider": provider, "connector_id": connector_id},
         )
 
-    def transition_release_status(self, component_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Transition Release Status"""
+    def transition_release_status(self, component_id: str, *, body: dict[str, Any] | None = None) -> CatalogComponent:
+        """Transition a component's release status"""
         return self._request(
             "POST",
             "/api/v1/catalog/components/{component_id}/release",
@@ -4494,8 +5941,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def trigger_workflow(self, project_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Trigger Workflow"""
+    def trigger_workflow(self, project_id: str, *, body: dict[str, Any] | None = None) -> WorkflowQueued:
+        """Queue a KiCad workflow output job"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/workflows",
@@ -4503,8 +5950,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def trust_git_host_key(self, *, body: dict[str, Any] | None = None) -> Any:
-        """Trust Git Host Key"""
+    def trust_git_host_key(self, *, body: dict[str, Any] | None = None) -> HostKeyTrustResponse:
+        """Pin a verified Git host key"""
         return self._request(
             "POST",
             "/api/v1/settings/git-access/host-keys/trust",
@@ -4527,8 +5974,8 @@ class GeneratedClient:
             path_params={"connector_id": connector_id},
         )
 
-    def update_catalog_component(self, component_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Update Catalog Component"""
+    def update_catalog_component(self, component_id: str, *, body: dict[str, Any] | None = None) -> CatalogComponent:
+        """Update a catalog component"""
         return self._request(
             "PATCH",
             "/api/v1/catalog/components/{component_id}",
@@ -4536,8 +5983,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def update_comment(self, project_id: str, comment_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Update Comment"""
+    def update_comment(self, project_id: str, comment_id: str, *, body: dict[str, Any] | None = None) -> CommentView:
+        """Edit a comment's content or status"""
         return self._request(
             "PATCH",
             "/api/v1/projects/{project_id}/comments/{comment_id}",
@@ -4545,8 +5992,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def update_component_representation(self, component_id: str, representation_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Update Component Representation"""
+    def update_component_representation(self, component_id: str, representation_id: str, *, body: dict[str, Any] | None = None) -> CatalogComponent:
+        """Update a component representation"""
         return self._request(
             "PATCH",
             "/api/v1/catalog/components/{component_id}/representations/{representation_id}",
@@ -4563,8 +6010,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def update_folder(self, folder_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Update Folder"""
+    def update_folder(self, folder_id: str, *, body: dict[str, Any] | None = None) -> FolderRecord:
+        """Rename or reparent a folder"""
         return self._request(
             "PATCH",
             "/api/v1/folders/{folder_id}",
@@ -4572,8 +6019,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def update_metadata_field(self, field_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Update Metadata Field"""
+    def update_metadata_field(self, field_id: str, *, body: dict[str, Any] | None = None) -> MetadataField:
+        """Update a metadata field"""
         return self._request(
             "PATCH",
             "/api/v1/catalog/metadata/fields/{field_id}",
@@ -4581,8 +6028,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def update_project_config(self, project_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Update Project Config"""
+    def update_project_config(self, project_id: str, *, body: dict[str, Any] | None = None) -> ProjectConfigSaved:
+        """Save a project's path configuration"""
         return self._request(
             "PUT",
             "/api/v1/projects/{project_id}/config",
@@ -4590,8 +6037,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def update_project_description(self, project_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Update Project Description"""
+    def update_project_description(self, project_id: str, *, body: dict[str, Any] | None = None) -> ProjectDescriptionUpdated:
+        """Update the project's description"""
         return self._request(
             "PUT",
             "/api/v1/projects/{project_id}/description",
@@ -4599,8 +6046,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def update_project_name(self, project_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Update Project Name"""
+    def update_project_name(self, project_id: str, *, body: dict[str, Any] | None = None) -> ProjectNameUpdated:
+        """Rename the project's display name"""
         return self._request(
             "PUT",
             "/api/v1/projects/{project_id}/name",
@@ -4617,8 +6064,8 @@ class GeneratedClient:
             body=body,
         )
 
-    def update_reply(self, project_id: str, comment_id: str, reply_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Update Reply"""
+    def update_reply(self, project_id: str, comment_id: str, reply_id: str, *, body: dict[str, Any] | None = None) -> CommentView:
+        """Edit a reply"""
         return self._request(
             "PATCH",
             "/api/v1/projects/{project_id}/comments/{comment_id}/replies/{reply_id}",
@@ -4626,24 +6073,24 @@ class GeneratedClient:
             body=body,
         )
 
-    def upload_comment_attachment(self, project_id: str) -> Any:
-        """Upload Comment Attachment"""
+    def upload_comment_attachment(self, project_id: str) -> CommentAttachmentUploadView:
+        """Upload a file for a comment that will reference it"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/comment-attachments",
             path_params={"project_id": project_id},
         )
 
-    def upload_folder_snapshot_file(self, snapshot_id: str) -> Any:
-        """Upload Folder Snapshot File"""
+    def upload_folder_snapshot_file(self, snapshot_id: str) -> FolderSnapshotFile:
+        """Upload a file into a folder snapshot"""
         return self._request(
             "POST",
             "/api/v1/catalog/import-snapshots/folders/{snapshot_id}/files",
             path_params={"snapshot_id": snapshot_id},
         )
 
-    def upload_project_thumbnail(self, project_id: str) -> Any:
-        """Upload Project Thumbnail"""
+    def upload_project_thumbnail(self, project_id: str) -> ThumbnailUploaded:
+        """Replace the project's thumbnail with an uploaded image"""
         return self._request(
             "PUT",
             "/api/v1/projects/{project_id}/thumbnail",
@@ -4659,15 +6106,15 @@ class GeneratedClient:
             body=body,
         )
 
-    def validate_catalog(self) -> Any:
-        """Validate Catalog"""
+    def validate_catalog(self) -> CatalogJobQueued:
+        """Validate the catalog"""
         return self._request(
             "POST",
             "/api/v1/catalog/validation/run",
         )
 
-    def validate_component_klc(self, component_id: str) -> Any:
-        """Validate Component Klc"""
+    def validate_component_klc(self, component_id: str) -> CatalogJobQueued:
+        """Validate a component with KLC"""
         return self._request(
             "POST",
             "/api/v1/catalog/components/{component_id}/validate",
@@ -4690,8 +6137,8 @@ class GeneratedClient:
             path_params={"component_id": component_id},
         )
 
-    def withdraw_build_approval(self, project_id: str, build_id: str, *, body: dict[str, Any] | None = None) -> Any:
-        """Withdraw Build Approval"""
+    def withdraw_build_approval(self, project_id: str, build_id: str, *, body: dict[str, Any] | None = None) -> ApprovalDecision:
+        """Withdraw a previously recorded approval"""
         return self._request(
             "POST",
             "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/approvals/withdraw",
