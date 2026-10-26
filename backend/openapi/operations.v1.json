@@ -199,6 +199,11 @@
     "path": "/api/v1/catalog/metadata/fields",
     "typed": false
   },
+  "create_personal_token": {
+    "method": "POST",
+    "path": "/api/v1/auth/tokens",
+    "typed": true
+  },
   "create_project_import_session": {
     "method": "POST",
     "path": "/api/v1/catalog/import-sessions/projects",
@@ -894,6 +899,11 @@
     "path": "/api/v1/settings/access/users",
     "typed": true
   },
+  "list_all_personal_tokens": {
+    "method": "GET",
+    "path": "/api/v1/auth/tokens/all",
+    "typed": true
+  },
   "list_build_logs": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/logs",
@@ -1012,6 +1022,11 @@
   "list_my_sessions": {
     "method": "GET",
     "path": "/api/v1/auth/sessions",
+    "typed": true
+  },
+  "list_personal_tokens": {
+    "method": "GET",
+    "path": "/api/v1/auth/tokens",
     "typed": true
   },
   "list_project_import_proposals": {
@@ -1293,6 +1308,11 @@
     "method": "POST",
     "path": "/api/v1/auth/sessions/revoke-others",
     "typed": false
+  },
+  "revoke_personal_token": {
+    "method": "DELETE",
+    "path": "/api/v1/auth/tokens/{token_id}",
+    "typed": true
   },
   "revoke_token": {
     "method": "DELETE",

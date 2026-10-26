@@ -52,6 +52,7 @@ from app.services.workspace_migrations import m129_drop_system_builder_v2
 from app.services.workspace_migrations import m130_sim_run_solved_commit
 from app.services.workspace_migrations import m131_idempotency_keys
 from app.services.workspace_migrations import m132_workspace_events
+from app.services.workspace_migrations import m133_personal_access_tokens
 
 
 Migration = Callable[[Any], None]
@@ -100,6 +101,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (130, "sim_run_solved_commit", m130_sim_run_solved_commit.migrate),
     (131, "idempotency_keys", m131_idempotency_keys.migrate),
     (132, "workspace_events", m132_workspace_events.migrate),
+    (133, "personal_access_tokens", m133_personal_access_tokens.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

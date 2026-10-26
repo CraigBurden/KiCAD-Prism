@@ -8,6 +8,7 @@ from app.core.gzip_config import (
     GZIP_MINIMUM_SIZE,
 )
 from app.api.auth import router as auth_router
+from app.api.personal_tokens import router as personal_tokens_router
 from app.api.fabrication_view import router as fabrication_view_router
 from app.api.projects import router as projects_router
 from app.api.project_bom import router as project_bom_router
@@ -294,6 +295,7 @@ app.add_middleware(ApiVersionMiddleware)
 
 # Include Routers
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
+app.include_router(personal_tokens_router)
 app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
 app.include_router(project_bom_router, prefix="/api/projects", tags=["projects"])
 app.include_router(project_semantic_index_router, prefix="/api/projects", tags=["projects"])

@@ -1751,6 +1751,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (130, "sim_run_solved_commit"),
                 (131, "idempotency_keys"),
                 (132, "workspace_events"),
+                (133, "personal_access_tokens"),
             ],
         )
 

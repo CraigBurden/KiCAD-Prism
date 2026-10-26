@@ -403,6 +403,17 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
         ),
     )
 
+    PRISM_PAT_MAX_DAYS: int = Field(
+        default=365,
+        ge=1,
+        le=3650,
+        description=(
+            "Longest lifetime, in days, a personal access token may be given. A "
+            "token request defaults to 90 days; lower this to cap scripts and CI "
+            "at a shorter rotation period."
+        ),
+    )
+
     # The MANUFACTURO_SQL_* settings were removed. Nothing under app/ ever read
     # them, so they were a set of credential fields that asked operators to put
     # a database password in .env for a feature that did not exist. Reintroduce
