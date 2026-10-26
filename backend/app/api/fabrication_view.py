@@ -16,6 +16,7 @@ from typing import Any, Callable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
+from pydantic import BaseModel, ConfigDict
 
 from app.api._helpers import (
     SANDBOXED_CONTENT_HEADERS,
@@ -395,7 +396,69 @@ _POSITION_NAME = re.compile(r"pos|cpl|place|centroid", re.IGNORECASE)
 _BOM_NAME = re.compile(r"bom|parts", re.IGNORECASE)
 
 
-@router.get("/{project_id}/placement")
+class PlacementPart(BaseModel):
+    """One placed part in board coordinates."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    ref: str
+    value: str
+    package: str
+    x: float
+    y: float
+    rotation: float
+    side: str
+    status: str
+
+
+class PlacementMissingPart(BaseModel):
+    """A BOM part the position files never place."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    ref: str
+    value: str
+    package: str
+    status: str
+
+
+class PlacementCounts(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    placed: int
+    top: int
+    bottom: int
+    notInBom: int
+    dnpPlaced: int
+    notPlaced: int
+
+
+class PlacementFiles(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    positions: str
+    bom: str
+
+
+class PlacementView(BaseModel):
+    """The parts of a folder's position files, checked against its BOM."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    present: bool
+    parts: list[PlacementPart]
+    missing: list[PlacementMissingPart]
+    counts: PlacementCounts
+    hasBom: bool
+    files: PlacementFiles
+    warnings: list[str]
+
+
+@router.get(
+    "/{project_id}/placement",
+    response_model=PlacementView,
+    summary="Placed parts of a folder's position files, checked against its BOM",
+)
 def get_output_placement(
     project_id: str,
     type: str = "manufacturing",

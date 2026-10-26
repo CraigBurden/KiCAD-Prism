@@ -21,6 +21,20 @@ from app.api._helpers import (
     resolve_path_within_root,
     revision_cache_headers,
 )
+from app.api.projects_models import (
+    CommitDistance,
+    DocFileContent,
+    MonorepoStructure,
+    ProjectBranches,
+    ProjectCommitSummary,
+    ProjectCommits,
+    ProjectDescription,
+    ProjectName,
+    ProjectPathConfig,
+    ProjectReadme,
+    ProjectReleases,
+    ProjectSearchResults,
+)
 from app.core.errors import caller_errors, value_errors_as
 from app.core.config import settings
 from app.core import policy
@@ -198,7 +212,7 @@ async def list_monorepos(user: AuthenticatedUser = Depends(require_viewer)):
         ))
     return result
 
-@router.get("/monorepos/{repo_name}/structure")
+@router.get("/monorepos/{repo_name}/structure", response_model=MonorepoStructure, summary="Folders and projects under one monorepo path")
 async def get_monorepo_structure(
     repo_name: str,
     subpath: str = "",
@@ -267,7 +281,7 @@ async def get_monorepo_structure(
         "projects": projects
     }
 
-@router.get("/search")
+@router.get("/search", response_model=ProjectSearchResults, summary="Search projects by name, description or repository")
 async def search_projects(
     q: str = "",
     limit: int = Query(default=100, ge=1, le=500),
@@ -427,7 +441,7 @@ async def trigger_workflow(
         return {"job_id": job_id}
 
 
-@router.get("/{project_id}/branches")
+@router.get("/{project_id}/branches", response_model=ProjectBranches, summary="Branches that can be viewed for the project")
 async def get_project_branches(
     project_id: str,
     user: AuthenticatedUser = Depends(require_viewer),
@@ -461,7 +475,11 @@ def _resolve_thumbnail_file(project, row: Optional[dict]) -> Optional[Path]:
     return abs_path if abs_path.is_file() else None
 
 
-@router.get("/{project_id}/thumbnail")
+@router.get(
+    "/{project_id}/thumbnail",
+    responses={200: {"description": "The project's thumbnail image.", "content": {"image/*": {}}}},
+    summary="The project's thumbnail image",
+)
 async def get_project_thumbnail(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     # Use cached thumbnail path from DB, fallback to filesystem detection
     row = authorized_project(user, project_id)
@@ -481,7 +499,11 @@ async def get_project_thumbnail(project_id: str, user: AuthenticatedUser = Depen
     return _thumbnail_response(Path(path), immutable=False)
 
 
-@router.get("/{project_id}/thumbnail/{thumbnail_digest}")
+@router.get(
+    "/{project_id}/thumbnail/{thumbnail_digest}",
+    responses={200: {"description": "The immutable thumbnail image for that digest.", "content": {"image/*": {}}}},
+    summary="One immutable version of the project's thumbnail",
+)
 async def get_project_thumbnail_version(
     project_id: str,
     thumbnail_digest: str,
@@ -744,7 +766,11 @@ def _project_files_response(
         return project_outputs.list_commit_files(project, commit, project_outputs.output_dir_in(config, output_type))
     return file_service.get_project_files(project.path, output_type)
 
-@router.get("/{project_id}/download")
+@router.get(
+    "/{project_id}/download",
+    responses={200: {"description": "The requested output file.", "content": {"*/*": {}}}},
+    summary="Download one file from the project's output folders",
+)
 async def download_file(
     project_id: str,
     path: str,
@@ -800,7 +826,7 @@ def _download_file_response(
     disposition = "inline" if inline else "attachment"
     return FileResponse(file_path, filename=file_path.name, content_disposition_type=disposition)
 
-@router.get("/{project_id}/readme")
+@router.get("/{project_id}/readme", response_model=ProjectReadme, summary="The project README text")
 async def get_project_readme(
     project_id: str,
     commit: str = None,
@@ -817,7 +843,11 @@ async def get_project_readme(
         raise HTTPException(status_code=404, detail="README not found")
     return {"content": content}
 
-@router.get("/{project_id}/asset/{asset_path:path}")
+@router.get(
+    "/{project_id}/asset/{asset_path:path}",
+    responses={200: {"description": "The requested project file.", "content": {"*/*": {}}}},
+    summary="Serve an asset from the project checkout",
+)
 async def get_project_asset(
     project_id: str,
     asset_path: str,
@@ -857,7 +887,7 @@ def _asset_response(
 
     return FileResponse(file_path)
 
-@router.get("/{project_id}/docs")
+@router.get("/{project_id}/docs", response_model=List[file_service.FileItem], summary="List the documentation folder")
 async def get_docs_files(
     project_id: str,
     commit: Optional[str] = None,
@@ -885,7 +915,7 @@ def _docs_files_response(project: project_service.Project, commit: Optional[str]
 
     return file_service.get_files_recursive(docs_dir)
 
-@router.get("/{project_id}/docs/content")
+@router.get("/{project_id}/docs/content", response_model=DocFileContent, summary="Read one documentation file")
 async def get_doc_file_content(
     project_id: str,
     path: str,
@@ -931,7 +961,12 @@ def _doc_file_content_response(project: project_service.Project, path: str, comm
         "path": path,
     }
 
-@router.get("/{project_id}/releases")
+@router.get(
+    "/{project_id}/releases",
+    response_model=ProjectReleases,
+    response_model_exclude_unset=True,
+    summary="Paginated Git tags of the project's repository",
+)
 async def get_project_releases(
     project_id: str,
     ref: Optional[str] = None,
@@ -977,7 +1012,7 @@ async def get_project_releases(
         "offset": offset,
     }
 
-@router.get("/{project_id}/commits/distance")
+@router.get("/{project_id}/commits/distance", response_model=CommitDistance, summary="How many commits behind a revision is")
 async def get_project_commit_distance(
     project_id: str,
     commit: str,
@@ -1000,7 +1035,7 @@ async def get_project_commit_distance(
     )
     return {"commits_behind": commits_behind}
 
-@router.get("/{project_id}/commits")
+@router.get("/{project_id}/commits", response_model=ProjectCommits, summary="Paginated commit history of the project")
 async def get_project_commits(
     project_id: str,
     limit: int = Query(default=50, ge=1, le=500),
@@ -1024,7 +1059,11 @@ async def get_project_commits(
     return {**page, "head": head}
 
 
-@router.get("/{project_id}/commits/{commit_hash}/summary")
+@router.get(
+    "/{project_id}/commits/{commit_hash}/summary",
+    response_model=ProjectCommitSummary,
+    summary="Files changed in one commit",
+)
 async def get_project_commit_summary(
     project_id: str,
     commit_hash: str,
@@ -1045,7 +1084,11 @@ async def get_project_commit_summary(
     )
 
 
-@router.get("/{project_id}/commits/{commit_hash}/file")
+@router.get(
+    "/{project_id}/commits/{commit_hash}/file",
+    responses={200: {"description": "The file's bytes at that commit.", "content": {"*/*": {}}}},
+    summary="Serve one file from a commit",
+)
 async def get_project_commit_file(
     project_id: str,
     commit_hash: str,
@@ -1091,7 +1134,11 @@ def _commit_file_response_for_project(
     return commit_file_response(commit_file, inline=True)
 
 
-@router.get("/{project_id}/ibom")
+@router.get(
+    "/{project_id}/ibom",
+    responses={200: {"description": "The interactive BOM page.", "content": {"text/html": {}}}},
+    summary="The project's interactive BOM",
+)
 async def get_project_ibom(
     project_id: str,
     request: Request,
@@ -1121,7 +1168,7 @@ def _ibom_response(project: project_service.Project, commit: Optional[str], requ
 
 # Path Configuration Endpoints
 
-@router.get("/{project_id}/config")
+@router.get("/{project_id}/config", response_model=ProjectPathConfig, summary="The project's path configuration and resolved paths")
 async def get_project_config(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     """
     Get path configuration for a project.
@@ -1214,7 +1261,7 @@ class ProjectDescriptionRequest(BaseModel):
     description: str
 
 
-@router.get("/{project_id}/name")
+@router.get("/{project_id}/name", response_model=ProjectName, summary="The project's display name and fallback name")
 async def get_project_name(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     """
     Get the display name for a project.
@@ -1259,7 +1306,7 @@ async def update_project_name(
     }
 
 
-@router.get("/{project_id}/description")
+@router.get("/{project_id}/description", response_model=ProjectDescription, summary="The project description")
 async def get_project_description(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     """
     Get project description from project registry.
