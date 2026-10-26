@@ -14,7 +14,6 @@ import hashlib
 import json
 import os
 import shutil
-import signal
 import subprocess
 import sys
 import threading
@@ -25,11 +24,14 @@ from typing import Any, Callable, Mapping, Sequence
 from app.core.config import settings
 from app.services.design_bundle import schemas
 from app.services.design_bundle.generator import Generator
+from app.services.process_tree import KILLED_EXIT_CODE, group_popen_kwargs, kill_tree
 
 CLI_NAME = "prism-kicad"
 OUTER_TIMEOUT_MARGIN_SECONDS = 30
 _POLL_SECONDS = 0.2
 _CANCEL_SECONDS = 1.0
+#: Windows has no ``wait4``: the run is polled and its peak memory is reported as 0.
+_HAS_WAIT4 = hasattr(os, "wait4")
 
 #: §4: the stdout document of each exit code.
 _DOCUMENTS = {
@@ -175,7 +177,7 @@ def _execute(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env={**os.environ, **(env or {})},
-            start_new_session=True,  # its own process group: a kill reaches git and children too
+            **group_popen_kwargs(),  # its own process group: a kill reaches git and children too
             close_fds=True,
         )
     except OSError as error:
@@ -192,24 +194,28 @@ def _execute(
     status, rusage = None, None
     try:
         while status is None:
-            pid, raw, usage = os.wait4(process.pid, os.WNOHANG)
-            if pid:
-                status, rusage = raw, usage
+            if _HAS_WAIT4:
+                pid, raw, usage = os.wait4(process.pid, os.WNOHANG)
+                if pid:
+                    status, rusage = raw, usage
+                    break
+            elif process.poll() is not None:
+                status = process.returncode
                 break
             now = time.monotonic()
             if now >= deadline:
-                raise CliFailure(f"{CLI_NAME} {args[0]} ran past {timeout_seconds:g}s", exit_code=-signal.SIGKILL, retryable=True)
+                raise CliFailure(f"{CLI_NAME} {args[0]} ran past {timeout_seconds:g}s", exit_code=KILLED_EXIT_CODE, retryable=True)
             if cancel is not None and now >= next_cancel:
                 next_cancel = now + _CANCEL_SECONDS
                 cancel()
             time.sleep(_POLL_SECONDS)
     except BaseException:
-        _kill_group(process)
+        kill_tree(process)
         raise
     finally:
         for reader in readers:
             reader.join(timeout=10)
-    exit_code = os.waitstatus_to_exitcode(status)
+    exit_code = os.waitstatus_to_exitcode(status) if _HAS_WAIT4 else status
     process.returncode = exit_code
     stdout = b"".join(chunks["out"])
     stderr = b"".join(chunks["err"]).decode("utf-8", "replace")
@@ -222,18 +228,6 @@ def _execute(
         peak_rss_bytes=_rss_bytes(rusage.ru_maxrss) if rusage is not None else 0,
     )
     return result, stdout
-
-
-def _kill_group(process: subprocess.Popen[bytes]) -> None:
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass
-    try:
-        os.waitpid(process.pid, 0)
-    except ChildProcessError:
-        pass
-    process.returncode = -signal.SIGKILL
 
 
 def _document(stdout: bytes) -> dict[str, Any] | None:
