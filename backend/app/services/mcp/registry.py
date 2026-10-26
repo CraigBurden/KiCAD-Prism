@@ -38,8 +38,13 @@ class Tool:
     #: ``(method, path template)`` under ``/api/v1``, template parameters
     #: filled from the ``path_params`` ``args`` returns.
     route: tuple[str, str]
-    #: ``arguments -> (path_params, query)``; ``None`` values are dropped.
-    args: Callable[[dict[str, Any]], tuple[dict[str, Any], dict[str, Any]]]
+    #: ``arguments -> (path_params, query)``, or the same plus a JSON ``body``;
+    #: ``None`` values are dropped. A body is sent only for a ``post`` route.
+    args: Callable[
+        [dict[str, Any]],
+        tuple[dict[str, Any], dict[str, Any]]
+        | tuple[dict[str, Any], dict[str, Any], dict[str, Any]],
+    ]
     annotations: dict[str, bool]
     output_schema: dict[str, Any] | None = None
 

@@ -11,6 +11,10 @@ A refused or failed request (``4xx``/``5xx``) becomes a tool execution error:
 ``isError`` with the API's ``{code, detail}`` as text, never a JSON-RPC error,
 so the model can read the refusal and act on it. Every result is marked as
 untrusted data from Prism.
+
+A route may take a JSON body: ``Tool.args`` returns it as a third item, and the
+in-process request carries it with ``content-type: application/json``. The
+caller's ``authorization`` header is still the only credential.
 """
 
 from __future__ import annotations
@@ -131,9 +135,24 @@ def _execution_error(status: int, raw: bytes) -> dict[str, Any]:
     return _result(structured, f"{DATA_PREFIX}\n{code}: {detail}", is_error=True)
 
 
+def error_result(code: str, detail: str, *, status: int | None = None) -> dict[str, Any]:
+    """A tool execution error the tool itself decided on, not the route's."""
+
+    error: dict[str, Any] = {"code": code, "detail": detail}
+    if status is not None:
+        error["status"] = status
+    structured = _structured({"error": error})
+    return _result(structured, f"{DATA_PREFIX}\n{code}: {detail}", is_error=True)
+
+
+def success_result(structured: dict[str, Any]) -> dict[str, Any]:
+    """A successful ``CallToolResult`` for a tool that shaped its own answer."""
+
+    return _result(structured, text_block(structured), is_error=False)
+
+
 def _failure(code: str, message: str) -> dict[str, Any]:
-    structured = _structured({"error": {"code": code, "detail": message}})
-    return _result(structured, f"{DATA_PREFIX}\n{message}", is_error=True)
+    return error_result(code, message)
 
 
 async def _call_route(
@@ -142,8 +161,19 @@ async def _call_route(
     path: str,
     query: str,
     authorization: str,
+    body: dict[str, Any] | None = None,
 ) -> tuple[int, bytes]:
     """One in-process ASGI request, carrying only the caller's bearer token."""
+
+    payload = _json(body).encode("utf-8") if body is not None else b""
+    headers = [(b"authorization", authorization.encode("utf-8"))]
+    if body is not None:
+        headers.extend(
+            [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(payload)).encode("ascii")),
+            ]
+        )
 
     sent = False
 
@@ -152,7 +182,7 @@ async def _call_route(
         if sent:
             return {"type": "http.disconnect"}
         sent = True
-        return {"type": "http.request", "body": b"", "more_body": False}
+        return {"type": "http.request", "body": payload, "more_body": False}
 
     messages: list[dict[str, Any]] = []
 
@@ -169,7 +199,7 @@ async def _call_route(
         "raw_path": path.encode("utf-8"),
         "query_string": query.encode("utf-8"),
         "root_path": "",
-        "headers": [(b"authorization", authorization.encode("utf-8"))],
+        "headers": headers,
         "client": ("mcp", 0),
         "server": ("mcp", 443),
         "state": {},
@@ -177,12 +207,33 @@ async def _call_route(
     await app(scope, receive, send)
 
     start = next(message for message in messages if message["type"] == "http.response.start")
-    body = b"".join(
+    response_body = b"".join(
         message.get("body", b"")
         for message in messages
         if message["type"] == "http.response.body"
     )
-    return int(start["status"]), body
+    return int(start["status"]), response_body
+
+
+async def call_route(
+    app: Any,
+    method: str,
+    path: str,
+    *,
+    authorization: str,
+    query: dict[str, Any] | None = None,
+    body: dict[str, Any] | None = None,
+) -> tuple[int, bytes]:
+    """Call one ``/api/v1`` route as the caller, without a registered tool."""
+
+    return await _call_route(
+        app,
+        method,
+        path,
+        _query_string(query or {}),
+        authorization,
+        body,
+    )
 
 
 async def call_tool(
@@ -200,7 +251,11 @@ async def call_tool(
         return _failure("invalid-arguments", message)
 
     try:
-        path_params, query = tool.args(dict(arguments))
+        prepared = tool.args(dict(arguments))
+        path_params, query = prepared[0], prepared[1]
+        body = prepared[2] if len(prepared) > 2 else None
+        if body is not None and not isinstance(body, dict):
+            raise TypeError("the request body must be an object")
         path = _build_path(tool.route[1], path_params)
     except (KeyError, TypeError, ValueError) as error:
         return _failure("invalid-arguments", f"Invalid arguments: {error}")
@@ -212,6 +267,7 @@ async def call_tool(
             path,
             _query_string(query),
             authorization,
+            body,
         )
     except Exception:  # noqa: BLE001 - never leak exception detail across MCP
         logger.exception("MCP tool %s failed to reach its route", tool.name)
@@ -229,4 +285,12 @@ async def call_tool(
     return _result(structured, text_block(structured), is_error=False)
 
 
-__all__ = ["DATA_PREFIX", "MAX_TEXT_BYTES", "call_tool", "text_block"]
+__all__ = [
+    "DATA_PREFIX",
+    "MAX_TEXT_BYTES",
+    "call_route",
+    "call_tool",
+    "error_result",
+    "success_result",
+    "text_block",
+]
