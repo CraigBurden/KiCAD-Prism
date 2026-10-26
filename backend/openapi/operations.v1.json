@@ -82,7 +82,7 @@
   "browse_library_assets": {
     "method": "GET",
     "path": "/api/v1/catalog/assets/browse",
-    "typed": false
+    "typed": true
   },
   "bulk_accept_project_import_proposals": {
     "method": "POST",
@@ -97,7 +97,7 @@
   "catalog_health": {
     "method": "GET",
     "path": "/api/v1/catalog/health",
-    "typed": false
+    "typed": true
   },
   "change_own_password": {
     "method": "POST",
@@ -122,7 +122,7 @@
   "compare_component_revisions": {
     "method": "GET",
     "path": "/api/v1/catalog/components/{component_id}/revisions/compare",
-    "typed": false
+    "typed": true
   },
   "complete_folder_snapshot": {
     "method": "POST",
@@ -362,12 +362,12 @@
   "export_import_proposals_csv": {
     "method": "GET",
     "path": "/api/v1/catalog/import-sessions/{session_id}/proposals.csv",
-    "typed": false
+    "typed": true
   },
   "export_inventory_csv": {
     "method": "GET",
     "path": "/api/v1/catalog/inventory/export.csv",
-    "typed": false
+    "typed": true
   },
   "export_kicad_dbl_bundle": {
     "method": "POST",
@@ -377,7 +377,7 @@
   "export_metadata_csv": {
     "method": "GET",
     "path": "/api/v1/catalog/metadata/export.csv",
-    "typed": false
+    "typed": true
   },
   "forget_git_host_key": {
     "method": "DELETE",
@@ -432,22 +432,22 @@
   "get_catalog_asset_content": {
     "method": "GET",
     "path": "/api/v1/catalog/assets/{asset_id}/content",
-    "typed": false
+    "typed": true
   },
   "get_catalog_component": {
     "method": "GET",
     "path": "/api/v1/catalog/components/{component_id}",
-    "typed": false
+    "typed": true
   },
   "get_catalog_job": {
     "method": "GET",
     "path": "/api/v1/catalog/jobs/{job_id}",
-    "typed": false
+    "typed": true
   },
   "get_catalog_preview": {
     "method": "GET",
     "path": "/api/v1/catalog/previews/{preview_id}",
-    "typed": false
+    "typed": true
   },
   "get_catalog_usage": {
     "method": "GET",
@@ -497,12 +497,12 @@
   "get_component_revision": {
     "method": "GET",
     "path": "/api/v1/catalog/components/{component_id}/revisions/{revision_id}",
-    "typed": false
+    "typed": true
   },
   "get_component_validation": {
     "method": "GET",
     "path": "/api/v1/catalog/components/{component_id}/validation",
-    "typed": false
+    "typed": true
   },
   "get_connector": {
     "method": "GET",
@@ -592,17 +592,17 @@
   "get_metadata_batch": {
     "method": "GET",
     "path": "/api/v1/catalog/metadata/batches/{batch_id}",
-    "typed": false
+    "typed": true
   },
   "get_metadata_grid_preferences": {
     "method": "GET",
     "path": "/api/v1/catalog/metadata/grid-preferences",
-    "typed": false
+    "typed": true
   },
   "get_metadata_job": {
     "method": "GET",
     "path": "/api/v1/catalog/metadata/jobs/{job_id}",
-    "typed": false
+    "typed": true
   },
   "get_monorepo_structure": {
     "method": "GET",
@@ -637,7 +637,7 @@
   "get_preview_job": {
     "method": "GET",
     "path": "/api/v1/catalog/previews/jobs/{job_id}",
-    "typed": false
+    "typed": true
   },
   "get_project_3d_model": {
     "method": "GET",
@@ -712,7 +712,7 @@
   "get_project_import_session": {
     "method": "GET",
     "path": "/api/v1/catalog/import-sessions/{session_id}",
-    "typed": false
+    "typed": true
   },
   "get_project_name": {
     "method": "GET",
@@ -812,17 +812,17 @@
   "get_validation_job": {
     "method": "GET",
     "path": "/api/v1/catalog/validation/jobs/{job_id}",
-    "typed": false
+    "typed": true
   },
   "get_validation_report": {
     "method": "GET",
     "path": "/api/v1/catalog/validation/runs/{run_id}/{report_name}",
-    "typed": false
+    "typed": true
   },
   "get_validation_run": {
     "method": "GET",
     "path": "/api/v1/catalog/validation/runs/{run_id}",
-    "typed": false
+    "typed": true
   },
   "get_webgpu_3d_analytic": {
     "method": "GET",
@@ -917,12 +917,12 @@
   "list_catalog_categories": {
     "method": "GET",
     "path": "/api/v1/catalog/categories",
-    "typed": false
+    "typed": true
   },
   "list_catalog_components": {
     "method": "GET",
     "path": "/api/v1/catalog/components",
-    "typed": false
+    "typed": true
   },
   "list_categories": {
     "method": "GET",
@@ -932,27 +932,27 @@
   "list_component_audit": {
     "method": "GET",
     "path": "/api/v1/catalog/components/{component_id}/audit",
-    "typed": false
+    "typed": true
   },
   "list_component_releases": {
     "method": "GET",
     "path": "/api/v1/catalog/components/{component_id}/releases",
-    "typed": false
+    "typed": true
   },
   "list_component_reviews": {
     "method": "GET",
     "path": "/api/v1/catalog/components/{component_id}/reviews",
-    "typed": false
+    "typed": true
   },
   "list_component_revisions": {
     "method": "GET",
     "path": "/api/v1/catalog/components/{component_id}/revisions",
-    "typed": false
+    "typed": true
   },
   "list_component_usage": {
     "method": "GET",
     "path": "/api/v1/catalog/components/{component_id}/usage",
-    "typed": false
+    "typed": true
   },
   "list_connector_repositories": {
     "method": "GET",
@@ -982,7 +982,7 @@
   "list_folder_import_roots": {
     "method": "GET",
     "path": "/api/v1/catalog/import-sources/folder-roots",
-    "typed": false
+    "typed": true
   },
   "list_identities": {
     "method": "GET",
@@ -997,7 +997,7 @@
   "list_mates_with": {
     "method": "GET",
     "path": "/api/v1/catalog/components/{component_id}/mates-with",
-    "typed": false
+    "typed": true
   },
   "list_mention_candidates": {
     "method": "GET",
@@ -1007,12 +1007,12 @@
   "list_metadata_fields": {
     "method": "GET",
     "path": "/api/v1/catalog/metadata/fields",
-    "typed": false
+    "typed": true
   },
   "list_models": {
     "method": "GET",
     "path": "/api/v1/catalog/components/{component_id}/models",
-    "typed": false
+    "typed": true
   },
   "list_monorepos": {
     "method": "GET",
@@ -1032,12 +1032,12 @@
   "list_project_import_proposals": {
     "method": "GET",
     "path": "/api/v1/catalog/import-sessions/{session_id}/proposals",
-    "typed": false
+    "typed": true
   },
   "list_project_import_sessions": {
     "method": "GET",
     "path": "/api/v1/catalog/import-sessions",
-    "typed": false
+    "typed": true
   },
   "list_projects": {
     "method": "GET",
@@ -1092,22 +1092,22 @@
   "metadata_batch_report": {
     "method": "GET",
     "path": "/api/v1/catalog/metadata/batches/{batch_id}/report.csv",
-    "typed": false
+    "typed": true
   },
   "metadata_grid": {
     "method": "GET",
     "path": "/api/v1/catalog/metadata/grid",
-    "typed": false
+    "typed": true
   },
   "model_glb": {
     "method": "GET",
     "path": "/api/v1/catalog/models/{key}.glb",
-    "typed": false
+    "typed": true
   },
   "model_preview": {
     "method": "GET",
     "path": "/api/v1/catalog/components/{component_id}/models/{asset_id}/preview.svg",
-    "typed": false
+    "typed": true
   },
   "move_project_to_folder": {
     "method": "POST",
@@ -1257,7 +1257,7 @@
   "release_queue": {
     "method": "GET",
     "path": "/api/v1/catalog/release-queue",
-    "typed": false
+    "typed": true
   },
   "remove_comment_reaction": {
     "method": "DELETE",
@@ -1362,7 +1362,7 @@
   "search_catalog_assets": {
     "method": "GET",
     "path": "/api/v1/catalog/assets/search",
-    "typed": false
+    "typed": true
   },
   "search_components": {
     "method": "GET",
@@ -1562,7 +1562,7 @@
   "verify_component_audit": {
     "method": "GET",
     "path": "/api/v1/catalog/components/{component_id}/audit/verify",
-    "typed": false
+    "typed": true
   },
   "withdraw_build_approval": {
     "method": "POST",
@@ -1572,7 +1572,7 @@
   "workflow_summary": {
     "method": "GET",
     "path": "/api/v1/catalog/workflow/summary",
-    "typed": false
+    "typed": true
   },
   "write_layout": {
     "method": "PUT",
