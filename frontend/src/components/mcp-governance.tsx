@@ -314,13 +314,13 @@ function AuditTable({ projects, tools }: AuditTableProps) {
                 </Select>
             </div>
 
-            <div className="overflow-hidden rounded-md border">
-                <table className="w-full table-fixed text-xs">
+            <div className="overflow-x-auto rounded-md border">
+                <table className="w-full min-w-[52rem] table-fixed text-xs">
                     <colgroup>
                         <col className="w-32" />
                         <col />
-                        <col className="w-32" />
-                        <col className="w-32" />
+                        <col className="w-36" />
+                        <col className="w-28" />
                         <col className="w-28" />
                         <col className="w-20" />
                         <col className="w-20" />
