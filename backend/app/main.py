@@ -41,6 +41,7 @@ from app.api.catalog_part_relations import router as catalog_part_relations_rout
 from app.api.oauth import router as oauth_router
 from app.api.service_clients import router as service_clients_router
 from app.api.jobs import router as jobs_router
+from app.api.events import router as events_router
 from app.api.health import router as health_router
 from app.api.plugin import router as plugin_router
 from app.api.git_http import router as git_http_router
@@ -49,6 +50,7 @@ from app.services import idempotency_store, password_credential_service, session
 from app.services.design_bundle.errors import install_handlers as install_design_data_handlers
 from app.services.schema_head import bring_every_schema_to_head
 from app.services.superseded_store_cleanup import cleanup_superseded_stores
+from app.services import event_log
 from app.services.comment_live_broker import broker as comment_live_broker
 from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
@@ -204,6 +206,12 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(idempotency_store.sweep_expired)
     except Exception as exc:
         logger.warning("Could not sweep expired idempotency keys: %s", exc)
+    try:
+        pruned_events = await asyncio.to_thread(event_log.sweep_older_than, settings.PRISM_EVENT_RETENTION_DAYS)
+        if pruned_events:
+            logger.info("Pruned %s event-log rows past retention.", pruned_events)
+    except Exception as exc:
+        logger.warning("Could not prune the event log: %s", exc)
     cleanup_superseded_stores()
     from app.services.trackers.composition import initialize_tracker_composition
 
@@ -307,6 +315,7 @@ app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 app.include_router(folders_router, prefix="/api/folders", tags=["folders"])
 app.include_router(workspace_router, prefix="/api/workspace", tags=["workspace"])
 app.include_router(jobs_router, prefix="/api/jobs", tags=["jobs"])
+app.include_router(events_router)
 app.include_router(plugin_router, prefix="/api/plugin", tags=["plugin"])
 app.include_router(git_http_router, prefix="/git", tags=["git"])
 app.include_router(agent_router)

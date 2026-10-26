@@ -1750,6 +1750,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (129, "drop_system_builder_v2"),
                 (130, "sim_run_solved_commit"),
                 (131, "idempotency_keys"),
+                (132, "workspace_events"),
             ],
         )
 
