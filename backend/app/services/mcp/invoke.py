@@ -278,6 +278,13 @@ async def call_tool(
     except (KeyError, TypeError, ValueError) as error:
         return _failure("invalid-arguments", f"Invalid arguments: {error}")
 
+    if tool.execute is not None:
+        try:
+            return await tool.execute(app, dict(arguments), authorization, _call_route)
+        except Exception:  # noqa: BLE001 - a tool never leaks exception detail
+            logger.exception("MCP tool %s failed", tool.name)
+            return _failure("internal", "internal: the Prism request failed")
+
     try:
         status, raw = await _call_route(
             app,

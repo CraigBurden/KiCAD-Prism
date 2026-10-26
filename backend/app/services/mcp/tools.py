@@ -19,6 +19,11 @@ from app.core.config import settings
 from app.core.links import project_url, resource_uri
 from app.services.mcp.registry import READ_ONLY_ANNOTATIONS, Tool, register
 
+# The render tool needs its own multi-step invocation, so it registers itself
+# from its own module. Importing it here, before the read set below, keeps
+# ``tools/list`` deterministic whichever module a caller imports first.
+from app.services.mcp import tools_render as _tools_render  # noqa: E402,F401
+
 _FULL_SHA = 40
 
 

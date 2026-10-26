@@ -24,6 +24,7 @@ RESOURCE_KINDS = frozenset({
     "sheet",
     "comparison",
     "release",
+    "render",
 })
 
 _PRISM_PROJECT_PREFIX = "prism://project/"

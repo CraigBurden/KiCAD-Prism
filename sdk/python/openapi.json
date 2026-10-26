@@ -15360,6 +15360,294 @@
         "title": "ReleasedRevision",
         "type": "object"
       },
+      "RenderHighlight": {
+        "properties": {
+          "components": {
+            "description": "Reference designators",
+            "items": {
+              "type": "string"
+            },
+            "title": "Components",
+            "type": "array"
+          },
+          "nets": {
+            "description": "Net names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Nets",
+            "type": "array"
+          }
+        },
+        "title": "RenderHighlight",
+        "type": "object"
+      },
+      "RenderHighlightOut": {
+        "properties": {
+          "found": {
+            "title": "Found",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "component",
+              "net"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "key",
+          "found"
+        ],
+        "title": "RenderHighlightOut",
+        "type": "object"
+      },
+      "RenderRecordResponse": {
+        "properties": {
+          "commit": {
+            "title": "Commit",
+            "type": "string"
+          },
+          "height": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height"
+          },
+          "highlights": {
+            "items": {
+              "$ref": "#/components/schemas/RenderHighlightOut"
+            },
+            "title": "Highlights",
+            "type": "array"
+          },
+          "pngUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pngurl"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "renderId": {
+            "title": "Renderid",
+            "type": "string"
+          },
+          "sheet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheet"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "view": {
+            "title": "View",
+            "type": "string"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "renderId",
+          "status",
+          "view",
+          "commit",
+          "width"
+        ],
+        "title": "RenderRecordResponse",
+        "type": "object"
+      },
+      "RenderRegion": {
+        "properties": {
+          "height": {
+            "description": "Region height in mm",
+            "exclusiveMinimum": 0.0,
+            "title": "Height",
+            "type": "number"
+          },
+          "width": {
+            "description": "Region width in mm",
+            "exclusiveMinimum": 0.0,
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "description": "Left edge in mm in the view's frame",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Top edge in mm in the view's frame",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "title": "RenderRegion",
+        "type": "object"
+      },
+      "RenderRequest": {
+        "properties": {
+          "highlight": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RenderHighlight"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "layers": {
+            "default": "front",
+            "enum": [
+              "front",
+              "back",
+              "copper",
+              "all"
+            ],
+            "title": "Layers",
+            "type": "string"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RenderRegion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A full commit sha, branch or tag; omitted reads the checkout's HEAD.",
+            "title": "Revision"
+          },
+          "sheet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Schematic sheet instance path or page number; default root or the first highlight's sheet.",
+            "title": "Sheet"
+          },
+          "side": {
+            "default": "top",
+            "enum": [
+              "top",
+              "bottom"
+            ],
+            "title": "Side",
+            "type": "string"
+          },
+          "view": {
+            "enum": [
+              "schematic",
+              "pcb",
+              "3d"
+            ],
+            "title": "View",
+            "type": "string"
+          },
+          "width": {
+            "default": 1200,
+            "maximum": 2048.0,
+            "minimum": 256.0,
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "view"
+        ],
+        "title": "RenderRequest",
+        "type": "object"
+      },
+      "RenderStartResponse": {
+        "properties": {
+          "jobId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jobid"
+          },
+          "renderId": {
+            "title": "Renderid",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "renderId",
+          "status"
+        ],
+        "title": "RenderStartResponse",
+        "type": "object"
+      },
       "ReplyCreatedView": {
         "additionalProperties": true,
         "properties": {
@@ -31514,6 +31802,156 @@
         "summary": "Paginated Git tags of the project's repository",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/renders": {
+      "post": {
+        "operationId": "start_render",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RenderStartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Queue a PNG render of a revision, or reuse a stored one",
+        "tags": [
+          "renders"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/renders/{render_id}": {
+      "get": {
+        "operationId": "render_record",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "render_id",
+            "required": true,
+            "schema": {
+              "title": "Render Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RenderRecordResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read a render's record",
+        "tags": [
+          "renders"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/renders/{render_id}.png": {
+      "get": {
+        "operationId": "render_png",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "render_id",
+            "required": true,
+            "schema": {
+              "title": "Render Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/png": {}
+            },
+            "description": "The rendered PNG"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download a rendered PNG",
+        "tags": [
+          "renders"
         ]
       }
     },

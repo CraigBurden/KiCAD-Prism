@@ -619,7 +619,9 @@ async def _handle(
             if isinstance(job_id, str) and job_id:
                 return _rpc_result(request_id, _task_handle(job_id))
         structured = result.get("structuredContent")
-        if not result.get("isError") and isinstance(structured, dict):
+        content = result.get("content") or []
+        has_image = any(item.get("type") == "image" for item in content if isinstance(item, dict))
+        if not result.get("isError") and isinstance(structured, dict) and not has_image:
             result["content"] = [{"type": "text", "text": invoke.text_block(structured)}]
         return _rpc_result(request_id, result)
 
