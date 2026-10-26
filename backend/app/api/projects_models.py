@@ -1,13 +1,14 @@
-"""Response models for the project read routes of ``app/api/projects.py``.
+"""Response models for the routes of ``app/api/projects.py``.
 
-MCP-06a types the success responses these routes already return. Every model
-allows extra keys, so a field added by a service still reaches the client; the
-handlers keep returning their plain dictionaries.
+MCP-06a typed the read routes and MCP-06f the write and job routes. Every model
+describes the body the handler already returned and allows extra keys, so a
+field added by a service still reaches the client; the handlers keep returning
+their plain dictionaries.
 """
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -207,21 +208,154 @@ class ProjectOverview(BaseModel):
     readme: Optional[str]
 
 
+class JobStarted(BaseModel):
+    """A route that queued a job and reported the status the service chose."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    job_id: str
+    status: str
+
+
+class SyncQueued(JobStarted):
+    """The sync route adds how the queueing went, not just the id."""
+
+    message: str
+
+
+class WorkflowQueued(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    job_id: str
+
+
+class ImportAccessHelp(BaseModel):
+    """What to do about a repository Prism cannot read."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    forge: str
+    deploy_key_url: Optional[str]
+    account_key_url: Optional[str]
+    instructions: str
+    public_key: Optional[str]
+    fingerprint: Optional[str]
+    key_exists: bool
+    host: str
+    host_trusted: bool
+
+
+class ThumbnailQueued(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    status: str
+    job_id: str
+    message: str
+
+
+class ThumbnailsQueued(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    status: str
+    job_ids: List[str]
+    count: int
+    message: str
+
+
+class ThumbnailUploaded(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    status: str
+    thumbnail_source: str
+    message: str
+
+
+class ThumbnailCleared(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    status: str
+    thumbnail_source: str
+    # Absent the render is already there; present, one was queued to replace it.
+    job_id: Optional[str]
+    message: str
+
+
+class ProjectDeleted(BaseModel):
+    """A removed project and what happened to its files and repository."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    message: str
+    removed_files: bool
+    repository_deleted: bool
+    # Only set when part of the deletion could not complete.
+    warning: Optional[str] = None
+
+
+class PathConfigValidation(BaseModel):
+    """A path configuration checked against the project on disk."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    valid: bool
+    errors: List[str]
+    warnings: List[str]
+    # Field name to the absolute path it resolved to.
+    resolved: Dict[str, str]
+
+
+class DetectedPaths(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    detected: path_config_service.PathConfig
+    validation: PathConfigValidation
+
+
+class ProjectConfigSaved(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    config: path_config_service.PathConfig
+    resolved: path_config_service.ResolvedPaths
+    validation: PathConfigValidation
+
+
+class ProjectNameUpdated(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    display_name: str
+    message: str
+
+
+class ProjectDescriptionUpdated(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    description: str
+    message: str
+
+
 __all__ = [
     "CommitDistance",
     "CommitFileChange",
     "CommitKicadChanges",
+    "DetectedPaths",
     "DocFileContent",
+    "ImportAccessHelp",
+    "JobStarted",
     "MonorepoFolder",
     "MonorepoProject",
     "MonorepoStructure",
+    "PathConfigValidation",
     "ProjectBranch",
     "ProjectBranches",
     "ProjectCommit",
     "ProjectCommitSummary",
     "ProjectCommits",
+    "ProjectConfigSaved",
+    "ProjectDeleted",
     "ProjectDescription",
+    "ProjectDescriptionUpdated",
     "ProjectName",
+    "ProjectNameUpdated",
     "ProjectOverview",
     "ProjectPathConfig",
     "ProjectReadme",
@@ -229,6 +363,12 @@ __all__ = [
     "ProjectReleases",
     "ProjectSearchHit",
     "ProjectSearchResults",
+    "SyncQueued",
+    "ThumbnailCleared",
+    "ThumbnailQueued",
+    "ThumbnailUploaded",
+    "ThumbnailsQueued",
+    "WorkflowQueued",
 ]
 
 

@@ -75,7 +75,21 @@ class SemanticIndexGenerateRequest(BaseModel):
     force: bool = False
 
 
-@router.post("/{project_id}/semantic-index/generate", dependencies=[Depends(require_designer)])
+class SemanticIndexGenerateQueued(BaseModel):
+    """The bundle build that produces the index: queued, or already reusable."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    job_id: str
+    status: str
+
+
+@router.post(
+    "/{project_id}/semantic-index/generate",
+    dependencies=[Depends(require_designer)],
+    response_model=SemanticIndexGenerateQueued,
+    summary="Queue the bundle build that generates the revision's semantic index",
+)
 async def generate_semantic_index(
     project_id: str,
     request: SemanticIndexGenerateRequest,

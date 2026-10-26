@@ -146,6 +146,14 @@ class JobLogs(BaseModel):
     lines: list[str]
 
 
+class JobCancelRequested(BaseModel):
+    """A cancel request: the status the service reports may be a terminal one."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    job_id: str
+    status: Optional[str]
+
 
 def _authorize_cancel(job: dict, user: AuthenticatedUser) -> None:
     authorize_job_read(job, user)
@@ -241,7 +249,12 @@ async def get_job(
     return _slim_status(job)
 
 
-@router.post("/{job_id}/cancel", status_code=202)
+@router.post(
+    "/{job_id}/cancel",
+    status_code=202,
+    response_model=JobCancelRequested,
+    summary="Ask a job to cancel",
+)
 async def cancel_job(
     job_id: str,
     user: AuthenticatedUser = Depends(require_viewer),

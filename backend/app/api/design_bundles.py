@@ -105,6 +105,18 @@ class DesignBundleStatus(BaseModel):
     failedBuilds: list[FailedBuild]
 
 
+class RegeneratedBundles(BaseModel):
+    """What a manual regenerate dropped, and the rebuild it queued."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    scope: str
+    commit: Optional[str]
+    removedBundles: int
+    removedAliases: int
+    jobId: Optional[str]
+
+
 @router.get(
     "/{project_id}/design-bundles",
     response_model=DesignBundleStatus,
@@ -178,7 +190,12 @@ def _incomplete(bundles: list[dict]) -> list[dict]:
     return found
 
 
-@router.post("/{project_id}/design-bundles/regenerate", dependencies=[Depends(require_designer)])
+@router.post(
+    "/{project_id}/design-bundles/regenerate",
+    dependencies=[Depends(require_designer)],
+    response_model=RegeneratedBundles,
+    summary="Drop the bundles in scope and queue a rebuild that skips reuse",
+)
 async def regenerate_design_bundles(
     project_id: str,
     request: RegenerateRequest,

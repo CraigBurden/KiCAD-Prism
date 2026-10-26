@@ -70,6 +70,23 @@ class UpdateFolderRequest(BaseModel):
     parent_id: Optional[str] = None
 
 
+class FolderDeleted(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    message: str
+
+
+class FolderMoveResult(FolderDeleted):
+    """One project moved to a folder."""
+
+
+class FolderBulkMoveResult(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    message: str
+    moved: int
+
+
 def _normalize_folder_name(name: str) -> str:
     normalized = name.strip()
     if not normalized:
@@ -93,7 +110,12 @@ async def get_folder_contents(
         return payload
 
 
-@router.post("/", dependencies=[Depends(require_designer)])
+@router.post(
+    "/",
+    dependencies=[Depends(require_designer)],
+    response_model=FolderRecord,
+    summary="Create a folder",
+)
 async def create_folder(request: CreateFolderRequest):
     with value_errors_as(400):
         return await asyncio.to_thread(
@@ -103,7 +125,12 @@ async def create_folder(request: CreateFolderRequest):
         )
 
 
-@router.patch("/{folder_id}", dependencies=[Depends(require_designer)])
+@router.patch(
+    "/{folder_id}",
+    dependencies=[Depends(require_designer)],
+    response_model=FolderRecord,
+    summary="Rename or reparent a folder",
+)
 async def update_folder(folder_id: str, request: UpdateFolderRequest):
     field_set = request.model_fields_set
     if "name" not in field_set and "parent_id" not in field_set:
@@ -122,7 +149,12 @@ async def update_folder(folder_id: str, request: UpdateFolderRequest):
         )
 
 
-@router.delete("/{folder_id}", dependencies=[Depends(require_designer)])
+@router.delete(
+    "/{folder_id}",
+    dependencies=[Depends(require_designer)],
+    response_model=FolderDeleted,
+    summary="Delete a folder",
+)
 async def delete_folder(folder_id: str, cascade: bool = Query(default=True)):
     with value_errors_as(400):
         deleted = await asyncio.to_thread(workspace.delete_folder, folder_id, cascade)
@@ -133,7 +165,12 @@ async def delete_folder(folder_id: str, cascade: bool = Query(default=True)):
     return {"message": "Folder deleted successfully"}
 
 
-@router.post("/projects/{project_id}/move", dependencies=[Depends(require_designer)])
+@router.post(
+    "/projects/{project_id}/move",
+    dependencies=[Depends(require_designer)],
+    response_model=FolderMoveResult,
+    summary="Move one project to a folder",
+)
 async def move_project_to_folder(project_id: str, request: MoveProjectRequest):
     with value_errors_as(400, keep_typed=True):
         result = await asyncio.to_thread(workspace.move_project_to_folder, project_id, request.folder_id)
@@ -143,7 +180,12 @@ async def move_project_to_folder(project_id: str, request: MoveProjectRequest):
     return {"message": "Project moved successfully"}
 
 
-@router.post("/projects/move", dependencies=[Depends(require_designer)])
+@router.post(
+    "/projects/move",
+    dependencies=[Depends(require_designer)],
+    response_model=FolderBulkMoveResult,
+    summary="Move several projects to a folder in one transaction",
+)
 async def move_projects_to_folder(request: MoveProjectsRequest):
     with value_errors_as(400, keep_typed=True):
         moved = await asyncio.to_thread(
