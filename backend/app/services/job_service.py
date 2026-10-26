@@ -238,9 +238,15 @@ class JobService:
             raise ValueError("lease_seconds must be at least 10")
         with self._connect() as conn:
             conn.execute("SET search_path TO workspace, public")
-            job_lease_recovery.recover_dead_attempts(conn, worker_pool, job_claims.release_claims, self._event)
+            ended = job_lease_recovery.recover_dead_attempts(
+                conn, worker_pool, job_claims.release_claims, self._event
+            )
             job_claims.release_non_authoritative_claims(conn)
             conn.commit()
+            for ended_id, ended_kind, ended_project, ended_state in ended:
+                self._record_finished(
+                    job_id=ended_id, job_kind=ended_kind, project_id=ended_project, state=ended_state
+                )
             candidate_ids = conn.execute(
                 """
                 SELECT id
