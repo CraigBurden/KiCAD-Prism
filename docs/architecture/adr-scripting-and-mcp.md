@@ -1,6 +1,6 @@
 # ADR: Scriptable Prism and the MCP server
 
-- **Status:** Accepted (2026-10-26). §2 records the maintainer's decisions of 2026-10-25 and 2026-10-26; §3 was accepted as proposed on 2026-10-26, and §3.10 amended with D12 the same day. §10 adds the v5.2 slice (2026-10-26).
+- **Status:** Accepted (2026-10-26). §2 records the maintainer's decisions of 2026-10-25 and 2026-10-26; §3 was accepted as proposed on 2026-10-26, and §3.10 amended with D12 the same day. §10 adds the v5.2 slice (2026-10-26), implemented the same day.
 - **Branch:** work happens on `feature/scripting-mcp`; every PR in this effort targets it. The maintainer holds the merge into `dev` until the v5.2 slice (§10) is complete as well.
 - **Builds on:**
   - the caller policy table, `backend/app/core/policy.py`: one rule per action, naming roles, bearer scopes and provider refusals;
@@ -278,7 +278,7 @@ Supply and stock tracking is not part of this slice; it is reworked separately b
 | D15 | **Human-only handoff by URL.** A tool that reaches a human-only action (release approval or publishing, catalog QA, admin, resolving a comment) answers with JSON-RPC error `-32042` (URL elicitation required). Its `data.elicitations` holds one `{mode: "url", elicitationId, url, message}` pointing at the Prism page where a person acts. Handoff tools exist only where an agent plausibly needs them: `resolve_comment` and `request_release_approval`. They never change state. |
 | D16 | **Comment anchors from design identity.** `add_comment` anchors by component reference, net name, schematic sheet or comparison change id, resolved on the server from the revision's bundle (the geometry `render_view` already uses). Agents never send coordinates. Comments from MCP callers keep `authorKind: agent` and the client name, and the UI shows them with an agent badge. |
 | D17 | **Outbound webhooks are admin-owned.** An admin registers endpoints (HTTPS URL, event kinds, optional project list). Delivery reads the event log from a per-endpoint cursor on the worker, signs per the Standard Webhooks scheme (`webhook-id`, `webhook-timestamp`, `webhook-signature`, HMAC-SHA256 over `id.timestamp.body`), and retries with exponential backoff for up to 24 hours before marking the endpoint failing. Private and loopback addresses are refused unless `PRISM_WEBHOOK_ALLOW_PRIVATE=true`. Secrets are shown once. |
-| D18 | **One URL grammar for view state.** The project page reads `sel` (references or element uuids, comma separated), `nets` (net names), `page` (schematic sheet path), `bbox` (`x,y,w,h` in mm, framed with `focusBBox`) and `insets=1`, alongside the existing `section`, `commit` and `tab`. `core/links.py` builds them; component, net and comment results link with them. `window.prism` (`version: "v1"`) exposes `getState()`, `open(state)` and `link(state)` over the same grammar while a project page is mounted, in the shape of `prismSimStudio`. |
+| D18 | **One URL grammar for view state.** The project page reads `sel` (references or element uuids, comma separated, each item percent-encoded before joining), `nets` (net names), `page` (schematic sheet path), `bbox` (`x,y,w,h` in mm, framed with `focusBBox`) and `insets=1`, alongside the existing `section`, `commit` and `tab`. `core/links.py` builds them; component, net and comment results link with them. `window.prism` (`version: "v1"`) exposes `getState()`, `open(state)` and `link(state)` over the same grammar while a project page is mounted, in the shape of `prismSimStudio`. |
 | D19 | **Token activity audit.** Every non-GET request made with a bearer token (PAT, MCP, agent, service client) is recorded in the existing audit table with method `http`, the route template and the outcome. The audit view filters by token, client, user, project and read or write. |
 
 ### 10.2 Work packages for v5.2
@@ -297,5 +297,7 @@ Supply and stock tracking is not part of this slice; it is reworked separately b
 | MCP-22 | Token activity audit and the audit view filters (D19) | 16 |
 | MCP-23 | SDK regeneration, `prism comment`, `prism sync`, `prism release build`; CI templates for GitHub Actions and GitLab CI | 17, 18, 20 |
 | MCP-24 | Docs: write tools, webhooks, view links, CI templates in "Automating Prism" | 17–23 |
+
+Two follow-ups from v5.1 landed with this slice: lease recovery now appends `job.finished` for the jobs it ends (webhooks would otherwise miss them), and CI runs the SDK's own tests.
 
 The branch merges into `dev` when MCP-15 to MCP-24 are in and the full suites pass on it.
