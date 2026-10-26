@@ -759,6 +759,9 @@ def main() -> None:
     from app.services.git_access_service import warn_if_openssh_missing
 
     warn_if_openssh_missing(f"The {args.pool} worker")
+    from app.services.ops import stats as ops_stats
+
+    ops_stats.start(f"worker:{args.pool}")
     worker = PrismWorker(args.pool)
     signal.signal(signal.SIGTERM, worker.request_stop)
     signal.signal(signal.SIGINT, worker.request_stop)

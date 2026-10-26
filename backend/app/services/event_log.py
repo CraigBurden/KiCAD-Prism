@@ -24,7 +24,7 @@ from typing import Any, Iterator
 
 from psycopg.types.json import Jsonb
 
-from app.core import policy
+from app.core import policy, request_context
 from app.core.roles import Role
 from app.services.postgres_database import database
 
@@ -122,10 +122,10 @@ def _insert(conn: Any, kind: str, project_id: str | None, topic: str, payload: d
     event_id = int(head["cursor"])
     conn.execute(
         """
-        INSERT INTO ws_events (id, kind, project_id, topic, payload)
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO ws_events (id, kind, project_id, topic, payload, request_id)
+        VALUES (%s, %s, %s, %s, %s, %s)
         """,
-        (event_id, kind, project_id, topic, Jsonb(payload)),
+        (event_id, kind, project_id, topic, Jsonb(payload), request_context.request_id()),
     )
     conn.execute("SELECT pg_notify(%s, %s)", (CHANNEL, str(event_id)))
     return event_id

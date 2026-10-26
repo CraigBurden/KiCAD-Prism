@@ -41,6 +41,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from app.services.ops import stats as ops_stats
 from app.core.config import settings
 from app.services import event_log, kicad_tools, project_revision
 from app.services.design_bundle import (
@@ -461,6 +462,8 @@ class _Run:
             unavailable_gitlinks=done.unavailable_gitlinks, upgraded=upgraded,
             upgrade_cache_hits=upgrades.hits, upgrade_cache_misses=upgrades.misses,
         )
+        ops_stats.incr("bundle.upgrade_cache.hit", upgrades.hits)
+        ops_stats.incr("bundle.upgrade_cache.miss", upgrades.misses)
         self.context.progress(stage="bundle-parse", message="Design bundle: stage parse", percent=15, force=True)
         args = [
             "bundle", "build", str(src / self.config["project_file"]), "--stage", "parse",
@@ -493,6 +496,7 @@ class _Run:
             except kicad_steps.KicadStepFailed as error:
                 raise RetryableJobError(str(error), code="zone-refill-failed", retry_after_seconds=30) from error
             self.details["refill_cache_hit"] = refill_hit
+            ops_stats.incr("bundle.refill_cache.hit" if refill_hit else "bundle.refill_cache.miss")
             args += ["--refilled-board", str(refilled), "--refill-tool", self._tool_version()]
         self.cli(args, "board")
         return self._reopen("board")
@@ -511,6 +515,7 @@ class _Run:
         except kicad_steps.KicadStepFailed as error:
             raise RetryableJobError(str(error), code="glb-export-failed", retry_after_seconds=30) from error
         self.details["models_cache_hit"] = hit
+        ops_stats.incr("bundle.models_cache.hit" if hit else "bundle.models_cache.miss")
         args = ["bundle", "build", "--stage", "models", "--in", str(self.archive_path), "-o", str(self.archive_path),
                 "--models-glb", str(glb), "--models-tool", self._tool_version(), "--revision-key", self.revision_key,
                 *stage_models.hlr_args(), *cli.limits("models")]
