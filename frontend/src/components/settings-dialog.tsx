@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { GitBranch, Copy, Shield, Plus, Trash2, KeyRound, Cpu, Link2, MoreHorizontal, Server, type LucideIcon } from "lucide-react";
+import { GitBranch, Copy, Shield, Plus, Trash2, KeyRound, Cpu, Link2, MoreHorizontal, Server, Webhook, type LucideIcon } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -25,6 +25,7 @@ import { AgentTokensForUser, useAgentTokens, type AgentToken } from "@/component
 import { PersonalAccessTokens } from "@/components/personal-access-tokens";
 import { ConnectedMcpClients } from "@/components/mcp-clients";
 import { McpGovernanceSettings } from "@/components/mcp-governance";
+import { WebhookSettings } from "@/components/webhook-settings";
 import type { SettingsTab } from "@/lib/settings-tabs";
 
 interface SettingsDialogProps {
@@ -58,6 +59,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
             { tab: "tokens", label: "Personal access tokens", icon: KeyRound },
             { tab: "mcp-clients", label: "Connected MCP clients", icon: Cpu },
             { tab: "mcp", label: "MCP", icon: Cpu, adminOnly: true },
+            { tab: "webhooks", label: "Webhooks", icon: Webhook, adminOnly: true },
         ],
     },
     {
@@ -132,6 +134,7 @@ export function SettingsDialog({ open, onOpenChange, user, initialTab }: Setting
                     {activeTab === "tokens" && <PersonalAccessTokens />}
                     {activeTab === "mcp-clients" && <ConnectedMcpClients />}
                     {activeTab === "mcp" && isAdmin && <McpGovernanceSettings />}
+                    {activeTab === "webhooks" && isAdmin && <WebhookSettings />}
                     {activeTab === "code-hosts" && isAdmin && (
                         <CodeHostsSettings />
                     )}
