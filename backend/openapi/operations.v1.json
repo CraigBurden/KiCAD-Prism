@@ -57,7 +57,7 @@
   "approve_build": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/approvals",
-    "typed": false
+    "typed": true
   },
   "approve_metadata_batch_fields": {
     "method": "POST",
@@ -112,7 +112,7 @@
   "check_release_tag": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/tags/{tag}",
-    "typed": false
+    "typed": true
   },
   "clear_project_thumbnail": {
     "method": "DELETE",
@@ -132,7 +132,7 @@
   "components_by_category": {
     "method": "GET",
     "path": "/api/v1/remote-provider/components-by-category",
-    "typed": false
+    "typed": true
   },
   "config": {
     "method": "GET",
@@ -152,7 +152,7 @@
   "create_candidate": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/release-studio/candidates",
-    "typed": false
+    "typed": true
   },
   "create_catalog_component": {
     "method": "POST",
@@ -217,7 +217,7 @@
   "create_service_client": {
     "method": "POST",
     "path": "/api/v1/admin/service-clients",
-    "typed": false
+    "typed": true
   },
   "delete_access_user": {
     "method": "DELETE",
@@ -272,7 +272,7 @@
   "delete_service_client": {
     "method": "DELETE",
     "path": "/api/v1/admin/service-clients/{client_id}",
-    "typed": false
+    "typed": true
   },
   "delete_setup": {
     "method": "DELETE",
@@ -317,27 +317,27 @@
   "download_asset": {
     "method": "GET",
     "path": "/api/v1/remote-provider/assets/{asset_id}",
-    "typed": false
+    "typed": true
   },
   "download_build_evidence": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/build-evidence",
-    "typed": false
+    "typed": true
   },
   "download_build_log": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/logs/{step_id}",
-    "typed": false
+    "typed": true
   },
   "download_build_vendor_pack": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/vendor-packs/{vendor_id}",
-    "typed": false
+    "typed": true
   },
   "download_dossier": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/dossier",
-    "typed": false
+    "typed": true
   },
   "download_file": {
     "method": "GET",
@@ -347,12 +347,12 @@
   "download_member": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/members/{member_path}",
-    "typed": false
+    "typed": true
   },
   "download_preview": {
     "method": "GET",
     "path": "/api/v1/remote-provider/previews/{preview_id}",
-    "typed": false
+    "typed": true
   },
   "draft_setup": {
     "method": "POST",
@@ -402,12 +402,12 @@
   "generate_webgpu_3d": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/webgpu-3d/generate",
-    "typed": false
+    "typed": true
   },
   "get_asset_content": {
     "method": "GET",
     "path": "/api/v1/remote-provider/assets/{asset_id}/content",
-    "typed": false
+    "typed": true
   },
   "get_auth_config": {
     "method": "GET",
@@ -417,17 +417,17 @@
   "get_build": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}",
-    "typed": false
+    "typed": true
   },
   "get_build_placement": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/placement",
-    "typed": false
+    "typed": true
   },
   "get_candidate": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/candidates/{candidate_id}",
-    "typed": false
+    "typed": true
   },
   "get_catalog_asset_content": {
     "method": "GET",
@@ -497,7 +497,7 @@
   "get_component": {
     "method": "GET",
     "path": "/api/v1/remote-provider/components/{component_id}",
-    "typed": false
+    "typed": true
   },
   "get_component_revision": {
     "method": "GET",
@@ -547,12 +547,12 @@
   "get_fabrication_layer": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/fabrication-view/layers/{layer_id}.svg",
-    "typed": false
+    "typed": true
   },
   "get_fabrication_view": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/fabrication-view",
-    "typed": false
+    "typed": true
   },
   "get_folder_contents": {
     "method": "GET",
@@ -572,7 +572,7 @@
   "get_inline_component": {
     "method": "GET",
     "path": "/api/v1/remote-provider/components/{component_id}/inline",
-    "typed": false
+    "typed": true
   },
   "get_job": {
     "method": "GET",
@@ -622,12 +622,12 @@
   "get_output_fabrication_layer": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/fabrication-view/layers/{layer_id}.svg",
-    "typed": false
+    "typed": true
   },
   "get_output_fabrication_view": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/fabrication-view",
-    "typed": false
+    "typed": true
   },
   "get_output_placement": {
     "method": "GET",
@@ -637,7 +637,7 @@
   "get_part_manifest": {
     "method": "GET",
     "path": "/api/v1/remote-provider/parts/{part_id}",
-    "typed": false
+    "typed": true
   },
   "get_preview_job": {
     "method": "GET",
@@ -807,7 +807,7 @@
   "get_source": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/source",
-    "typed": false
+    "typed": true
   },
   "get_ssh_key": {
     "method": "GET",
@@ -832,17 +832,17 @@
   "get_webgpu_3d_analytic": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/webgpu-3d/analytic",
-    "typed": false
+    "typed": true
   },
   "get_webgpu_3d_asset": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/webgpu-3d/assets/{source_revision_key}/{generator_build}/{asset_path}",
-    "typed": false
+    "typed": true
   },
   "get_webgpu_3d_status": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/webgpu-3d/status",
-    "typed": false
+    "typed": true
   },
   "get_workspace_bootstrap": {
     "method": "GET",
@@ -852,7 +852,7 @@
   "impedance_template": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/impedance-template.csv",
-    "typed": false
+    "typed": true
   },
   "import_access_help": {
     "method": "POST",
@@ -912,12 +912,12 @@
   "list_build_logs": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/logs",
-    "typed": false
+    "typed": true
   },
   "list_candidates": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/candidates",
-    "typed": false
+    "typed": true
   },
   "list_catalog_categories": {
     "method": "GET",
@@ -932,7 +932,7 @@
   "list_categories": {
     "method": "GET",
     "path": "/api/v1/remote-provider/categories",
-    "typed": false
+    "typed": true
   },
   "list_component_audit": {
     "method": "GET",
@@ -972,7 +972,7 @@
   "list_document_sheets": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/sheets",
-    "typed": false
+    "typed": true
   },
   "list_engines": {
     "method": "GET",
@@ -1057,7 +1057,7 @@
   "list_service_clients": {
     "method": "GET",
     "path": "/api/v1/admin/service-clients",
-    "typed": false
+    "typed": true
   },
   "list_setups": {
     "method": "GET",
@@ -1072,7 +1072,7 @@
   "list_vendor_profiles": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/vendor-profiles",
-    "typed": false
+    "typed": true
   },
   "live": {
     "method": "GET",
@@ -1127,7 +1127,7 @@
   "oauth_callback": {
     "method": "GET",
     "path": "/api/v1/trackers/oauth/callback",
-    "typed": false
+    "typed": true
   },
   "patch_setup": {
     "method": "PATCH",
@@ -1157,7 +1157,7 @@
   "preview_document_sheet": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/sheets/{sheet_key}.pdf",
-    "typed": false
+    "typed": true
   },
   "preview_metadata_csv": {
     "method": "POST",
@@ -1177,7 +1177,7 @@
   "publish_build": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/publish",
-    "typed": false
+    "typed": true
   },
   "push_comments": {
     "method": "POST",
@@ -1202,7 +1202,7 @@
   "read_result_file": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/sim/a0/runs/{run_id}/files/{path}",
-    "typed": false
+    "typed": true
   },
   "read_run": {
     "method": "GET",
@@ -1212,7 +1212,7 @@
   "read_run_materialization": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/sim/a0/runs/{run_id}/materialization",
-    "typed": false
+    "typed": true
   },
   "read_run_setup": {
     "method": "GET",
@@ -1332,7 +1332,7 @@
   "rotate_service_client_secret": {
     "method": "POST",
     "path": "/api/v1/admin/service-clients/{client_id}/rotate-secret",
-    "typed": false
+    "typed": true
   },
   "run_artifact_maintenance": {
     "method": "POST",
@@ -1352,7 +1352,7 @@
   "save_source_defaults": {
     "method": "PUT",
     "path": "/api/v1/projects/{project_id}/release-studio/source/defaults",
-    "typed": false
+    "typed": true
   },
   "scan_catalog_usage": {
     "method": "POST",
@@ -1372,7 +1372,7 @@
   "search_components": {
     "method": "GET",
     "path": "/api/v1/remote-provider/search",
-    "typed": false
+    "typed": true
   },
   "search_design": {
     "method": "GET",
@@ -1392,7 +1392,7 @@
   "set_service_client_enabled": {
     "method": "PATCH",
     "path": "/api/v1/admin/service-clients/{client_id}",
-    "typed": false
+    "typed": true
   },
   "set_user_password": {
     "method": "PUT",
@@ -1447,7 +1447,7 @@
   "tracker_webhook": {
     "method": "POST",
     "path": "/api/v1/trackers/webhooks/{provider}/{connector_id}",
-    "typed": false
+    "typed": true
   },
   "transition_release_status": {
     "method": "POST",
@@ -1572,7 +1572,7 @@
   "withdraw_build_approval": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/approvals/withdraw",
-    "typed": false
+    "typed": true
   },
   "workflow_summary": {
     "method": "GET",

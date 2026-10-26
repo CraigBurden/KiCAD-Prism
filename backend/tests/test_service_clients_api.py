@@ -92,6 +92,56 @@ class ServiceClientScopeRouteTests(unittest.TestCase):
                 self.assertEqual(body["scopes"], [scope])
                 self.addCleanup(self.service_client_service.delete_service_client, body["client_id"])
 
+    def test_the_typed_clients_keep_their_public_body_and_secret_once(self) -> None:
+        client = self._admin_client()
+        created = client.post(
+            "/api/admin/service-clients",
+            json={"name": "PLM typed", "role": "viewer", "scopes": ["api:read"]},
+        ).json()
+        self.addCleanup(self.service_client_service.delete_service_client, created["client_id"])
+        self.assertEqual(
+            {key: type(value).__name__ for key, value in created.items()},
+            {
+                "client_id": "str",
+                "name": "str",
+                "role": "str",
+                "scopes": "list",
+                "enabled": "bool",
+                "created_at": "str",
+                "updated_at": "str",
+                "last_used_at": "NoneType",
+                "client_secret": "str",
+            },
+        )
+        self.assertEqual(created["name"], "PLM typed")
+        self.assertTrue(created["client_secret"].startswith("kp_sc_"))
+
+        listed = client.get("/api/admin/service-clients")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        item = next(entry for entry in listed.json()["items"] if entry["client_id"] == created["client_id"])
+        self.assertEqual(item, {key: value for key, value in created.items() if key != "client_secret"})
+
+        rotated = client.post(f"/api/admin/service-clients/{created['client_id']}/rotate-secret")
+        self.assertEqual(rotated.status_code, 200, rotated.text)
+        self.assertNotEqual(rotated.json()["client_secret"], created["client_secret"])
+        rotated_body = rotated.json()
+        self.assertEqual(
+            {key: value for key, value in rotated_body.items() if key not in {"client_secret", "updated_at"}},
+            {key: value for key, value in item.items() if key != "updated_at"},
+        )
+
+        patched = client.patch(
+            f"/api/admin/service-clients/{created['client_id']}", json={"enabled": False}
+        )
+        self.assertEqual(patched.status_code, 200, patched.text)
+        self.assertEqual(patched.json(), {**item, "enabled": False, "updated_at": patched.json()["updated_at"]})
+
+        deleted = client.delete(f"/api/admin/service-clients/{created['client_id']}")
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertEqual(deleted.json(), {"ok": True})
+        remaining = client.get("/api/admin/service-clients").json()["items"]
+        self.assertNotIn(created["client_id"], {entry["client_id"] for entry in remaining})
+
 
 if __name__ == "__main__":
     unittest.main()

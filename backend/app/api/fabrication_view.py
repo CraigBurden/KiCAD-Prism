@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict
 
+from app.api import fabrication_view_models as models
 from app.api._helpers import (
     SANDBOXED_CONTENT_HEADERS,
     get_project_for_role_or_404,
@@ -132,7 +133,11 @@ def _build_for(project_id: str, build_id: str, user: AuthenticatedUser) -> dict[
 
 # Plain `def` throughout: parsing a dense board takes real CPU, which belongs in
 # the threadpool and not on the event loop.
-@router.get("/{project_id}/release-studio/builds/{build_id}/fabrication-view")
+@router.get(
+    "/{project_id}/release-studio/builds/{build_id}/fabrication-view",
+    response_model=models.FabricationView,
+    summary="Layers, board size and drill tools of a build's fabrication package",
+)
 def get_fabrication_view(
     project_id: str, build_id: str, user: AuthenticatedUser = Depends(require_viewer)
 ):
@@ -141,7 +146,12 @@ def get_fabrication_view(
     return _fabrication_package(_build_for(project_id, build_id, user)).view()
 
 
-@router.get("/{project_id}/release-studio/builds/{build_id}/fabrication-view/layers/{layer_id}.svg")
+@router.get(
+    "/{project_id}/release-studio/builds/{build_id}/fabrication-view/layers/{layer_id}.svg",
+    response_class=Response,
+    summary="One layer of a build's fabrication package as SVG",
+    responses={200: {"content": {"image/svg+xml": {}}, "description": "The layer SVG."}},
+)
 def get_fabrication_layer(
     project_id: str,
     build_id: str,
@@ -166,7 +176,11 @@ def get_fabrication_layer(
     )
 
 
-@router.get("/{project_id}/release-studio/builds/{build_id}/placement")
+@router.get(
+    "/{project_id}/release-studio/builds/{build_id}/placement",
+    response_model=models.PlacementView,
+    summary="Pick-and-place parts of a build, checked against its BOM",
+)
 def get_build_placement(
     project_id: str, build_id: str, user: AuthenticatedUser = Depends(require_viewer)
 ):
@@ -342,7 +356,11 @@ def _package(
     return package
 
 
-@router.get("/{project_id}/fabrication-view")
+@router.get(
+    "/{project_id}/fabrication-view",
+    response_model=models.FabricationView,
+    summary="Layers, board size and drill tools of the Gerbers in one output folder",
+)
 def get_output_fabrication_view(
     project_id: str,
     type: str = "manufacturing",
@@ -355,7 +373,12 @@ def get_output_fabrication_view(
     return _package(project_id, user, type, folder, commit).view()
 
 
-@router.get("/{project_id}/fabrication-view/layers/{layer_id}.svg")
+@router.get(
+    "/{project_id}/fabrication-view/layers/{layer_id}.svg",
+    response_class=Response,
+    summary="One layer of an output folder's package as SVG",
+    responses={200: {"content": {"image/svg+xml": {}}, "description": "The layer SVG."}},
+)
 def get_output_fabrication_layer(
     project_id: str,
     layer_id: str,
