@@ -2,8 +2,8 @@
 
 ``GET/PUT /api/settings/mcp`` is the policy an administrator edits: the project
 scope and the disabled tools, plus the registry so Settings can render one
-switch per tool. ``GET /api/admin/mcp-audit`` reads what MCP clients actually
-did, newest first, with a cursor so the table can ask for more.
+switch per tool. ``GET /api/admin/mcp-audit`` reads what MCP clients and bearer
+tokens actually did, newest first, with a cursor so the table can ask for more.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ class McpAuditRow(BaseModel):
     auth_type: str
     client_id: str
     token_id: str
-    method: Literal["tools/call", "resources/read", "tasks/get", "tasks/cancel"]
+    method: Literal["http", "tools/call", "resources/read", "tasks/get", "tasks/cancel"]
     tool: str
     project_id: str | None = None
     revision: str | None = None
@@ -76,6 +76,8 @@ async def list_mcp_audit(
     user: str | None = Query(default=None),
     project_id: str | None = Query(default=None),
     tool: str | None = Query(default=None),
+    token_id: str | None = Query(default=None),
+    kind: Literal["read", "write"] | None = Query(default=None),
     before: int | None = Query(default=None, ge=1),
     limit: int = Query(default=100, ge=1, le=500),
     _user: AuthenticatedUser = Depends(require_admin),
@@ -86,6 +88,8 @@ async def list_mcp_audit(
         user_email=user,
         project_id=project_id,
         tool=tool,
+        token_id=token_id,
+        kind=kind,
         before=before,
         limit=limit,
     )

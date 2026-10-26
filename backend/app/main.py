@@ -79,6 +79,7 @@ import logging
 
 from app.core.api_version import ApiVersionMiddleware, install_versioned_openapi, operation_id
 from app.core.idempotency import IdempotencyMiddleware
+from app.core.token_audit import TokenAuditMiddleware
 from urllib.parse import urlsplit
 
 # Configure logging
@@ -306,6 +307,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ADR scripting-and-mcp §10 D19: a bearer token's HTTP writes are audited beside
+# its MCP reads. Added before the idempotency middleware so it runs inside it: a
+# replayed write, which never reaches the route, is not recorded a second time.
+# It is also inside the version rewrite, whose scope copy the caller's state is
+# written to.
+app.add_middleware(TokenAuditMiddleware)
 
 # Inside the version rewrite so it sees /api/... paths. ADR scripting-and-mcp
 # §3.4: a repeated write with the same Idempotency-Key returns the first response.

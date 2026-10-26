@@ -21,8 +21,9 @@ import psycopg  # noqa: E402
 from psycopg.rows import dict_row  # noqa: E402
 
 from app.core.config import settings  # noqa: E402
-from app.services import access_service, personal_tokens  # noqa: E402
-from app.services.mcp import audit, governance  # noqa: E402
+from app.core.session import SESSION_COOKIE_NAME, create_session_token  # noqa: E402
+from app.services import access_service, personal_tokens, session_store_service  # noqa: E402
+from app.services.mcp import audit, governance, registry  # noqa: E402
 from support.postgres import seed_job, seed_project, seed_repository  # noqa: E402
 
 DATABASE_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
@@ -42,13 +43,14 @@ def unique(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:10]}"
 
 
-def use_user(role: str) -> tuple[str, str, str]:
-    """A fresh account in ``role``, an ``api:read`` token and its id."""
+def use_user(role: str, scopes: list[str] | None = None) -> tuple[str, str, str]:
+    """A fresh account in ``role``, a token and its id."""
 
     email = f"{unique('mcp-gov')}@example.test"
     access_service.upsert_user(email=email, name=email.split("@")[0])
     access_service.upsert_user_role(email, role, updated_by=email)
-    scopes = ["admin"] if role == "admin" else ["api:read"]
+    if scopes is None:
+        scopes = ["admin"] if role == "admin" else ["api:read"]
     row, token = personal_tokens.create(email, "mcp governance tests", scopes, 30)
     return email, token, str(row["id"])
 
@@ -475,10 +477,146 @@ class McpGovernanceTests(unittest.TestCase):
         ).json()["rows"]
         self.assertEqual(len(by_user), 1)
 
+        by_token = self.client.get(
+            "/api/v1/admin/mcp-audit", params={"token_id": "tok"}, headers=self.admin_headers
+        ).json()["rows"]
+        self.assertEqual(len(by_token), 3)
+
+        reads = self.client.get(
+            "/api/v1/admin/mcp-audit", params={"kind": "read"}, headers=self.admin_headers
+        ).json()["rows"]
+        self.assertEqual(len(reads), 3)
+
+        writes = self.client.get(
+            "/api/v1/admin/mcp-audit", params={"kind": "write"}, headers=self.admin_headers
+        ).json()["rows"]
+        self.assertEqual(writes, [])
+
         too_many = self.client.get(
             "/api/v1/admin/mcp-audit", params={"limit": 501}, headers=self.admin_headers
         )
         self.assertEqual(too_many.status_code, 422)
+
+    def test_list_page_filters_by_token_and_kind(self) -> None:
+        common = {
+            "user_email": self.viewer_email,
+            "auth_type": "pat",
+            "client_id": "pat:tok",
+            "project_id": None,
+            "revision": None,
+            "outcome": "ok",
+            "code": None,
+            "duration_ms": 1,
+        }
+        read_a = audit.record(method="tools/call", tool="get_project", token_id="tok-a", **common)
+        read_b = audit.record(method="tools/call", tool="get_bom", token_id="tok-b", **common)
+        http = audit.record(
+            method="http",
+            tool="POST /api/projects/{project_id}/detect-paths",
+            token_id="tok-b",
+            **common,
+        )
+        write_tool = registry.Tool(
+            name="stub_audit_write",
+            title="A write",
+            description="",
+            input_schema={},
+            route=("post", "/api/v1/x"),
+            args=lambda arguments: ({}, {}),
+            annotations=registry.write_annotations(),
+            action="comment",
+        )
+        with patch.object(audit.registry, "tools", return_value=(write_tool,)):
+            write = audit.record(
+                method="tools/call", tool=write_tool.name, token_id="tok-b", **common
+            )
+
+            by_token, _ = audit.list_page(token_id="tok-a")
+            self.assertEqual([row["id"] for row in by_token], [read_a])
+
+            reads, _ = audit.list_page(kind="read")
+            self.assertEqual({row["id"] for row in reads}, {read_a, read_b})
+
+            writes, _ = audit.list_page(kind="write")
+            self.assertEqual({row["id"] for row in writes}, {http, write})
+
+            writes_b, _ = audit.list_page(kind="write", token_id="tok-b")
+            self.assertEqual({row["id"] for row in writes_b}, {http, write})
+
+    def test_a_bearer_write_appends_an_http_audit_row(self) -> None:
+        project = self._project()
+        email, token, token_id = use_user("designer", scopes=["design:write"])
+        self._emails.append(email)
+
+        response = self.client.post(
+            f"/api/v1/projects/{project}/thumbnail/regenerate",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self._jobs.append(response.json()["job_id"])
+
+        [row] = self.audit_rows(user_email=email)
+        self.assertEqual(row["method"], "http")
+        self.assertEqual(row["tool"], "POST /api/projects/{project_id}/thumbnail/regenerate")
+        self.assertEqual(row["project_id"], project)
+        self.assertEqual(row["outcome"], "ok")
+        self.assertIsNone(row["code"])
+        self.assertEqual(row["auth_type"], "pat")
+        self.assertEqual(row["token_id"], token_id)
+
+    def test_a_refused_bearer_write_is_recorded_as_refused(self) -> None:
+        response = self.client.put(
+            "/api/v1/settings/mcp",
+            json={"projectScope": "all", "projectIds": [], "disabledTools": []},
+            headers=self.headers,
+        )
+        self.assertEqual(response.status_code, 403, response.text)
+
+        [row] = self.audit_rows(user_email=self.viewer_email)
+        self.assertEqual((row["method"], row["outcome"], row["code"]), ("http", "refused", "403"))
+        self.assertEqual(row["tool"], "PUT /api/settings/mcp")
+
+    def test_a_failed_bearer_write_is_recorded_as_error(self) -> None:
+        email, token, _ = use_user("designer", scopes=["design:write"])
+        self._emails.append(email)
+
+        response = self.client.post(
+            f"/api/v1/projects/missing-{uuid.uuid4().hex[:8]}/thumbnail/regenerate",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 404, response.text)
+
+        [row] = self.audit_rows(user_email=email)
+        self.assertEqual((row["outcome"], row["code"]), ("error", "404"))
+
+    def test_a_bearer_read_is_not_recorded_as_http(self) -> None:
+        project = self._project()
+
+        response = self.client.get(f"/api/v1/projects/{project}", headers=self.headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.audit_rows(user_email=self.viewer_email), [])
+
+    def test_a_session_write_is_not_recorded(self) -> None:
+        session_id, _ = session_store_service.create_session(
+            email=self.admin_email, name="Admin", picture=""
+        )
+        client = self.TestClient(self.main.app)
+        client.cookies.set(SESSION_COOKIE_NAME, create_session_token(session_id))
+
+        response = client.put(
+            "/api/v1/settings/mcp",
+            json={"projectScope": "all", "projectIds": [], "disabledTools": []},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.audit_rows(user_email=self.admin_email), [])
+
+    def test_an_in_process_mcp_call_is_not_recorded_as_http(self) -> None:
+        project = self._project()
+        result = self.tool("get_project", {"project_id": project})
+        self.assertFalse(result["isError"], result)
+
+        rows = self.audit_rows(user_email=self.viewer_email)
+        self.assertEqual([(row["method"], row["tool"]) for row in rows], [("tools/call", "get_project")])
 
     def test_retention_prunes_old_rows(self) -> None:
         marker = unique("retention")
