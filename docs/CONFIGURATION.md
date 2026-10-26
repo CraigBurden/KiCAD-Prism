@@ -215,6 +215,18 @@ project destination. It requires the tracker credential root key on both API
 and general workers. See [Tracker integration](TRACKER_INTEGRATION.md) for
 `TRACKER_CREDENTIAL_ROOT_KEY*`, rotation, webhooks, and recovery.
 
+### MCP server
+
+`PRISM_MCP_ENABLED` is `false` by default. While false, the read-only MCP
+server at `/mcp` and its OAuth metadata
+(`/.well-known/oauth-protected-resource`,
+`/.well-known/oauth-authorization-server/oauth/mcp`) answer 404. Set it to
+`true` to let agents connect with a personal access token or an OAuth client.
+Every tool is a read through the caller's `/api/v1` routes, so their role and
+folder visibility decide what they see; the server offers no write tools.
+`PUBLIC_BASE_URL` should name the deployment's public origin: it is the allowed
+`Origin`, the source of every result's link, and the OAuth resource.
+
 ## Retrying writes safely
 
 A client that retries a write can send an `Idempotency-Key` header (1-255
