@@ -457,13 +457,35 @@ class McpServerTests(unittest.TestCase):
         component = mcp_tools.present(
             "get_component",
             {"project_id": "project/one", "reference": "U1"},
-            {"structuredContent": {"revision": {"commit": COMMIT}, "component": {"reference": "U1"}}},
+            {
+                "structuredContent": {
+                    "revision": {"commit": COMMIT},
+                    "component": {"reference": "U1", "footprint": "QFN-32"},
+                }
+            },
         )["structuredContent"]
         expected_uri = f"prism://project/project%2Fone/rev/{COMMIT}/component/U1"
         self.assertEqual(component["uri"], expected_uri)
         self.assertEqual(component["component"]["uri"], expected_uri)
-        self.assertTrue(component["link"].startswith(f"{BASE}/project/"))
-        self.assertIn(f"commit={COMMIT}", component["link"])
+        self.assertEqual(
+            component["link"],
+            f"{BASE}/project/project%2Fone?section=visualizers&tab=pcb"
+            f"&commit={COMMIT}&sel=U1",
+        )
+        self.assertEqual(component["component"]["link"], component["link"])
+
+        symbol = mcp_tools.present(
+            "get_component",
+            {"project_id": "project/one", "reference": "U2"},
+            {
+                "structuredContent": {
+                    "revision": {"commit": COMMIT},
+                    "component": {"reference": "U2", "footprint": ""},
+                }
+            },
+        )["structuredContent"]
+        self.assertIn("tab=sch", symbol["link"])
+        self.assertIn("sel=U2", symbol["link"])
 
         net = mcp_tools.present(
             "get_net",
@@ -474,6 +496,11 @@ class McpServerTests(unittest.TestCase):
             net["uri"], f"prism://project/project%2Fone/rev/{COMMIT}/net/Power%2F%2B12V"
         )
         self.assertEqual(net["net"]["uri"], net["uri"])
+        self.assertEqual(
+            net["link"],
+            f"{BASE}/project/project%2Fone?section=visualizers&tab=pcb"
+            f"&commit={COMMIT}&nets=Power%252F%252B12V",
+        )
 
         bom = mcp_tools.present(
             "get_bom",
@@ -482,6 +509,35 @@ class McpServerTests(unittest.TestCase):
         )["structuredContent"]
         self.assertEqual(bom["uri"], f"prism://project/project%2Fone/rev/{COMMIT}/bom")
         self.assertIn("tab=bom", bom["link"])
+
+    def test_search_rows_link_to_what_they_name(self) -> None:
+        found = mcp_tools.present(
+            "find_in_design",
+            {"project_id": "project/one", "query": "U"},
+            {
+                "structuredContent": {
+                    "revision": {"commit": COMMIT},
+                    "results": [
+                        {"kind": "component", "reference": "U1", "footprint": "QFN-32"},
+                        {"kind": "component", "reference": "U2", "footprint": ""},
+                        {"kind": "net", "name": "Power/+12V"},
+                    ],
+                }
+            },
+        )["structuredContent"]
+        rows = found["results"]
+        self.assertEqual(
+            rows[0]["link"],
+            f"{BASE}/project/project%2Fone?section=visualizers&tab=pcb"
+            f"&commit={COMMIT}&sel=U1",
+        )
+        self.assertIn("tab=sch", rows[1]["link"])
+        self.assertIn("sel=U2", rows[1]["link"])
+        self.assertEqual(
+            rows[2]["link"],
+            f"{BASE}/project/project%2Fone?section=visualizers&tab=pcb"
+            f"&commit={COMMIT}&nets=Power%252F%252B12V",
+        )
 
 
 if __name__ == "__main__":
