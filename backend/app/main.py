@@ -70,6 +70,7 @@ from app.services.event_live_broker import broker as event_live_broker
 from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
 from app.core.config import settings
+from app.core import runtime_logging
 from app.core.security_headers import apply_security_headers
 import asyncio
 import os
@@ -219,6 +220,7 @@ async def lifespan(app: FastAPI):
     configure_git()
     ensure_ssh_dir()
     bring_every_schema_to_head()
+    runtime_logging.start_poller()
     try:
         await asyncio.to_thread(idempotency_store.sweep_expired)
     except Exception as exc:

@@ -59,6 +59,7 @@ from app.services.workspace_migrations import m136_mcp_audit
 from app.services.workspace_migrations import m137_webhooks
 from app.services.workspace_migrations import m138_token_audit
 from app.services.workspace_migrations import m139_ops_instrumentation
+from app.services.workspace_migrations import m140_ops_workers_settings
 
 
 Migration = Callable[[Any], None]
@@ -114,6 +115,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (137, "webhooks", m137_webhooks.migrate),
     (138, "token_audit", m138_token_audit.migrate),
     (139, "ops_instrumentation", m139_ops_instrumentation.migrate),
+    (140, "ops_workers_settings", m140_ops_workers_settings.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

@@ -1758,6 +1758,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (137, "webhooks"),
                 (138, "token_audit"),
                 (139, "ops_instrumentation"),
+                (140, "ops_workers_settings"),
             ],
         )
 
