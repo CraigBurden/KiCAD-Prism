@@ -12425,6 +12425,90 @@
         "title": "LabelsBody",
         "type": "object"
       },
+      "LatencyTotals": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "estimatedTotalMs": {
+            "title": "Estimatedtotalms",
+            "type": "number"
+          },
+          "overflow": {
+            "title": "Overflow",
+            "type": "boolean"
+          },
+          "p50Ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50Ms"
+          },
+          "p95Ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95Ms"
+          },
+          "p99Ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P99Ms"
+          },
+          "rate4xx": {
+            "title": "Rate4Xx",
+            "type": "number"
+          },
+          "rate5xx": {
+            "title": "Rate5Xx",
+            "type": "number"
+          },
+          "routeCount": {
+            "title": "Routecount",
+            "type": "integer"
+          },
+          "status4xx": {
+            "title": "Status4Xx",
+            "type": "integer"
+          },
+          "status5xx": {
+            "title": "Status5Xx",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "count",
+          "status4xx",
+          "status5xx",
+          "rate4xx",
+          "rate5xx",
+          "p50Ms",
+          "p95Ms",
+          "p99Ms",
+          "overflow",
+          "estimatedTotalMs",
+          "routeCount"
+        ],
+        "title": "LatencyTotals",
+        "type": "object"
+      },
       "LinkAssetRequest": {
         "properties": {
           "counterpart_asset_id": {
@@ -16802,6 +16886,71 @@
         "title": "ReattachCommentRequest",
         "type": "object"
       },
+      "RecentRequestOut": {
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "authType": {
+            "title": "Authtype",
+            "type": "string"
+          },
+          "clientId": {
+            "title": "Clientid",
+            "type": "string"
+          },
+          "dbMs": {
+            "title": "Dbms",
+            "type": "integer"
+          },
+          "durationMs": {
+            "title": "Durationms",
+            "type": "integer"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "nested": {
+            "title": "Nested",
+            "type": "boolean"
+          },
+          "requestId": {
+            "title": "Requestid",
+            "type": "string"
+          },
+          "route": {
+            "title": "Route",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requestId",
+          "at",
+          "method",
+          "route",
+          "status",
+          "durationMs",
+          "dbMs",
+          "authType",
+          "clientId",
+          "nested"
+        ],
+        "title": "RecentRequestOut",
+        "type": "object"
+      },
       "RegenerateRequest": {
         "description": "What to rebuild: one commit (default ``HEAD``) or the whole project.",
         "properties": {
@@ -17491,6 +17640,51 @@
         "title": "RepresentationChange",
         "type": "object"
       },
+      "RequestTraceOut": {
+        "properties": {
+          "audit": {
+            "items": {
+              "$ref": "#/components/schemas/TracedAuditOut"
+            },
+            "title": "Audit",
+            "type": "array"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/TracedEventOut"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/TracedJobOut"
+            },
+            "title": "Jobs",
+            "type": "array"
+          },
+          "requestId": {
+            "title": "Requestid",
+            "type": "string"
+          },
+          "requests": {
+            "items": {
+              "$ref": "#/components/schemas/TracedRequestOut"
+            },
+            "title": "Requests",
+            "type": "array"
+          }
+        },
+        "required": [
+          "requestId",
+          "requests",
+          "jobs",
+          "events",
+          "audit"
+        ],
+        "title": "RequestTraceOut",
+        "type": "object"
+      },
       "ResolvedPaths": {
         "description": "Fully resolved absolute paths.",
         "properties": {
@@ -17954,6 +18148,120 @@
           "source"
         ],
         "title": "RoleAssignmentResponse",
+        "type": "object"
+      },
+      "RouteLatencyOut": {
+        "properties": {
+          "routes": {
+            "items": {
+              "$ref": "#/components/schemas/RouteLatencyRow"
+            },
+            "title": "Routes",
+            "type": "array"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/LatencyTotals"
+          },
+          "windowMinutes": {
+            "title": "Windowminutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "windowMinutes",
+          "totals",
+          "routes"
+        ],
+        "title": "RouteLatencyOut",
+        "type": "object"
+      },
+      "RouteLatencyRow": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "estimatedTotalMs": {
+            "title": "Estimatedtotalms",
+            "type": "number"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "overflow": {
+            "title": "Overflow",
+            "type": "boolean"
+          },
+          "p50Ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50Ms"
+          },
+          "p95Ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95Ms"
+          },
+          "p99Ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P99Ms"
+          },
+          "rate4xx": {
+            "title": "Rate4Xx",
+            "type": "number"
+          },
+          "rate5xx": {
+            "title": "Rate5Xx",
+            "type": "number"
+          },
+          "route": {
+            "title": "Route",
+            "type": "string"
+          },
+          "status4xx": {
+            "title": "Status4Xx",
+            "type": "integer"
+          },
+          "status5xx": {
+            "title": "Status5Xx",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "count",
+          "status4xx",
+          "status5xx",
+          "rate4xx",
+          "rate5xx",
+          "p50Ms",
+          "p95Ms",
+          "p99Ms",
+          "overflow",
+          "estimatedTotalMs",
+          "method",
+          "route"
+        ],
+        "title": "RouteLatencyRow",
         "type": "object"
       },
       "SSHKeyResponse": {
@@ -18488,6 +18796,91 @@
           "media_type"
         ],
         "title": "SheetPdf",
+        "type": "object"
+      },
+      "SlowQueriesOut": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "order": {
+            "title": "Order",
+            "type": "string"
+          },
+          "queries": {
+            "items": {
+              "$ref": "#/components/schemas/SlowQueryOut"
+            },
+            "title": "Queries",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "available",
+          "order",
+          "queries"
+        ],
+        "title": "SlowQueriesOut",
+        "type": "object"
+      },
+      "SlowQueryOut": {
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "maxMs": {
+            "title": "Maxms",
+            "type": "number"
+          },
+          "meanMs": {
+            "title": "Meanms",
+            "type": "number"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "rows": {
+            "title": "Rows",
+            "type": "integer"
+          },
+          "sharedBlksHit": {
+            "title": "Sharedblkshit",
+            "type": "integer"
+          },
+          "sharedBlksRead": {
+            "title": "Sharedblksread",
+            "type": "integer"
+          },
+          "totalMs": {
+            "title": "Totalms",
+            "type": "number"
+          }
+        },
+        "required": [
+          "query",
+          "calls",
+          "totalMs",
+          "meanMs",
+          "maxMs",
+          "rows",
+          "sharedBlksHit",
+          "sharedBlksRead"
+        ],
+        "title": "SlowQueryOut",
         "type": "object"
       },
       "SourceDefaults": {
@@ -19136,6 +19529,219 @@
           "expires_in"
         ],
         "title": "TokenExchangeResponse",
+        "type": "object"
+      },
+      "TracedAuditOut": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "durationMs": {
+            "title": "Durationms",
+            "type": "integer"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          },
+          "tool": {
+            "title": "Tool",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "outcome",
+          "code",
+          "durationMs"
+        ],
+        "title": "TracedAuditOut",
+        "type": "object"
+      },
+      "TracedEventOut": {
+        "properties": {
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "projectId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projectid"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "projectId",
+          "topic",
+          "createdAt"
+        ],
+        "title": "TracedEventOut",
+        "type": "object"
+      },
+      "TracedJobOut": {
+        "properties": {
+          "completedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completedat"
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatedat"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "createdAt",
+          "updatedAt",
+          "startedAt",
+          "completedAt"
+        ],
+        "title": "TracedJobOut",
+        "type": "object"
+      },
+      "TracedRequestOut": {
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "authType": {
+            "title": "Authtype",
+            "type": "string"
+          },
+          "clientId": {
+            "title": "Clientid",
+            "type": "string"
+          },
+          "dbMs": {
+            "title": "Dbms",
+            "type": "integer"
+          },
+          "durationMs": {
+            "title": "Durationms",
+            "type": "integer"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "nested": {
+            "title": "Nested",
+            "type": "boolean"
+          },
+          "route": {
+            "title": "Route",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "at",
+          "method",
+          "route",
+          "status",
+          "durationMs",
+          "dbMs",
+          "authType",
+          "clientId",
+          "nested"
+        ],
+        "title": "TracedRequestOut",
         "type": "object"
       },
       "TrackerDestinationView": {
@@ -28488,6 +29094,282 @@
           }
         },
         "summary": "A design bundle build's per-invocation and per-KiCad-step profile",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/api/v1/ops/requests": {
+      "get": {
+        "operationId": "list_recent_requests",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "min_duration_ms",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Min Duration Ms"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status_min",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 599,
+                  "minimum": 100,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status Min"
+            }
+          },
+          {
+            "in": "query",
+            "name": "route_prefix",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 300,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Route Prefix"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RecentRequestOut"
+                  },
+                  "title": "Response List Recent Requests",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Recent slow, write and failed requests",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/api/v1/ops/requests/{request_id}": {
+      "get": {
+        "operationId": "trace_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestTraceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One request id across jobs, events and audit",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/api/v1/ops/route-latency": {
+      "get": {
+        "operationId": "get_route_latency",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "window_minutes",
+            "required": false,
+            "schema": {
+              "default": 60,
+              "maximum": 10080,
+              "minimum": 1,
+              "title": "Window Minutes",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "route_prefix",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 300,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Route Prefix"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteLatencyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Route latency over a window",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/api/v1/ops/slow-queries": {
+      "get": {
+        "operationId": "get_slow_queries",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "total",
+              "enum": [
+                "total",
+                "mean"
+              ],
+              "title": "Order",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlowQueriesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Slow statements from pg_stat_statements",
         "tags": [
           "ops"
         ]

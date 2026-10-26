@@ -2246,6 +2246,20 @@ class LabelsBody(TypedDict, total=False):
     severityPrefix: str
 
 
+class LatencyTotals(TypedDict, total=True):
+    count: int
+    estimatedTotalMs: float
+    overflow: bool
+    p50Ms: float | None
+    p95Ms: float | None
+    p99Ms: float | None
+    rate4xx: float
+    rate5xx: float
+    routeCount: int
+    status4xx: int
+    status5xx: int
+
+
 class LinkAssetRequest(TypedDict, total=False):
     counterpart_asset_id: str
     file_path: str
@@ -3099,6 +3113,19 @@ class ReattachCommentRequest(TypedDict, total=False):
     relativePoint: list[float] | None
 
 
+class RecentRequestOut(TypedDict, total=True):
+    at: str | None
+    authType: str
+    clientId: str
+    dbMs: int
+    durationMs: int
+    method: str
+    nested: bool
+    requestId: str
+    route: str
+    status: int
+
+
 class RegenerateRequest(TypedDict, total=False):
     """What to rebuild: one commit (default ``HEAD``) or the whole project."""
     commit: str | None
@@ -3234,6 +3261,14 @@ class RepresentationChange(TypedDict, total=True):
     status: str
 
 
+class RequestTraceOut(TypedDict, total=True):
+    audit: list[TracedAuditOut]
+    events: list[TracedEventOut]
+    jobs: list[TracedJobOut]
+    requestId: str
+    requests: list[TracedRequestOut]
+
+
 class ResolvedPaths(TypedDict, total=False):
     """Fully resolved absolute paths."""
     design_outputs_dir: str | None
@@ -3320,6 +3355,27 @@ class RoleAssignmentResponse(TypedDict, total=False):
     has_password: bool
     role: str
     source: str
+
+
+class RouteLatencyOut(TypedDict, total=True):
+    routes: list[RouteLatencyRow]
+    totals: LatencyTotals
+    windowMinutes: int
+
+
+class RouteLatencyRow(TypedDict, total=True):
+    count: int
+    estimatedTotalMs: float
+    method: str
+    overflow: bool
+    p50Ms: float | None
+    p95Ms: float | None
+    p99Ms: float | None
+    rate4xx: float
+    rate5xx: float
+    route: str
+    status4xx: int
+    status5xx: int
 
 
 class SSHKeyResponse(TypedDict, total=False):
@@ -3438,6 +3494,24 @@ class SheetPdf(TypedDict, total=True):
     media_type: str
     path: str
     released_digest: str
+
+
+class SlowQueriesOut(TypedDict, total=False):
+    available: bool
+    order: str
+    queries: list[SlowQueryOut]
+    reason: str | None
+
+
+class SlowQueryOut(TypedDict, total=True):
+    calls: int
+    maxMs: float
+    meanMs: float
+    query: str
+    rows: int
+    sharedBlksHit: int
+    sharedBlksRead: int
+    totalMs: float
 
 
 class SourceDefaults(TypedDict, total=True):
@@ -3581,6 +3655,43 @@ class TokenExchangeResponse(TypedDict, total=True):
     expires_in: int
     scope: str
     token_type: str
+
+
+class TracedAuditOut(TypedDict, total=True):
+    code: str | None
+    durationMs: int
+    outcome: str
+    tool: str
+
+
+class TracedEventOut(TypedDict, total=True):
+    createdAt: str | None
+    id: int
+    kind: str
+    projectId: str | None
+    topic: str
+
+
+class TracedJobOut(TypedDict, total=True):
+    completedAt: str | None
+    createdAt: str | None
+    id: str
+    kind: str
+    startedAt: str | None
+    status: str
+    updatedAt: str | None
+
+
+class TracedRequestOut(TypedDict, total=True):
+    at: str | None
+    authType: str
+    clientId: str
+    dbMs: int
+    durationMs: int
+    method: str
+    nested: bool
+    route: str
+    status: int
 
 
 class TrackerDestinationView(TypedDict, total=True):
@@ -5394,6 +5505,14 @@ class GeneratedClient:
             path_params={"project_id": project_id, "comment_id": comment_id, "reply_id": reply_id},
         )
 
+    def get_route_latency(self, *, window_minutes: int = 60, route_prefix: str | None = None, limit: int = 50) -> RouteLatencyOut:
+        """Route latency over a window"""
+        return self._request(
+            "GET",
+            "/api/v1/ops/route-latency",
+            query={"window_minutes": window_minutes, "route_prefix": route_prefix, "limit": limit},
+        )
+
     def get_semantic_index_identity(self, project_id: str, *, commit: str | None = None) -> dict[str, Any]:
         """The revision's semantic-index document"""
         return self._request(
@@ -5419,6 +5538,14 @@ class GeneratedClient:
             "/api/v1/public/comment-attachments/{project_id}/{attachment_id}",
             path_params={"project_id": project_id, "attachment_id": attachment_id},
             query={"exp": exp, "sig": sig},
+        )
+
+    def get_slow_queries(self, *, order: str = 'total', limit: int = 20) -> SlowQueriesOut:
+        """Slow statements from pg_stat_statements"""
+        return self._request(
+            "GET",
+            "/api/v1/ops/slow-queries",
+            query={"order": order, "limit": limit},
         )
 
     def get_source(self, project_id: str, *, commit_sha: str) -> SourceResponse:
@@ -5824,6 +5951,14 @@ class GeneratedClient:
         return self._request(
             "GET",
             "/api/v1/projects/",
+        )
+
+    def list_recent_requests(self, *, limit: int = 50, min_duration_ms: int | None = None, status_min: int | None = None, route_prefix: str | None = None) -> list[RecentRequestOut]:
+        """Recent slow, write and failed requests"""
+        return self._request(
+            "GET",
+            "/api/v1/ops/requests",
+            query={"limit": limit, "min_duration_ms": min_duration_ms, "status_min": status_min, "route_prefix": route_prefix},
         )
 
     def list_runs(self, project_id: str) -> list[dict[str, Any]]:
@@ -6549,6 +6684,14 @@ class GeneratedClient:
         return self._request(
             "POST",
             "/api/v1/oauth/token",
+        )
+
+    def trace_request(self, request_id: str) -> RequestTraceOut:
+        """One request id across jobs, events and audit"""
+        return self._request(
+            "GET",
+            "/api/v1/ops/requests/{request_id}",
+            path_params={"request_id": request_id},
         )
 
     def tracker_webhook(self, provider: str, connector_id: str) -> WebhookAccepted:
