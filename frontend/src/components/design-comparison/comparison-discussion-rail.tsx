@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { CheckCircle2, Download, MessageSquare, Reply, Send, X } from "lucide-react";
+import { CommentAuthorKindBadge } from "@/components/comment-author-kind-badge";
 import { Button } from "@/components/ui/button";
 import { ReplyTrackerState } from "@/features/tracker-integration/reply-tracker-state";
 import { TrackerIssueAction } from "@/features/tracker-integration/tracker-issue-action";
@@ -269,7 +270,13 @@ function RailThread({
             >
                 <div className="flex items-start justify-between gap-2">
                     <div>
-                        <div className="font-medium">{comment.author}</div>
+                        <div className="flex items-center gap-1 font-medium">
+                            <span className="truncate">{comment.author}</span>
+                            <CommentAuthorKindBadge
+                                authorKind={comment.authorKind}
+                                authorClientId={comment.authorClientId}
+                            />
+                        </div>
                         <div className="mt-0.5 text-[10px] text-muted-foreground">
                             {comment.elementRef || "Whole comparison"}
                         </div>
@@ -309,7 +316,13 @@ function RailThread({
                     <div className="mt-2 space-y-2 border-l pl-2">
                         {comment.replies.map((item) => (
                             <div key={item.id ?? `${item.timestamp}-${item.author}-${item.content}`}>
-                                <span className="font-medium">{item.author}</span>
+                                <span className="flex items-center gap-1">
+                                    <span className="font-medium">{item.author}</span>
+                                    <CommentAuthorKindBadge
+                                        authorKind={item.authorKind}
+                                        authorClientId={item.authorClientId}
+                                    />
+                                </span>
                                 <ThreadMessage
                                     projectId={projectId}
                                     thread={comment}
