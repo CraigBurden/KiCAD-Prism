@@ -1225,6 +1225,25 @@ class CreatedPersonalToken(TypedDict, total=False):
     user_email: str
 
 
+class CreatedWebhook(TypedDict, total=False):
+    """The one response that carries the plaintext signing secret."""
+    attempts: int
+    createdAt: str
+    createdBy: str | None
+    cursor: int
+    eventKinds: list[str]
+    failingSince: str | None
+    id: str
+    lastDeliveryAt: str | None
+    lastError: str | None
+    lastStatus: int | None
+    nextAttemptAt: str | None
+    projectIds: list[str] | None
+    secret: str
+    status: str
+    url: str
+
+
 class DatabasePoolMetrics(TypedDict, total=True):
     connectionWaitCount: int
     connectionWaitMaxMs: float
@@ -3559,6 +3578,59 @@ class WebhookAccepted(TypedDict, total=True):
     ok: bool
 
 
+class WebhookCreate(TypedDict, total=False):
+    eventKinds: list[str]
+    projectIds: list[str] | None
+    url: str
+
+
+class WebhookDeliveryView(TypedDict, total=False):
+    at: str
+    durationMs: int | None
+    error: str | None
+    eventId: int | None
+    id: int
+    ok: bool
+    statusCode: int | None
+
+
+class WebhookSecret(TypedDict, total=True):
+    """A rotated secret, shown once."""
+    secret: str
+
+
+class WebhookTestResult(TypedDict, total=False):
+    durationMs: int
+    error: str | None
+    ok: bool
+    statusCode: int | None
+
+
+class WebhookUpdate(TypedDict, total=False):
+    eventKinds: list[str] | None
+    projectIds: list[str] | None
+    status: str | None
+    url: str | None
+
+
+class WebhookView(TypedDict, total=False):
+    """A registration as Settings shows it: no secret, no envelope."""
+    attempts: int
+    createdAt: str
+    createdBy: str | None
+    cursor: int
+    eventKinds: list[str]
+    failingSince: str | None
+    id: str
+    lastDeliveryAt: str | None
+    lastError: str | None
+    lastStatus: int | None
+    nextAttemptAt: str | None
+    projectIds: list[str] | None
+    status: str
+    url: str
+
+
 class WorkflowQueued(TypedDict, total=True):
     job_id: str
 
@@ -3994,6 +4066,14 @@ class GeneratedClient:
             body=body,
         )
 
+    def create_webhook(self, *, body: dict[str, Any] | None = None) -> CreatedWebhook:
+        """Create an outbound webhook"""
+        return self._request(
+            "POST",
+            "/api/v1/settings/webhooks",
+            body=body,
+        )
+
     def delete_access_user(self, email: str) -> AccessUserDeletedResponse:
         """Withdraw an account's role and end its sessions"""
         return self._request(
@@ -4097,6 +4177,14 @@ class GeneratedClient:
             "DELETE",
             "/api/v1/settings/access/users/{email}/password",
             path_params={"email": email},
+        )
+
+    def delete_webhook(self, webhook_id: str) -> None:
+        """Delete Webhook"""
+        return self._request(
+            "DELETE",
+            "/api/v1/settings/webhooks/{webhook_id}",
+            path_params={"webhook_id": webhook_id},
         )
 
     def design_compare_result(self, project_id: str, job_id: str) -> DesignCompareResult:
@@ -5421,6 +5509,21 @@ class GeneratedClient:
             path_params={"project_id": project_id},
         )
 
+    def list_webhook_deliveries(self, webhook_id: str) -> list[WebhookDeliveryView]:
+        """List an outbound webhook's latest deliveries"""
+        return self._request(
+            "GET",
+            "/api/v1/settings/webhooks/{webhook_id}/deliveries",
+            path_params={"webhook_id": webhook_id},
+        )
+
+    def list_webhooks(self) -> list[WebhookView]:
+        """List outbound webhooks"""
+        return self._request(
+            "GET",
+            "/api/v1/settings/webhooks",
+        )
+
     def live(self) -> dict[str, Any]:
         """Live"""
         return self._request(
@@ -5871,6 +5974,14 @@ class GeneratedClient:
             path_params={"client_id": client_id},
         )
 
+    def rotate_webhook_secret(self, webhook_id: str) -> WebhookSecret:
+        """Rotate an outbound webhook's signing secret"""
+        return self._request(
+            "POST",
+            "/api/v1/settings/webhooks/{webhook_id}/rotate-secret",
+            path_params={"webhook_id": webhook_id},
+        )
+
     def run_artifact_maintenance(self) -> CatalogJobQueued:
         """Run artifact maintenance"""
         return self._request(
@@ -6037,6 +6148,14 @@ class GeneratedClient:
             "POST",
             "/api/v1/admin/trackers/connectors/{connector_id}/test",
             path_params={"connector_id": connector_id},
+        )
+
+    def test_webhook(self, webhook_id: str) -> WebhookTestResult:
+        """Send a test ping to an outbound webhook"""
+        return self._request(
+            "POST",
+            "/api/v1/settings/webhooks/{webhook_id}/test",
+            path_params={"webhook_id": webhook_id},
         )
 
     def thread_sync_history(self, project_id: str, comment_id: str) -> dict[str, Any]:
@@ -6208,6 +6327,15 @@ class GeneratedClient:
             "PATCH",
             "/api/v1/projects/{project_id}/comments/{comment_id}/replies/{reply_id}",
             path_params={"project_id": project_id, "comment_id": comment_id, "reply_id": reply_id},
+            body=body,
+        )
+
+    def update_webhook(self, webhook_id: str, *, body: dict[str, Any] | None = None) -> WebhookView:
+        """Edit an outbound webhook"""
+        return self._request(
+            "PATCH",
+            "/api/v1/settings/webhooks/{webhook_id}",
+            path_params={"webhook_id": webhook_id},
             body=body,
         )
 
