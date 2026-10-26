@@ -17,7 +17,9 @@ Authentication is a bearer token resolved by the same ``get_current_user`` the
 rest of the API uses. Session cookies are refused because this endpoint is for
 clients, not the browser. Every tool then runs through its typed ``/api/v1``
 route in-process, so ``policy.authorize``, folder visibility and response
-shapes are exactly the API's.
+shapes are exactly the API's. Before it runs, the workspace's MCP policy may
+refuse it (``app.services.mcp.governance``); after it finishes, one audit row
+records it (``app.services.mcp.audit``).
 
 ``PRISM_MCP_ENABLED`` is off by default: while it is false this route and the
 MCP OAuth metadata answer ``404``.
@@ -25,7 +27,9 @@ MCP OAuth metadata answer ``404``.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote, urlsplit
@@ -36,9 +40,9 @@ from fastapi.responses import JSONResponse, Response
 from app.core import policy
 from app.core.config import settings
 from app.core.links import parse_resource_uri
-from app.core.security import get_current_user
+from app.core.security import AuthenticatedUser, get_current_user
 from app.core.session import SESSION_COOKIE_NAME
-from app.services.mcp import invoke, registry, tools as mcp_tools, tools_compare
+from app.services.mcp import audit, governance, invoke, registry, tools as mcp_tools, tools_compare
 
 router = APIRouter()
 
@@ -288,16 +292,59 @@ def _failed_comparison(job: dict[str, Any]) -> dict[str, Any]:
     return invoke.error_result(code, detail)
 
 
+async def _task_refused(task_id: str) -> tuple[bool, str | None]:
+    """Whether the workspace MCP policy hides this task, and the job's project.
+
+    A task is a ``compare_revisions`` job, so it follows that tool's switch and
+    its project's scope. A refused task answers as an unknown one, so the
+    allowlist does not leak.
+    """
+
+    state = await asyncio.to_thread(governance.current)
+    project_id = await governance.project_for_arguments("get_job", {"job_id": task_id})
+    return governance.refusal(state, "compare_revisions", project_id) is not None, project_id
+
+
+async def _audit_task(
+    user: AuthenticatedUser,
+    method: str,
+    project_id: str | None,
+    outcome: str,
+    started: float,
+    code: str | None = None,
+) -> None:
+    await asyncio.to_thread(
+        audit.record_quietly,
+        user_email=user.email,
+        auth_type=user.auth_type,
+        client_id=user.client_id,
+        token_id=user.token_id,
+        method=method,
+        tool="compare_revisions",
+        project_id=project_id,
+        revision=None,
+        outcome=outcome,
+        code=code,
+        duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+    )
+
+
 async def _tasks_get(
     request: Request,
     request_id: Any,
     params: dict[str, Any],
     authorization: str,
+    user: AuthenticatedUser,
 ) -> JSONResponse:
     task_id = params.get("taskId")
     if not isinstance(task_id, str) or not task_id:
         return _rpc_error(request_id, -32602, "taskId is required")
 
+    started = time.monotonic()
+    refused, project_id = await _task_refused(task_id)
+    if refused:
+        await _audit_task(user, "tasks/get", project_id, "refused", started, "not_found")
+        return _rpc_error(request_id, -32602, f"Task not found: {task_id}")
     job = await _job_status(request.app, task_id, authorization)
     if job is None:
         return _rpc_error(request_id, -32602, f"Task not found: {task_id}")
@@ -326,6 +373,7 @@ async def _tasks_get(
         # completed task whose tool result carries ``isError``.
         task["status"] = "completed"
         task["result"] = _failed_comparison(job)
+    await _audit_task(user, "tasks/get", project_id, "ok", started)
     return _rpc_result(request_id, task)
 
 
@@ -334,10 +382,17 @@ async def _tasks_cancel(
     request_id: Any,
     params: dict[str, Any],
     authorization: str,
+    user: AuthenticatedUser,
 ) -> JSONResponse:
     task_id = params.get("taskId")
     if not isinstance(task_id, str) or not task_id:
         return _rpc_error(request_id, -32602, "taskId is required")
+
+    started = time.monotonic()
+    refused, project_id = await _task_refused(task_id)
+    if refused:
+        await _audit_task(user, "tasks/cancel", project_id, "refused", started, "not_found")
+        return _rpc_error(request_id, -32602, f"Task not found: {task_id}")
 
     path = f"/api/v1/jobs/{quote(task_id, safe='')}/cancel"
     try:
@@ -350,7 +405,9 @@ async def _tasks_cancel(
     if status == 404:
         return _rpc_error(request_id, -32602, f"Task not found: {task_id}")
     if not 200 <= status < 300:
+        await _audit_task(user, "tasks/cancel", project_id, "error", started, f"http-{status}")
         return _rpc_error(request_id, -32603, "the cancel request failed")
+    await _audit_task(user, "tasks/cancel", project_id, "ok", started)
     return _rpc_result(request_id, {"resultType": "complete"})
 
 
@@ -387,11 +444,65 @@ def _resource_templates() -> dict[str, Any]:
     }
 
 
+async def _execute_tool(
+    request: Request,
+    *,
+    method: str,
+    tool: registry.Tool,
+    arguments: dict[str, Any],
+    authorization: str,
+    user: AuthenticatedUser,
+) -> dict[str, Any]:
+    """Govern, run and audit one tool; return its ``CallToolResult``.
+
+    The policy decides before the route runs, so a disabled tool and a project
+    outside a listed scope never reach the API. The caller's own bearer token
+    travels either way, and every finished call appends one audit row.
+    """
+
+    started = time.monotonic()
+    state = await asyncio.to_thread(governance.current)
+    project_id = await governance.project_for_arguments(tool.name, arguments)
+    refused = governance.refusal(state, tool.name, project_id)
+    if refused is not None:
+        result = refused
+    else:
+        result = await invoke.call_tool(
+            request.app, tool, arguments, authorization=authorization
+        )
+        result = mcp_tools.present(tool.name, arguments, result)
+        if not result.get("isError"):
+            governance.filter_search_projects(state, result)
+
+    structured = result.get("structuredContent")
+    error = structured.get("error") if isinstance(structured, dict) else None
+    code = error.get("code") if isinstance(error, dict) else None
+    outcome = "refused" if refused is not None else (
+        "ok" if not result.get("isError") else "error"
+    )
+    await asyncio.to_thread(
+        audit.record_quietly,
+        user_email=user.email,
+        auth_type=user.auth_type,
+        client_id=user.client_id,
+        token_id=user.token_id,
+        method=method,
+        tool=tool.name,
+        project_id=project_id,
+        revision=audit.result_revision(structured, arguments),
+        outcome=outcome,
+        code=str(code) if code else None,
+        duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+    )
+    return result
+
+
 async def _read_resource(
     request: Request,
     request_id: Any,
     params: dict[str, Any],
     authorization: str,
+    user: AuthenticatedUser,
 ) -> JSONResponse:
     uri = params.get("uri")
     if not isinstance(uri, str) or not uri:
@@ -419,10 +530,14 @@ async def _read_resource(
     tool = registry.tool_named(tool_name)
     if tool is None:
         return _rpc_error(request_id, -32602, f"no tool reads a {ref.kind} resource")
-    result = await invoke.call_tool(
-        request.app, tool, arguments, authorization=authorization
+    result = await _execute_tool(
+        request,
+        method="resources/read",
+        tool=tool,
+        arguments=arguments,
+        authorization=authorization,
+        user=user,
     )
-    result = mcp_tools.present(tool_name, arguments, result)
     if result.get("isError"):
         text = (result.get("content") or [{}])[0].get("text", "resource read failed")
         return _rpc_error(request_id, -32602, text)
@@ -445,6 +560,7 @@ async def _handle(
     request: Request,
     payload: dict[str, Any],
     authorization: str,
+    user: AuthenticatedUser,
 ) -> JSONResponse | Response:
     request_id = payload.get("id")
     if payload.get("jsonrpc") != "2.0" or not isinstance(payload.get("method"), str):
@@ -464,8 +580,9 @@ async def _handle(
         return _rpc_result(request_id, _initialize(params))
 
     if method == "tools/list":
+        state = await asyncio.to_thread(governance.current)
         return _rpc_result(
-            request_id, {"tools": registry.tool_definitions(request.app)}
+            request_id, {"tools": governance.visible_definitions(request.app, state)}
         )
 
     if method == "tools/call":
@@ -474,15 +591,15 @@ async def _handle(
         if tool is None:
             return _rpc_error(request_id, -32602, f"unknown tool: {name!r}")
         arguments = params.get("arguments")
-        if arguments is None:
+        if not isinstance(arguments, dict):
             arguments = {}
-        result = await invoke.call_tool(
-            request.app, tool, arguments, authorization=authorization
-        )
-        result = mcp_tools.present(
-            tool.name,
-            arguments if isinstance(arguments, dict) else {},
-            result,
+        result = await _execute_tool(
+            request,
+            method="tools/call",
+            tool=tool,
+            arguments=arguments,
+            authorization=authorization,
+            user=user,
         )
         if isinstance(arguments, dict):
             result = await _refine_tool_result(
@@ -503,10 +620,10 @@ async def _handle(
         return _rpc_result(request_id, result)
 
     if method == "tasks/get":
-        return await _tasks_get(request, request_id, params, authorization)
+        return await _tasks_get(request, request_id, params, authorization, user)
 
     if method == "tasks/cancel":
-        return await _tasks_cancel(request, request_id, params, authorization)
+        return await _tasks_cancel(request, request_id, params, authorization, user)
 
     if method == "resources/templates/list":
         return _rpc_result(request_id, _resource_templates())
@@ -515,7 +632,7 @@ async def _handle(
         return _rpc_result(request_id, {"resources": []})
 
     if method == "resources/read":
-        return await _read_resource(request, request_id, params, authorization)
+        return await _read_resource(request, request_id, params, authorization, user)
 
     return _rpc_error(request_id, -32601, f"method not found: {method}")
 
@@ -531,7 +648,7 @@ async def mcp_post(request: Request) -> Response:
     credentials, refusal = await _authenticate(request)
     if refusal is not None:
         return refusal
-    _, authorization = credentials
+    user, authorization = credentials
 
     try:
         payload = await request.json()
@@ -547,7 +664,7 @@ async def mcp_post(request: Request) -> Response:
     if "id" not in payload:
         return Response(status_code=202)
 
-    return await _handle(request, payload, authorization)
+    return await _handle(request, payload, authorization, user)
 
 
 @router.get("/mcp", include_in_schema=False)

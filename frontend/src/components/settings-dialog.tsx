@@ -24,6 +24,7 @@ import { ROLE_OPTIONS, canAdministerWorkspace, roleLabel } from "@/lib/roles";
 import { AgentTokensForUser, useAgentTokens, type AgentToken } from "@/components/agent-tokens";
 import { PersonalAccessTokens } from "@/components/personal-access-tokens";
 import { ConnectedMcpClients } from "@/components/mcp-clients";
+import { McpGovernanceSettings } from "@/components/mcp-governance";
 import type { SettingsTab } from "@/lib/settings-tabs";
 
 interface SettingsDialogProps {
@@ -56,6 +57,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
             { tab: "password", label: "Password", icon: KeyRound },
             { tab: "tokens", label: "Personal access tokens", icon: KeyRound },
             { tab: "mcp-clients", label: "Connected MCP clients", icon: Cpu },
+            { tab: "mcp", label: "MCP", icon: Cpu, adminOnly: true },
         ],
     },
     {
@@ -129,6 +131,7 @@ export function SettingsDialog({ open, onOpenChange, user, initialTab }: Setting
                     {activeTab === "password" && <PasswordSettings />}
                     {activeTab === "tokens" && <PersonalAccessTokens />}
                     {activeTab === "mcp-clients" && <ConnectedMcpClients />}
+                    {activeTab === "mcp" && isAdmin && <McpGovernanceSettings />}
                     {activeTab === "code-hosts" && isAdmin && (
                         <CodeHostsSettings />
                     )}

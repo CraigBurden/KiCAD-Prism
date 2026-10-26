@@ -11,6 +11,8 @@ from app.api.auth import router as auth_router
 from app.api.personal_tokens import router as personal_tokens_router
 from app.api.mcp_clients_settings import router as mcp_clients_settings_router
 from app.api.mcp_oauth import router as mcp_oauth_router
+from app.api.mcp_settings import admin_router as mcp_audit_router
+from app.api.mcp_settings import router as mcp_settings_router
 from app.api.mcp import router as mcp_router
 from app.api.fabrication_view import router as fabrication_view_router
 from app.api.projects import router as projects_router
@@ -58,6 +60,7 @@ from app.services.design_bundle.errors import install_handlers as install_design
 from app.services.schema_head import bring_every_schema_to_head
 from app.services.superseded_store_cleanup import cleanup_superseded_stores
 from app.services import event_log
+from app.services.mcp import audit as mcp_audit
 from app.services.comment_live_broker import broker as comment_live_broker
 from app.services.event_live_broker import broker as event_live_broker
 from app.services.component_catalog_service import catalog_service
@@ -220,6 +223,14 @@ async def lifespan(app: FastAPI):
             logger.info("Pruned %s event-log rows past retention.", pruned_events)
     except Exception as exc:
         logger.warning("Could not prune the event log: %s", exc)
+    try:
+        pruned_audit = await asyncio.to_thread(
+            mcp_audit.sweep_older_than, settings.PRISM_MCP_AUDIT_RETENTION_DAYS
+        )
+        if pruned_audit:
+            logger.info("Pruned %s MCP audit rows past retention.", pruned_audit)
+    except Exception as exc:
+        logger.warning("Could not prune the MCP audit log: %s", exc)
     cleanup_superseded_stores()
     from app.services.trackers.composition import initialize_tracker_composition
 
@@ -305,6 +316,8 @@ app.add_middleware(ApiVersionMiddleware)
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(personal_tokens_router)
 app.include_router(mcp_clients_settings_router)
+app.include_router(mcp_settings_router)
+app.include_router(mcp_audit_router)
 app.include_router(mcp_oauth_router)
 app.include_router(mcp_router)
 app.include_router(projects_router, prefix="/api/projects", tags=["projects"])

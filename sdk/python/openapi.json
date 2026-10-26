@@ -11547,6 +11547,135 @@
         "title": "MateRequest",
         "type": "object"
       },
+      "McpAuditPage": {
+        "properties": {
+          "next": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/McpAuditRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows",
+          "next"
+        ],
+        "title": "McpAuditPage",
+        "type": "object"
+      },
+      "McpAuditRow": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "auth_type": {
+            "title": "Auth Type",
+            "type": "string"
+          },
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "duration_ms": {
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "method": {
+            "enum": [
+              "tools/call",
+              "resources/read"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "ok",
+              "error",
+              "refused"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "token_id": {
+            "title": "Token Id",
+            "type": "string"
+          },
+          "tool": {
+            "title": "Tool",
+            "type": "string"
+          },
+          "user_email": {
+            "title": "User Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "user_email",
+          "auth_type",
+          "client_id",
+          "token_id",
+          "method",
+          "tool",
+          "outcome",
+          "duration_ms"
+        ],
+        "title": "McpAuditRow",
+        "type": "object"
+      },
       "McpClientAdminView": {
         "properties": {
           "client_name": {
@@ -11649,6 +11778,94 @@
           "created_at"
         ],
         "title": "McpClientView",
+        "type": "object"
+      },
+      "McpGovernance": {
+        "description": "The workspace's MCP policy, in the spelling the Settings API uses.",
+        "properties": {
+          "disabledTools": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Disabledtools",
+            "type": "array"
+          },
+          "projectIds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Projectids",
+            "type": "array"
+          },
+          "projectScope": {
+            "default": "all",
+            "enum": [
+              "all",
+              "listed"
+            ],
+            "title": "Projectscope",
+            "type": "string"
+          }
+        },
+        "title": "McpGovernance",
+        "type": "object"
+      },
+      "McpGovernanceView": {
+        "description": "The saved policy plus every registered tool, disabled or not.",
+        "properties": {
+          "disabledTools": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Disabledtools",
+            "type": "array"
+          },
+          "projectIds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Projectids",
+            "type": "array"
+          },
+          "projectScope": {
+            "default": "all",
+            "enum": [
+              "all",
+              "listed"
+            ],
+            "title": "Projectscope",
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/McpToolView"
+            },
+            "title": "Tools",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tools"
+        ],
+        "title": "McpGovernanceView",
+        "type": "object"
+      },
+      "McpToolView": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "title"
+        ],
+        "title": "McpToolView",
         "type": "object"
       },
       "MemberRecord": {
@@ -18819,6 +19036,132 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/admin/mcp-audit": {
+      "get": {
+        "operationId": "list_mcp_audit",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "client_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Client Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "user",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tool",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tool"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpAuditPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Mcp Audit",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/api/v1/admin/service-clients": {
       "get": {
         "operationId": "list_service_clients",
@@ -34305,6 +34648,66 @@
           }
         },
         "summary": "Forget a pinned Git host key",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/mcp": {
+      "get": {
+        "operationId": "get_mcp_governance",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpGovernanceView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Mcp Governance",
+        "tags": [
+          "settings"
+        ]
+      },
+      "put": {
+        "operationId": "put_mcp_governance",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/McpGovernance"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpGovernance"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Mcp Governance",
         "tags": [
           "settings"
         ]

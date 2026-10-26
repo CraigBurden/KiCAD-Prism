@@ -339,6 +339,15 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
         ),
     )
 
+    PRISM_MCP_AUDIT_RETENTION_DAYS: int = Field(
+        default=365,
+        ge=0,
+        description=(
+            "Days the MCP read audit (ws_mcp_audit, behind GET /api/admin/mcp-audit) "
+            "keeps rows; older rows are pruned at startup."
+        ),
+    )
+
     TRACKER_CREDENTIAL_ROOT_KEY: SecretStr = Field(default=SecretStr(""))
     TRACKER_CREDENTIAL_ROOT_KEY_ID: str = Field(default="v1")
     TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY: SecretStr = Field(default=SecretStr(""))

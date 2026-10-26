@@ -1753,6 +1753,8 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (132, "workspace_events"),
                 (133, "personal_access_tokens"),
                 (134, "mcp_grants"),
+                (135, "mcp_governance"),
+                (136, "mcp_audit"),
             ],
         )
 

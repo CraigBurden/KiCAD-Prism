@@ -227,6 +227,12 @@ folder visibility decide what they see; the server offers no write tools.
 `PUBLIC_BASE_URL` should name the deployment's public origin: it is the allowed
 `Origin`, the source of every result's link, and the OAuth resource.
 
+Administrators control what MCP clients may reach in Settings → MCP: a project
+scope (all visible projects or a list) and one switch per tool. A `tools/call`
+outside that policy is refused. Every call is audited in `ws_mcp_audit`;
+`PRISM_MCP_AUDIT_RETENTION_DAYS` is how many days of rows are kept (default
+365), and startup deletes older ones. `GET /api/admin/mcp-audit` reads them.
+
 ## Retrying writes safely
 
 A client that retries a write can send an `Idempotency-Key` header (1-255
