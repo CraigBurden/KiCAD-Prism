@@ -22,6 +22,7 @@ import { fetchApi, readApiError } from "@/lib/api";
 import { changeOwnPassword, fetchAuthConfig } from "@/lib/auth";
 import { ROLE_OPTIONS, canAdministerWorkspace, roleLabel } from "@/lib/roles";
 import { AgentTokensForUser, useAgentTokens, type AgentToken } from "@/components/agent-tokens";
+import { PersonalAccessTokens } from "@/components/personal-access-tokens";
 import type { SettingsTab } from "@/lib/settings-tabs";
 
 interface SettingsDialogProps {
@@ -52,6 +53,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
         items: [
             { tab: "accounts", label: "Connected accounts", icon: Link2 },
             { tab: "password", label: "Password", icon: KeyRound },
+            { tab: "tokens", label: "Personal access tokens", icon: KeyRound },
         ],
     },
     {
@@ -123,6 +125,7 @@ export function SettingsDialog({ open, onOpenChange, user, initialTab }: Setting
                         />
                     )}
                     {activeTab === "password" && <PasswordSettings />}
+                    {activeTab === "tokens" && <PersonalAccessTokens />}
                     {activeTab === "code-hosts" && isAdmin && (
                         <CodeHostsSettings />
                     )}
