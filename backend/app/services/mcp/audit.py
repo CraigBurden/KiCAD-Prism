@@ -14,6 +14,7 @@ import logging
 from contextlib import contextmanager
 from typing import Any, Iterator
 
+from app.core import request_context
 from app.services.mcp import registry
 from app.services.postgres_database import database
 
@@ -79,8 +80,8 @@ def record(
             """
             INSERT INTO ws_mcp_audit
                 (user_email, auth_type, client_id, token_id, method, tool,
-                 project_id, revision, outcome, code, duration_ms)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 project_id, revision, outcome, code, duration_ms, request_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -95,6 +96,7 @@ def record(
                 outcome,
                 code,
                 max(0, int(duration_ms)),
+                request_context.request_id(),
             ),
         ).fetchone()
     return int(row["id"])
