@@ -100,7 +100,9 @@ async def get_current_user_allowing_password_change(request: HTTPConnection) -> 
 def _remember(request: HTTPConnection, user: AuthenticatedUser) -> AuthenticatedUser:
     """Leave the resolved caller where the activity audit can read it afterwards."""
 
-    setattr(request.state, AUTHENTICATED_USER_STATE, user)
+    scope = getattr(request, "scope", None)
+    if isinstance(scope, dict):
+        scope.setdefault("state", {})[AUTHENTICATED_USER_STATE] = user
     return user
 
 
