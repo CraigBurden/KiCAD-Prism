@@ -1,0 +1,163 @@
+{
+  "sch": [
+    {
+      "id": "schematic:rules:erc-exclusions",
+      "kind": "added",
+      "title": "ERC exclusions",
+      "summary": "",
+      "impact": "constraints",
+      "section": "rules",
+      "changeIds": [
+        "sch-erc-exclusion"
+      ]
+    },
+    {
+      "id": "schematic:components:part>100nF~CAP-100N>470nF~CAP-470N",
+      "kind": "changed",
+      "title": "100nF → 470nF",
+      "summary": "Value: 100nF → 470nF",
+      "impact": "assembly",
+      "section": "components",
+      "changeIds": [
+        "sch-c1-value",
+        "sch-c2-value"
+      ]
+    },
+    {
+      "id": "schematic:components:cmp:r7",
+      "kind": "added",
+      "title": "R7",
+      "summary": "",
+      "impact": "electrical",
+      "section": "components",
+      "changeIds": [
+        "sch-r7-added"
+      ]
+    },
+    {
+      "id": "schematic:nets:net:/Power/3V3_MAIN",
+      "kind": "changed",
+      "title": "/Power/3V3_MAIN",
+      "summary": "name: /Power/3V3 → /Power/3V3_MAIN",
+      "impact": "electrical",
+      "section": "nets",
+      "changeIds": [
+        "sch-net-rename"
+      ]
+    },
+    {
+      "id": "schematic:sheets:sheet-pins:mcu.kicad_sch",
+      "kind": "added",
+      "title": "Hierarchical sheet pins",
+      "summary": "",
+      "impact": "electrical",
+      "section": "components",
+      "changeIds": [
+        "sch-sheet-pin"
+      ]
+    },
+    {
+      "id": "schematic:graphics:layout:mcu.kicad_sch",
+      "kind": "changed",
+      "title": "Layout-only changes",
+      "summary": "1 symbol",
+      "impact": "documentation",
+      "section": "layout",
+      "changeIds": [
+        "sch-u2-moved"
+      ]
+    }
+  ],
+  "pcb": [
+    {
+      "id": "pcb:rules:drc-exclusions",
+      "kind": "added",
+      "title": "DRC exclusions",
+      "summary": "",
+      "impact": "constraints",
+      "section": "rules",
+      "changeIds": [
+        "pcb-drc-exclusion"
+      ]
+    },
+    {
+      "id": "pcb:components:fp:u1",
+      "kind": "changed",
+      "title": "U1",
+      "summary": "",
+      "impact": "fabrication",
+      "section": "components",
+      "changeIds": [
+        "pcb-u1-rotated"
+      ]
+    },
+    {
+      "id": "pcb:nets:component:IC1",
+      "kind": "changed",
+      "title": "IC1",
+      "summary": "Net: PMOD_B6 → PMOD_B9",
+      "impact": "electrical",
+      "section": "nets",
+      "changeIds": [
+        "pcb-ic1-pad-1",
+        "pcb-ic1-pad-2"
+      ]
+    },
+    {
+      "id": "pcb:nets:net:USB_D-",
+      "kind": "changed",
+      "title": "USB_D- → USB_D+ routing",
+      "summary": "Net: USB_D- → USB_D+",
+      "impact": "electrical",
+      "section": "nets",
+      "changeIds": [
+        "pcb-track-usb"
+      ]
+    },
+    {
+      "id": "pcb:zones:zone:1",
+      "kind": "added",
+      "title": "GND zone · In1.Cu",
+      "summary": "",
+      "impact": "fabrication",
+      "section": "nets",
+      "changeIds": [
+        "pcb-zone-gnd"
+      ]
+    },
+    {
+      "id": "pcb:graphics:board-outline",
+      "kind": "changed",
+      "title": "Board outline",
+      "summary": "",
+      "impact": "mechanical",
+      "section": "layout",
+      "changeIds": [
+        "pcb-outline"
+      ]
+    },
+    {
+      "id": "pcb:nets:net-rename:/Power/3V3 /Power/3V3_MAIN",
+      "kind": "changed",
+      "title": "/Power/3V3_MAIN",
+      "summary": "Renamed from /Power/3V3 · 2 board objects follow the schematic",
+      "impact": "documentation",
+      "section": "layout",
+      "changeIds": [
+        "pcb-track-1",
+        "pcb-track-2"
+      ]
+    },
+    {
+      "id": "pcb:graphics:fabrication-notes",
+      "kind": "changed",
+      "title": "Fabrication notes",
+      "summary": "Text: Rev A → Rev B",
+      "impact": "documentation",
+      "section": "layout",
+      "changeIds": [
+        "pcb-fab-note"
+      ]
+    }
+  ]
+}

@@ -489,6 +489,11 @@
     "path": "/api/v1/projects/{project_id}/comparison-comments/report",
     "typed": false
   },
+  "get_comparison_review": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/design-compare/{job_id}/review",
+    "typed": true
+  },
   "get_component": {
     "method": "GET",
     "path": "/api/v1/remote-provider/components/{component_id}",

@@ -25,6 +25,7 @@ from app.api.comments import router as comments_router
 from app.api.comment_attachment_links import router as comment_attachment_links_router
 from app.api.comment_live import router as comment_live_router
 from app.api.design_compare import router as design_compare_router
+from app.api.design_compare_review import router as design_compare_review_router
 from app.api.release_studio import router as release_studio_router
 from app.api.sim_studio import router as sim_studio_router
 from app.api.folders import router as folders_router
@@ -316,6 +317,7 @@ app.include_router(project_design_query_router, prefix="/api/projects", tags=["d
 app.include_router(project_catalog_usage_router, prefix="/api/projects", tags=["catalog-usage"])
 app.include_router(design_bundles_router)
 app.include_router(design_compare_router, prefix="/api/projects", tags=["design-compare"])
+app.include_router(design_compare_review_router, prefix="/api/projects", tags=["design-compare"])
 app.include_router(release_studio_router, prefix="/api/projects", tags=["release-studio"])
 app.include_router(sim_studio_router, prefix="/api", tags=["sim-studio"])
 app.include_router(fabrication_view_router, prefix="/api/projects", tags=["fabrication-view"])

@@ -1,0 +1,520 @@
+{
+  "schema": "prism.design_compare.result.a1",
+  "base": {
+    "revisionKey": "base-revision-key",
+    "bundleKey": "base-revision-key",
+    "projectFile": "fixture.kicad_pro"
+  },
+  "head": {
+    "revisionKey": "head-revision-key",
+    "bundleKey": "head-revision-key",
+    "projectFile": "fixture.kicad_pro"
+  },
+  "files": {
+    "base": [],
+    "head": []
+  },
+  "schematic": {
+    "changes": [
+      {
+        "id": "sch-c1-value",
+        "domain": "schematic",
+        "kind": "changed",
+        "category": "components",
+        "classification": "primary",
+        "label": "C1",
+        "objectKind": "symbol",
+        "reference": "C1",
+        "semanticId": "cmp:c1",
+        "page": "power.kicad_sch",
+        "reasons": ["symbol-fields-changed"],
+        "fields": {
+          "Value": { "old": "100nF", "new": "470nF" }
+        },
+        "details": {},
+        "base": {
+          "sourceId": "sch-c1-base",
+          "documentPath": "power.kicad_sch",
+          "layers": []
+        },
+        "head": {
+          "sourceId": "sch-c1-head",
+          "documentPath": "power.kicad_sch",
+          "layers": []
+        }
+      },
+      {
+        "id": "sch-c2-value",
+        "domain": "schematic",
+        "kind": "changed",
+        "category": "components",
+        "classification": "primary",
+        "label": "C2",
+        "objectKind": "symbol",
+        "reference": "C2",
+        "semanticId": "cmp:c2",
+        "page": "power.kicad_sch",
+        "reasons": ["symbol-fields-changed"],
+        "fields": {
+          "Value": { "old": "100nF", "new": "470nF" }
+        },
+        "details": {},
+        "base": {
+          "sourceId": "sch-c2-base",
+          "documentPath": "power.kicad_sch",
+          "layers": []
+        },
+        "head": {
+          "sourceId": "sch-c2-head",
+          "documentPath": "power.kicad_sch",
+          "layers": []
+        }
+      },
+      {
+        "id": "sch-r7-added",
+        "domain": "schematic",
+        "kind": "added",
+        "category": "components",
+        "classification": "primary",
+        "label": "R7",
+        "objectKind": "symbol",
+        "reference": "R7",
+        "semanticId": "cmp:r7",
+        "page": "mcu.kicad_sch",
+        "reasons": ["object-added"],
+        "fields": {},
+        "details": {},
+        "head": {
+          "sourceId": "sch-r7-head",
+          "documentPath": "mcu.kicad_sch",
+          "layers": []
+        }
+      },
+      {
+        "id": "sch-u2-moved",
+        "domain": "schematic",
+        "kind": "changed",
+        "category": "components",
+        "classification": "primary",
+        "label": "U2",
+        "objectKind": "symbol",
+        "reference": "U2",
+        "semanticId": "cmp:u2",
+        "page": "mcu.kicad_sch",
+        "reasons": ["moved"],
+        "fields": {
+          "Position": { "old": "10, 10", "new": "20, 10" }
+        },
+        "details": {},
+        "base": {
+          "sourceId": "sch-u2-base",
+          "documentPath": "mcu.kicad_sch",
+          "layers": []
+        },
+        "head": {
+          "sourceId": "sch-u2-head",
+          "documentPath": "mcu.kicad_sch",
+          "layers": []
+        }
+      },
+      {
+        "id": "sch-u2-pin-moved",
+        "domain": "schematic",
+        "kind": "changed",
+        "category": "components",
+        "classification": "primary",
+        "label": "U2-1",
+        "objectKind": "pin",
+        "reference": "U2",
+        "semanticId": "pin:u2-1",
+        "page": "mcu.kicad_sch",
+        "reasons": ["moved"],
+        "fields": {
+          "Position": { "old": "11, 10", "new": "21, 10" }
+        },
+        "details": {},
+        "base": {
+          "sourceId": "sch-u2-pin-base",
+          "documentPath": "mcu.kicad_sch",
+          "layers": []
+        },
+        "head": {
+          "sourceId": "sch-u2-pin-head",
+          "documentPath": "mcu.kicad_sch",
+          "layers": []
+        }
+      },
+      {
+        "id": "sch-net-rename",
+        "domain": "schematic",
+        "kind": "changed",
+        "category": "nets",
+        "classification": "primary",
+        "label": "3V3_MAIN",
+        "objectKind": "net",
+        "net": "/Power/3V3_MAIN",
+        "semanticId": "net:3v3",
+        "page": "power.kicad_sch",
+        "reasons": ["net-renamed"],
+        "fields": {
+          "name": { "old": "/Power/3V3", "new": "/Power/3V3_MAIN" }
+        },
+        "details": {},
+        "base": {
+          "sourceId": "sch-net-base",
+          "documentPath": "power.kicad_sch",
+          "layers": []
+        },
+        "head": {
+          "sourceId": "sch-net-head",
+          "documentPath": "power.kicad_sch",
+          "layers": []
+        }
+      },
+      {
+        "id": "sch-sheet-pin",
+        "domain": "schematic",
+        "kind": "added",
+        "category": "sheets",
+        "classification": "primary",
+        "label": "SPI_CLK",
+        "objectKind": "sheet-pin",
+        "page": "mcu.kicad_sch",
+        "reasons": ["object-added"],
+        "fields": {},
+        "details": {},
+        "head": {
+          "sourceId": "sch-sheet-pin-head",
+          "documentPath": "mcu.kicad_sch",
+          "layers": []
+        }
+      },
+      {
+        "id": "sch-erc-exclusion",
+        "domain": "schematic",
+        "kind": "added",
+        "category": "rules",
+        "classification": "primary",
+        "label": "ERC: power pin",
+        "objectKind": "erc-exclusion",
+        "page": "fixture.kicad_sch",
+        "reasons": ["object-added"],
+        "fields": {},
+        "details": { "reviewOnly": true },
+        "head": {
+          "sourceId": "sch-erc-head",
+          "documentPath": "fixture.kicad_sch",
+          "layers": []
+        }
+      }
+    ]
+  },
+  "pcb": {
+    "changes": [
+      {
+        "id": "pcb-track-1",
+        "domain": "pcb",
+        "kind": "changed",
+        "category": "nets",
+        "classification": "primary",
+        "label": "3V3_MAIN",
+        "objectKind": "track",
+        "net": "/Power/3V3_MAIN",
+        "semanticId": "track:1",
+        "page": "fixture.kicad_pcb",
+        "reasons": ["net-changed"],
+        "fields": {
+          "Net": { "old": "/Power/3V3", "new": "/Power/3V3_MAIN" }
+        },
+        "details": {},
+        "base": {
+          "sourceId": "track-1-base",
+          "documentPath": "fixture.kicad_pcb",
+          "layer": "F.Cu",
+          "layers": ["F.Cu"]
+        },
+        "head": {
+          "sourceId": "track-1-head",
+          "documentPath": "fixture.kicad_pcb",
+          "layer": "F.Cu",
+          "layers": ["F.Cu"]
+        }
+      },
+      {
+        "id": "pcb-track-2",
+        "domain": "pcb",
+        "kind": "changed",
+        "category": "nets",
+        "classification": "primary",
+        "label": "3V3_MAIN",
+        "objectKind": "track",
+        "net": "/Power/3V3_MAIN",
+        "semanticId": "track:2",
+        "page": "fixture.kicad_pcb",
+        "reasons": ["net-changed"],
+        "fields": {
+          "Net": { "old": "/Power/3V3", "new": "/Power/3V3_MAIN" }
+        },
+        "details": {},
+        "base": {
+          "sourceId": "track-2-base",
+          "documentPath": "fixture.kicad_pcb",
+          "layer": "B.Cu",
+          "layers": ["B.Cu"]
+        },
+        "head": {
+          "sourceId": "track-2-head",
+          "documentPath": "fixture.kicad_pcb",
+          "layer": "B.Cu",
+          "layers": ["B.Cu"]
+        }
+      },
+      {
+        "id": "pcb-track-usb",
+        "domain": "pcb",
+        "kind": "changed",
+        "category": "nets",
+        "classification": "primary",
+        "label": "USB_D+",
+        "objectKind": "track",
+        "net": "USB_D+",
+        "semanticId": "track:usb",
+        "page": "fixture.kicad_pcb",
+        "reasons": ["net-changed"],
+        "fields": {
+          "Net": { "old": "USB_D-", "new": "USB_D+" }
+        },
+        "details": {},
+        "base": {
+          "sourceId": "track-usb-base",
+          "documentPath": "fixture.kicad_pcb",
+          "layer": "F.Cu",
+          "layers": ["F.Cu"]
+        },
+        "head": {
+          "sourceId": "track-usb-head",
+          "documentPath": "fixture.kicad_pcb",
+          "layer": "F.Cu",
+          "layers": ["F.Cu"]
+        }
+      },
+      {
+        "id": "pcb-u1-rotated",
+        "domain": "pcb",
+        "kind": "changed",
+        "category": "components",
+        "classification": "primary",
+        "label": "U1",
+        "objectKind": "footprint",
+        "reference": "U1",
+        "semanticId": "fp:u1",
+        "page": "fixture.kicad_pcb",
+        "reasons": ["rotated"],
+        "fields": {},
+        "details": {},
+        "base": {
+          "sourceId": "u1-base",
+          "documentPath": "fixture.kicad_pcb",
+          "layer": "F.Cu",
+          "layers": ["F.Cu"]
+        },
+        "head": {
+          "sourceId": "u1-head",
+          "documentPath": "fixture.kicad_pcb",
+          "layer": "F.Cu",
+          "layers": ["F.Cu"]
+        }
+      },
+      {
+        "id": "pcb-ic1-pad-1",
+        "domain": "pcb",
+        "kind": "changed",
+        "category": "nets",
+        "classification": "primary",
+        "label": "IC1",
+        "objectKind": "pad",
+        "reference": "IC1",
+        "net": "PMOD_B9",
+        "semanticId": "pad:ic1-1",
+        "page": "fixture.kicad_pcb",
+        "reasons": ["net-changed"],
+        "fields": {
+          "Net": { "old": "PMOD_B6", "new": "PMOD_B9" }
+        },
+        "details": {},
+        "base": {
+          "sourceId": "pad-1-base",
+          "documentPath": "fixture.kicad_pcb",
+          "layers": []
+        },
+        "head": {
+          "sourceId": "pad-1-head",
+          "documentPath": "fixture.kicad_pcb",
+          "layers": []
+        }
+      },
+      {
+        "id": "pcb-ic1-pad-2",
+        "domain": "pcb",
+        "kind": "changed",
+        "category": "nets",
+        "classification": "primary",
+        "label": "IC1",
+        "objectKind": "pad",
+        "reference": "IC1",
+        "net": "PMOD_A8",
+        "semanticId": "pad:ic1-2",
+        "page": "fixture.kicad_pcb",
+        "reasons": ["net-changed"],
+        "fields": {
+          "Net": { "old": "PMOD_A2", "new": "PMOD_A8" }
+        },
+        "details": {},
+        "base": {
+          "sourceId": "pad-2-base",
+          "documentPath": "fixture.kicad_pcb",
+          "layers": []
+        },
+        "head": {
+          "sourceId": "pad-2-head",
+          "documentPath": "fixture.kicad_pcb",
+          "layers": []
+        }
+      },
+      {
+        "id": "pcb-zone-gnd",
+        "domain": "pcb",
+        "kind": "added",
+        "category": "zones",
+        "classification": "primary",
+        "label": "zone-1",
+        "objectKind": "zone",
+        "net": "GND",
+        "semanticId": "zone:1",
+        "page": "fixture.kicad_pcb",
+        "reasons": ["object-added"],
+        "fields": {},
+        "details": {},
+        "head": {
+          "sourceId": "zone-1-head",
+          "documentPath": "fixture.kicad_pcb",
+          "layer": "In1.Cu",
+          "layers": ["In1.Cu"],
+          "at": { "xNm": 10000000, "yNm": 20000000 }
+        }
+      },
+      {
+        "id": "pcb-outline",
+        "domain": "pcb",
+        "kind": "changed",
+        "category": "graphics",
+        "classification": "primary",
+        "label": "Edge.Cuts",
+        "objectKind": "graphic",
+        "page": "fixture.kicad_pcb",
+        "reasons": ["moved"],
+        "fields": {},
+        "details": {},
+        "base": {
+          "sourceId": "outline-base",
+          "documentPath": "fixture.kicad_pcb",
+          "layer": "Edge.Cuts",
+          "layers": ["Edge.Cuts"]
+        },
+        "head": {
+          "sourceId": "outline-head",
+          "documentPath": "fixture.kicad_pcb",
+          "layer": "Edge.Cuts",
+          "layers": ["Edge.Cuts"]
+        }
+      },
+      {
+        "id": "pcb-drc-exclusion",
+        "domain": "pcb",
+        "kind": "added",
+        "category": "rules",
+        "classification": "primary",
+        "label": "Courtyard overlap",
+        "objectKind": "drc-exclusion",
+        "page": "fixture.kicad_pro",
+        "reasons": ["object-added"],
+        "fields": {},
+        "details": { "reviewOnly": true },
+        "head": {
+          "sourceId": "drc-head",
+          "documentPath": "fixture.kicad_pro",
+          "layers": []
+        }
+      },
+      {
+        "id": "pcb-fab-note",
+        "domain": "pcb",
+        "kind": "changed",
+        "category": "graphics",
+        "classification": "secondary",
+        "label": "Rev A",
+        "objectKind": "graphic",
+        "page": "fixture.kicad_pcb",
+        "reasons": ["properties-changed"],
+        "fields": {
+          "Text": { "old": "Rev A", "new": "Rev B" }
+        },
+        "details": {},
+        "base": {
+          "sourceId": "fab-note-base",
+          "documentPath": "fixture.kicad_pcb",
+          "layer": "F.Fab",
+          "layers": ["F.Fab"]
+        },
+        "head": {
+          "sourceId": "fab-note-head",
+          "documentPath": "fixture.kicad_pcb",
+          "layer": "F.Fab",
+          "layers": ["F.Fab"]
+        }
+      }
+    ]
+  },
+  "bom": {
+    "fields": ["Reference", "Value", "Manufacturer Part Number"],
+    "changes": [
+      {
+        "ref": "C1",
+        "status": "changed",
+        "old": { "Value": "100nF", "Manufacturer Part Number": "CAP-100N" },
+        "new": { "Value": "470nF", "Manufacturer Part Number": "CAP-470N" }
+      },
+      {
+        "ref": "C2",
+        "status": "changed",
+        "old": { "Value": "100nF", "Manufacturer Part Number": "CAP-100N" },
+        "new": { "Value": "470nF", "Manufacturer Part Number": "CAP-470N" }
+      }
+    ],
+    "summary": { "added": 0, "removed": 0, "changed": 2 }
+  },
+  "stackup": {
+    "present": false,
+    "changed": false,
+    "base": [],
+    "head": [],
+    "baseSettings": {},
+    "headSettings": {}
+  },
+  "routeMetrics": {
+    "base": {},
+    "head": {}
+  },
+  "projectDiff": {
+    "schema": "prism.kicad_project_diff_v1",
+    "provider": "prism-semantic",
+    "project": { "documents": [] },
+    "navigation": {},
+    "diagnostics": []
+  },
+  "counts": {
+    "schematic": { "added": 2, "removed": 0, "changed": 6 },
+    "pcb": { "added": 2, "removed": 0, "changed": 9 },
+    "bom": { "added": 0, "removed": 0, "changed": 2 }
+  }
+}
