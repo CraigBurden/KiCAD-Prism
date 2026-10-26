@@ -89,9 +89,19 @@
     "path": "/api/v1/catalog/import-sessions/{session_id}/proposals/bulk-accept",
     "typed": true
   },
+  "cache_stats": {
+    "method": "GET",
+    "path": "/api/v1/ops/caches",
+    "typed": true
+  },
   "cancel_job": {
     "method": "POST",
     "path": "/api/v1/jobs/{job_id}/cancel",
+    "typed": true
+  },
+  "capture_profile": {
+    "method": "POST",
+    "path": "/api/v1/ops/profiles",
     "typed": true
   },
   "catalog_health": {
@@ -374,6 +384,11 @@
     "path": "/api/v1/projects/{project_id}/sim/a0/setups",
     "typed": true
   },
+  "event_and_webhook_health": {
+    "method": "GET",
+    "path": "/api/v1/ops/event-health",
+    "typed": true
+  },
   "export_import_proposals_csv": {
     "method": "GET",
     "path": "/api/v1/catalog/import-sessions/{session_id}/proposals.csv",
@@ -437,6 +452,11 @@
   "get_build_placement": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/placement",
+    "typed": true
+  },
+  "get_bundle_build_profile": {
+    "method": "GET",
+    "path": "/api/v1/ops/projects/{project_id}/bundle-profile",
     "typed": true
   },
   "get_candidate": {
@@ -609,6 +629,11 @@
     "path": "/api/v1/jobs/{job_id}/logs",
     "typed": true
   },
+  "get_job_timeline": {
+    "method": "GET",
+    "path": "/api/v1/ops/jobs/{job_id}/timeline",
+    "typed": true
+  },
   "get_mcp_governance": {
     "method": "GET",
     "path": "/api/v1/settings/mcp",
@@ -662,6 +687,11 @@
   "get_preview_job": {
     "method": "GET",
     "path": "/api/v1/catalog/previews/jobs/{job_id}",
+    "typed": true
+  },
+  "get_profile": {
+    "method": "GET",
+    "path": "/api/v1/ops/profiles/{profile_id}",
     "typed": true
   },
   "get_project_3d_model": {
@@ -1212,6 +1242,11 @@
   "plugin_version": {
     "method": "GET",
     "path": "/api/v1/plugin/version",
+    "typed": true
+  },
+  "pool_and_workers": {
+    "method": "GET",
+    "path": "/api/v1/ops/pool-and-workers",
     "typed": true
   },
   "preflight_setup": {

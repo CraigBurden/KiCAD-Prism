@@ -61,6 +61,7 @@ from app.services.workspace_migrations import m138_token_audit
 from app.services.workspace_migrations import m139_ops_instrumentation
 from app.services.workspace_migrations import m140_ops_workers_settings
 from app.services.workspace_migrations import m141_pg_stat_statements
+from app.services.workspace_migrations import m142_ops_profiles
 
 
 Migration = Callable[[Any], None]
@@ -118,6 +119,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (139, "ops_instrumentation", m139_ops_instrumentation.migrate),
     (140, "ops_workers_settings", m140_ops_workers_settings.migrate),
     (141, "pg_stat_statements", m141_pg_stat_statements.migrate),
+    (142, "ops_profiles", m142_ops_profiles.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

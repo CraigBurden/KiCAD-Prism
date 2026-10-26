@@ -1760,6 +1760,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (139, "ops_instrumentation"),
                 (140, "ops_workers_settings"),
                 (141, "pg_stat_statements"),
+                (142, "ops_profiles"),
             ],
         )
 
