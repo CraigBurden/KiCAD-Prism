@@ -12,6 +12,7 @@ import {
     X,
 } from "lucide-react";
 import { commentClassLabel, type Comment } from "@/types/comments";
+import { CommentAuthorKindBadge } from "@/components/comment-author-kind-badge";
 import { CommentSeverityBadge } from "@/components/comment-severity-badge";
 import { ReplyTrackerState } from "@/features/tracker-integration/reply-tracker-state";
 import { TrackerIssueAction } from "@/features/tracker-integration/tracker-issue-action";
@@ -273,6 +274,10 @@ function PanelCommentCard({
                             <span className="h-2 w-2 shrink-0 rounded-full bg-primary" role="img" aria-label="New activity" />
                         )}
                         <span className="text-sm font-semibold">{comment.author}</span>
+                        <CommentAuthorKindBadge
+                            authorKind={comment.authorKind}
+                            authorClientId={comment.authorClientId}
+                        />
                         {comment.elementRef && (
                             <Badge variant="outline" className="h-5 px-1 text-[10px]">
                                 {comment.elementRef}
@@ -400,7 +405,13 @@ function PanelCommentCard({
                                 comment.replies.map((item) => (
                                     <div key={item.id ?? `${item.timestamp}-${item.author}-${item.content}`} className="relative border-l-2 border-muted pl-2 text-sm">
                                         <div className="mb-1 flex items-center justify-between">
-                                            <span className="text-xs font-medium">{item.author}</span>
+                                            <span className="flex items-center gap-1">
+                                                <span className="text-xs font-medium">{item.author}</span>
+                                                <CommentAuthorKindBadge
+                                                    authorKind={item.authorKind}
+                                                    authorClientId={item.authorClientId}
+                                                />
+                                            </span>
                                             <span className="text-[10px] text-muted-foreground">
                                                 {new Date(item.timestamp).toLocaleDateString()}
                                             </span>

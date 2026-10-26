@@ -75,12 +75,37 @@ class ImageResultTests(unittest.TestCase):
         self.assertEqual(result["content"][1]["type"], "text")
         structured = result["structuredContent"]
         self.assertEqual(structured["renderId"], RENDER_ID)
-        self.assertTrue(structured["link"].startswith("https://prism.test/project/p1"))
-        self.assertIn("tab=sch", structured["link"])
+        self.assertEqual(
+            structured["link"],
+            "https://prism.test/project/p1?section=visualizers&tab=sch"
+            f"&commit={COMMIT}&sel=R1",
+        )
         self.assertEqual(
             structured["uri"], f"prism://project/p1/rev/{COMMIT}/render/{RENDER_ID}"
         )
         self.assertEqual(routes.calls[0][2], tools_render._body(arguments()))
+
+
+class LinkTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.enterContext(mock.patch.object(settings, "PUBLIC_BASE_URL", "https://prism.test"))
+
+    def test_found_highlights_become_the_selection_and_net_highlight(self) -> None:
+        link = tools_render._link(
+            "p1",
+            COMMIT,
+            "pcb",
+            [
+                {"kind": "component", "key": "R1", "found": True},
+                {"kind": "net", "key": "Power/+12V", "found": True},
+                {"kind": "component", "key": "R99", "found": False},
+            ],
+        )
+        self.assertEqual(
+            link,
+            "https://prism.test/project/p1?section=visualizers&tab=pcb"
+            f"&commit={COMMIT}&sel=R1&nets=Power%252F%252B12V",
+        )
 
 
 class PendingTests(unittest.TestCase):
