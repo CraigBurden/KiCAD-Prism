@@ -1922,6 +1922,54 @@
         "title": "BundleKicadStepOut",
         "type": "object"
       },
+      "BundleRebuildOut": {
+        "description": "The design-bundle rebuild an ops action queued.",
+        "properties": {
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "removed_aliases": {
+            "title": "Removed Aliases",
+            "type": "integer"
+          },
+          "removed_bundles": {
+            "title": "Removed Bundles",
+            "type": "integer"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "commit",
+          "scope",
+          "removed_bundles",
+          "removed_aliases"
+        ],
+        "title": "BundleRebuildOut",
+        "type": "object"
+      },
       "BundleStore": {
         "properties": {
           "archive_bytes": {
@@ -7589,6 +7637,74 @@
         "title": "DatabasePoolMetrics",
         "type": "object"
       },
+      "DebugLoggingCleared": {
+        "description": "Confirmation that the debug window was removed.",
+        "properties": {
+          "cleared": {
+            "title": "Cleared",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cleared"
+        ],
+        "title": "DebugLoggingCleared",
+        "type": "object"
+      },
+      "DebugLoggingRequest": {
+        "description": "A debug window of one to thirty minutes for the named loggers.",
+        "properties": {
+          "loggers": {
+            "anyOf": [
+              {
+                "items": {
+                  "pattern": "^app(\\.[A-Za-z0-9_]+)*$",
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loggers"
+          },
+          "minutes": {
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "minutes"
+        ],
+        "title": "DebugLoggingRequest",
+        "type": "object"
+      },
+      "DebugLoggingWindow": {
+        "description": "The DEBUG window currently in force.",
+        "properties": {
+          "loggers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Loggers",
+            "type": "array"
+          },
+          "until": {
+            "title": "Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "until",
+          "loggers"
+        ],
+        "title": "DebugLoggingWindow",
+        "type": "object"
+      },
       "DeleteDesignCompareResponse": {
         "additionalProperties": true,
         "properties": {
@@ -11242,6 +11358,25 @@
         "title": "IpcOptions",
         "type": "object"
       },
+      "JobCancelOut": {
+        "description": "The job after a cancel request, and the status that request reached.",
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "JobCancelOut",
+        "type": "object"
+      },
       "JobCancelRequested": {
         "additionalProperties": true,
         "description": "A cancel request: the status the service reports may be a terminal one.",
@@ -11728,6 +11863,50 @@
           "cache_hit"
         ],
         "title": "JobRecord",
+        "type": "object"
+      },
+      "JobRequeueOut": {
+        "description": "The job after a requeue: its new state, fence and attempt budget.",
+        "properties": {
+          "attempt": {
+            "title": "Attempt",
+            "type": "integer"
+          },
+          "fence": {
+            "title": "Fence",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "max_attempts": {
+            "title": "Max Attempts",
+            "type": "integer"
+          },
+          "previous_fence": {
+            "title": "Previous Fence",
+            "type": "integer"
+          },
+          "previous_status": {
+            "title": "Previous Status",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "previous_status",
+          "fence",
+          "previous_fence",
+          "attempt",
+          "max_attempts"
+        ],
+        "title": "JobRequeueOut",
         "type": "object"
       },
       "JobStarted": {
@@ -16884,6 +17063,25 @@
           "location"
         ],
         "title": "ReattachCommentRequest",
+        "type": "object"
+      },
+      "RebuildBundleRequest": {
+        "description": "Which commit to rebuild; omitted means the project's ``HEAD``.",
+        "properties": {
+          "commit": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{40}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          }
+        },
+        "title": "RebuildBundleRequest",
         "type": "object"
       },
       "RecentRequestOut": {
@@ -28846,6 +29044,93 @@
         ]
       }
     },
+    "/api/v1/ops/debug-logging": {
+      "delete": {
+        "operationId": "ops_clear_debug_logging",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DebugLoggingCleared"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Clear the debug-logging window",
+        "tags": [
+          "ops"
+        ]
+      },
+      "get": {
+        "operationId": "ops_get_debug_logging",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/DebugLoggingWindow"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Ops Get Debug Logging"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "The debug-logging window in force, or null",
+        "tags": [
+          "ops"
+        ]
+      },
+      "post": {
+        "operationId": "ops_set_debug_logging",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DebugLoggingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DebugLoggingWindow"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Raise Prism's loggers to DEBUG for at most thirty minutes",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
     "/api/v1/ops/event-health": {
       "get": {
         "operationId": "event_and_webhook_health",
@@ -28862,6 +29147,90 @@
           }
         },
         "summary": "Event-log head, retention and webhook lag and delivery health",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/api/v1/ops/jobs/{job_id}/cancel": {
+      "post": {
+        "operationId": "ops_cancel_job",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCancelOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ask an ops-selected job to cancel",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/api/v1/ops/jobs/{job_id}/requeue": {
+      "post": {
+        "operationId": "ops_requeue_job",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRequeueOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Requeue a failed or lease-expired job",
         "tags": [
           "ops"
         ]
@@ -29094,6 +29463,58 @@
           }
         },
         "summary": "A design bundle build's per-invocation and per-KiCad-step profile",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/api/v1/ops/projects/{project_id}/rebuild-bundle": {
+      "post": {
+        "operationId": "ops_rebuild_bundle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RebuildBundleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BundleRebuildOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Drop one commit's design bundle and queue a rebuild",
         "tags": [
           "ops"
         ]

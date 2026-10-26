@@ -14,6 +14,7 @@ from app.services import (
     job_benchmark,
     job_claims,
     job_lease_recovery,
+    job_requeue,
 )
 from app.services.job_claims import LOCK_MODES  # noqa: F401  (kept importable from here)
 from app.services.job_rows import (
@@ -944,6 +945,18 @@ class JobService:
                 state="cancelled",
             )
         return status
+
+    def requeue(self, job_id: str, *, requested_by: str = "") -> dict[str, Any]:
+        """Reset a failed or lease-expired job to ``queued`` (ADR §11, D21).
+
+        Raises ``job_requeue.JobNotFound`` for an unknown job and
+        ``job_requeue.JobNotRequeueable`` when the job's state or live lease
+        forbids it. The transaction itself lives in ``job_requeue`` so this
+        module stays inside its line budget.
+        """
+
+        self.initialize()
+        return job_requeue.requeue(self, job_id, requested_by=requested_by)
 
     def finalize_cancel(
         self,

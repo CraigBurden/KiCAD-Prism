@@ -566,3 +566,4 @@ from app.services.mcp import tools_ops_jobs as _tools_ops_jobs  # noqa: E402, F4
 from app.services.mcp import tools_ops_runtime as _tools_ops_runtime  # noqa: E402, F401
 from app.services.mcp import tools_ops_profile as _tools_ops_profile  # noqa: E402, F401
 from app.services.mcp import tools_ops_requests as _tools_ops_requests  # noqa: E402, F401
+from app.services.mcp import tools_ops_actions as _tools_ops_actions  # noqa: E402, F401

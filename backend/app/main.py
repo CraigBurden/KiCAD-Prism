@@ -19,6 +19,7 @@ from app.api.ops_jobs import router as ops_jobs_router
 from app.api.ops_runtime import router as ops_runtime_router
 from app.api.ops_profiles import router as ops_profiles_router
 from app.api.ops_requests import router as ops_requests_router
+from app.api.ops_actions import router as ops_actions_router
 from app.api.mcp import router as mcp_router
 from app.api.fabrication_view import router as fabrication_view_router
 from app.api.projects import router as projects_router
@@ -349,6 +350,7 @@ app.include_router(ops_jobs_router)
 app.include_router(ops_runtime_router)
 app.include_router(ops_profiles_router)
 app.include_router(ops_requests_router)
+app.include_router(ops_actions_router)
 app.include_router(mcp_audit_router)
 app.include_router(mcp_oauth_router)
 app.include_router(mcp_router)

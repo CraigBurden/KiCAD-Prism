@@ -1219,6 +1219,36 @@
     "path": "/api/v1/trackers/oauth/callback",
     "typed": true
   },
+  "ops_cancel_job": {
+    "method": "POST",
+    "path": "/api/v1/ops/jobs/{job_id}/cancel",
+    "typed": true
+  },
+  "ops_clear_debug_logging": {
+    "method": "DELETE",
+    "path": "/api/v1/ops/debug-logging",
+    "typed": true
+  },
+  "ops_get_debug_logging": {
+    "method": "GET",
+    "path": "/api/v1/ops/debug-logging",
+    "typed": true
+  },
+  "ops_rebuild_bundle": {
+    "method": "POST",
+    "path": "/api/v1/ops/projects/{project_id}/rebuild-bundle",
+    "typed": true
+  },
+  "ops_requeue_job": {
+    "method": "POST",
+    "path": "/api/v1/ops/jobs/{job_id}/requeue",
+    "typed": true
+  },
+  "ops_set_debug_logging": {
+    "method": "POST",
+    "path": "/api/v1/ops/debug-logging",
+    "typed": true
+  },
   "ops_status": {
     "method": "GET",
     "path": "/api/v1/ops/status",

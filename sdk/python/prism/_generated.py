@@ -378,6 +378,15 @@ class BundleKicadStepOut(TypedDict, total=False):
     step: str
 
 
+class BundleRebuildOut(TypedDict, total=True):
+    """The design-bundle rebuild an ops action queued."""
+    commit: str | None
+    job_id: str | None
+    removed_aliases: int
+    removed_bundles: int
+    scope: str
+
+
 class BundleStore(TypedDict, total=True):
     archive_bytes: int
     archives: int
@@ -1350,6 +1359,23 @@ class DatabasePoolMetrics(TypedDict, total=True):
     pool: dict[str, Any]
 
 
+class DebugLoggingCleared(TypedDict, total=True):
+    """Confirmation that the debug window was removed."""
+    cleared: bool
+
+
+class DebugLoggingRequest(TypedDict, total=False):
+    """A debug window of one to thirty minutes for the named loggers."""
+    loggers: list[str] | None
+    minutes: int
+
+
+class DebugLoggingWindow(TypedDict, total=True):
+    """The DEBUG window currently in force."""
+    loggers: list[str]
+    until: str
+
+
 class DeleteDesignCompareResponse(TypedDict, total=True):
     status: str
 
@@ -2063,6 +2089,12 @@ class IpcOptions(TypedDict, total=True):
     via_treatment: list[IpcOption]
 
 
+class JobCancelOut(TypedDict, total=True):
+    """The job after a cancel request, and the status that request reached."""
+    job_id: str
+    status: str
+
+
 class JobCancelRequested(TypedDict, total=True):
     """A cancel request: the status the service reports may be a terminal one."""
     job_id: str
@@ -2139,6 +2171,17 @@ class JobRecord(TypedDict, total=True):
     status: str
     updated_at: str | None
     worker_pool: str
+
+
+class JobRequeueOut(TypedDict, total=True):
+    """The job after a requeue: its new state, fence and attempt budget."""
+    attempt: int
+    fence: int
+    job_id: str
+    max_attempts: int
+    previous_fence: int
+    previous_status: str
+    status: str
 
 
 class JobStarted(TypedDict, total=True):
@@ -3111,6 +3154,11 @@ class ReattachCommentRequest(TypedDict, total=False):
     elementId: str | None
     location: CommentLocation
     relativePoint: list[float] | None
+
+
+class RebuildBundleRequest(TypedDict, total=False):
+    """Which commit to rebuild; omitted means the project's ``HEAD``."""
+    commit: str | None
 
 
 class RecentRequestOut(TypedDict, total=True):
@@ -6101,6 +6149,53 @@ class GeneratedClient:
             "GET",
             "/api/v1/trackers/oauth/callback",
             query={"code": code, "state": state},
+        )
+
+    def ops_cancel_job(self, job_id: str) -> JobCancelOut:
+        """Ask an ops-selected job to cancel"""
+        return self._request(
+            "POST",
+            "/api/v1/ops/jobs/{job_id}/cancel",
+            path_params={"job_id": job_id},
+        )
+
+    def ops_clear_debug_logging(self) -> DebugLoggingCleared:
+        """Clear the debug-logging window"""
+        return self._request(
+            "DELETE",
+            "/api/v1/ops/debug-logging",
+        )
+
+    def ops_get_debug_logging(self) -> DebugLoggingWindow | None:
+        """The debug-logging window in force, or null"""
+        return self._request(
+            "GET",
+            "/api/v1/ops/debug-logging",
+        )
+
+    def ops_rebuild_bundle(self, project_id: str, *, body: dict[str, Any] | None = None) -> BundleRebuildOut:
+        """Drop one commit's design bundle and queue a rebuild"""
+        return self._request(
+            "POST",
+            "/api/v1/ops/projects/{project_id}/rebuild-bundle",
+            path_params={"project_id": project_id},
+            body=body,
+        )
+
+    def ops_requeue_job(self, job_id: str) -> JobRequeueOut:
+        """Requeue a failed or lease-expired job"""
+        return self._request(
+            "POST",
+            "/api/v1/ops/jobs/{job_id}/requeue",
+            path_params={"job_id": job_id},
+        )
+
+    def ops_set_debug_logging(self, *, body: dict[str, Any] | None = None) -> DebugLoggingWindow:
+        """Raise Prism's loggers to DEBUG for at most thirty minutes"""
+        return self._request(
+            "POST",
+            "/api/v1/ops/debug-logging",
+            body=body,
         )
 
     def ops_status(self) -> OpsStatus:
