@@ -348,6 +348,15 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
         ),
     )
 
+    PRISM_WEBHOOK_ALLOW_PRIVATE: bool = Field(
+        default=False,
+        description=(
+            "Allow outbound webhook targets that resolve to private, loopback or "
+            "link-local addresses, over http as well as https. Off by default; set "
+            "it only for a local test receiver."
+        ),
+    )
+
     TRACKER_CREDENTIAL_ROOT_KEY: SecretStr = Field(default=SecretStr(""))
     TRACKER_CREDENTIAL_ROOT_KEY_ID: str = Field(default="v1")
     TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY: SecretStr = Field(default=SecretStr(""))

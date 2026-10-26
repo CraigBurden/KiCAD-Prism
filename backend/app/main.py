@@ -13,6 +13,7 @@ from app.api.mcp_clients_settings import router as mcp_clients_settings_router
 from app.api.mcp_oauth import router as mcp_oauth_router
 from app.api.mcp_settings import admin_router as mcp_audit_router
 from app.api.mcp_settings import router as mcp_settings_router
+from app.api.webhook_settings import router as webhook_settings_router
 from app.api.mcp import router as mcp_router
 from app.api.fabrication_view import router as fabrication_view_router
 from app.api.projects import router as projects_router
@@ -318,6 +319,7 @@ app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(personal_tokens_router)
 app.include_router(mcp_clients_settings_router)
 app.include_router(mcp_settings_router)
+app.include_router(webhook_settings_router)
 app.include_router(mcp_audit_router)
 app.include_router(mcp_oauth_router)
 app.include_router(mcp_router)

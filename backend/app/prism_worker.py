@@ -96,6 +96,8 @@ class PrismWorker:
         self._next_bundle_retention = 0.0
         self._bundle_upkeep: threading.Thread | None = None
         self._bundle_backfill_state = None
+        self._next_webhook_delivery = 0.0
+        self._webhook_delivery: threading.Thread | None = None
 
     @staticmethod
     def resource_capacities() -> dict[str, int]:
@@ -594,6 +596,34 @@ class PrismWorker:
             except Exception:
                 logger.exception("Design bundle retention failed")
 
+    def schedule_webhook_deliveries(self) -> None:
+        """One outbound-webhook pass every five seconds, never two at once.
+
+        Delivery posts to user-supplied endpoints with a ten-second timeout, so
+        it runs as a daemon thread and the supervision loop only checks whether
+        the previous pass is still alive.
+        """
+
+        if self.worker_pool != "prism" or time.monotonic() < self._next_webhook_delivery:
+            return
+        if self._webhook_delivery is not None and self._webhook_delivery.is_alive():
+            return
+        self._next_webhook_delivery = time.monotonic() + 5
+        self._webhook_delivery = threading.Thread(
+            target=self._deliver_webhooks, name="webhook-delivery", daemon=True
+        )
+        self._webhook_delivery.start()
+
+    def _deliver_webhooks(self) -> None:
+        from app.services.webhooks import delivery
+
+        try:
+            stats = delivery.run_pass()
+            if stats.get("failed"):
+                logger.info("Outbound webhooks: %s", stats)
+        except Exception:
+            logger.exception("Outbound webhook delivery pass failed")
+
     def schedule_tracker_jobs(self) -> None:
         if self.worker_pool != "prism" or time.monotonic() < self._next_tracker_scan:
             return
@@ -663,6 +693,10 @@ class PrismWorker:
                 self.schedule_design_bundles()
             except Exception:
                 self._log_database_error("schedule design bundle upkeep")
+            try:
+                self.schedule_webhook_deliveries()
+            except Exception:
+                self._log_database_error("schedule webhook deliveries")
             try:
                 self.sweep_job_ends()
             except Exception:

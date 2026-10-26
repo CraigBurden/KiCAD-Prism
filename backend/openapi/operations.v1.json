@@ -219,6 +219,11 @@
     "path": "/api/v1/admin/service-clients",
     "typed": true
   },
+  "create_webhook": {
+    "method": "POST",
+    "path": "/api/v1/settings/webhooks",
+    "typed": true
+  },
   "delete_access_user": {
     "method": "DELETE",
     "path": "/api/v1/settings/access/users/{email}",
@@ -282,6 +287,11 @@
   "delete_user_password": {
     "method": "DELETE",
     "path": "/api/v1/settings/access/users/{email}/password",
+    "typed": true
+  },
+  "delete_webhook": {
+    "method": "DELETE",
+    "path": "/api/v1/settings/webhooks/{webhook_id}",
     "typed": true
   },
   "design_compare_result": {
@@ -1094,6 +1104,16 @@
     "path": "/api/v1/projects/{project_id}/release-studio/vendor-profiles",
     "typed": true
   },
+  "list_webhook_deliveries": {
+    "method": "GET",
+    "path": "/api/v1/settings/webhooks/{webhook_id}/deliveries",
+    "typed": true
+  },
+  "list_webhooks": {
+    "method": "GET",
+    "path": "/api/v1/settings/webhooks",
+    "typed": true
+  },
   "live": {
     "method": "GET",
     "path": "/api/v1/health/live",
@@ -1374,6 +1394,11 @@
     "path": "/api/v1/admin/service-clients/{client_id}/rotate-secret",
     "typed": true
   },
+  "rotate_webhook_secret": {
+    "method": "POST",
+    "path": "/api/v1/settings/webhooks/{webhook_id}/rotate-secret",
+    "typed": true
+  },
   "run_artifact_maintenance": {
     "method": "POST",
     "path": "/api/v1/catalog/artifacts/maintenance",
@@ -1474,6 +1499,11 @@
     "path": "/api/v1/admin/trackers/connectors/{connector_id}/test",
     "typed": true
   },
+  "test_webhook": {
+    "method": "POST",
+    "path": "/api/v1/settings/webhooks/{webhook_id}/test",
+    "typed": true
+  },
   "thread_sync_history": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}/tracker/history",
@@ -1572,6 +1602,11 @@
   "update_reply": {
     "method": "PATCH",
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}/replies/{reply_id}",
+    "typed": true
+  },
+  "update_webhook": {
+    "method": "PATCH",
+    "path": "/api/v1/settings/webhooks/{webhook_id}",
     "typed": true
   },
   "upload_comment_attachment": {
