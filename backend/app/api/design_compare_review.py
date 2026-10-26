@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_viewer
 from app.services import design_compare_service
+from app.services.design_query.index import natural_key
 from app.services.design_query.review_groups import review_groups
 from app.services.job_artifact_service import job_artifacts
 
@@ -46,12 +47,39 @@ class ReviewGroupOut(BaseModel):
     impact: str
     section: str
     changeIds: list[str]
+    #: Designators of the group's changes, read from each change's
+    #: ``reference``. Net, track and rule groups name none.
+    references: list[str] = []
 
 
 class ComparisonReviewOut(BaseModel):
     jobId: str
     domain: Literal["sch", "pcb"]
     groups: list[ReviewGroupOut]
+
+
+_DOMAIN_TABS = {"sch": "schematic", "pcb": "pcb"}
+
+
+def with_references(groups: list[dict[str, Any]], result: dict[str, Any], domain: str) -> list[dict[str, Any]]:
+    """Each group plus the designators its changes carry, in natural order."""
+
+    changes = ((result.get(_DOMAIN_TABS[domain]) or {}).get("changes")) or []
+    reference_of = {
+        str(change.get("id")): str(change["reference"])
+        for change in changes
+        if isinstance(change, dict) and change.get("reference")
+    }
+    return [
+        {
+            **group,
+            "references": sorted(
+                {reference_of[change_id] for change_id in group.get("changeIds") or [] if change_id in reference_of},
+                key=natural_key,
+            ),
+        }
+        for group in groups
+    ]
 
 
 def _read_json(path: Path) -> Any:
@@ -123,4 +151,5 @@ async def get_comparison_review(
     if not result:
         raise HTTPException(status_code=409, detail="comparison-not-ready")
     groups = await asyncio.to_thread(review_groups, result, domain)
+    groups = with_references(groups, result, domain)
     return ComparisonReviewOut(jobId=job_id, domain=domain, groups=groups)

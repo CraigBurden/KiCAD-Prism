@@ -41,13 +41,6 @@ _IMPACTS = (
 _DEFAULT_LIMIT = 50
 _MAX_LIMIT = 200
 
-#: A group id names one designator in these positions: ``cmp:r13``,
-#: ``pin:u2-2``, ``pad:ic2-1``, ``fp:r5``, ``component:IC1``, ``sheet:s1``.
-_REFERENCE_SEGMENTS = frozenset({"cmp", "pin", "pad", "fp", "component", "sheet"})
-#: A change id begins ``sch-r15-...`` or ``pcb-u1-...``. The review route does
-#: not carry a group's designators, so component groups read them from here.
-_CHANGE_REFERENCE = re.compile(r"^(?:sch|pcb)-([a-z]+[0-9]+)(?:-|$)")
-_DESIGNATOR = re.compile(r"#?[A-Z]{1,4}[0-9]+")
 
 
 def _object(properties: dict[str, Any], required: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -268,38 +261,12 @@ def _natural_key(value: str) -> list[Any]:
 
 
 def _references(group: dict[str, Any]) -> list[str]:
-    """The group's designators, read from the route's group id and changes."""
+    """The group's designators, as the review route reports them."""
 
     supplied = group.get("references")
-    if isinstance(supplied, list):
-        return sorted({str(value) for value in supplied if value}, key=_natural_key)
-
-    found: set[str] = set()
-    segments = str(group.get("id") or "").split(":")
-    for index, segment in enumerate(segments[:-1]):
-        if segment not in _REFERENCE_SEGMENTS:
-            continue
-        token = segments[index + 1]
-        if segment in {"pin", "pad"}:
-            token = re.sub(r"-[0-9]+$", "", token)
-        if token:
-            found.add(token.upper())
-
-    if str(group.get("section") or "") in {"components", "layout"} and not found:
-        for change_id in group.get("changeIds") or []:
-            match = _CHANGE_REFERENCE.match(str(change_id))
-            if match:
-                found.add(match.group(1).upper())
-
-    title = str(group.get("title") or "")
-    if found and _DESIGNATOR.fullmatch(title) and title.lstrip("#").upper() in found:
-        # ``#PWR01`` keeps its prefix where the id only has ``pwr01``.
-        found.discard(title.lstrip("#").upper())
-        found.add(title)
-    elif not found and _DESIGNATOR.fullmatch(title):
-        found.add(title)
-
-    return sorted(found, key=_natural_key)
+    if not isinstance(supplied, list):
+        return []
+    return sorted({str(value) for value in supplied if value}, key=_natural_key)
 
 
 def _row(group: dict[str, Any]) -> dict[str, Any]:
