@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from app.core.errors import Invalid
 from app.services import derived_assets, kicad_tools
 from app.services.design_bundle import consumer
 from app.services.design_bundle.errors import DesignDataFailed, DesignDataPending
@@ -72,6 +73,12 @@ def _unique(values: Iterable[Any]) -> list[str]:
     return found
 
 
+class RenderRequestError(Invalid, ValueError):
+    """A render request the caller must fix; its message is written for them."""
+
+    code = "invalid-render"
+
+
 def normalize_request(request: Mapping[str, Any] | None) -> dict[str, Any]:
     """The request with every default filled and every list deterministic.
 
@@ -84,19 +91,19 @@ def normalize_request(request: Mapping[str, Any] | None) -> dict[str, Any]:
     value = dict(request or {})
     view = str(value.get("view") or "").strip().lower()
     if view not in VALID_VIEWS:
-        raise ValueError(f"unknown render view: {value.get('view')!r}")
+        raise RenderRequestError(f"unknown render view: {value.get('view')!r}")
     layers = str(value.get("layers") or "front").strip().lower()
     if layers not in VALID_LAYERS:
-        raise ValueError(f"unknown PCB layer set: {value.get('layers')!r}")
+        raise RenderRequestError(f"unknown PCB layer set: {value.get('layers')!r}")
     side = str(value.get("side") or "top").strip().lower()
     if side not in VALID_SIDES:
-        raise ValueError(f"unknown 3D side: {value.get('side')!r}")
+        raise RenderRequestError(f"unknown 3D side: {value.get('side')!r}")
     try:
         width = int(value.get("width") or 1200)
     except (TypeError, ValueError) as error:
-        raise ValueError("width must be an integer") from error
+        raise RenderRequestError("width must be an integer") from error
     if not plots.MIN_WIDTH <= width <= plots.MAX_WIDTH:
-        raise ValueError(f"width must be between {plots.MIN_WIDTH} and {plots.MAX_WIDTH}")
+        raise RenderRequestError(f"width must be between {plots.MIN_WIDTH} and {plots.MAX_WIDTH}")
 
     # Fields the chosen view ignores are pinned to their defaults, so a caller
     # cannot split the cache with a layer set on a schematic or a camera side
@@ -110,7 +117,7 @@ def normalize_request(request: Mapping[str, Any] | None) -> dict[str, Any]:
 
     highlight = value.get("highlight") or {}
     if not isinstance(highlight, Mapping):
-        raise ValueError("highlight must be an object")
+        raise RenderRequestError("highlight must be an object")
     components = sorted(_unique(highlight.get("components") or []))
     nets = sorted(_unique(highlight.get("nets") or []))
 
@@ -118,17 +125,17 @@ def normalize_request(request: Mapping[str, Any] | None) -> dict[str, Any]:
     normalized_region = None
     if region is not None:
         if not isinstance(region, Mapping):
-            raise ValueError("region must be an object")
+            raise RenderRequestError("region must be an object")
         try:
             x = round(float(region["x"]), 6)
             y = round(float(region["y"]), 6)
             region_width = round(float(region["width"]), 6)
             region_height = round(float(region["height"]), 6)
         except (KeyError, TypeError, ValueError) as error:
-            raise ValueError("region needs numeric x, y, width and height") from error
+            raise RenderRequestError("region needs numeric x, y, width and height") from error
         box = geometry.Box(x, y, x + region_width, y + region_height)
         if box.width <= 0 or box.height <= 0:
-            raise ValueError("region width and height must be positive")
+            raise RenderRequestError("region width and height must be positive")
         normalized_region = box.as_region()
 
     return {

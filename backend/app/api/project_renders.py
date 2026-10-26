@@ -98,10 +98,11 @@ async def start_render(
             request.model_dump(exclude_none=True),
             requested_by=user.email,
         )
+    except renders.RenderRequestError:
+        raise
     except ValueError as error:
-        if "Unknown revision" in str(error):
-            raise BadRequest("Unknown revision", code="revision-unknown") from error
-        raise BadRequest(str(error), code="invalid-render") from error
+        # The only other refusal: ``design_query.revision`` cannot resolve it.
+        raise BadRequest("Unknown revision", code="revision-unknown") from error
 
 
 @router.get(
