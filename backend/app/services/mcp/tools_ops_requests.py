@@ -101,7 +101,7 @@ def _trace_args(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, An
 def _slow_queries_args(
     arguments: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    return ({"order": arguments.get("order"), "limit": arguments.get("limit")}, {})
+    return ({}, {"order": arguments.get("order"), "limit": arguments.get("limit")})
 
 
 register(
