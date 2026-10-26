@@ -106,6 +106,19 @@ class JobServicePostgresTests(unittest.TestCase):
             )
             conn.commit()
 
+    def test_enqueued_job_matches_the_release_studio_response_model(self) -> None:
+        """``create_candidate`` answers this row, so the typed model must keep it byte-for-byte."""
+
+        from fastapi.encoders import jsonable_encoder
+
+        from app.api import release_studio_models as models
+
+        job = self.enqueue("model-check")
+        self.assertEqual(
+            models.JobRecord.model_validate(job).model_dump(mode="json"),
+            jsonable_encoder(job),
+        )
+
     def test_active_dedup_includes_cancellation(self) -> None:
         first = self.enqueue("same-artifact")
         duplicate = self.enqueue("same-artifact")
