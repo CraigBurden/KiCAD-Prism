@@ -11612,7 +11612,9 @@
           "method": {
             "enum": [
               "tools/call",
-              "resources/read"
+              "resources/read",
+              "tasks/get",
+              "tasks/cancel"
             ],
             "title": "Method",
             "type": "string"
