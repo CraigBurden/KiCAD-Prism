@@ -10,7 +10,7 @@ it queued, or the debug window in force. The MCP tools in
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -61,7 +61,11 @@ class DebugLoggingRequest(BaseModel):
     """A debug window of one to thirty minutes for the named loggers."""
 
     minutes: int = Field(ge=1, le=actions.MAX_DEBUG_MINUTES)
-    loggers: Optional[list[str]] = None
+    #: Prism's own loggers only: ``app`` or a child of it. Third-party loggers
+    #: (HTTP clients, the database driver) can log URLs and query arguments.
+    loggers: Optional[list[Annotated[str, Field(pattern=actions.LOGGER_PATTERN)]]] = Field(
+        default=None, max_length=20
+    )
 
 
 class DebugLoggingWindow(BaseModel):

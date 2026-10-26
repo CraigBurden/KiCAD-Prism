@@ -5,8 +5,10 @@ An ops action may requeue only a job no worker can finish on its own:
 * ``failed`` — the attempt ended and will not run again;
 * ``retry_wait`` — a transient failure is waiting for its next attempt, and an
   operator wants it now;
-* ``running`` or ``cancel_requested`` whose lease has expired — no worker owns
-  the attempt any more.
+* ``running`` whose lease has expired — no worker owns the attempt any more.
+
+A ``cancel_requested`` job is never requeued, even with an expired lease:
+someone asked for it to stop, and lease recovery finalises that cancel.
 
 A running job with a live lease is never requeued: its worker still holds the
 row and the claims, so cancellation is the honest action. The update is fenced
@@ -39,7 +41,9 @@ class JobNotRequeueable(errors.Conflict):
 
 
 def _reason(status: str, *, lease_expired: bool, lease_missing: bool) -> str:
-    if status in {"running", "cancel_requested"}:
+    if status == "cancel_requested":
+        return "A cancel was requested for this job; queue a new job instead"
+    if status == "running":
         if lease_missing:
             return "The job has no lease to take over; cancel it instead"
         if not lease_expired:
@@ -85,7 +89,7 @@ def requeue(service: Any, job_id: str, *, requested_by: str = "") -> dict[str, A
         lease_expired = bool(row["lease_expired"])
         lease_missing = bool(row["lease_missing"])
         if previous_status not in {"failed", "retry_wait"} and not (
-            previous_status in {"running", "cancel_requested"} and lease_expired
+            previous_status == "running" and lease_expired
         ):
             conn.commit()
             raise JobNotRequeueable(

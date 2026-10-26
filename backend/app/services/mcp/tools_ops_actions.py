@@ -118,9 +118,9 @@ register(
         title="Requeue a job",
         description=(
             "Put a failed or stuck Prism job back in the queue. Only a failed or "
-            "retry-waiting job, or a running or cancelling job whose worker lease has "
-            "expired, can be requeued. A running job with a live lease is refused; "
-            "cancel it instead and wait for it to stop. The attempt count is kept and "
+            "retry-waiting job, or a running job whose worker lease has expired, can "
+            "be requeued; a job someone asked to cancel cannot. A running job with a "
+            "live lease is refused; cancel it instead and wait for it to stop. The attempt count is kept and "
             "the maximum is raised when needed."
         ),
         input_schema=_object({"job_id": _JOB_ID}, ("job_id",)),
@@ -172,8 +172,9 @@ register(
                 },
                 "loggers": {
                     "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Logger names to raise; default ['app'].",
+                    "items": {"type": "string", "pattern": r"^app(\.[A-Za-z0-9_]+)*$"},
+                    "maxItems": 20,
+                    "description": "Prism logger names (app or app.*) to raise; default ['app'].",
                 },
             },
             ("minutes",),

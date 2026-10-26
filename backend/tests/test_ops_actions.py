@@ -316,7 +316,7 @@ class RequeueServiceTests(unittest.TestCase):
         self.assertEqual(self.claims("ws_job_resource_slots", job["job_id"]), 0)
         self.assertEqual(self.claims("ws_job_locks", job["job_id"]), 0)
 
-    def test_an_expired_cancelling_lease_is_requeued(self) -> None:
+    def test_an_expired_cancelling_lease_is_refused(self) -> None:
         job = self.enqueue("cancelling")
         claim = self.service.claim("worker-a", worker_pool=self.pool)
         assert claim is not None
@@ -326,10 +326,11 @@ class RequeueServiceTests(unittest.TestCase):
         )
         self.expire(job["job_id"])
 
-        result = self.service.requeue(job["job_id"], requested_by="ops@example.test")
+        with self.assertRaises(job_requeue.JobNotRequeueable) as raised:
+            self.service.requeue(job["job_id"], requested_by="ops@example.test")
 
-        self.assertEqual(result["status"], "queued")
-        self.assertEqual(result["previous_status"], "cancel_requested")
+        self.assertIn("cancel was requested", raised.exception.detail)
+        self.assertEqual(self.row(job["job_id"])["status"], "cancel_requested")
 
     def test_a_live_running_lease_is_refused_and_says_to_cancel(self) -> None:
         job = self.enqueue("live")
@@ -575,6 +576,24 @@ class OpsActionRouteTests(unittest.TestCase):
             )
         self.assertEqual(zero.status_code, 422, zero.text)
         self.assertEqual(too_long.status_code, 422, too_long.text)
+
+    def test_debug_logging_refuses_loggers_outside_prism(self) -> None:
+        headers = self._token("admin", ["ops:act"])
+        with patch.object(settings, "PRISM_MCP_OPS_ENABLED", True):
+            for name in ("urllib3", "psycopg", "application", "app.", ""):
+                response = self.client.post(
+                    "/api/v1/ops/debug-logging",
+                    json={"minutes": 5, "loggers": [name]},
+                    headers=headers,
+                )
+                self.assertEqual(response.status_code, 422, name)
+            child = self.client.post(
+                "/api/v1/ops/debug-logging",
+                json={"minutes": 5, "loggers": ["app.services.job_service"]},
+                headers=headers,
+            )
+            self.client.delete("/api/v1/ops/debug-logging", headers=headers)
+        self.assertEqual(child.status_code, 200, child.text)
 
     def test_ops_act_can_read_the_debug_window(self) -> None:
         headers = self._token("admin", ["ops:act"])

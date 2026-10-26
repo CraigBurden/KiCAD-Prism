@@ -19,6 +19,9 @@ from app.services.job_service import jobs
 #: The most a debug window may last, stated where callers and tools see it.
 MAX_DEBUG_MINUTES = runtime_logging.MINUTES_MAX
 
+#: A debug window may name only Prism's own loggers: ``app`` and its children.
+LOGGER_PATTERN = r"^app(\.[A-Za-z0-9_]+)*$"
+
 
 def cancel_job(job_id: str, *, requested_by: str = "") -> dict[str, Any]:
     """Ask a job to cancel and return the status the request left it in."""
@@ -108,6 +111,7 @@ def _window(value: dict[str, Any] | None) -> dict[str, Any] | None:
 
 
 __all__ = [
+    "LOGGER_PATTERN",
     "MAX_DEBUG_MINUTES",
     "cancel_job",
     "clear_debug_logging",
