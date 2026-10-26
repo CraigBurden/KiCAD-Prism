@@ -26,6 +26,7 @@ from app.api.projects_models import (
     DocFileContent,
     MonorepoStructure,
     ProjectBranches,
+    ProjectCommentsSourceUrls,
     ProjectCommitSummary,
     ProjectCommits,
     ProjectDescription,
@@ -688,7 +689,12 @@ async def get_project_detail(project_id: str, user: AuthenticatedUser = Depends(
     return get_project_for_role_or_404(project_id, user.role)
 
 
-@router.get("/{project_id}/comments/source-urls")
+@router.get(
+    "/{project_id}/comments/source-urls",
+    response_model=ProjectCommentsSourceUrls,
+    response_model_exclude_unset=True,
+    summary="List comment source URLs for a KiCad comments source",
+)
 async def get_project_comments_source_urls(
     request: Request,
     project_id: str,

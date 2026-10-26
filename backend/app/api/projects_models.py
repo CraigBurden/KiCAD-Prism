@@ -230,3 +230,27 @@ __all__ = [
     "ProjectSearchHit",
     "ProjectSearchResults",
 ]
+
+
+class CommentsSourceRelativeUrls(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    list_url: str
+    patch_url_template: str
+    reply_url_template: str
+    delete_url_template: str
+
+
+class ProjectCommentsSourceUrls(BaseModel):
+    """The helper URLs a KiCad comments source needs for one project."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    project_id: str
+    project_name: str
+    base_url: Optional[str]
+    list_url: str
+    patch_url_template: str
+    reply_url_template: str
+    delete_url_template: str
+    relative: CommentsSourceRelativeUrls

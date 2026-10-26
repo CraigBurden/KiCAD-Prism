@@ -17,7 +17,7 @@
   "add_comment_reaction": {
     "method": "PUT",
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}/reactions/{reaction}",
-    "typed": false
+    "typed": true
   },
   "add_mate": {
     "method": "POST",
@@ -27,7 +27,7 @@
   "add_reply": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}/replies",
-    "typed": false
+    "typed": true
   },
   "admin_revoke_identity": {
     "method": "POST",
@@ -47,7 +47,7 @@
   "append_design_compare_debug_log": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/design-compare/debug-log",
-    "typed": false
+    "typed": true
   },
   "apply_metadata_batch": {
     "method": "POST",
@@ -102,12 +102,12 @@
   "change_own_password": {
     "method": "POST",
     "path": "/api/v1/auth/password/change",
-    "typed": false
+    "typed": true
   },
   "check_git_access": {
     "method": "POST",
     "path": "/api/v1/settings/git-access/check",
-    "typed": false
+    "typed": true
   },
   "check_release_tag": {
     "method": "GET",
@@ -162,12 +162,12 @@
   "create_comment": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/comments",
-    "typed": false
+    "typed": true
   },
   "create_comparison_comment": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/comparison-comments",
-    "typed": false
+    "typed": true
   },
   "create_component_representation": {
     "method": "POST",
@@ -222,7 +222,7 @@
   "delete_access_user": {
     "method": "DELETE",
     "path": "/api/v1/settings/access/users/{email}",
-    "typed": false
+    "typed": true
   },
   "delete_catalog_component": {
     "method": "DELETE",
@@ -232,7 +232,7 @@
   "delete_comment": {
     "method": "DELETE",
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}",
-    "typed": false
+    "typed": true
   },
   "delete_component_representation": {
     "method": "DELETE",
@@ -247,7 +247,7 @@
   "delete_design_compare": {
     "method": "DELETE",
     "path": "/api/v1/projects/{project_id}/design-compare/{job_id}",
-    "typed": false
+    "typed": true
   },
   "delete_folder": {
     "method": "DELETE",
@@ -267,7 +267,7 @@
   "delete_reply": {
     "method": "DELETE",
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}/replies/{reply_id}",
-    "typed": false
+    "typed": true
   },
   "delete_service_client": {
     "method": "DELETE",
@@ -282,17 +282,17 @@
   "delete_user_password": {
     "method": "DELETE",
     "path": "/api/v1/settings/access/users/{email}/password",
-    "typed": false
+    "typed": true
   },
   "design_compare_result": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/design-compare/{job_id}",
-    "typed": false
+    "typed": true
   },
   "design_compare_sidecar": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/design-compare/{job_id}/sidecars/{digest}",
-    "typed": false
+    "typed": true
   },
   "detach_component_asset": {
     "method": "DELETE",
@@ -382,7 +382,7 @@
   "forget_git_host_key": {
     "method": "DELETE",
     "path": "/api/v1/settings/git-access/host-keys/{host}",
-    "typed": false
+    "typed": true
   },
   "generate_missing_previews": {
     "method": "POST",
@@ -397,7 +397,7 @@
   "generate_ssh_key": {
     "method": "POST",
     "path": "/api/v1/settings/ssh-key/generate",
-    "typed": false
+    "typed": true
   },
   "generate_webgpu_3d": {
     "method": "POST",
@@ -457,37 +457,37 @@
   "get_comment_attachment": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/comment-attachments/{attachment_id}",
-    "typed": false
+    "typed": true
   },
   "get_comment_changes": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/comments/changes",
-    "typed": false
+    "typed": true
   },
   "get_comment_history": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}/history",
-    "typed": false
+    "typed": true
   },
   "get_comment_thread": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}/thread",
-    "typed": false
+    "typed": true
   },
   "get_comments": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/comments",
-    "typed": false
+    "typed": true
   },
   "get_comparison_comments": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/comparison-comments",
-    "typed": false
+    "typed": true
   },
   "get_comparison_discussion_report": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/comparison-comments/report",
-    "typed": false
+    "typed": true
   },
   "get_comparison_review": {
     "method": "GET",
@@ -567,7 +567,7 @@
   "get_git_access": {
     "method": "GET",
     "path": "/api/v1/settings/git-access",
-    "typed": false
+    "typed": true
   },
   "get_inline_component": {
     "method": "GET",
@@ -667,7 +667,7 @@
   "get_project_comments_source_urls": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/comments/source-urls",
-    "typed": false
+    "typed": true
   },
   "get_project_commit_distance": {
     "method": "GET",
@@ -787,7 +787,7 @@
   "get_reply_history": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}/replies/{reply_id}/history",
-    "typed": false
+    "typed": true
   },
   "get_semantic_index_identity": {
     "method": "GET",
@@ -1092,7 +1092,7 @@
   "logout": {
     "method": "POST",
     "path": "/api/v1/auth/logout",
-    "typed": false
+    "typed": true
   },
   "metadata_batch_report": {
     "method": "GET",
@@ -1142,7 +1142,7 @@
   "pin_comment": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}/pin",
-    "typed": false
+    "typed": true
   },
   "plugin_version": {
     "method": "GET",
@@ -1182,7 +1182,7 @@
   "push_comments": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/comments/push",
-    "typed": false
+    "typed": true
   },
   "read_catalog": {
     "method": "GET",
@@ -1232,7 +1232,7 @@
   "reattach_comment": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}/reattach",
-    "typed": false
+    "typed": true
   },
   "regenerate_component_previews": {
     "method": "POST",
@@ -1267,7 +1267,7 @@
   "remove_comment_reaction": {
     "method": "DELETE",
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}/reactions/{reaction}",
-    "typed": false
+    "typed": true
   },
   "remove_mate": {
     "method": "DELETE",
@@ -1312,7 +1312,7 @@
   "revoke_other_sessions": {
     "method": "POST",
     "path": "/api/v1/auth/sessions/revoke-others",
-    "typed": false
+    "typed": true
   },
   "revoke_personal_token": {
     "method": "DELETE",
@@ -1327,7 +1327,7 @@
   "revoke_user_sessions": {
     "method": "POST",
     "path": "/api/v1/auth/sessions/revoke-user/{email}",
-    "typed": false
+    "typed": true
   },
   "rotate_service_client_secret": {
     "method": "POST",
@@ -1362,7 +1362,7 @@
   "scan_git_host_key": {
     "method": "POST",
     "path": "/api/v1/settings/git-access/host-keys/scan",
-    "typed": false
+    "typed": true
   },
   "search_catalog_assets": {
     "method": "GET",
@@ -1397,7 +1397,7 @@
   "set_user_password": {
     "method": "PUT",
     "path": "/api/v1/settings/access/users/{email}/password",
-    "typed": false
+    "typed": true
   },
   "share_reply_to_tracker": {
     "method": "POST",
@@ -1407,7 +1407,7 @@
   "start_design_compare": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/design-compare",
-    "typed": false
+    "typed": true
   },
   "start_login": {
     "method": "POST",
@@ -1462,7 +1462,7 @@
   "trust_git_host_key": {
     "method": "POST",
     "path": "/api/v1/settings/git-access/host-keys/trust",
-    "typed": false
+    "typed": true
   },
   "unlink_comment_tracker": {
     "method": "POST",
@@ -1482,7 +1482,7 @@
   "update_comment": {
     "method": "PATCH",
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}",
-    "typed": false
+    "typed": true
   },
   "update_component_representation": {
     "method": "PATCH",
@@ -1527,12 +1527,12 @@
   "update_reply": {
     "method": "PATCH",
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}/replies/{reply_id}",
-    "typed": false
+    "typed": true
   },
   "upload_comment_attachment": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/comment-attachments",
-    "typed": false
+    "typed": true
   },
   "upload_folder_snapshot_file": {
     "method": "POST",
