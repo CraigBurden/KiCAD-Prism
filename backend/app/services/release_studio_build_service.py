@@ -852,6 +852,7 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
             "config_key": config_key,
             "candidate_id": candidate["id"],
             "build_id": build["id"],
+            "commit": str(candidate.get("commit_sha") or ""),
             "manifest_digest": build["manifest_digest"],
             "dossier_digest": build["dossier_digest"],
             "pipeline": result.get("pipeline"),

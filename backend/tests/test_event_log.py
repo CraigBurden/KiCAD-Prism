@@ -178,6 +178,15 @@ class EventLogPostgresTests(unittest.TestCase):
                 conn.execute("SELECT COUNT(*) AS count FROM ws_events").fetchone()["count"], 0
             )
 
+    def test_record_quietly_swallows_and_logs_a_database_error(self) -> None:
+        with patch.object(event_log, "record", side_effect=RuntimeError("database is down")):
+            with self.assertLogs(event_log.logger, level="WARNING") as logged:
+                self.assertIsNone(
+                    event_log.record_quietly("bundle.built", project_id=self.project)
+                )
+        self.assertIn("bundle.built", "\n".join(logged.output))
+        self.assertEqual(self._events()[0], [])
+
 
 @unittest.skipUnless(DATABASE_URL, "PRISM_DATABASE_URL is required for the events route test")
 @unittest.skipUnless(HAS_TEST_CLIENT, "starlette.testclient needs httpx2 or httpx")
@@ -256,6 +265,30 @@ class EventApiTests(unittest.TestCase):
         response = self._admin_client().get("/api/v1/events", params={"limit": 0})
         self.assertEqual(response.status_code, 422)
 
+
+
+class CommentChangeQueueTests(unittest.TestCase):
+    """comment.changed is queued per writer, never on the pooled connection."""
+
+    def test_a_change_outside_a_writer_scope_is_not_queued(self) -> None:
+        from app.services import comment_live_events
+
+        comment_live_events._queue_event(project_id="p", comment_id="c1", change_kind="created")
+        with comment_live_events.queued_events() as queued:
+            comment_live_events._queue_event(project_id="p", comment_id="c2", change_kind="edited")
+        self.assertEqual(
+            queued, [{"projectId": "p", "commentId": "c2", "changeKind": "edited"}]
+        )
+
+    def test_nested_writers_keep_their_own_changes(self) -> None:
+        from app.services import comment_live_events
+
+        with comment_live_events.queued_events() as outer:
+            with comment_live_events.queued_events() as inner:
+                comment_live_events._queue_event(project_id="p", comment_id="c", change_kind="resolved")
+            comment_live_events._queue_event(project_id="p", comment_id="d", change_kind="created")
+        self.assertEqual([change["commentId"] for change in inner], ["c"])
+        self.assertEqual([change["commentId"] for change in outer], ["d"])
 
 if __name__ == "__main__":
     unittest.main()

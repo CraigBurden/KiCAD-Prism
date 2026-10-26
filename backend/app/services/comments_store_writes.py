@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
 from app.services import comment_attachments, comment_live_events, comment_permissions, comment_social, comment_write, comments_revisions
@@ -77,6 +78,20 @@ def _decorated(comment: Optional[Dict], actor: Optional[ActorIdentity]) -> Optio
 
 class CommentsStoreWritesMixin:
     """Root and reply writes of ``CommentsStoreService``."""
+
+    @contextmanager
+    def _write_connection(self):
+        """``_connect`` for a write: appends ``comment.changed`` after the commit.
+
+        The event log is never written inside the mutation's transaction; the
+        changes ``comment_live_events`` queued are appended once it committed.
+        A raise rolls the transaction back, so nothing queued is recorded.
+        """
+
+        with comment_live_events.queued_events() as queued:
+            with self._connect() as conn:
+                yield conn
+        comment_live_events.record_queued_events(queued)
 
     def _root_row(self, conn, project_id: str, comment_id: str, *, canvas_only: bool = False):
         scope = " AND scope = 'canvas'" if canvas_only else ""
@@ -177,7 +192,7 @@ class CommentsStoreWritesMixin:
             "content_format": content_format,
         }
 
-        with self._connect() as conn:
+        with self._write_connection() as conn:
             with conn.transaction():
                 if actor is not None:
                     comment_permissions.authorize(CommentAction.CREATE, actor)
@@ -271,7 +286,7 @@ class CommentsStoreWritesMixin:
         """Resolve or reopen; raises RevisionConflict when the thread moved on."""
         self.initialize()
 
-        with self._connect() as conn:
+        with self._write_connection() as conn:
             with conn.transaction():
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
                 if not self._live_root_exists(conn, project_id, comment_id):
@@ -342,7 +357,7 @@ class CommentsStoreWritesMixin:
         if actor is not None:
             editor, promotion_actor = editor_for(actor), promotion_actor_for(actor)
         has_edit = any(value is not None for value in (content, severity, comment_class, mentions))
-        with self._connect() as conn:
+        with self._write_connection() as conn:
             with conn.transaction():
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
                 row = self._root_row(conn, project_id, comment_id)
@@ -412,7 +427,7 @@ class CommentsStoreWritesMixin:
             editor = editor_for(actor)
         self.initialize()
         now = _utc_now_iso()
-        with self._connect() as conn:
+        with self._write_connection() as conn:
             with conn.transaction():
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
                 row = self._root_row(conn, project_id, comment_id)
@@ -478,7 +493,7 @@ class CommentsStoreWritesMixin:
         if not valid:
             return 0
         filled = 0
-        with self._connect() as conn:
+        with self._write_connection() as conn:
             with conn.transaction():
                 for comment_id, key in valid.items():
                     cursor = conn.execute(
@@ -516,7 +531,7 @@ class CommentsStoreWritesMixin:
         self.initialize()
         if actor is not None:
             editor = editor_for(actor)
-        with self._connect() as conn:
+        with self._write_connection() as conn:
             with conn.transaction():
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
                 if actor is not None or resolve is not None:
@@ -594,7 +609,7 @@ class CommentsStoreWritesMixin:
         author_kind_norm = _optional_str(author_kind) or (AUTHOR_KIND_USER if author_user_id else AUTHOR_KIND_LEGACY)
         author_client_id = _optional_str(actor.client_id) if actor is not None else None
 
-        with self._connect() as conn:
+        with self._write_connection() as conn:
             with conn.transaction():
                 if actor is not None:
                     comment_permissions.authorize(CommentAction.REPLY, actor)
@@ -683,7 +698,7 @@ class CommentsStoreWritesMixin:
         self.initialize()
         if actor is not None:
             editor, promotion_actor = editor_for(actor), promotion_actor_for(actor)
-        with self._connect() as conn:
+        with self._write_connection() as conn:
             with conn.transaction():
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
                 live = self._live_reply(conn, project_id, comment_id, reply_id)
@@ -728,7 +743,7 @@ class CommentsStoreWritesMixin:
         self.initialize()
         if actor is not None:
             editor, promotion_actor = editor_for(actor), promotion_actor_for(actor)
-        with self._connect() as conn:
+        with self._write_connection() as conn:
             with conn.transaction():
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
                 live_reply = self._live_reply(conn, project_id, comment_id, reply_id)
@@ -771,7 +786,7 @@ class CommentsStoreWritesMixin:
         if actor is not None:
             editor, promotion_actor = editor_for(actor), promotion_actor_for(actor)
 
-        with self._connect() as conn:
+        with self._write_connection() as conn:
             with conn.transaction():
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
                 row = self._root_row(conn, project_id, comment_id)
@@ -800,7 +815,7 @@ class CommentsStoreWritesMixin:
         self.initialize()
         if actor is not None:
             user_id, user_display = actor.actor_id, actor.display_name
-        with self._connect() as conn:
+        with self._write_connection() as conn:
             with conn.transaction():
                 if actor is not None:
                     comment_permissions.authorize(CommentAction.REPLY, actor)
@@ -823,7 +838,7 @@ class CommentsStoreWritesMixin:
     def promote_comment(self, project_id: str, project_path: str, comment_id: str, actor: ActorIdentity) -> Optional[Dict]:
         """Queue the root's issue publication; returns the thread with the reader's capabilities."""
         self.initialize()
-        with self._connect() as conn:
+        with self._write_connection() as conn:
             with conn.transaction():
                 comment_permissions.authorize(
                     CommentAction.PROMOTE, actor, promote_min_role=self._promote_min_role(conn, project_id),
@@ -848,7 +863,7 @@ class CommentsStoreWritesMixin:
     ) -> Optional[Dict]:
         """Queue a Prism-local reply on a linked thread; returns the thread with the reader's capabilities."""
         self.initialize()
-        with self._connect() as conn:
+        with self._write_connection() as conn:
             with conn.transaction():
                 if self._live_reply(conn, project_id, comment_id, reply_id) is None:
                     return None
