@@ -133,7 +133,8 @@ fn name_bytes(name: &std::ffi::OsStr) -> Vec<u8> {
 
 #[cfg(windows)]
 fn name_bytes(name: &std::ffi::OsStr) -> Vec<u8> {
-    name.to_str().map_or_else(|| vec![0xFF], |text| text.as_bytes().to_vec())
+    name.to_str()
+        .map_or_else(|| vec![0xFF], |text| text.as_bytes().to_vec())
 }
 
 /// The owner-execute bit. Windows has none: a file there is not executable.

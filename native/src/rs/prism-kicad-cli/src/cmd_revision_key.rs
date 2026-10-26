@@ -11,9 +11,9 @@ use prism_bundle::revision_key::{
 };
 use prism_bundle::{Failure, LimitName, Limits, Outcome};
 use serde_json::{Value, json};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
-use std::borrow::Cow;
 use std::path::Path;
 
 /// What the command printed.

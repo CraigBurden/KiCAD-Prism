@@ -8,7 +8,9 @@ use prism_bundle::zip::ZipWriter;
 use prism_bundle::{BundleReader, Limits, Work};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
-use support::{Run, fixtures, recording, repo, run, run_in, s, scratch};
+use support::{Run, recording, repo, run, s, scratch};
+#[cfg(unix)]
+use support::{fixtures, run_in};
 
 fn usb_pd() -> PathBuf {
     repo().join("fixtures/release-studio/usb-pd/USB-PD-Trigger-Board.kicad_pro")
