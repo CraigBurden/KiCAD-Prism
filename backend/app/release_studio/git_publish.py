@@ -17,6 +17,8 @@ import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
+from app.services.process_tree import group_popen_kwargs, kill_group
+
 GIT_COMMAND_TIMEOUT_SECONDS = 60
 _POLL_SECONDS = 0.1
 _CLEANUP_TIMEOUT_SECONDS = 2
@@ -49,7 +51,7 @@ def run_git(
             stderr=subprocess.PIPE,
             text=True,
             env=environment,
-            start_new_session=True,
+            **group_popen_kwargs(),
             close_fds=True,
         )
     except OSError as error:
@@ -109,10 +111,4 @@ def _terminate(process: subprocess.Popen[str]) -> None:
 
 
 def _kill_process_group(process: subprocess.Popen[str]) -> None:
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except BaseException:
-        try:
-            process.kill()
-        except BaseException:
-            pass
+    kill_group(process)

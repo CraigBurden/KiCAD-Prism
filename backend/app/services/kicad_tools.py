@@ -360,7 +360,7 @@ def _run_process(
                     f"{' '.join(str(part) for part in argv[1:4])}",
                     timeout,
                 )
-            finished = _wait(process, min(remaining, _CANCEL_POLL_SECONDS))
+            finished = wait_process(process, min(remaining, _CANCEL_POLL_SECONDS))
             if finished is not None:
                 returncode, peak_rss_bytes = finished
                 break
@@ -388,7 +388,7 @@ def _run_process(
 _WAIT_POLL_SECONDS = 0.05
 
 
-def _wait(process: subprocess.Popen[str], seconds: float) -> tuple[int, int] | None:
+def wait_process(process: subprocess.Popen[Any], seconds: float) -> tuple[int, int] | None:
     """``(exit code, peak resident bytes)`` once ``process`` exits within ``seconds``, else ``None``.
 
     Where the platform has ``wait4`` the process is reaped with it, so its

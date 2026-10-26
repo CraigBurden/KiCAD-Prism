@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Sequence
 
 from app.core.config import settings
+from app.services import kicad_tools
 from app.services.design_bundle import schemas
 from app.services.design_bundle.generator import Generator
 from app.services.process_tree import KILLED_EXIT_CODE, group_popen_kwargs, kill_tree
@@ -30,8 +31,6 @@ CLI_NAME = "prism-kicad"
 OUTER_TIMEOUT_MARGIN_SECONDS = 30
 _POLL_SECONDS = 0.2
 _CANCEL_SECONDS = 1.0
-#: Windows has no ``wait4``: the run is polled and its peak memory is reported as 0.
-_HAS_WAIT4 = hasattr(os, "wait4")
 
 #: §4: the stdout document of each exit code.
 _DOCUMENTS = {
@@ -99,10 +98,6 @@ def executable() -> str:
     if not path:
         raise CliUnavailable(f"{CLI_NAME} is not installed (set PRISM_DESIGN_BUNDLE_CLI_PATH)")
     return path
-
-
-def _rss_bytes(maxrss: int) -> int:
-    return maxrss if sys.platform == "darwin" else maxrss * 1024
 
 
 def _parse_stderr(text: str) -> tuple[Any, ...]:
@@ -191,16 +186,11 @@ def _execute(
         reader.start()
     deadline = started + timeout_seconds
     next_cancel = started + _CANCEL_SECONDS
-    status, rusage = None, None
+    finished = None
     try:
-        while status is None:
-            if _HAS_WAIT4:
-                pid, raw, usage = os.wait4(process.pid, os.WNOHANG)
-                if pid:
-                    status, rusage = raw, usage
-                    break
-            elif process.poll() is not None:
-                status = process.returncode
+        while finished is None:
+            finished = kicad_tools.wait_process(process, _POLL_SECONDS)
+            if finished is not None:
                 break
             now = time.monotonic()
             if now >= deadline:
@@ -208,15 +198,13 @@ def _execute(
             if cancel is not None and now >= next_cancel:
                 next_cancel = now + _CANCEL_SECONDS
                 cancel()
-            time.sleep(_POLL_SECONDS)
     except BaseException:
         kill_tree(process)
         raise
     finally:
         for reader in readers:
             reader.join(timeout=10)
-    exit_code = os.waitstatus_to_exitcode(status) if _HAS_WAIT4 else status
-    process.returncode = exit_code
+    exit_code, peak_rss_bytes = finished
     stdout = b"".join(chunks["out"])
     stderr = b"".join(chunks["err"]).decode("utf-8", "replace")
     result = CliRun(
@@ -225,7 +213,7 @@ def _execute(
         document=None,
         stderr_lines=_parse_stderr(stderr),
         elapsed_ms=int((time.monotonic() - started) * 1000),
-        peak_rss_bytes=_rss_bytes(rusage.ru_maxrss) if rusage is not None else 0,
+        peak_rss_bytes=peak_rss_bytes,
     )
     return result, stdout
 

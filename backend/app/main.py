@@ -197,7 +197,7 @@ async def lifespan(app: FastAPI):
     ensure_ssh_dir()
     if sys.platform == "win32":
         # Git for Windows' autocrlf makes a checkout differ from its commit's bytes.
-        checkout_line_endings.convert_projects(Path(settings.KICAD_PROJECTS_ROOT))
+        checkout_line_endings.convert_projects_in_background(Path(settings.KICAD_PROJECTS_ROOT))
     bring_every_schema_to_head()
     cleanup_superseded_stores()
     from app.services.trackers.composition import initialize_tracker_composition

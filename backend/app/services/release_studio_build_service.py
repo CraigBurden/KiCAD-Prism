@@ -25,7 +25,7 @@ from app.release_studio.canonical import (
     sha256_canonical,
 )
 from app.release_studio.closure import materialize_input_closure
-from app.release_studio.removal import remove_tree
+from app.services.tree_removal import remove_tree
 from app.release_studio.config import (
     load_configuration_at_commit,
     technical_config_digest,

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 import threading
 import time
 from dataclasses import dataclass, field
@@ -9,6 +8,7 @@ from typing import Any, Callable, Mapping
 
 from app.core.config import settings
 from app.services.job_service import JobService, jobs
+from app.services.tree_removal import remove_tree
 
 
 class JobCancelled(RuntimeError):
@@ -235,7 +235,7 @@ class JobContext:
 
     def cleanup_staging(self) -> None:
         if self.staging_dir.exists():
-            shutil.rmtree(self.staging_dir, ignore_errors=True)
+            remove_tree(self.staging_dir, ignore_errors=True)
 
 
 JobHandler = Callable[[JobContext], JobResult]

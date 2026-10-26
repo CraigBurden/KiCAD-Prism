@@ -19,6 +19,16 @@ def _clear_read_only(function: Callable[..., Any], path: str, error: BaseExcepti
 
 
 def remove_tree(path: str | Path, *, ignore_errors: bool = False) -> None:
-    """``shutil.rmtree`` that clears the read-only attribute of what it cannot delete."""
+    """``shutil.rmtree`` that clears the read-only attribute of what it cannot delete.
 
-    shutil.rmtree(path, ignore_errors=ignore_errors, onexc=None if ignore_errors else _clear_read_only)
+    With ``ignore_errors`` an entry that still cannot be removed is skipped, as ``rmtree`` would.
+    """
+
+    def handler(function: Callable[..., Any], failed: str, error: BaseException) -> None:
+        try:
+            _clear_read_only(function, failed, error)
+        except OSError:
+            if not ignore_errors:
+                raise
+
+    shutil.rmtree(path, onexc=handler)

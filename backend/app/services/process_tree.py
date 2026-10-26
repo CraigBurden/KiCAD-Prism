@@ -22,24 +22,39 @@ def group_popen_kwargs() -> dict[str, Any]:
     return {"start_new_session": True}
 
 
+def kill_group(process: subprocess.Popen[Any]) -> None:
+    """Kill ``process`` and everything it started, without reaping it. Never raises."""
+
+    if IS_WINDOWS:
+        try:
+            subprocess.run(
+                ["taskkill", "/T", "/F", "/PID", str(process.pid)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        except OSError:
+            pass
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+            return
+        except BaseException:  # noqa: BLE001 - fall back to the process alone
+            pass
+    try:
+        process.kill()
+    except BaseException:  # noqa: BLE001 - already gone
+        pass
+
+
 def kill_tree(process: subprocess.Popen[Any]) -> None:
     """Kill ``process`` and everything it started, then reap it."""
 
+    kill_group(process)
     if IS_WINDOWS:
-        subprocess.run(
-            ["taskkill", "/T", "/F", "/PID", str(process.pid)],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        process.kill()
         process.wait()
         return
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass
     try:
         os.waitpid(process.pid, 0)
     except ChildProcessError:
