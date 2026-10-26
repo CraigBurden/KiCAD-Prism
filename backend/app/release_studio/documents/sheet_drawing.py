@@ -78,6 +78,14 @@ def _draw_missing(
     return 1.0
 
 
+#: The gap between a drawing (or its width dimension) and the caption's capitals.
+CAPTION_GAP = 2.5
+#: The caption's type size, which is also its depth with descenders.
+CAPTION_SIZE = 2.6
+#: The least clear space between a caption and whatever sits under the window.
+_CAPTION_CLEAR = 1.0
+
+
 def _drawn_rect(window: Rect, art: AcquiredArtwork, scale: float) -> Rect:
     """Where the placed artwork actually sits inside its window."""
 
@@ -97,10 +105,18 @@ def _draw_artwork_caption(
     art: AcquiredArtwork,
     scale: float,
     view_caption: str,
+    *,
+    clear_of: float | None = None,
 ) -> None:
-    """The view direction and ratio, directly under the placed artwork."""
+    """The view direction and ratio, directly under the placed artwork.
+
+    ``clear_of`` is the lowest point of anything drawn under the artwork with
+    it -- the overall width dimension on a fabrication sheet -- and the caption
+    starts below that instead.
+    """
 
     placed = _drawn_rect(window, art, scale)
+    top = placed.bottom if clear_of is None else max(placed.bottom, clear_of)
     caption = (
         f"{view_caption} · SCALE {scale_label(scale)}"
         if view_caption
@@ -109,9 +125,9 @@ def _draw_artwork_caption(
     builder.text(
         placed.x + placed.width / 2,
         # A 2.5 mm gap between the drawing and the caption's capitals.
-        placed.bottom + 2.5 + cap_height(2.6, bold=True, typography=builder.typography),
+        top + CAPTION_GAP + cap_height(CAPTION_SIZE, bold=True, typography=builder.typography),
         caption,
-        size=2.6,
+        size=CAPTION_SIZE,
         bold=True,
         anchor="middle",
         colour=MUTED,
@@ -127,6 +143,7 @@ def _draw_artwork(
     scale: float | None,
     sheet_style: str = DEFAULT_SHEET_STYLE,
     view_caption: str = "",
+    overall: tuple[float, float, str, str] | None = None,
 ) -> float:
     """Place *art* in *window* at a stated ratio; return the ratio used.
 
@@ -138,6 +155,10 @@ def _draw_artwork(
     direction where a sheet has one -- so the caption travels with the drawing
     instead of sitting at the window's bottom edge.  ``kicad`` keeps the old
     bottom-left label.
+
+    ``overall`` is the board's ``(width, height, width label, height label)``
+    from :func:`_board_size`; when given, the overall dimensions are drawn
+    around the board here, so the caption can sit clear of them.
     """
 
     if art is None:
@@ -169,13 +190,36 @@ def _draw_artwork(
     if sheet_style == PRISM_STYLE:
         element = replace(element, border_colour=RULE)
         builder.add(element)
-        _draw_artwork_caption(builder, window, art, used, view_caption)
+        clear_of = _draw_overall(builder, window, art, used, overall)
+        _draw_artwork_caption(builder, window, art, used, view_caption, clear_of=clear_of)
         return used
     builder.add(element)
     builder.text(
         window.x, window.bottom + 4.0, f"SCALE {scale_label(used)}", size=2.8, bold=True
     )
+    _draw_overall(builder, window, art, used, overall)
     return used
+
+
+def _draw_overall(
+    builder: SheetBuilder,
+    window: Rect,
+    art: AcquiredArtwork,
+    scale: float,
+    overall: tuple[float, float, str, str] | None,
+) -> float | None:
+    """Draw the overall dimensions; return how far down the width dimension reaches."""
+
+    if overall is None or scale <= 0:
+        return None
+    board_w, board_h, width_label, height_label = overall
+    if board_w <= 0 or board_h <= 0:
+        return None
+    target = _dimension_rect(art, window, scale, board_w, board_h)
+    draw_overall_dimensions(
+        builder, target, width_label=width_label, height_label=height_label
+    )
+    return target.bottom + DIMENSION_DEPTH if width_label else None
 
 
 def _view_caption(side: str) -> str:
@@ -302,6 +346,8 @@ _DIM_OFFSET = 5.0
 _DIM_TICK = 2.0
 _DIM_LINE = 0.18
 _DIM_TEXT = 2.5
+#: How far below the board outline the width dimension reaches: its end ticks.
+DIMENSION_DEPTH = _DIM_OFFSET + _DIM_TICK / 2
 
 
 def _mm_figure(value: Any) -> float:
@@ -420,16 +466,32 @@ def draw_overall_dimensions(
 #: Vertical gap left between stacked tables, and the cover's bottom note block.
 
 
-def _art_fits(window: Rect, art: Any, scale: float | None) -> bool:
-    """Whether the artwork, at the set's ratio, fits *window* with its caption."""
+def _art_fits(
+    window: Rect,
+    art: Any,
+    scale: float | None,
+    *,
+    dimensioned: bool = False,
+    room_below: float = 0.0,
+) -> bool:
+    """Whether the artwork, at the set's ratio, fits *window* with its caption.
+
+    A ``dimensioned`` drawing carries the overall width dimension under it and
+    the caption under that. The artwork is centred, so that caption may use
+    the half of the spare height below it plus ``room_below`` (the gap the
+    window leaves above the notes band), and must end clear of the band.
+    """
 
     if art is None or scale is None or not hasattr(art, "view_height"):
         return True
+    drawn_height = float(art.view_height) * scale
+    if float(art.view_width) * scale > window.width:
+        return False
+    if dimensioned:
+        hanging = DIMENSION_DEPTH + CAPTION_GAP + CAPTION_SIZE + _CAPTION_CLEAR
+        return (window.height - drawn_height) / 2 + room_below >= hanging
     caption_and_clearance = 10.0
-    return (
-        float(art.view_height) * scale + caption_and_clearance <= window.height
-        and float(art.view_width) * scale <= window.width
-    )
+    return drawn_height + caption_and_clearance <= window.height
 
 
 def _draw_board_render(

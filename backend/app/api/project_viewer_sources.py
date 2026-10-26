@@ -3,22 +3,21 @@
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 
 from app.api._blocking import run_bounded_io
-from app.api._helpers import get_project_for_role_or_404
-from app.api.projects import (
+from app.api._helpers import (
     COMMIT_FILE_STREAM_BYTES,
-    _commit_file_response,
-    _files_from_commit,
-    _output_dir_from_config,
-    _path_config_from_commit,
-    _read_commit_file,
+    commit_file_response,
+    get_project_for_role_or_404,
+    gzip_json_response,
+    revision_cache_headers,
 )
 from app.core.security import AuthenticatedUser, require_viewer
 from app.services import (
     file_service,
+    project_outputs,
     project_service,
     project_viewer_sources_bundle as viewer_sources_bundle,
 )
@@ -50,9 +49,9 @@ def _project_metadata_bundle(
 
 
 class _BundleCommitFile:
-    """A ``sources/`` member in the shape ``_commit_file_response`` reads from a commit.
+    """A ``sources/`` member in the shape ``commit_file_response`` reads from a commit.
 
-    ``_commit_file_response`` streams a member over ``COMMIT_FILE_STREAM_BYTES``
+    ``commit_file_response`` streams a member over ``COMMIT_FILE_STREAM_BYTES``
     from ``cached_path()``. The bundle reader has already verified a member's
     bytes, so a large one is handed over as its extracted copy; nothing here
     re-reads Git.
@@ -62,6 +61,8 @@ class _BundleCommitFile:
         self.name = source.name
         self.path = source.repo_path
         self.size = source.size
+        # The member's SHA-256 names its content, as a blob id does a commit file's.
+        self.blob_sha = source.sha256
         self._source = source
         self._cached = cached
 
@@ -79,18 +80,21 @@ class _BundleCommitFile:
 def _bundle_commit_response(
     read: viewer_sources_bundle.BundleRead,
     source: viewer_sources_bundle.SourceFile,
+    request: Request,
+    commit: Optional[str],
     *,
     inline: bool = True,
-    headers: Optional[dict[str, str]] = None,
 ):
-    """Serve a bundle source member exactly like the legacy commit response."""
+    """Serve a bundle source member like the legacy commit response, cached by revision."""
 
-    merged = {**read.response_headers(), **(headers or {})}
+    merged = {**revision_cache_headers(commit), **read.response_headers()}
     cached = None
     if source.size > COMMIT_FILE_STREAM_BYTES:
         member = f"sources/{source.repo_path}"
         cached = read.extract([member]) / member
-    return _commit_file_response(_BundleCommitFile(source, cached), inline=inline, headers=merged or None)
+    return commit_file_response(
+        _BundleCommitFile(source, cached), inline=inline, headers=merged, request=request
+    )
 
 
 def _not_found(detail: str) -> HTTPException:
@@ -102,8 +106,8 @@ def _find_commit_3d_model(
     commit: str,
     config: PathConfig,
 ) -> file_service.CommitFile:
-    design_dir = _output_dir_from_config(config, "design")
-    files = _files_from_commit(project, commit, design_dir)
+    design_dir = project_outputs.output_dir_in(config, "design")
+    files = project_outputs.list_commit_files(project, commit, design_dir)
 
     model_files = [
         item for item in files
@@ -115,7 +119,7 @@ def _find_commit_3d_model(
     if selected is None:
         raise HTTPException(status_code=404, detail="3D model not found")
 
-    return _read_commit_file(
+    return project_outputs.read_commit_file(
         project,
         commit,
         selected.path,
@@ -127,14 +131,15 @@ def _find_commit_3d_model(
 @router.get("/{project_id}/schematic")
 async def get_project_schematic(
     project_id: str,
+    request: Request,
     commit: Optional[str] = None,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
-    return await run_bounded_io(_schematic_response, project_id, commit, user)
+    return await run_bounded_io(_schematic_response, project_id, commit, user, request)
 
 
 def _schematic_response(
-    project_id: str, commit: Optional[str], user: AuthenticatedUser
+    project_id: str, commit: Optional[str], user: AuthenticatedUser, request: Request
 ):
     get_project_for_role_or_404(project_id, user.role)
 
@@ -142,18 +147,18 @@ def _schematic_response(
     source = viewer_sources_bundle.schematic(read)
     if source is None:
         raise _not_found("Schematic not found")
-    return _bundle_commit_response(read, source, inline=True)
+    return _bundle_commit_response(read, source, request, commit, inline=True)
 
 
 @router.get("/{project_id}/schematic/subsheets")
 async def get_project_subsheets(
     project_id: str,
-    response: Response,
+    request: Request,
     commit: Optional[str] = None,
     include: Optional[str] = None,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
-    return await run_bounded_io(_subsheets_response, project_id, commit, include, user, response)
+    return await run_bounded_io(_subsheets_response, project_id, commit, include, user, request)
 
 
 def _subsheets_response(
@@ -161,7 +166,7 @@ def _subsheets_response(
     commit: Optional[str],
     include: Optional[str],
     user: AuthenticatedUser,
-    response: Response,
+    request: Request,
 ):
     get_project_for_role_or_404(project_id, user.role)
 
@@ -171,9 +176,10 @@ def _subsheets_response(
     )
     if files is None:
         raise _not_found("Schematic not found")
-    for name, value in read.response_headers().items():
-        response.headers[name] = value
-    return {"files": files}
+    # With content inlined this is every sheet's text, tens of MB on a large
+    # design: it is serialized and compressed here, not on the event loop.
+    headers = {**revision_cache_headers(commit), **read.response_headers()}
+    return gzip_json_response(request, {"files": files}, headers)
 
 
 @router.get("/{project_id}/viewer/support-files")
@@ -210,20 +216,21 @@ def _support_files_response(
 @router.get("/{project_id}/pcb")
 async def get_project_pcb(
     project_id: str,
+    request: Request,
     commit: Optional[str] = None,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
-    return await run_bounded_io(_pcb_response, project_id, commit, user)
+    return await run_bounded_io(_pcb_response, project_id, commit, user, request)
 
 
-def _pcb_response(project_id: str, commit: Optional[str], user: AuthenticatedUser):
+def _pcb_response(project_id: str, commit: Optional[str], user: AuthenticatedUser, request: Request):
     get_project_for_role_or_404(project_id, user.role)
 
     read = _project_metadata_bundle(project_id, commit, user.email)
     source = viewer_sources_bundle.pcb(read)
     if source is None:
         raise _not_found("PCB not found")
-    return _bundle_commit_response(read, source, inline=True)
+    return _bundle_commit_response(read, source, request, commit, inline=True)
 
 
 # The bundle does not carry the file this route serves: today it picks a
@@ -246,9 +253,9 @@ def _3d_model_response(project_id: str, commit: Optional[str], user: Authenticat
     project = get_project_for_role_or_404(project_id, user.role)
 
     if commit:
-        config = _path_config_from_commit(project, commit)
+        config = project_outputs.path_config_at(project, commit)
         commit_file = _find_commit_3d_model(project, commit, config)
-        return _commit_file_response(
+        return commit_file_response(
             commit_file,
             inline=True,
             headers={"Cache-Control": "public, max-age=300"},

@@ -9,6 +9,7 @@ from typing import Dict, Any
 import datetime
 
 from app.services.git_read_cache_service import git_read_cache
+from app.services.project_history_scope import ProjectHistory, history_scope
 
 logger = logging.getLogger(__name__)
 
@@ -70,13 +71,18 @@ def _get_commits(
     ref: str = None,
     offset: int = 0,
     include_total: bool = True,
+    history: ProjectHistory | None = None,
 ):
     repo = _open_repo(repo_path)
     resolved_ref_sha = _resolve_commit(repo, ref).hexsha
     normalized_limit = max(1, int(limit))
     normalized_offset = max(0, int(offset))
+    try:
+        scope = history_scope(repo, resolved_ref_sha, history or ProjectHistory(relative_path or ""))
+    except GitCommandError as error:
+        raise HTTPException(status_code=500, detail=f"Git error: {str(error)}") from error
     cache_parameters = {
-        "relative_path": relative_path or "",
+        "scope": scope.key(),
         "limit": normalized_limit,
         "offset": normalized_offset,
         "include_total": bool(include_total),
@@ -95,10 +101,10 @@ def _get_commits(
     iter_kwargs = {
         "max_count": normalized_limit + (0 if include_total else 1),
         "skip": normalized_offset,
-        "rev": resolved_ref_sha,
+        "rev": scope.revs(resolved_ref_sha),
     }
-    if relative_path:
-        iter_kwargs["paths"] = relative_path
+    if scope.pathspecs:
+        iter_kwargs["paths"] = list(scope.pathspecs)
 
     try:
         commits = [_serialize_commit(commit) for commit in repo.iter_commits(**iter_kwargs)]
@@ -107,9 +113,9 @@ def _get_commits(
             commits = commits[:normalized_limit]
         total = None
         if include_total:
-            count_args = ["rev-list", "--count", resolved_ref_sha]
-            if relative_path:
-                count_args.extend(["--", relative_path])
+            count_args = ["rev-list", "--count", *scope.revs(resolved_ref_sha)]
+            if scope.pathspecs:
+                count_args.extend(["--", *scope.pathspecs])
             total = int(repo.git.execute(["git", *count_args]))
             has_more = normalized_offset + len(commits) < total
     except HTTPException:
@@ -121,7 +127,7 @@ def _get_commits(
     # touched (without running a full diff per commit). One `git log` call
     # covers the whole page. Best-effort — never blocks the commits list.
     try:
-        flags_by_hash = _kicad_change_flags(repo, [c["full_hash"] for c in commits], relative_path)
+        flags_by_hash = _kicad_change_flags(repo, [c["full_hash"] for c in commits], scope.pathspecs)
         for c in commits:
             c["kicad_changes"] = flags_by_hash.get(
                 c["full_hash"], {"sch": 0, "pcb": 0, "pro": 0, "other": 0}
@@ -149,7 +155,7 @@ def _get_commits(
 
 
 def _kicad_change_flags(
-    repo: Repo, full_hashes: list[str], relative_path: str | None
+    repo: Repo, full_hashes: list[str], pathspecs: tuple[str, ...]
 ) -> dict[str, dict[str, int]]:
     """
     Return {full_hash: {sch, pcb, pro, other}} where each value is the count of
@@ -167,8 +173,8 @@ def _kicad_change_flags(
         "--format=PRISMHASH:%H",
         "--no-walk",
     ] + full_hashes
-    if relative_path:
-        args.extend(["--", relative_path])
+    if pathspecs:
+        args.extend(["--", *pathspecs])
 
     raw = repo.git.execute(["git", *args])
     out: dict[str, dict[str, int]] = {}
@@ -198,10 +204,12 @@ def get_commits_list_filtered(
     ref: str = None,
     offset: int = 0,
     include_total: bool = True,
+    history: ProjectHistory | None = None,
 ):
     """
     Get paginated commits from repository, optionally filtered to a subdirectory.
-    For Type-2 projects, relative_path scopes commits to the subproject.
+    With ``history``, the commits are the project's own (``project_history_scope``):
+    a neighbour's files and the commits before the project existed are left out.
     Returns {commits, total, limit, offset}.
     """
     return _get_commits(
@@ -211,6 +219,7 @@ def get_commits_list_filtered(
         ref,
         offset,
         include_total,
+        history,
     )
 
 

@@ -11,7 +11,7 @@ import { pickItems, type Candidates, type Pick, type PickContext } from "./candi
 import { filterItems, PickList, useListKeys } from "./pick-list";
 import type { ElementKind } from "./power-tree-model";
 import { ELEMENT_STYLE } from "./power-tree-nodes";
-import { SEGMENT_GROUP, segmentItem } from "../studio-tabs";
+import { SEGMENT_GROUP, segmentItem } from "@/components/ui/studio-tabs";
 
 const PROMPT: Record<ElementKind, string> = {
     source: "Search connectors and batteries",

@@ -44,17 +44,18 @@ MAX_INLINE_SUBSHEET_CONTENT_BYTES = 64 * 1024 * 1024
 
 
 class SourceFile:
-    """One ready ``sources/`` member: its name, repository path and size.
+    """One ready ``sources/`` member: its name, repository path, size and SHA-256.
 
     Its bytes are read only when ``content`` is first asked for: a route serves
     a large file from the extracted version directory instead, and never holds
     it whole in memory.
     """
 
-    def __init__(self, name: str, repo_path: str, size: int, load: Callable[[], bytes]) -> None:
+    def __init__(self, name: str, repo_path: str, size: int, sha256: str, load: Callable[[], bytes]) -> None:
         self.name = name
         self.repo_path = repo_path
         self.size = size
+        self.sha256 = sha256
         self._load = load
 
     @functools.cached_property
@@ -127,7 +128,7 @@ def source(read: BundleRead, repo_path: str) -> SourceFile | None:
     member = f"{_SOURCE_PREFIX}{repo_path}"
     return SourceFile(
         name=posixpath.basename(repo_path), repo_path=repo_path, size=read.size(member),
-        load=lambda: read.bytes(member),
+        sha256=read.sha256(member), load=lambda: read.bytes(member),
     )
 
 

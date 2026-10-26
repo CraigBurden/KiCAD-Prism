@@ -13,7 +13,9 @@ use std::collections::{HashMap, HashSet};
 mod driver_selection;
 mod driver_types;
 mod graphical_ids;
+pub(crate) mod label_text;
 mod pin_naming;
+mod pin_power;
 mod render_ids;
 pub(crate) mod stacked_pins;
 mod wire_union;
@@ -24,6 +26,7 @@ pub use driver_types::{
 };
 pub use pin_naming::SchematicSubpartSettings;
 use pin_naming::{PinNaming, build_pin_namings};
+use pin_power::classify_pin_power;
 pub(crate) use render_ids::schematic_sheet_pin_group_id;
 use stacked_pins::expand_stacked_pin;
 use wire_union::WirePointUnion;
@@ -155,13 +158,6 @@ struct PinSemantics {
     implicit: bool,
 }
 
-struct PinPowerSemantics {
-    priority: SchematicDriverPriority,
-    power_value: String,
-    is_power: bool,
-    implicit: bool,
-}
-
 impl<'a> OccurrenceBuilder<'a> {
     fn new(
         index: &'a SchematicBundleIndex,
@@ -213,6 +209,7 @@ impl<'a> OccurrenceBuilder<'a> {
         let mut union = WirePointUnion::default();
         self.seed_carrier_points(&mut union)?;
         self.attach_junctions(&mut union, geometry.wire_index())?;
+        self.bridge_wire_entries(&mut union, &geometry)?;
         let mut labels = self.collect_labels(&mut union)?;
         self.attach_labels(&mut union, &labels, &geometry, &entry_index)?;
         let mut pins = self.collect_pins(&mut union)?;
@@ -287,6 +284,50 @@ impl<'a> OccurrenceBuilder<'a> {
         Ok(())
     }
 
+    /// KiCad carries a bus wire entry's connection to every non-bus item at either
+    /// end (`SCH_BUS_WIRE_ENTRY::ConnectionPropagatesTo`), so an entry drawn between
+    /// two wires, a 45-degree jog, joins them. An entry whose other end is on a bus
+    /// stays a tap.
+    fn bridge_wire_entries(
+        &mut self,
+        union: &mut WirePointUnion,
+        geometry: &SchematicConnectivityGeometry,
+    ) -> Result<(), SourceBundleError> {
+        for entry in &self.definition.bus_entries {
+            let end = entry
+                .wire_end()
+                .ok_or_else(|| self.error("bus-entry endpoint overflows"))?;
+            if self.touches(entry.at, geometry.wire_index())?
+                && self.touches(end, geometry.wire_index())?
+                && !self.touches(entry.at, geometry.bus_index())?
+                && !self.touches(end, geometry.bus_index())?
+            {
+                self.attach_point(union, entry.at, geometry.wire_index())?;
+                self.attach_point(union, end, geometry.wire_index())?;
+                union.union_points(entry.at, end);
+            }
+        }
+        Ok(())
+    }
+
+    fn touches(
+        &mut self,
+        point: SchematicPoint,
+        index: &SchematicSegmentIndex,
+    ) -> Result<bool, SourceBundleError> {
+        let mut found = false;
+        index.for_each_containing(
+            point,
+            &mut self.attachment_query_work,
+            self.limits.max_attachment_query_work,
+            |_| {
+                found = true;
+                false
+            },
+        )?;
+        Ok(found)
+    }
+
     fn collect_labels(
         &mut self,
         union: &mut WirePointUnion,
@@ -312,7 +353,7 @@ impl<'a> OccurrenceBuilder<'a> {
                 self.push_label(
                     &mut out,
                     SchematicLabelDriver {
-                        text: label.text.clone(),
+                        text: label_text::unescape(&label.text),
                         at: label.at,
                         priority,
                         kind,
@@ -330,7 +371,7 @@ impl<'a> OccurrenceBuilder<'a> {
                 self.push_label(
                     &mut out,
                     SchematicLabelDriver {
-                        text: pin.name.clone(),
+                        text: label_text::unescape(&pin.name),
                         at: pin.at,
                         priority: SchematicDriverPriority::SheetPin,
                         kind: SchematicWireDriverKind::SheetPin,
@@ -425,26 +466,49 @@ impl<'a> OccurrenceBuilder<'a> {
         )?;
         let mut out = Vec::new();
         let mut hidden_nc_sequence = 0_i64;
+        let connectable_points = terminals
+            .iter()
+            .filter(|terminal| terminal.electrical_type != "no_connect")
+            .map(|terminal| terminal.at)
+            .collect::<HashSet<_>>();
         for (terminal, naming) in terminals.iter().copied().zip(&namings) {
             let Some(symbol) = effective.get(terminal.symbol_index) else {
                 continue;
             };
-            let semantics = self.pin_semantics(terminal, symbol, &mut hidden_nc_sequence)?;
+            // KiCad never propagates a connection through a no-connect pin
+            // (`SCH_PIN::ConnectionPropagatesTo`), so one that shares its point with a
+            // wire, label or another pin stays on its own, as a hidden one always does.
+            let isolate = terminal.electrical_type == "no_connect"
+                && (terminal.hidden
+                    || connectable_points.contains(&terminal.at)
+                    || union.root_for_point(terminal.at).is_some());
+            let semantics =
+                self.pin_semantics(terminal, symbol, isolate, &mut hidden_nc_sequence)?;
             self.push_terminal_pins(&mut out, union, terminal, semantics, naming)?;
         }
         Ok(out)
+    }
+
+    /// Files older than 20250318 wrote `~` for a pin with no name.
+    fn legacy_tilde_names(&self) -> bool {
+        self.definition
+            .version
+            .as_deref()
+            .and_then(|version| version.parse::<u64>().ok())
+            .is_none_or(|version| version < 20_250_318)
     }
 
     fn pin_semantics(
         &self,
         terminal: &crate::SchematicSymbolTerminal,
         symbol: &crate::SchematicEffectiveSymbol,
+        isolate: bool,
         hidden_nc_sequence: &mut i64,
     ) -> Result<PinSemantics, SourceBundleError> {
         let placed = &self.definition.symbols[terminal.symbol_index];
         let library = self.definition.library_symbol_for_placement(placed);
         let power = classify_pin_power(terminal, symbol, library);
-        let at = self.pin_connectivity_point(terminal, hidden_nc_sequence)?;
+        let at = self.pin_connectivity_point(terminal, isolate, hidden_nc_sequence)?;
         Ok(PinSemantics {
             at,
             priority: power.priority,
@@ -457,9 +521,10 @@ impl<'a> OccurrenceBuilder<'a> {
     fn pin_connectivity_point(
         &self,
         terminal: &crate::SchematicSymbolTerminal,
+        isolate: bool,
         hidden_nc_sequence: &mut i64,
     ) -> Result<SchematicPoint, SourceBundleError> {
-        if terminal.hidden && terminal.electrical_type == "no_connect" {
+        if isolate {
             let offset = 1_000_000_000_000_i64
                 .checked_add(*hidden_nc_sequence)
                 .ok_or_else(|| self.error("hidden no-connect sequence overflows"))?;
@@ -537,6 +602,7 @@ impl<'a> OccurrenceBuilder<'a> {
                 source_pin_uuid: naming.source_pin_uuid.clone(),
                 pin_svg_id: naming.pin_svg_id.clone(),
                 source_order: out.len(),
+                legacy_unnamed: terminal.pin_name == "~" && self.legacy_tilde_names(),
             });
         }
         union.add(semantics.at, self.limits.max_graph_points, self.definition)?;
@@ -602,11 +668,16 @@ impl<'a> OccurrenceBuilder<'a> {
         labels: &[SchematicLabelDriver],
         pins: &[SchematicPinDriver],
     ) {
+        // KiCad joins same-sheet subgraphs whose drivers share a name ignoring the
+        // sheet path (`Name( true )` in `CONNECTION_GRAPH::buildConnectionGraph`), so a
+        // global label meets a local label or power port of the same text here.
         let mut by_name = HashMap::<&str, usize>::new();
         for label in labels.iter().filter(|label| {
             matches!(
                 label.kind,
-                SchematicWireDriverKind::LocalLabel | SchematicWireDriverKind::HierarchicalLabel
+                SchematicWireDriverKind::LocalLabel
+                    | SchematicWireDriverKind::HierarchicalLabel
+                    | SchematicWireDriverKind::GlobalLabel
             )
         }) {
             merge_named_point(&mut by_name, union, &label.text, label.at);
@@ -836,51 +907,6 @@ impl<'a> OccurrenceBuilder<'a> {
             message,
         )
     }
-}
-
-fn classify_pin_power(
-    terminal: &crate::SchematicSymbolTerminal,
-    symbol: &crate::SchematicEffectiveSymbol,
-    library: Option<&crate::SchematicLibrarySymbol>,
-) -> PinPowerSemantics {
-    let parent_is_power = symbol.lib_id != "power:PWR_FLAG"
-        && (symbol.lib_id.starts_with("power:") || library.is_some_and(|value| value.power));
-    if implicit_hidden_power(terminal, parent_is_power) {
-        return PinPowerSemantics {
-            priority: SchematicDriverPriority::GlobalPowerPin,
-            power_value: terminal.pin_name.clone(),
-            is_power: true,
-            implicit: true,
-        };
-    }
-    let is_power = parent_is_power && terminal.electrical_type == "power_in";
-    let priority =
-        if is_power && library.is_some_and(|value| value.power_kind.as_deref() == Some("local")) {
-            SchematicDriverPriority::LocalPowerPin
-        } else if is_power {
-            SchematicDriverPriority::GlobalPowerPin
-        } else {
-            SchematicDriverPriority::Pin
-        };
-    PinPowerSemantics {
-        priority,
-        power_value: if is_power {
-            symbol.value.clone()
-        } else {
-            String::new()
-        },
-        is_power,
-        implicit: false,
-    }
-}
-
-fn implicit_hidden_power(terminal: &crate::SchematicSymbolTerminal, parent_is_power: bool) -> bool {
-    !parent_is_power
-        && terminal.electrical_type == "power_in"
-        && terminal.hidden
-        && !terminal.pin_name.is_empty()
-        && terminal.pin_name != "~"
-        && terminal.pin_name != terminal.pin_number
 }
 
 fn merge_named_point<'a>(

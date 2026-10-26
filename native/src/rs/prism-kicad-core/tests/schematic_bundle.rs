@@ -508,7 +508,7 @@ fn hierarchy_occurrences_fold_parent_policy_without_mutating_definitions() {
 }
 
 #[test]
-fn hierarchy_missing_sources_cycles_and_occurrence_limits_fail_closed() {
+fn hierarchy_cycles_and_occurrence_limits_fail_closed_and_missing_sheets_are_empty() {
     let bundle = hierarchy_bundle();
     let limits = SchematicBundleLimits {
         max_occurrences: 4,
@@ -539,12 +539,12 @@ fn hierarchy_missing_sources_cycles_and_occurrence_limits_fail_closed() {
         SourceBundleLimits::default(),
     )
     .expect("missing-reference bundle boundary");
-    assert_eq!(
+    // KiCad loads a sheet whose file is absent as an empty sheet, so the rest of the
+    // design still builds; the bundle's builder warns `sheet-missing`.
+    let missing_index =
         SchematicBundleIndex::build(&missing_bundle, SchematicBundleLimits::default())
-            .expect_err("missing source")
-            .kind,
-        SourceBundleErrorKind::MissingSource
-    );
+            .expect("a missing sheet file is an empty sheet");
+    assert_eq!(missing_index.occurrences().len(), 1);
 
     let cycle_root = br#"(kicad_sch
       (sheet (uuid child) (property "Sheetfile" "sub/child.kicad_sch")))"#
@@ -1070,7 +1070,7 @@ fn modern_symbol_instance_paths_require_exact_project_ownership() {
 }
 
 #[test]
-fn symbol_instance_lookup_is_project_aware_and_rejects_ambiguity() {
+fn symbol_instance_lookup_is_project_aware_and_keeps_the_later_duplicate() {
     let bundle = schematic_with_root(
         br#"(kicad_sch
           (symbol (uuid symbol-a)
@@ -1089,13 +1089,11 @@ fn symbol_instance_lookup_is_project_aware_and_rejects_ambiguity() {
         .definition("design/root.kicad_sch")
         .expect("root")
         .symbols[0];
-    assert_eq!(
-        symbol
-            .instance_for_project("alpha", "/same")
-            .expect_err("same-project duplicate must be ambiguous")
-            .matches,
-        2
-    );
+    // KiCad keeps the later of a project's repeated paths (AddHierarchicalReference).
+    let alpha = symbol
+        .instance_for_project("alpha", "/same")
+        .expect("resolves");
+    assert_eq!(alpha.expect("alpha path").reference, "A2");
     assert_eq!(
         symbol
             .instance_for_project("beta", "/same/")
@@ -1109,7 +1107,7 @@ fn symbol_instance_lookup_is_project_aware_and_rejects_ambiguity() {
             .unique_instance_for_path("/same")
             .expect_err("cross-project path must be ambiguous")
             .matches,
-        3
+        2
     );
     assert_eq!(
         symbol

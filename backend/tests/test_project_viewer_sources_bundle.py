@@ -10,6 +10,8 @@ ready raises the typed pending answer, and a source the bundle lacks is 404.
 from __future__ import annotations
 
 import asyncio
+import gzip
+import hashlib
 import json
 import tempfile
 import unittest
@@ -19,7 +21,7 @@ from unittest import mock
 from app.api import project_viewer_sources as viewer_sources
 from app.core.config import settings
 from app.core.security import AuthenticatedUser
-from fastapi import HTTPException, Response
+from fastapi import HTTPException, Request, Response
 from app.services import project_service
 from app.services import project_viewer_sources_bundle as mapping
 from app.services.design_bundle import reader, schemas
@@ -202,6 +204,29 @@ def render(response) -> tuple[int, dict[str, str], bytes]:
     return start["status"], headers, body
 
 
+def make_request(headers: dict[str, str] | None = None) -> Request:
+    """A GET request carrying ``headers``, as a route receives it."""
+
+    raw = [(key.lower().encode("latin-1"), value.encode("latin-1")) for key, value in (headers or {}).items()]
+    return Request({"type": "http", "method": "GET", "path": "/", "query_string": b"", "headers": raw})
+
+
+def subsheet_document(response) -> dict:
+    status, headers, body = render(response)
+    assert status == 200, status
+    if headers.get("content-encoding") == "gzip":
+        body = gzip.decompress(body)
+    return json.loads(body)
+
+
+#: Routes that take the request: they answer 304 and pick a gzip copy from it.
+REQUEST_ROUTES = (
+    viewer_sources.get_project_schematic,
+    viewer_sources.get_project_pcb,
+    viewer_sources.get_project_subsheets,
+)
+
+
 #: FileResponse stamps these from the served file's inode; the cache copy and the
 #: checkout copy differ there, and nothing a client decides on depends on them.
 VOLATILE_HEADERS = ("etag", "last-modified", "date")
@@ -274,6 +299,8 @@ class ViewerSourceBundleTests(_BundleFixture):
     """Every viewer-source route serves the bundle, and pending is typed."""
 
     def _serve(self, route, *, commit, **kwargs):
+        if route in REQUEST_ROUTES:
+            kwargs.setdefault("request", make_request())
         with mock.patch.object(viewer_sources, "get_project_for_role_or_404", return_value=self.project), \
                 mock.patch.object(reader, "open_revision", return_value=self.opened(**kwargs.pop("bundle", {}))):
             return asyncio.run(route(user=self.user, project_id=PROJECT_ID, commit=commit, **kwargs))
@@ -287,7 +314,9 @@ class ViewerSourceBundleTests(_BundleFixture):
         with mock.patch.object(viewer_sources, "get_project_for_role_or_404", return_value=self.project), \
                 mock.patch.object(reader, "open_revision", return_value=self.opened()) as open_revision:
             response = asyncio.run(
-                viewer_sources.get_project_schematic(user=self.user, project_id=PROJECT_ID, commit=None)
+                viewer_sources.get_project_schematic(
+                    user=self.user, project_id=PROJECT_ID, commit=None, request=make_request()
+                )
             )
         self.assertEqual(open_revision.call_args.args[1], None)
         self.assertEqual(render(response)[2], SCH_CONTENT.encode("utf-8"))
@@ -298,7 +327,9 @@ class ViewerSourceBundleTests(_BundleFixture):
         with mock.patch.object(viewer_sources, "get_project_for_role_or_404", return_value=self.project), \
                 mock.patch.object(reader, "open_revision", return_value=opened):
             response = asyncio.run(
-                viewer_sources.get_project_schematic(user=self.user, project_id=PROJECT_ID, commit=None)
+                viewer_sources.get_project_schematic(
+                    user=self.user, project_id=PROJECT_ID, commit=None, request=make_request()
+                )
             )
         self.assertEqual(render(response)[1]["x-prism-working-tree"], "dirty")
 
@@ -326,10 +357,10 @@ class ViewerSourceBundleTests(_BundleFixture):
             whole.append(path)
             return read(archive, path, **kwargs)
 
-        from app.api import projects
+        from app.api import _helpers
 
         with mock.patch.object(viewer_sources, "COMMIT_FILE_STREAM_BYTES", 4), \
-                mock.patch.object(projects, "COMMIT_FILE_STREAM_BYTES", 4), \
+                mock.patch.object(_helpers, "COMMIT_FILE_STREAM_BYTES", 4), \
                 mock.patch.object(settings, "PRISM_DESIGN_BUNDLE_ROOT", str(self.tmp / "bundles")), \
                 mock.patch.object(Archive, "read", read_member):
             response = self._serve(viewer_sources.get_project_pcb, commit=self.repo)
@@ -337,15 +368,79 @@ class ViewerSourceBundleTests(_BundleFixture):
         self.assertEqual(Path(response.path).read_bytes(), PCB_CONTENT.encode("utf-8"))
         self.assertFalse([path for path in whole if path.startswith("sources/")])
 
+    def _member_etag(self, repo_path: str) -> str:
+        return '"' + hashlib.sha256((self.tmp / "repo" / repo_path).read_bytes()).hexdigest() + '"'
+
+    def test_a_source_at_a_full_commit_is_cached_for_good_under_its_content_digest(self) -> None:
+        _, headers, _ = render(self._serve(viewer_sources.get_project_pcb, commit=self.repo))
+        self.assertEqual(headers["cache-control"], "private, max-age=31536000, immutable")
+        self.assertEqual(headers["etag"], self._member_etag("board/demo.kicad_pcb"))
+
+    def test_a_source_at_head_is_revalidated_every_time(self) -> None:
+        _, headers, _ = render(self._serve(viewer_sources.get_project_pcb, commit=None))
+        self.assertEqual(headers["cache-control"], "no-cache")
+        self.assertEqual(headers["etag"], self._member_etag("board/demo.kicad_pcb"))
+
+    def test_a_matching_etag_is_answered_without_the_bytes(self) -> None:
+        etag = self._member_etag("board/demo.kicad_sch")
+        request = make_request({"If-None-Match": f'"other", W/{etag}'})
+        status, headers, body = render(
+            self._serve(viewer_sources.get_project_schematic, commit=None, request=request)
+        )
+        self.assertEqual((status, body), (304, b""))
+        self.assertEqual(headers["etag"], etag)
+        self.assertEqual(headers["cache-control"], "no-cache")
+
+    def test_a_large_source_goes_out_as_one_gzip_copy_made_off_the_event_loop(self) -> None:
+        from app.api import _helpers
+
+        request = make_request({"Accept-Encoding": "br, gzip"})
+        with mock.patch.object(viewer_sources, "COMMIT_FILE_STREAM_BYTES", 4), \
+                mock.patch.object(_helpers, "COMMIT_FILE_STREAM_BYTES", 4), \
+                mock.patch.object(settings, "PRISM_JOB_ARTIFACT_ROOT", str(self.tmp / "jobs")):
+            first = self._serve(viewer_sources.get_project_pcb, commit=self.repo, request=request)
+            second = self._serve(viewer_sources.get_project_pcb, commit=self.repo, request=request)
+            _, headers, body = render(first)
+        self.assertEqual(headers["content-encoding"], "gzip")
+        self.assertEqual(headers["vary"], "Accept-Encoding")
+        self.assertEqual(gzip.decompress(body), PCB_CONTENT.encode("utf-8"))
+        self.assertEqual(first.path, second.path)
+        self.assertEqual(Path(first.path).parent, (self.tmp / "jobs" / "gzip-copies").resolve())
+
+    def test_a_large_source_stays_plain_for_a_client_without_gzip_or_asking_a_range(self) -> None:
+        from app.api import _helpers
+
+        with mock.patch.object(viewer_sources, "COMMIT_FILE_STREAM_BYTES", 4), \
+                mock.patch.object(_helpers, "COMMIT_FILE_STREAM_BYTES", 4), \
+                mock.patch.object(settings, "PRISM_JOB_ARTIFACT_ROOT", str(self.tmp / "jobs")):
+            for headers in ({"Accept-Encoding": "gzip;q=0"}, {"Accept-Encoding": "gzip", "Range": "bytes=0-3"}):
+                response = self._serve(
+                    viewer_sources.get_project_pcb, commit=self.repo, request=make_request(headers)
+                )
+                self.assertNotIn("content-encoding", response.headers)
+        self.assertFalse((self.tmp / "jobs" / "gzip-copies").exists())
+
+    def test_large_subsheets_are_compressed_before_they_reach_the_event_loop(self) -> None:
+        from app.api import _helpers
+
+        with mock.patch.object(_helpers, "COMMIT_FILE_STREAM_BYTES", 4):
+            response = self._serve(
+                viewer_sources.get_project_subsheets,
+                commit=self.repo,
+                include="content",
+                request=make_request({"Accept-Encoding": "gzip"}),
+            )
+        self.assertEqual(response.headers["content-encoding"], "gzip")
+        self.assertEqual(response.headers["cache-control"], "private, max-age=31536000, immutable")
+        self.assertEqual(subsheet_document(response)["files"][0]["content"], POWER_CONTENT)
+
     def test_subsheets_are_the_hierarchy_documents(self) -> None:
-        response = Response()
-        files = self._serve(viewer_sources.get_project_subsheets, commit=self.repo, response=response)
+        files = subsheet_document(self._serve(viewer_sources.get_project_subsheets, commit=self.repo))
         self.assertEqual([item["name"] for item in files["files"]], ["Subsheets/power.kicad_sch"])
         self.assertIn(f"commit={self.repo}", files["files"][0]["url"])
 
     def test_subsheets_without_include_carry_only_the_urls(self) -> None:
-        response = Response()
-        files = self._serve(viewer_sources.get_project_subsheets, commit=self.repo, response=response)
+        files = subsheet_document(self._serve(viewer_sources.get_project_subsheets, commit=self.repo))
         self.assertEqual(set(files["files"][0]), {"name", "url"})
 
     def test_subsheets_with_content_read_from_one_bundle_open(self) -> None:
@@ -353,16 +448,15 @@ class ViewerSourceBundleTests(_BundleFixture):
                 mock.patch.object(
                     reader, "open_revision", return_value=self.opened(members=two_sheet_members())
                 ) as open_revision:
-            response = Response()
-            files = asyncio.run(
+            files = subsheet_document(asyncio.run(
                 viewer_sources.get_project_subsheets(
                     user=self.user,
                     project_id=PROJECT_ID,
                     commit=self.repo,
-                    response=response,
+                    request=make_request(),
                     include="content",
                 )
-            )
+            ))
         open_revision.assert_called_once()
         self.assertEqual(
             [item["content"] for item in files["files"]],

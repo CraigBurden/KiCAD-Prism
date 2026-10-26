@@ -187,6 +187,10 @@ jobs:
           "${compose[@]}" exec -T prism-worker grep -aq app.prism_worker /proc/1/cmdline
           test "$("${compose[@]}" exec -T backend uname -m | tr -d '\r')" = "x86_64"
           "${compose[@]}" exec -T backend kicad-cli --version
+          for service in backend prism-worker; do
+            "${compose[@]}" exec -T "$service" prism-kicad --version |
+              jq -e '.schema == "prism.cli.version.a0" and (.kicad_version | length > 0)'
+          done
 
       - name: Print smoke-test logs after failure
         if: ${{ failure() && steps.prepare_smoke.outcome == 'success' }}

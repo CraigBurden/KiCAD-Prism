@@ -216,6 +216,56 @@ fn power_ports_link_parent_symbols_while_component_pins_link_rendered_pins() {
     );
 }
 
+/// KiCad allows two pins with one number (a connector's mounting pads) and saves
+/// a `(pin "N" (uuid …))` for each; it pairs the nth library pin with the nth saved
+/// one (`SCH_SYMBOL::updatePins`). Each pin is its own terminal on its own net.
+#[test]
+fn pins_sharing_a_number_are_separate_terminals() {
+    let index = single_index(
+        br##"(kicad_sch
+          (uuid root)
+          (lib_symbols
+            (symbol "Demo:Connector"
+              (symbol "Demo:Connector_1_1"
+                (pin passive line (at 0 0 0) (length 2.54)
+                  (name "25") (number "Mounting"))
+                (pin passive line (at 0 10 0) (length 2.54)
+                  (name "26") (number "Mounting")))))
+          (symbol (lib_id "Demo:Connector") (lib_name "Demo:Connector")
+            (at 20 0 0) (uuid connector)
+            (property "Reference" "J1")
+            (property "Value" "Connector")
+            (pin "Mounting" (uuid first-pad))
+            (pin "Mounting" (uuid second-pad))))"##,
+    );
+    let graph = build_compiled_schematic_graph(&index, Default::default())
+        .expect("a repeated pin number builds");
+    validate_compiled_schematic_graph(&graph).expect("valid compiled graph");
+    let mut linked = graph
+        .terminal_occurrences
+        .iter()
+        .filter(|terminal| terminal.role == TerminalRole::ComponentPin)
+        .map(|terminal| {
+            let link = graph
+                .graphical_artifact_links
+                .iter()
+                .find(|link| link.target_ref == terminal.id)
+                .expect("terminal graphical link");
+            (
+                link.element_id.clone(),
+                terminal.local_net_occurrence_ref.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    linked.sort();
+    assert_eq!(linked.len(), 2);
+    assert_eq!(
+        (linked[0].0.as_str(), linked[1].0.as_str()),
+        ("first-pad", "second-pad")
+    );
+    assert_ne!(linked[0].1, linked[1].1, "each pin is on its own net");
+}
+
 fn minimum_retained_string_limit(index: &SchematicBundleIndex) -> usize {
     let mut high = 1_usize;
     while build_compiled_schematic_graph(

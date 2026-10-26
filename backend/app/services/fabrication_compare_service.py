@@ -852,14 +852,14 @@ def diff_layer(base: GerberLayer, head: GerberLayer) -> List[DifferenceRegion]:
 _ARC_SEGMENT_RADIANS = math.pi / 24
 
 
-def _fmt(value: float) -> str:
+def svg_number(value: float) -> str:
     return f"{value:.4f}".rstrip("0").rstrip(".") or "0"
 
 
 def _point(x: float, y: float) -> str:
     # Gerber Y grows upward, SVG downward. Flipping here keeps the rendered
     # artwork in the same board coordinates as the difference regions.
-    return f"{_fmt(x)},{_fmt(-y)}"
+    return f"{svg_number(x)},{svg_number(-y)}"
 
 
 def _rotate(x: float, y: float, degrees: float) -> Tuple[float, float]:
@@ -902,8 +902,8 @@ def _macro_elements(
             fill = dark if values[0] else clear
             radius = values[1] / 2
             elements.append(
-                f'<circle cx="{_fmt(x + values[2])}" cy="{_fmt(-(y + values[3]))}"'
-                f' r="{_fmt(radius)}" fill="{fill}"/>'
+                f'<circle cx="{svg_number(x + values[2])}" cy="{svg_number(-(y + values[3]))}"'
+                f' r="{svg_number(radius)}" fill="{fill}"/>'
             )
         elif code == "4" and len(values) >= 4:
             fill = dark if values[0] else clear
@@ -928,9 +928,9 @@ def _macro_elements(
             start = _rotate(values[2], values[3], rotation)
             end = _rotate(values[4], values[5], rotation)
             elements.append(
-                f'<line x1="{_fmt(x + start[0])}" y1="{_fmt(-(y + start[1]))}"'
-                f' x2="{_fmt(x + end[0])}" y2="{_fmt(-(y + end[1]))}"'
-                f' stroke="{fill}" stroke-width="{_fmt(values[1])}"'
+                f'<line x1="{svg_number(x + start[0])}" y1="{svg_number(-(y + start[1]))}"'
+                f' x2="{svg_number(x + end[0])}" y2="{svg_number(-(y + end[1]))}"'
+                f' stroke="{fill}" stroke-width="{svg_number(values[1])}"'
                 ' stroke-linecap="butt"/>'
             )
         elif code == "21" and len(values) >= 5:
@@ -954,13 +954,13 @@ def _macro_elements(
             # does to the copper underneath.
             outer, inner = values[2], values[3]
             elements.append(
-                f'<circle cx="{_fmt(x + values[0])}" cy="{_fmt(-(y + values[1]))}"'
-                f' r="{_fmt(outer / 2)}" fill="{dark}"/>'
+                f'<circle cx="{svg_number(x + values[0])}" cy="{svg_number(-(y + values[1]))}"'
+                f' r="{svg_number(outer / 2)}" fill="{dark}"/>'
             )
             if inner > 0:
                 elements.append(
-                    f'<circle cx="{_fmt(x + values[0])}" cy="{_fmt(-(y + values[1]))}"'
-                    f' r="{_fmt(inner / 2)}" fill="{clear}"/>'
+                    f'<circle cx="{svg_number(x + values[0])}" cy="{svg_number(-(y + values[1]))}"'
+                    f' r="{svg_number(inner / 2)}" fill="{clear}"/>'
                 )
     return elements
 
@@ -974,23 +974,23 @@ def _flash_elements(
     params = aperture.params
     if aperture.shape in {"C", "drill"} and params:
         return [
-            f'<circle cx="{_fmt(x)}" cy="{_fmt(-y)}" r="{_fmt(params[0] / 2)}"'
+            f'<circle cx="{svg_number(x)}" cy="{svg_number(-y)}" r="{svg_number(params[0] / 2)}"'
             f' fill="{fill}"/>'
         ]
     if aperture.shape == "R" and params:
         width = params[0]
         height = params[1] if len(params) > 1 else params[0]
         return [
-            f'<rect x="{_fmt(x - width / 2)}" y="{_fmt(-y - height / 2)}"'
-            f' width="{_fmt(width)}" height="{_fmt(height)}" fill="{fill}"/>'
+            f'<rect x="{svg_number(x - width / 2)}" y="{svg_number(-y - height / 2)}"'
+            f' width="{svg_number(width)}" height="{svg_number(height)}" fill="{fill}"/>'
         ]
     if aperture.shape == "O" and params:
         width = params[0]
         height = params[1] if len(params) > 1 else params[0]
         return [
-            f'<rect x="{_fmt(x - width / 2)}" y="{_fmt(-y - height / 2)}"'
-            f' width="{_fmt(width)}" height="{_fmt(height)}"'
-            f' rx="{_fmt(min(width, height) / 2)}" fill="{fill}"/>'
+            f'<rect x="{svg_number(x - width / 2)}" y="{svg_number(-y - height / 2)}"'
+            f' width="{svg_number(width)}" height="{svg_number(height)}"'
+            f' rx="{svg_number(min(width, height) / 2)}" fill="{fill}"/>'
         ]
     if aperture.shape == "P" and params:
         vertices = int(params[1]) if len(params) > 1 else 3
@@ -1067,8 +1067,8 @@ def render_layer_svg(
 
     x0, y0, x1, y1 = bounds
     body: List[str] = [
-        f'<rect x="{_fmt(x0)}" y="{_fmt(y0)}" width="{_fmt(x1 - x0)}"'
-        f' height="{_fmt(y1 - y0)}" fill="{background}"/>'
+        f'<rect x="{svg_number(x0)}" y="{svg_number(y0)}" width="{svg_number(x1 - x0)}"'
+        f' height="{svg_number(y1 - y0)}" fill="{background}"/>'
     ]
     for op in layer.ops:
         aperture = layer.apertures.get(op.aperture)
@@ -1090,12 +1090,12 @@ def render_layer_svg(
             width = _stroke_width(aperture)
             body.append(
                 f'<polyline points="{path}" fill="none" stroke="{dark}"'
-                f' stroke-width="{_fmt(width)}" stroke-linecap="round"'
+                f' stroke-width="{svg_number(width)}" stroke-linecap="round"'
                 ' stroke-linejoin="round"/>'
             )
     return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{_fmt(x0)} {_fmt(y0)}'
-        f' {_fmt(x1 - x0)} {_fmt(y1 - y0)}" preserveAspectRatio="xMidYMid meet">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{svg_number(x0)} {svg_number(y0)}'
+        f' {svg_number(x1 - x0)} {svg_number(y1 - y0)}" preserveAspectRatio="xMidYMid meet">'
         + "".join(body)
         + "</svg>"
     )
@@ -1216,7 +1216,7 @@ def _to_board_millimetres(region: DifferenceRegion) -> Dict[str, Any]:
 _OUTLINE_NAMES = ("Edge.Cuts", "Edge_Cuts")
 
 
-def _board_outline(layers: Sequence[FabricationLayer]) -> Optional[Dict[str, Any]]:
+def board_outline(layers: Sequence[FabricationLayer]) -> Optional[Dict[str, Any]]:
     """The board profile as segments in KiCad board millimetres.
 
     Difference regions are coordinates; without the board they sit in an empty
@@ -1264,7 +1264,7 @@ COMPARE_COLOUR = "#3fb950"
 RENDER_BACKGROUND = "#0b0f14"
 
 
-def _layer_bounds(parsed: GerberLayer) -> Optional[Tuple[float, float, float, float]]:
+def layer_bounds(parsed: GerberLayer) -> Optional[Tuple[float, float, float, float]]:
     extent: Optional[List[float]] = None
     for op in parsed.ops:
         box = op.bounds(parsed.half_extent(op.aperture))
@@ -1278,7 +1278,7 @@ def _layer_bounds(parsed: GerberLayer) -> Optional[Tuple[float, float, float, fl
     return (extent[0], extent[1], extent[2], extent[3]) if extent else None
 
 
-def _safe_name(name: str) -> str:
+def safe_name(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", name)
 
 
@@ -1363,7 +1363,7 @@ def compare_layers(
     # Changed layers first: a fabrication review starts from what moved.
     entries.sort(key=lambda item: (item["status"] == "unchanged", item["name"]))
     region_count = sum(len(entry["regions"]) for entry in entries)
-    outline = _board_outline(head) or _board_outline(base)
+    outline = board_outline(head) or board_outline(base)
 
     # One viewBox for every layer and both revisions. Fitting each layer to its
     # own extents would make the panes disagree the moment a layer is sparse.
@@ -1373,7 +1373,7 @@ def compare_layers(
             (box[0], -box[3], box[2], -box[1])
             for pair in parsed.values()
             for layer in pair
-            if (box := _layer_bounds(layer)) is not None
+            if (box := layer_bounds(layer)) is not None
         ),
     ]
     boxes = [box for box in extents if box is not None]
@@ -1398,7 +1398,7 @@ def compare_layers(
                 ("base", pair[0], BASE_COLOUR),
                 ("compare", pair[1], COMPARE_COLOUR),
             ):
-                path = render_dir / f"{_safe_name(entry['name'])}.{side}.svg"
+                path = render_dir / f"{safe_name(entry['name'])}.{side}.svg"
                 path.write_text(
                     render_layer_svg(
                         layer, bounds, colour=colour, background=RENDER_BACKGROUND

@@ -1,6 +1,9 @@
 import fnmatch
+import gzip
+import hashlib
 import os
 import posixpath
+import shutil
 import subprocess
 import threading
 import time
@@ -94,6 +97,42 @@ def _sweep_commit_blobs(root: Path) -> None:
                 path.unlink(missing_ok=True)
         except OSError:
             continue
+
+
+#: Level 6, as the response middleware (``app.core.gzip_config``) uses.
+GZIP_COPY_LEVEL = 6
+
+
+def gzip_copy(source: Path, content_key: str) -> Path:
+    """``source`` gzip-compressed once, under ``gzip-copies/`` by ``content_key``.
+
+    A large file compressed by the response middleware costs CPU on the event
+    loop for every request, which stalls every other request of the process.
+    The copy is made in the caller's worker thread, named by the content it
+    holds so every view of the same bytes shares it, and swept like the commit
+    blobs after an hour unused.
+    """
+
+    from app.services.job_runtime import job_state_root
+
+    root = job_state_root() / "gzip-copies"
+    name = hashlib.sha256(content_key.encode("utf-8")).hexdigest()
+    target = root / f"{name}.gz"
+    if target.is_file():
+        os.utime(target)
+        return target
+    root.mkdir(parents=True, exist_ok=True)
+    partial = root / f".{name}.{os.getpid()}.{threading.get_ident()}"
+    try:
+        with source.open("rb") as reader, partial.open("wb") as sink:
+            with gzip.GzipFile(filename="", mode="wb", fileobj=sink, compresslevel=GZIP_COPY_LEVEL, mtime=0) as writer:
+                shutil.copyfileobj(reader, writer, 1 << 20)
+        partial.replace(target)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+    _sweep_commit_blobs(root)
+    return target
 
 
 FILE_LISTING_CACHE_TTL = 2.0

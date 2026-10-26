@@ -17,7 +17,6 @@
 use super::design::{self, Text};
 use super::keys::{source_entry, upgrade_invalid};
 use super::sexpr_check::{self, BOARD_FORMAT, CheckError, SCHEMATIC_FORMAT};
-use super::sheets::{Unresolved, resolve};
 use super::sources::SourceTree;
 use super::{Built, Document, Generator, MemberContent, MemberData, Reporter, internal, producers};
 use crate::finding::{Failure, Finding, Location, Outcome};
@@ -32,6 +31,7 @@ use crate::revision_key::{EffectiveConfig, default_config};
 use prism_kicad_contracts::generated::prism_revision_key_effective_config_a1 as cfg;
 use prism_kicad_contracts::generated::prism_revision_key_record_a1 as rk;
 use prism_kicad_contracts::generated::prism_semantic_index_a2::SemanticIndexA2;
+use prism_kicad_core::sheet_file::{self, Unresolved};
 use prism_kicad_core::{PcbLimits, PcbView, ProjectDocument, ProjectLimits};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -231,6 +231,7 @@ pub fn run(request: &ParseRequest<'_>) -> Outcome<ParseOutcome> {
         failed: Vec::new(),
         derived: Vec::new(),
         pending_index: None,
+        unavailable_models: BTreeSet::new(),
         documents: BTreeMap::new(),
     };
     let error = stage.parse()?;
@@ -279,9 +280,13 @@ struct ParseRun<'a> {
     pending_index: Option<Box<SemanticIndexA2>>,
     /// An in-memory parse's projections (`ParseRequest::in_memory`).
     documents: BTreeMap<String, Document>,
+    /// The 3D models the key lists but the worker could not materialize
+    /// (`model-unavailable`): a reader finds them absent, as built.
+    unavailable_models: BTreeSet<String>,
 }
 
 mod projections;
+mod sheet_source;
 
 pub(super) fn member(path: &str) -> String {
     format!("{SOURCES_PREFIX}{path}")
@@ -390,12 +395,29 @@ impl ParseRun<'_> {
             Ok(project) => project,
             Err(finding) => return Ok(Err(finding)),
         };
-        let sheets = match &self.config.root_schematic {
-            Some(root) => match self.read_hierarchy(&root.0.clone())? {
-                Ok(sheets) => sheets,
-                Err(finding) => return Ok(Err(finding)),
-            },
+        let roots = match self.config.root_schematic.clone() {
+            Some(root) => {
+                let roots = self.top_level_roots(&project.text, &root.0)?;
+                // The configured root stays a member (bundle-format.md I4) when
+                // the project's top-level sheets leave it out.
+                if !roots.contains(&root.0)
+                    && let Err(finding) = self.read_checked(&root.0, SCHEMATIC_FORMAT, None)?
+                {
+                    return Ok(Err(finding));
+                }
+                roots
+            }
             None => Vec::new(),
+        };
+        let text_variables = sheet_file::text_variables(&project.text);
+        let project_name = sheet_file::project_name(&self.config.project_file.0);
+        let variables = sheet_file::Variables {
+            project_name: &project_name,
+            text: Some(&text_variables),
+        };
+        let sheets = match self.read_hierarchy(roots, variables)? {
+            Ok(sheets) => sheets,
+            Err(finding) => return Ok(Err(finding)),
         };
         let board = match self.config.board.clone() {
             Some(board) => match self.read_checked(&board.0, BOARD_FORMAT, None)? {
@@ -435,9 +457,15 @@ impl ParseRun<'_> {
         }
     }
 
-    fn read_hierarchy(&self, root: &str) -> Outcome<Result<Vec<Text>, Finding>> {
-        let mut seen = BTreeSet::from([root.to_owned()]);
-        let mut queue = VecDeque::from([(root.to_owned(), None)]);
+    /// Every schematic `roots` reach, breadth first; the first root leads, as
+    /// the core's bundle takes it for the root schematic.
+    fn read_hierarchy(
+        &mut self,
+        roots: Vec<String>,
+        variables: sheet_file::Variables<'_>,
+    ) -> Outcome<Result<Vec<Text>, Finding>> {
+        let mut seen: BTreeSet<String> = roots.iter().cloned().collect();
+        let mut queue: VecDeque<_> = roots.into_iter().map(|root| (root, None)).collect();
         let mut sheets = Vec::new();
         while let Some((path, referrer)) = queue.pop_front() {
             let (text, references) = match self.read_checked(&path, SCHEMATIC_FORMAT, referrer)? {
@@ -446,8 +474,11 @@ impl ParseRun<'_> {
             };
             for reference in references {
                 let at = Location::at_offset(member(&path), text.as_bytes(), reference.offset);
-                let child = resolve(&path, &reference.file)
+                let child = sheet_file::resolve(&path, &reference.file, variables)
                     .map_err(|why| outside(&path, &reference.file, why, &at))?;
+                let Some(child) = self.sheet_source(&path, &reference.file, child)? else {
+                    continue;
+                };
                 if seen.insert(child.clone()) {
                     queue.push_back((child, Some(at)));
                 }
@@ -623,12 +654,12 @@ impl ParseRun<'_> {
             }
             _ => None,
         };
-        let root = self
-            .config
-            .root_schematic
-            .as_ref()
-            .map(|root| root.0.clone())
-            .unwrap_or_default();
+        // The first top-level sheet: the configured root schematic unless the
+        // project lists its top-level sheets (§5.2.2).
+        let root = match &parts {
+            Some(Ok((bundle, _))) => bundle.root_schematic_path().to_owned(),
+            _ => String::new(),
+        };
         let schematic = match (&parts, &facts) {
             (Some(Ok((bundle, index))), Some(Ok(facts))) => {
                 Some(prism_projections::SchematicModel {
@@ -763,6 +794,7 @@ impl ParseRun<'_> {
             if target["inSources"] == true {
                 self.read_target(path)?;
             } else if reference["kind"] == "model-3d" && self.key_lists(path) {
+                self.unavailable_models.insert(path.to_owned());
                 self.warn(
                     "model-unavailable",
                     format!("the 3D model {} is in the revision key but was not materialized; the bundle is built without it", member(path)),
@@ -913,7 +945,8 @@ impl ParseRun<'_> {
             self.request.key_record.as_ref(),
         );
         if let Some(record) = &self.request.key_record
-            && let Some(mismatch) = crate::read_set::check(&read_set, &members, record)
+            && let Some(mismatch) =
+                crate::read_set::check(&read_set, &members, record, &self.unavailable_models)
         {
             return Err(internal(format!(
                 "I14: the read set does not hold in --key-record at {}: {}",

@@ -117,7 +117,8 @@ pub struct ProjectModel<'a> {
 /// The schematic model, built once from the root schematic and every sheet
 /// it reaches.
 pub struct SchematicModel<'a> {
-    /// The root schematic's repository path: `config.root_schematic`.
+    /// The first top-level schematic's repository path: `config.root_schematic`,
+    /// or the first sheet a KiCad 10 project lists in `schematic.top_level_sheets`.
     pub root: &'a str,
     /// The project file and every reached schematic, as the core reads them;
     /// the source paths are repository paths.

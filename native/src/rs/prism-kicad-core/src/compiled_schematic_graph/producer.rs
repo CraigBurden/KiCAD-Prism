@@ -12,7 +12,7 @@ use prism_kicad_contracts::generated::compiled_schematic_graph::{
     UnitOccurrence,
 };
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroU64;
 mod connectivity;
 
@@ -84,7 +84,12 @@ struct StructuralGraphBuilder<'a> {
     graph: CompiledSchematicGraphA0,
     definitions: HashMap<&'a str, DefinitionRefs>,
     occurrences: Vec<OccurrenceRefs>,
-    component_by_symbol: HashMap<usize, HashMap<String, String>>,
+    /// Each occurrence's component ids by symbol index: two placed symbols can share a
+    /// UUID (a copied unit), which KiCad keeps in an s-expression file.
+    component_by_symbol: HashMap<usize, HashMap<usize, String>>,
+    /// The (page, element) selectors already linked. Items sharing a UUID share a
+    /// drawing element; the first one links to it.
+    linked_selectors: HashSet<(String, String)>,
 }
 
 impl<'a> StructuralGraphBuilder<'a> {
@@ -125,6 +130,7 @@ impl<'a> StructuralGraphBuilder<'a> {
             definitions: HashMap::new(),
             occurrences: Vec::with_capacity(index.occurrences().len()),
             component_by_symbol: HashMap::new(),
+            linked_selectors: HashSet::new(),
         })
     }
 
@@ -249,7 +255,7 @@ impl<'a> StructuralGraphBuilder<'a> {
         let source_record = format!("instance-path:{}", occurrence.occurrence_address);
         let address_key = format!("sheet{}", occurrence.index);
         let sheet_number = occurrence.index.to_string();
-        let display_name = if occurrence.parent_index.is_none() {
+        let display_name = if occurrence.is_root_schematic() {
             portable_stem(
                 self.index
                     .portable_source_path(&source_definition.source_path),
@@ -396,7 +402,10 @@ impl<'a> StructuralGraphBuilder<'a> {
                 "compiled graph effective symbol cardinality does not match its definition",
             ));
         }
-        for (symbol, effective) in definition.symbols.iter().zip(effective.iter()) {
+        let mut uuid_uses = HashMap::<&str, usize>::new();
+        for (symbol_index, (symbol, effective)) in
+            definition.symbols.iter().zip(effective.iter()).enumerate()
+        {
             if is_power_symbol(definition, symbol)
                 || effective.reference.is_empty()
                 || effective.reference.starts_with('#')
@@ -417,8 +426,18 @@ impl<'a> StructuralGraphBuilder<'a> {
                 source_designator.len(),
                 effective.reference.len() * 2,
             ])?;
+            // KiCad keeps a UUID two placed symbols share (it only replaces duplicates on
+            // annotation); a later copy is identified by the UUID and its order of appearance.
+            let uses = uuid_uses.entry(symbol.uuid.as_str()).or_default();
+            let source_uuid = if *uses == 0 {
+                symbol.uuid.clone()
+            } else {
+                format!("{}#{uses}", symbol.uuid)
+            };
+            *uses += 1;
+            self.budget.reserve([source_uuid.len()])?;
             let source_identity =
-                source_identity(&occurrence.legacy_address, &symbol.uuid, "", "", "", "");
+                source_identity(&occurrence.legacy_address, &source_uuid, "", "", "", "");
             let source_mapping = source_identity_mapping(&source_identity);
             let component_id = self
                 .allocator
@@ -449,7 +468,7 @@ impl<'a> StructuralGraphBuilder<'a> {
             self.component_by_symbol
                 .entry(occurrence.index)
                 .or_default()
-                .insert(symbol.uuid.clone(), component_id.clone());
+                .insert(symbol_index, component_id.clone());
             if !symbol.uuid.is_empty() {
                 self.append_graphical_link(
                     &owner.page,
@@ -496,6 +515,12 @@ impl<'a> StructuralGraphBuilder<'a> {
         target_ref: &str,
         element_id: &str,
     ) -> Result<(), SourceBundleError> {
+        if !self
+            .linked_selectors
+            .insert((page_ref.to_owned(), element_id.to_owned()))
+        {
+            return Ok(());
+        }
         ensure_capacity(
             self.graph.graphical_artifact_links.len(),
             self.limits.max_graphical_artifact_links,

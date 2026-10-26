@@ -1,13 +1,20 @@
+import gzip
+import json
+import mimetypes
+import re
 from pathlib import Path
+from typing import Dict, Optional
+from urllib.parse import quote
 
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
 from app.core import policy
+from app.core.gzip_config import GZIP_EXCLUDED_CONTENT_TYPES
 from app.core.roles import Role
 from app.core.security import AuthenticatedUser
 from app.services.workspace_service import workspace
-from app.services import project_service
+from app.services import file_service, project_service
 from app.services.catalog.preview_files import stored_file
 
 
@@ -136,3 +143,128 @@ def preview_file_response(request: Request, path: Path, media_type: str, headers
     import gzip  # noqa: PLC0415
 
     return Response(gzip.decompress(file.read_bytes()), media_type=media_type, headers=headers)
+
+
+#: Headers for bytes Prism serves but did not write -- released members, KiCad's
+#: SVG plots, Gerber layers drawn as SVG. SVG served inline from this origin is
+#: script; the sandbox and the sniffing block keep an inline view from becoming
+#: a way to run code against a logged-in session.
+SANDBOXED_CONTENT_HEADERS = {
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
+
+
+#: Larger commit files are served from the content-addressed blob cache, not read whole.
+COMMIT_FILE_STREAM_BYTES = 1 << 20
+
+
+_FULL_SHA = re.compile(r"[0-9a-f]{40}")
+
+#: A file read at a full commit SHA never changes. ``private``: it is served to
+#: a signed-in session only.
+PINNED_CACHE_CONTROL = "private, max-age=31536000, immutable"
+
+
+def revision_cache_headers(commit: Optional[str]) -> Dict[str, str]:
+    """Cache headers for a file read at ``commit``.
+
+    A full SHA names bytes that never change, so the browser keeps them. Any
+    other revision (HEAD, a branch, a short SHA) can move: the browser asks
+    again every time and the ETag turns an unchanged answer into a 304.
+    """
+
+    if commit and _FULL_SHA.fullmatch(commit):
+        return {"Cache-Control": PINNED_CACHE_CONTROL}
+    return {"Cache-Control": "no-cache"}
+
+
+def _etag_matches(request: Request, etag: str) -> bool:
+    header = request.headers.get("if-none-match")
+    if not header:
+        return False
+    tags = {tag.strip().removeprefix("W/") for tag in header.split(",")}
+    return "*" in tags or etag in tags
+
+
+def _accepts_gzip(request: Request) -> bool:
+    for coding in request.headers.get("accept-encoding", "").split(","):
+        name, _, params = coding.strip().partition(";")
+        if name.strip().lower() == "gzip":
+            return params.replace(" ", "") not in ("q=0", "q=0.0", "q=0.00", "q=0.000")
+    return False
+
+
+def _compressible(media_type: str) -> bool:
+    if media_type.startswith(("image/", "video/", "audio/")):
+        return False
+    return not media_type.startswith(GZIP_EXCLUDED_CONTENT_TYPES)
+
+
+def gzip_served_path(
+    request: Request, path: Path, media_type: str, content_key: str, headers: Dict[str, str]
+) -> Path:
+    """The file to send for ``path``: its gzip copy when the client takes gzip.
+
+    Call it from a worker thread: the first request for some content compresses
+    it. ``headers`` gains ``Content-Encoding``, so the response middleware
+    passes the copy through instead of compressing it again on the event loop.
+    """
+
+    if "range" in request.headers or not _compressible(media_type) or not _accepts_gzip(request):
+        return path
+    headers["Content-Encoding"] = "gzip"
+    headers["Vary"] = "Accept-Encoding"
+    return file_service.gzip_copy(path, content_key)
+
+
+def gzip_json_response(request: Request, payload: object, headers: Dict[str, str]) -> Response:
+    """``payload`` as JSON, serialized and (when the client takes it) gzipped here.
+
+    For a large body built in a worker thread: returning the object instead
+    leaves serializing and compressing it to the event loop.
+    """
+
+    body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    response_headers = dict(headers)
+    if len(body) > COMMIT_FILE_STREAM_BYTES and _accepts_gzip(request):
+        body = gzip.compress(body, compresslevel=file_service.GZIP_COPY_LEVEL, mtime=0)
+        response_headers["Content-Encoding"] = "gzip"
+        response_headers["Vary"] = "Accept-Encoding"
+    return Response(content=body, media_type="application/json", headers=response_headers)
+
+
+def commit_file_response(
+    commit_file: file_service.CommitFile,
+    *,
+    inline: bool = True,
+    headers: Optional[Dict[str, str]] = None,
+    request: Optional[Request] = None,
+) -> Response:
+    """Serve a file read at a commit; a large one streams from the blob cache.
+
+    With the ``request``, the response carries an ETag naming the file's
+    content (its blob, or its bundle member digest): a matching
+    ``If-None-Match`` is answered 304 without the bytes, and a large
+    compressible file is sent from a gzip copy made once in this worker thread
+    instead of being compressed again by the middleware on the event loop.
+    """
+    media_type = mimetypes.guess_type(commit_file.name)[0] or "application/octet-stream"
+    response_headers = dict(headers or {})
+    if request is not None:
+        etag = f'"{commit_file.blob_sha}"'
+        response_headers["ETag"] = etag
+        if _etag_matches(request, etag):
+            return Response(status_code=304, headers=response_headers)
+    disposition = "inline" if inline else "attachment"
+    safe_name = commit_file.name.replace('"', "")
+    response_headers["Content-Disposition"] = (
+        f'{disposition}; filename="{safe_name}"; filename*=UTF-8\'\'{quote(commit_file.name)}'
+    )
+    if commit_file.size > COMMIT_FILE_STREAM_BYTES:
+        path = commit_file.cached_path()
+        if request is not None:
+            path = gzip_served_path(request, path, media_type, commit_file.blob_sha, response_headers)
+        return FileResponse(path, media_type=media_type, headers=response_headers)
+    return Response(content=commit_file.content, media_type=media_type, headers=response_headers)

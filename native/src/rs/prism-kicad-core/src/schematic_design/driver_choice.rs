@@ -14,10 +14,21 @@ pub(super) struct DriverChoice {
 }
 
 impl DriverChoice {
+    /// A global label or global power port names its net the same on every sheet, so
+    /// KiCad's global pass ranks those by priority and then name, not by sheet depth
+    /// (`prefer_as_representative` in `CONNECTION_GRAPH::buildConnectionGraph`).
+    fn ranked_depth(&self) -> usize {
+        if self.priority >= SchematicDriverPriority::GlobalPowerPin {
+            0
+        } else {
+            self.depth
+        }
+    }
+
     fn precedes(&self, other: &Self) -> bool {
         (
             std::cmp::Reverse(self.priority),
-            self.depth,
+            self.ranked_depth(),
             self.shape_rank,
             self.implicit,
             &self.full_name,
@@ -25,7 +36,7 @@ impl DriverChoice {
             self.order,
         ) < (
             std::cmp::Reverse(other.priority),
-            other.depth,
+            other.ranked_depth(),
             other.shape_rank,
             other.implicit,
             &other.full_name,

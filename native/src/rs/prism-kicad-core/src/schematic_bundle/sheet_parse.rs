@@ -3,7 +3,6 @@ use super::SchematicSheet;
 #[derive(Clone, Debug, Default)]
 pub(super) struct SheetParseState {
     pub(super) property_count: usize,
-    pub(super) uuid_seen: bool,
     pub(super) sheet_name_seen: bool,
     pub(super) sheet_file_seen: bool,
     pub(super) in_bom_seen: bool,

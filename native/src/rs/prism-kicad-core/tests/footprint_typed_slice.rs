@@ -30,6 +30,38 @@ fn typed_view_reads_name_properties_and_pads_without_a_generic_tree() {
     assert_eq!(properties[1].value, "old value");
 }
 
+/// KiCad reads a model's fields in order and the last one wins
+/// (`PCB_IO_KICAD_SEXPR_PARSER::parse3DModel`): `hide` takes yes/no/true/false and
+/// may repeat, and the inch `at` and the mm `offset` may both appear.
+#[test]
+fn model_fields_are_read_in_order_and_the_last_wins() {
+    let source = r#"(footprint "Models"
+  (model "a.step" (hide true))
+  (model "b.step" (hide yes) (hide no))
+  (model "c.step" hide (offset (xyz 1 2 3)) (at (xyz 1 0 0))))"#;
+    let models = FootprintView::parse(source, FootprintLimits::default())
+        .expect("model view")
+        .models()
+        .collect::<Result<Vec<_>, _>>()
+        .expect("models");
+    assert_eq!(models[0].hidden, Some(true));
+    assert_eq!(models[1].hidden, Some(false));
+    assert_eq!(models[2].hidden, Some(true));
+    assert_eq!(models[2].offset, [25.4, 0.0, 0.0]);
+}
+
+/// `(module …)` is the KiCad 5 root of a footprint file, which KiCad 10 still reads
+/// (`PCB_IO_KICAD_SEXPR_PARSER::parseFOOTPRINT_unchecked`).
+#[test]
+fn a_legacy_module_root_is_a_footprint() {
+    let source = r#"(module "R_0603" (layer F.Cu)
+  (pad "1" smd rect (at -0.8 0) (size 0.8 0.9) (layers F.Cu F.Paste F.Mask))
+  (pad "2" smd rect (at 0.8 0) (size 0.8 0.9) (layers F.Cu F.Paste F.Mask)))"#;
+    let view = FootprintView::parse(source, FootprintLimits::default()).expect("module root");
+    assert_eq!(view.name().expect("module name"), "R_0603");
+    assert_eq!(view.pad_count(), 2);
+}
+
 #[test]
 #[allow(
     clippy::cognitive_complexity,

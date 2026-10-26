@@ -2234,13 +2234,14 @@ class RendererVersionTests(unittest.TestCase):
     in the same commit.
     """
 
-    #: Recorded for RENDERER_VERSION d28 under the pinned artwork toolchain, and
+    #: Recorded for RENDERER_VERSION d29 under the pinned artwork toolchain, and
     #: verified stable across two runs.
     #: The version and these digests move together, never one without the other.
     #: These are the default `prism` sheets; GOLDEN_KICAD below pins the
     #: selectable `kicad` style to the d23 look so it cannot drift. d28 also
     #: moves the prism sheet/scale choice to the full body, with continuation
-    #: pages for schedules that do not fit beside the art.
+    #: pages for schedules that do not fit beside the art. d29 moves only placed
+    #: fabrication sheets (GOLDEN_PLACED); these artwork-free sets are unchanged.
     GOLDEN = {
         "documentation/assembly.pdf":
             "a3e601985d5018c90afe10e4dddc8bc3fede817a1de3ef0fcdddc9f3e73c0eb2",
@@ -2310,7 +2311,7 @@ class RendererVersionTests(unittest.TestCase):
     #: A placed sheet, so a change to sheet selection, the scale ladder, or
     #: fabrication dimensions trips this too -- the set above carries no
     #: artwork and would not.
-    GOLDEN_PLACED = "5e1495f65218f01b3806a612281b5758d92d80acb501f2abb0497bb9e86db513"
+    GOLDEN_PLACED = "e1d5fd671145390e05b8813325643ef90ee890bc5f03169b1b190add73c6164d"
     GOLDEN_PLACED_KICAD = "b39c21c06d0ce672b85e7c14aa216cf4b1a1f606a861f0cb860e3e665896d240"
 
     def test_a_placed_sheet_matches_its_recorded_digest(self) -> None:
@@ -2345,7 +2346,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d28",
+            "release-studio-documents/d29",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 
@@ -2572,6 +2573,30 @@ class PrismStyleTests(unittest.TestCase):
         )
         # The old bottom-left scale label is gone; the ratio is in the caption.
         self.assertNotIn("SCALE 2:1", [e.value for e in sheet.elements if isinstance(e, Text)])
+
+    def test_the_fabrication_caption_sits_under_the_width_dimension(self) -> None:
+        from app.release_studio.documents.fonts import cap_height
+        from app.release_studio.documents.layout import Line, Text
+
+        art = _svg_artwork(50.0, 40.0)
+        sheet, used, _over = sheet_templates.fabrication_sheet(
+            CONTEXT, STATS, STACKUP, art, size="A3", scale=2.0
+        )
+        texts = [e for e in sheet.elements if isinstance(e, Text)]
+        caption = next(t for t in texts if t.value == f"SCALE {used:g}:1")
+        label = next(t for t in texts if t.value == STATS["board"]["width"])
+        # The width dimension's line and end ticks reach just under its label.
+        dimension_bottom = max(
+            y
+            for e in sheet.elements
+            if isinstance(e, Line)
+            for y in (e.y1, e.y2)
+            if label.y < y < label.y + 4.0
+        )
+        # The caption's capitals start below the dimension, with clear space.
+        caption_top = caption.y - cap_height(2.6, bold=True)
+        self.assertGreaterEqual(caption_top, dimension_bottom + 2.0)
+        self.assertGreater(caption_top, label.y)
 
     def test_a_58_mm_board_takes_the_largest_standard_scale_that_fits(self) -> None:
         art = _svg_artwork(58.0, 58.0)

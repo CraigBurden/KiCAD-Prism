@@ -94,6 +94,13 @@ sets, the design-compare file list, the semantic-index cache key and its
 schematic field overlay all apply it; do not add another suffix or autosave
 filter next to a reader.
 
+A project's commit history is `project_history_scope.py` (issue #681): the
+commits that change its directory, less the files another project owns there
+(KiCad's stem rule) and registered projects nested inside it, from the commit
+that added its project file. `project_outputs.history_context` builds it for a
+project; the History list and the card's latest commit both use it. Do not
+filter history by directory alone.
+
 Project settings edited in Prism live in the workspace database
 (`project_settings_service.py`) and win over the committed .prism.json file;
 nothing writes into a checkout, because Sync fast-forwards only a clean tree.
@@ -252,3 +259,69 @@ handlers. Tests plug `backend/tests/tracker_fault_harness.py` `StatefulFakeForge
 the runtime seam (`install_fake_provider`), not by patching executor privates. Read `docs/TRACKER_INTEGRATION.md` and
 `docs/tracker-integration/CONTRACTS.md` before changing credential, idempotency,
 remote recovery, or authorization behavior.
+
+## Fabrication viewer
+
+`fabrication_view_service.py` turns a set of Gerber and drill files into a view
+model and one SVG per layer; `placement_service.py` parses a position file and a
+BOM and checks one against the other. Both are pure: files in, view out, and
+both refuse with typed errors (`FabricationViewError` is a 404,
+`PlacementError` a 422). The routes that feed them are all in
+`backend/app/api/fabrication_view.py`: a Release Studio build's dossier, and a
+folder of committed outputs. A build's members are read through
+`BuildArchives.released_members` (`release_studio_publish_service.py`), the
+same digest-checked read as Release Studio's member download; never open the
+dossier tarball yourself. A folder's files come through `project_outputs.py`,
+which the project routes and the viewer sources share: where a project's output
+folders are, and a file or listing out of one at a commit.
+
+The parsing and drawing belong to `fabrication_compare_service.py`, which is
+grandfathered at its current length and must not grow. New behavior goes in the
+new modules; use its public functions (`board_outline`, `layer_bounds`,
+`safe_name`, `svg_number` ...) rather than copying them.
+
+Rules that are easy to break:
+
+- **Gerber and position files are Y-up; the board frame is Y-down.** The flip is
+  done once, in the SVG renderer and in `placement_service.build_view`. Do not
+  flip again downstream.
+- **A declared layer function wins.** File names are read only for files with no
+  Gerber X2 function (`fabrication_view_service._classify_by_name`).
+- **An output folder's package reaches three levels down** (`_MAX_DEPTH` in
+  `backend/app/api/fabrication_view.py`, `PACKAGE_DEPTH` in
+  `frontend/src/components/fabrication-viewer/sources.ts`), and shows **one
+  export** (`fabrication_view_service.nearest_export`): the shallowest folder of
+  Gerbers with its own subfolders, plus drill files outside every other export.
+  Another folder of Gerbers in reach (a vendor pack, an older revision) is left
+  out and opens on its own; the file limits measure the export shown. Files are
+  laid out flat by name for discovery; on a name clash the file nearest the top
+  wins. Position files and the BOM are found anywhere in reach, each parsed once;
+  a top and a bottom position file are read together
+  (`placement_service.position_files`); a second export of the same board is not.
+- **Drill maps are not layers** (`fabrication_view_service.is_drill_map`): their
+  legend would set the board's extent.
+- **Layer names are for reading** (`display_names`). Drill programs are named by
+  plating; a name that is still ambiguous drops the board name the package's files
+  share before falling back to the whole file name.
+- **Match columns by meaning, not by name.** KiCad and the JLCPCB plugin name the
+  same columns differently, and a JLCPCB BOM has a `Designator` column, so a
+  position file is recognised by having coordinates, not by its name.
+- **A layer SVG is its colour, fully opaque, where plotted and transparent elsewhere.**
+  A layer with nothing cleared (most of them) is drawn in its colour directly. Only a
+  layer with clear polarity, or an aperture with a hole, is drawn white-on-black as a
+  mask with the colour filled through it, so the cut shows what is behind instead of
+  painting black. A mask costs the browser a second drawing, so it is used only then.
+  The viewer stacks the layers; nothing is blended, and no SVG carries `opacity`.
+- **Bump `RENDER_VERSION` whenever `svg()` draws differently.** Build layers and
+  layers at a pinned commit are cached by the browser for a year as immutable, and
+  the viewer puts the version in every layer URL. Without the bump, a browser keeps
+  the old drawing: after the switch to opaque stacking, cached SVGs with a black
+  background hid every layer under the last one painted. Changing which files make
+  a package counts: every layer is drawn on the package's extent, so leaving drill
+  maps out (version 4) moved every layer.
+- **A drawn line is at least 1.5 screen pixels wide.** `with_minimum_stroke` adds a
+  `width` media-query ladder to each layer SVG: an image SVG evaluates those against
+  its own rendered width, so the SVG can size its minimum line to the zoom without
+  the viewer telling it. Without it a 0.1 mm silkscreen or outline line is under a
+  pixel at fit zoom and renders dimmer than its swatch. Only polylines (and drill
+  circles) are widened; pads, vias and aperture-macro lines keep their true size.

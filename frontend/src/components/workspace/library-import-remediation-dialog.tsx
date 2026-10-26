@@ -114,7 +114,7 @@ export function LibraryImportRemediationDialog({
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Review project component</DialogTitle>
-          <DialogDescription>Complete required metadata and choose the immutable assets that will enter the draft revision.</DialogDescription>
+          <DialogDescription className="sr-only">Required metadata and assets for the draft revision</DialogDescription>
         </DialogHeader>
 
         {proposal && <div className="space-y-6">
@@ -153,7 +153,7 @@ export function LibraryImportRemediationDialog({
                   })}</div>
                 </div>;
               })}
-              {Object.keys(assetsByType).length === 0 && <p className="border p-3 text-sm text-muted-foreground">No assets were extracted.</p>}
+              {Object.keys(assetsByType).length === 0 && <p className="p-3 text-sm text-muted-foreground">No assets</p>}
             </div>
           </section>
 

@@ -51,13 +51,17 @@ pub(super) fn build_pin_namings(
         .iter()
         .map(|terminal| terminal.symbol_index)
         .collect::<HashSet<_>>();
-    let mut source_pin_uuids = HashMap::new();
+    // Saved order, as KiCad pairs duplicate pin numbers (`SCH_SYMBOL::updatePins`).
+    let mut source_pin_uuids = HashMap::<(usize, &str), Vec<&str>>::new();
     for symbol_index in active_symbols {
         let Some(symbol) = definition.symbols.get(symbol_index) else {
             continue;
         };
         for pin in &symbol.pins {
-            source_pin_uuids.insert((symbol_index, pin.number.as_str()), pin.uuid.as_str());
+            source_pin_uuids
+                .entry((symbol_index, pin.number.as_str()))
+                .or_default()
+                .push(pin.uuid.as_str());
         }
     }
     let mut retained_string_bytes = 0_usize;
@@ -72,6 +76,7 @@ pub(super) fn build_pin_namings(
         })?;
         let source_pin_uuid = source_pin_uuids
             .get(&(terminal.symbol_index, terminal.pin_number.as_str()))
+            .and_then(|uuids| uuids.get(terminal.number_ordinal))
             .copied()
             .unwrap_or_default();
         let designator_with_unit =
@@ -119,23 +124,35 @@ fn designator_with_unit(
     max_string_bytes: usize,
 ) -> Result<String, SourceBundleError> {
     let placed = &definition.symbols[terminal.symbol_index];
-    let unit_count = definition
-        .library_pin_symbol_for_placement(placed)
-        .map_or(1, |library| {
-            library
-                .subsymbols
-                .iter()
-                .map(|subsymbol| subsymbol.unit)
-                .max()
-                .unwrap_or(1)
-                .max(1)
-        });
+    let library = definition.library_pin_symbol_for_placement(placed);
+    let unit_count = library.map_or(1, |library| {
+        library
+            .subsymbols
+            .iter()
+            .map(|subsymbol| subsymbol.unit)
+            .max()
+            .unwrap_or(1)
+            .max(1)
+    });
     if unit_count <= 1 {
         ensure_bytes(definition, terminal.reference.len(), max_string_bytes)?;
         return Ok(terminal.reference.clone());
     }
-    let suffix = subpart_reference(symbol.unit, settings)
-        .map_err(|message| error(definition, SourceBundleErrorKind::Schematic, message))?;
+    // A unit display name replaces the A/B/C suffix (`SCH_SYMBOL::SubReference`).
+    let display_name = library.and_then(|library| {
+        library
+            .subsymbols
+            .iter()
+            .find(|subsymbol| subsymbol.unit == symbol.unit && subsymbol.unit_name.is_some())
+            .and_then(|subsymbol| subsymbol.unit_name.clone())
+    });
+    let suffix = match display_name {
+        Some(name) => char::from_u32(settings.separator)
+            .filter(|_| settings.separator != 0)
+            .map_or(name.clone(), |separator| format!("{separator}{name}")),
+        None => subpart_reference(symbol.unit, settings)
+            .map_err(|message| error(definition, SourceBundleErrorKind::Schematic, message))?,
+    };
     let output_bytes = terminal
         .reference
         .len()

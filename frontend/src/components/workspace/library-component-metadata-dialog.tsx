@@ -129,7 +129,7 @@ export function MetadataEditDialog({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Edit component metadata</DialogTitle>
-          <DialogDescription>Saving creates a new immutable revision. The current revision ID is checked to prevent overwriting concurrent work.</DialogDescription>
+          <DialogDescription className="sr-only">Saving creates a new revision</DialogDescription>
         </DialogHeader>
         {session.identityKind === "provisional_ipn" ? (
           <p className="border border-border bg-muted/50 p-3 text-sm text-muted-foreground">

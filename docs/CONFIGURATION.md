@@ -180,14 +180,14 @@ retried.
 | Setting | Purpose |
 | --- | --- |
 | `PRISM_DESIGN_BUNDLE_AUTO_BUILD` | queue the HEAD bundle after every import and sync, and run the paced prebuild of each branch's newest commits and every tagged commit (ADR amendment K2 §7). Default `true` since the C2r switch; `false` builds bundles on demand only, and a comparison of a commit without one reads its source tree, the cold path |
-| `PRISM_DESIGN_BUNDLE_CONCURRENCY` | capacity of the `design_bundle` slot (default 1); the backfill uses the same slot |
+| `PRISM_DESIGN_BUNDLE_CONCURRENCY` | bundle builds at once (default 1, at most 8); the prebuild fills every free slot. Each build also holds one `PRISM_SEMANTIC_COMPILE_SLOTS` slot, one `PRISM_WORKER_CONCURRENCY` slot and 2.25 GiB of `PRISM_WORKER_MEMORY_BUDGET_MIB`, and a build waits until all are free. Raise `PRISM_DESIGN_BUNDLE_MEMORY_BUDGET_BYTES` with it: 2 builds need 14.5 GiB with the default stage caps |
 | `PRISM_DESIGN_BUNDLE_*_MEMORY_BYTES`, `_*_TIMEOUT_MS` (PARSE, BOARD, MODELS) | per-stage heap cap and wall timeout passed to `prism-kicad` (defaults 4/6/2 GiB, 300/600/120 s) |
 | `PRISM_DESIGN_BUNDLE_VERIFY_TIMEOUT_MS` | `prism-kicad bundle verify` when an archive is stored (default 300 s) |
 | `PRISM_DESIGN_BUNDLE_MEMORY_BUDGET_BYTES` | worker memory for the slot; startup refuses `CONCURRENCY x (largest cap + 1.25 GiB)` above it (default 8 GiB) |
 | `PRISM_DESIGN_BUNDLE_THREADS`, `PRISM_DESIGN_BUNDLE_MAX_ATTEMPTS` | `prism-kicad --threads` (default 4); attempts per job before a failing KiCad step ends it (default 3) |
 | `PRISM_DESIGN_BUNDLE_FAILED_RETRY_SECONDS` | how long a bundle whose job ended failed stays failed before a status read queues it again (default 3600); `0` leaves retries to Generate and Regenerate. The 3D tab shows the failure instead of waiting |
 | `PRISM_DESIGN_BUNDLE_RETENTION_DAYS` | days an unused bundle or alias is kept; the prebuild's commits (branch heads, each branch's newest commits, tags), released Release Studio commits and every bundle an alias points to are always kept (default 30) |
-| `PRISM_DESIGN_BUNDLE_BACKFILL_INTERVAL_SECONDS` | seconds between prebuild ticks; each aliases what it can and queues at most one build; 0 disables (default 60) |
+| `PRISM_DESIGN_BUNDLE_BACKFILL_INTERVAL_SECONDS` | seconds between prebuild ticks; 0 disables (default 60). A tick aliases what it can and queues builds into the free `design_bundle` slots: every project's HEAD first, then older commits one project at a time. A full slot keys nothing it could not queue |
 | `PRISM_DESIGN_BUNDLE_PREBUILD_COMMITS` | how many of each branch's newest commits (first parent) the background prebuild keeps bundles for, besides every tagged commit; 0 prebuilds branch heads and tags only (default 10) |
 | `PRISM_DESIGN_BUNDLE_REUSE_CANDIDATES` | how many stored bundles a new revision is checked against with `prism-kicad bundle reuse` before it is built; 0 disables reuse (default 3) |
 | `PRISM_DESIGN_BUNDLE_CACHE_GRACE_SECONDS` | how long an unpacked-cache version must be untouched before retention may remove it, so a slow reader keeps its files (default 3600) |

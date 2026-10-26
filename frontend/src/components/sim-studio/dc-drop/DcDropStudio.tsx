@@ -29,7 +29,7 @@ import { NO_CANDIDATES, type Candidates } from "./candidates";
 import { boardIndex, candidatesFor, semanticIndexFor, createSetup, loadTree, saveTree, type StudioTab, type TreeRecord } from "./power-tree-session";
 import { ResultsView } from "./results/ResultsView";
 import { SetupSettingsPane } from "./SetupSettingsPane";
-import { StudioTabsList, StudioTabsTrigger } from "../studio-tabs";
+import { StudioTabsList, StudioTabsTrigger } from "@/components/ui/studio-tabs";
 
 export type { StudioTab } from "./power-tree-session";
 

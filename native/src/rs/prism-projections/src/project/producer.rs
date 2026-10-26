@@ -9,6 +9,7 @@ use crate::{
     BoardModel, Produced, ProducerWarning, ProjectionError, ProjectionInput, Sources, document,
 };
 use prism_kicad_contracts::generated::prism_project_a0::ProjectA0;
+use prism_kicad_core::sheet_file;
 use prism_kicad_core::{Limits, Sexp, parse_with_limits};
 use serde_json::{Map, Value};
 use std::borrow::Cow;
@@ -53,6 +54,9 @@ struct RefExtra<'a> {
 struct Producer<'a> {
     sources: &'a dyn Sources,
     board_model: Option<&'a BoardModel<'a>>,
+    /// The top-level sheets the core realized (several in a KiCad 10
+    /// multi-root project); empty without a schematic model.
+    top_level: Vec<String>,
     project_file: String,
     project_dir: Vec<String>,
     stem: String,
@@ -76,6 +80,14 @@ impl<'a> Producer<'a> {
         Self {
             sources: input.sources,
             board_model: input.board,
+            top_level: input.schematic.map_or_else(Vec::new, |model| {
+                model
+                    .index
+                    .occurrences()
+                    .filter(|occurrence| occurrence.parent_index.is_none())
+                    .map(|occurrence| occurrence.source_path.clone())
+                    .collect()
+            }),
             project_dir: dir_segments(&project_file),
             project_name: stem.clone(),
             stem,
@@ -162,7 +174,10 @@ impl<'a> Producer<'a> {
         stack: &[EmbeddedLayer<'_>],
     ) -> Option<Target> {
         let raw = raw.filter(|raw| !raw.is_empty())?;
-        let (variables, target) = self.resolve_parts(raw, kind, document_path, stack);
+        let (variables, mut target) = self.resolve_parts(raw, kind, document_path, stack);
+        if kind == RefKind::SheetFile {
+            target = self.sheet_case_match(target);
+        }
         self.references.push(build_reference(
             kind,
             document_path,
@@ -172,6 +187,30 @@ impl<'a> Producer<'a> {
             &extra,
         ));
         Some(target)
+    }
+
+    /// A sheet file that differs from a source-set schematic only in letter
+    /// case is that schematic, by KiCad's sheet file rule as the core and stage
+    /// parse read it ([`sheet_file::locate`], `sheet-path-case`, cli-spec
+    /// §5.2.2), or the target as is.
+    fn sheet_case_match(&self, target: Target) -> Target {
+        let Target::Repository {
+            path,
+            base,
+            in_sources: false,
+        } = &target
+        else {
+            return target;
+        };
+        let found = sheet_file::locate(path, false, || self.sources.list("", &[".kicad_sch"]));
+        match found {
+            Some((actual, _)) => Target::Repository {
+                path: actual,
+                base: *base,
+                in_sources: true,
+            },
+            None => target,
+        }
     }
 
     /// `project.py:497-517`: one document header.
@@ -222,7 +261,8 @@ impl<'a> Producer<'a> {
         Value::Object(document)
     }
 
-    /// `project.py:521-555`: the root schematic and every sheet it reaches.
+    /// `project.py:521-555`: the root schematic, the other top-level sheets of a
+    /// KiCad 10 multi-root project, and every sheet they reach.
     fn scan_schematics(&mut self) -> Result<(), ProjectionError> {
         let root = self.repo(&format!("{}.kicad_sch", self.stem));
         if !self.sources.exists(&root) {
@@ -230,6 +270,11 @@ impl<'a> Producer<'a> {
         }
         let mut queue = VecDeque::from([root.clone()]);
         let mut seen = BTreeSet::from([root.clone()]);
+        for top in &self.top_level {
+            if seen.insert(top.clone()) {
+                queue.push_back(top.clone());
+            }
+        }
         while let Some(path) = queue.pop_front() {
             let tree = self.read_sexpr(&path)?;
             if path == root {

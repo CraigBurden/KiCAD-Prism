@@ -63,7 +63,7 @@ Everything outside the source files that changes which files are the project or 
 |---|---|
 | `schema` | `"prism.revision_key.effective_config.a1"` |
 | `project_file` | Repository-relative path of the resolved `.kicad_pro`: the **anchor** (G5). Its directory is KiCad's `KIPRJMOD`. |
-| `root_schematic` | Optional. Repository-relative path of the root schematic the build parses. |
+| `root_schematic` | Optional. Repository-relative path of the root schematic the build parses. A KiCad 10 project that lists its top-level sheets (`schematic.top_level_sheets`) is parsed from those instead (`cli-spec.md` §5.2.2); they come from the project file, which the key hashes, so the config does not repeat them. |
 | `board` | Optional. Repository-relative path of the board the build parses. |
 | `excluded_dirs` | Repository-relative directories whose entries are never selected: Prism's design-output and manufacturing-output directories. May be empty. |
 | `zone_fills` | Optional. `"saved"`: the board stage uses the zone fills saved in the board instead of refilling with pcbnew (`cli-spec.md` §5.2.3). Absent means refill, the default. It changes the board stage's output, so it is in the key: the choice is deterministic per key. |
@@ -498,7 +498,7 @@ WP-K MUST add a test for that resolution: two `.kicad_pro` files in one director
   - never the record's `source`: a key built from a commit and one built from a working tree must give byte-identical bundles;
   - each `sources/` member records its repository path, kind and object id, so a reader can check it against the key.
 - **Bundle key** (ADR §5): the CLI spec frames it (`cli-spec.md` §5.1.4). It takes the 64-hex revision key as this contract defines it.
-- **`prism-kicad bundle build --config`** takes the same `RevisionKeyEffectiveConfigA1` file. `root_schematic` and `board` choose what it parses, exactly: an absent field means nothing of that kind is parsed. Only without `--config` does it apply §4.3, KiCad's stem pairing beside the project file.
+- **`prism-kicad bundle build --config`** takes the same `RevisionKeyEffectiveConfigA1` file. `root_schematic` and `board` choose what it parses, exactly: an absent field means nothing of that kind is parsed. Only without `--config` does it apply §4.3, KiCad's stem pairing beside the project file. With `root_schematic` set, a KiCad 10 project's listed top-level sheets take its place (`cli-spec.md` §5.2.2); every listed sheet file is a selected `.kicad_sch` entry (§5), so the key already covers them.
 - **Semantic index a1:**
   - its `sourceRevisionKey` envelope value (`semantic_index_service.py:1147`) becomes this 64-hex key;
   - today's value is a 32-hex key of a different algorithm, so parity ignores the field.

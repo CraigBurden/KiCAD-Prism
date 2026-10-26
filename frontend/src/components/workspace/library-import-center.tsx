@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type InputHTMLAttributes } from "react";
-import { AlertTriangle, Check, ChevronRight, CircuitBoard, FolderOpen, FolderSearch, HardDrive, LoaderCircle, PanelLeftClose, PanelLeftOpen, RefreshCw, Table2, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, CircuitBoard, FolderOpen, FolderSearch, HardDrive, LoaderCircle, PanelLeftClose, PanelLeftOpen, RefreshCw, Table2, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { ApiHttpError } from "@/lib/api";
 import { usePoll } from "@/lib/server-state";
 import { Input } from "@/components/ui/input";
@@ -23,6 +27,7 @@ import {
   completeFolderSnapshot,
   createFolderSnapshot,
   createProjectImportSession,
+  deleteImportSession,
   discoverFolderSnapshot,
   importServerFolder as queueServerFolderImport,
   listFolderImportRoots,
@@ -55,6 +60,24 @@ function groupedFindings(findings: ProjectComponentImportProposal["findings"]) {
   }
   return Array.from(grouped.values());
 }
+
+// Status dots, as in Release Studio's run list.
+const SESSION_DOT: Record<ProjectComponentImportSession["status"], string> = {
+  queued: "bg-muted-foreground",
+  uploading: "bg-muted-foreground",
+  scanning: "bg-muted-foreground",
+  staged: "bg-primary",
+  failed: "bg-destructive",
+};
+
+function sessionName(session: ProjectComponentImportSession, projects: Project[]): string {
+  if (session.scope === "folder") return session.selection.display_name || "Library folder";
+  if (session.scope === "all-projects") return "All projects";
+  const project = projects.find((item) => item.id === session.project_id);
+  return project?.display_name || project?.name || session.project_id;
+}
+
+const runningStatuses = new Set<ProjectComponentImportSession["status"]>(["queued", "uploading", "scanning"]);
 
 const folderRelativePath = (file: File) => file.webkitRelativePath || file.name;
 const isDiscoverySource = (file: File) => /\.(kicad_sym|kicad_mod)$/i.test(file.name);
@@ -144,6 +167,8 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
   const [reviewMode, setReviewMode] = useState<"grid" | "cards">("grid");
   // The grid is wide; collapsing the session rail gives it back ~15rem.
   const [sessionsCollapsed, setSessionsCollapsed] = useState(false);
+  const [sessionToDelete, setSessionToDelete] = useState<ProjectComponentImportSession | null>(null);
+  const [deletingSession, setDeletingSession] = useState(false);
   const customFields = useImportCustomFields();
   const canWrite = canWriteCatalog(user?.role);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -365,6 +390,22 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
     }
   };
 
+  const deleteSession = async (session: ProjectComponentImportSession) => {
+    setDeletingSession(true);
+    try {
+      await deleteImportSession(session.id);
+      const remaining = sessions.filter((item) => item.id !== session.id);
+      setSessions(remaining);
+      if (selectedSessionId === session.id) setSelectedSessionId(remaining[0]?.id || "");
+      setSessionToDelete(null);
+      toast.success("Import session deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete import session");
+    } finally {
+      setDeletingSession(false);
+    }
+  };
+
   const resolveProposal = async (proposal: ProjectComponentImportProposal, action: "accept" | "reject", remediation?: ProposalRemediation) => {
     setProposalActionId(proposal.id);
     try {
@@ -380,12 +421,12 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
   };
 
   if (loading) {
-    return <div className="flex h-full items-center justify-center text-sm text-muted-foreground"><LoaderCircle className="mr-2 h-4 w-4 animate-spin" />Loading imports…</div>;
+    return <div className="flex h-full items-center justify-center text-muted-foreground" aria-label="Loading"><LoaderCircle className="h-4 w-4 animate-spin" /></div>;
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="import-sources-container border-b p-3">
+      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b bg-card px-3 py-2">
         <input
           ref={folderInputRef}
           type="file"
@@ -400,67 +441,45 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
           blocked={!canWrite}
           action="import components into the catalog"
           allowedRoles={["designer", "admin"]}
-          className="flex w-full max-w-none"
+          className="flex min-w-0 flex-1 max-w-none"
         >
-          <div
-            className={cn(
-              "import-source-groups grid w-full grid-cols-1 gap-2",
-              serverRoots.length === 0 && "import-source-groups--split"
-            )}
-            data-testid="import-source-groups"
-          >
-            <section aria-labelledby="library-import-source" className="import-source-card flex min-w-0 flex-wrap items-center gap-3 border bg-card p-2">
-              <div className="flex shrink-0 items-center gap-2">
-                <div className="flex size-8 shrink-0 items-center justify-center border bg-muted/40 text-muted-foreground">
-                  <FolderOpen className="h-4 w-4" />
-                </div>
-                <h3 id="library-import-source" className="whitespace-nowrap text-sm font-semibold">KiCad libraries</h3>
-              </div>
-              <div className="import-source-controls ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
-                <Button variant="outline" onClick={() => folderInputRef.current?.click()} disabled={!canWrite || creating}>
-                  <FolderOpen className="mr-2 h-4 w-4" />Choose local folder
-                </Button>
-                {serverRoots.length > 0 && (
-                  <>
-                    <div className="hidden h-6 w-px bg-border sm:block" aria-hidden="true" />
-                    <Select value={serverRoot} onValueChange={setServerRoot} disabled={!canWrite || creating}>
-                      <SelectTrigger className="min-w-32 flex-1"><SelectValue placeholder="Server root" /></SelectTrigger>
-                      <SelectContent>{serverRoots.map((root) => <SelectItem key={root.name} value={root.name}>{root.name}</SelectItem>)}</SelectContent>
-                    </Select>
-                    <Input className="min-w-40 flex-1" value={serverSubpath} onChange={(event) => setServerSubpath(event.target.value)} placeholder="Optional subfolder" disabled={creating} />
-                    <Button variant="outline" onClick={() => void importServerFolder()} disabled={!canWrite || creating}>
-                      <HardDrive className="mr-2 h-4 w-4" />Import server folder
-                    </Button>
-                  </>
-                )}
-              </div>
-            </section>
-
-            <section aria-labelledby="project-import-source" className="import-source-card flex min-w-0 flex-wrap items-center gap-3 border bg-card p-2">
-              <div className="flex shrink-0 items-center gap-2">
-                <div className="flex size-8 shrink-0 items-center justify-center border bg-muted/40 text-muted-foreground">
-                  <CircuitBoard className="h-4 w-4" />
-                </div>
-                <h3 id="project-import-source" className="whitespace-nowrap text-sm font-semibold">Project components</h3>
-              </div>
-              <div className="import-source-controls ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
-                <Select value={projectId} onValueChange={setProjectId} disabled={!canWrite || creating}>
-                  <SelectTrigger className="min-w-40 flex-1"><SelectValue placeholder="Select a project" /></SelectTrigger>
-                  <SelectContent>
-                    {projects.map((project) => <SelectItem key={project.id} value={project.id}>{project.display_name || project.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Button variant="outline" onClick={() => void createSession("project")} disabled={!canWrite || !projectId || creating}>Import From Project</Button>
-                <Button onClick={() => void createSession("all-projects")} disabled={!canWrite || creating}>Import From All Projects</Button>
-              </div>
-            </section>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2" data-testid="import-sources">
+            <div role="group" aria-label="Project components" className="flex min-w-0 items-center gap-1.5">
+              <CircuitBoard className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+              <Select value={projectId} onValueChange={setProjectId} disabled={!canWrite || creating}>
+                <SelectTrigger size="sm" className="w-48" aria-label="Project"><SelectValue placeholder="Project" /></SelectTrigger>
+                <SelectContent>
+                  {projects.map((project) => <SelectItem key={project.id} value={project.id}>{project.display_name || project.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Button size="sm" variant="outline" title="Scan this project's components" onClick={() => void createSession("project")} disabled={!canWrite || !projectId || creating}>Scan</Button>
+              <Button size="sm" variant="outline" title="Scan every project's components" onClick={() => void createSession("all-projects")} disabled={!canWrite || creating}>All projects</Button>
+            </div>
+            <Separator orientation="vertical" className="h-5" />
+            <div role="group" aria-label="KiCad libraries" className="flex min-w-0 items-center gap-1.5">
+              <Button size="sm" variant="outline" title="Import KiCad libraries from a folder on this computer" onClick={() => folderInputRef.current?.click()} disabled={!canWrite || creating}>
+                <FolderOpen className="h-3.5 w-3.5" />Local folder
+              </Button>
+              {serverRoots.length > 0 && (
+                <>
+                  <Select value={serverRoot} onValueChange={setServerRoot} disabled={!canWrite || creating}>
+                    <SelectTrigger size="sm" className="w-32" aria-label="Server root"><SelectValue placeholder="Server root" /></SelectTrigger>
+                    <SelectContent>{serverRoots.map((root) => <SelectItem key={root.name} value={root.name} title={root.path_hint}>{root.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Input className="h-8 w-36 text-xs" aria-label="Subfolder" value={serverSubpath} onChange={(event) => setServerSubpath(event.target.value)} placeholder="Subfolder" disabled={creating} />
+                  <Button size="sm" variant="outline" title="Import KiCad libraries from the server folder" onClick={() => void importServerFolder()} disabled={!canWrite || creating}>
+                    <HardDrive className="h-3.5 w-3.5" />Server folder
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
         </PermissionHint>
         {folderProgress && (
-          <div className="mt-2 flex items-center justify-end gap-3 text-xs text-muted-foreground" role="status">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground" role="status" title={folderProgress.label}>
             <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-            <span>{folderProgress.label} {folderProgress.completed}/{folderProgress.total}</span>
-            <div className="h-1.5 w-40 overflow-hidden rounded-full bg-muted">
+            <span className="tabular-nums">{folderProgress.completed}/{folderProgress.total}</span>
+            <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
               <div className="h-full bg-primary transition-[width]" style={{ width: `${(folderProgress.completed / folderProgress.total) * 100}%` }} />
             </div>
           </div>
@@ -470,12 +489,12 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
       <div
         className={cn(
           "grid min-h-0 flex-1 transition-[grid-template-columns] duration-200",
-          sessionsCollapsed ? "grid-cols-[3rem_minmax(0,1fr)]" : "grid-cols-[18rem_minmax(0,1fr)]"
+          sessionsCollapsed ? "grid-cols-[3rem_minmax(0,1fr)]" : "grid-cols-[15rem_minmax(0,1fr)]"
         )}
       >
-        <aside className="min-h-0 overflow-y-auto border-r p-2">
+        <aside className="flex min-h-0 flex-col border-r">
           {sessionsCollapsed ? (
-            <div className="flex flex-col items-center gap-2">
+            <div className="flex flex-col items-center gap-2 py-2">
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -489,39 +508,62 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
             </div>
           ) : (
             <>
-          <div className="mb-2 flex items-center justify-between px-2 py-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Import sessions</span>
-            <div className="flex items-center">
-              <Button variant="ghost" size="icon-sm" aria-label="Refresh imports" onClick={() => void loadSessions()}><RefreshCw className="h-3.5 w-3.5" /></Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Collapse import sessions"
-                title="Collapse import sessions"
-                onClick={() => setSessionsCollapsed(true)}
-              >
-                <PanelLeftClose className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </div>
-          {sessions.length === 0 ? (
-            <p className="p-3 text-sm text-muted-foreground">No imports yet.</p>
-          ) : sessions.map((session) => (
-            <button
-              type="button"
-              key={session.id}
-              onClick={() => setSelectedSessionId(session.id)}
-              className={cn("mb-1 w-full border p-3 text-left transition-colors hover:bg-muted/40", selectedSessionId === session.id && "border-primary bg-primary/5")}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-medium">{session.scope === "folder" ? session.selection.display_name || "Library folder" : session.scope === "all-projects" ? "All projects" : projects.find((project) => project.id === session.project_id)?.display_name || projects.find((project) => project.id === session.project_id)?.name || session.project_id}</span>
-                {(session.status === "queued" || session.status === "scanning") && <LoaderCircle className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+              <div className="flex h-10 shrink-0 items-center gap-1 border-b pl-3 pr-1 text-sm font-medium">
+                <span className="flex-1 truncate">Sessions</span>
+                <Button variant="ghost" size="icon-sm" aria-label="Refresh imports" title="Refresh" onClick={() => void loadSessions()}><RefreshCw className="h-3.5 w-3.5" /></Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Collapse import sessions"
+                  title="Collapse import sessions"
+                  onClick={() => setSessionsCollapsed(true)}
+                >
+                  <PanelLeftClose className="h-3.5 w-3.5" />
+                </Button>
               </div>
-              <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-                <span>{sessionStatusLabel[session.status]}</span><span>{session.proposal_count} candidates</span>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {sessions.length === 0 ? (
+                  <p className="px-3 py-6 text-sm text-muted-foreground">No imports</p>
+                ) : sessions.map((session) => {
+                  const name = sessionName(session, projects);
+                  const active = selectedSessionId === session.id;
+                  const running = runningStatuses.has(session.status);
+                  return (
+                    <div key={session.id} className="group relative">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSessionId(session.id)}
+                        aria-current={active ? "true" : undefined}
+                        title={`${name} · ${sessionStatusLabel[session.status]} · ${session.candidate_count} of ${session.proposal_count} open`}
+                        className={cn(
+                          "flex h-9 w-full items-center gap-2 border-b px-3 text-left text-xs",
+                          active ? "bg-muted shadow-[inset_2px_0_0_hsl(var(--primary))]" : "hover:bg-muted/40",
+                        )}
+                      >
+                        {running ? (
+                          <LoaderCircle className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+                        ) : (
+                          <span className={cn("h-2 w-2 shrink-0 rounded-full", SESSION_DOT[session.status])} aria-hidden />
+                        )}
+                        <span className="min-w-0 flex-1 truncate font-medium">{name}</span>
+                        <span className="shrink-0 tabular-nums text-muted-foreground group-hover:invisible group-focus-within:invisible">{session.candidate_count}</span>
+                      </button>
+                      {canWrite && !running && (
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                          aria-label="Delete import session"
+                          title="Delete import session"
+                          onClick={() => setSessionToDelete(session)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            </button>
-          ))}
             </>
           )}
         </aside>
@@ -535,11 +577,11 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
           )}
         >
           {!selectedSession ? (
-            <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground"><FolderSearch className="mb-3 h-8 w-8" /><p>Select or create an import session.</p></div>
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground"><FolderSearch className="size-6" aria-hidden />No session selected</div>
           ) : selectedSession.status === "failed" ? (
-            <div className="border border-destructive/40 bg-destructive/5 p-4"><h3 className="font-medium text-destructive">Import scan failed</h3><p className="mt-2 text-sm text-muted-foreground">{selectedSession.error_message}</p></div>
+            <Alert variant="destructive"><AlertTriangle /><AlertTitle>Scan failed</AlertTitle><AlertDescription className="break-words">{selectedSession.error_message}</AlertDescription></Alert>
           ) : proposals.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{selectedSession.status === "staged" ? "No components were discovered." : selectedSession.scope === "folder" ? "Resolving symbols, footprints, and referenced 3D models…" : "Scanning captured project revisions…"}</div>
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{selectedSession.status === "staged" ? "No components found" : <LoaderCircle className="h-4 w-4 animate-spin" aria-label="Scanning" />}</div>
           ) : reviewMode === "grid" ? (
             <div className="h-full min-h-0">
               <LibraryImportRemediationGrid
@@ -555,10 +597,9 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
             </div>
           ) : (
             <div className="space-y-2">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm text-muted-foreground">Per-component findings and provenance.</p>
+              <div className="flex justify-end">
                 <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setReviewMode("grid")}>
-                  <Table2 className="mr-1.5 h-3.5 w-3.5" />Bulk edit grid
+                  <Table2 className="mr-1.5 h-3.5 w-3.5" />Grid
                 </Button>
               </div>
               {proposals.map((proposal) => {
@@ -567,32 +608,32 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
                 const warnings = proposal.findings.length - blocking;
                 const findingGroups = groupedFindings(proposal.findings);
                 return (
-                  <article key={proposal.id} className="border bg-card p-4">
+                  <article key={proposal.id} className="border bg-card px-3 py-2">
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2"><h3 className="font-mono text-sm font-semibold">{(metadata.references || [proposal.reference]).join(", ")}</h3><Badge variant="outline">{proposal.status}</Badge>{blocking > 0 && <Badge variant="destructive">{blocking} blocking</Badge>}</div>
-                        <p className="mt-2 text-sm">{metadata.value || "No value"} · {metadata.manufacturer_part_number || "No MPN"}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">{metadata.manufacturer || "No manufacturer"} · {metadata.footprint || "No footprint"} · {proposal.assets.length} staged assets · {proposal.provenance.length} usages</p>
+                        <p className="mt-1 truncate text-sm">{metadata.value || "—"} · {metadata.manufacturer_part_number || "—"}</p>
+                        <p className="truncate text-xs text-muted-foreground">{metadata.manufacturer || "—"} · {metadata.footprint || "—"} · {proposal.assets.length} assets · {proposal.provenance.length} usages</p>
                         {proposal.findings.length > 0 && (
-                          <details className="group mt-3 border-t pt-2">
-                            <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                              <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90" />
-                              <span>Review findings</span>
+                          <Collapsible className="group mt-2 border-t pt-1.5">
+                            <CollapsibleTrigger className="flex items-center gap-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                              <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
+                              <span>Findings</span>
                               {blocking > 0 ? <Badge variant="destructive">{blocking} blocker{blocking === 1 ? "" : "s"}</Badge> : null}
                               {warnings > 0 ? <Badge variant="warning">{warnings} warning{warnings === 1 ? "" : "s"}</Badge> : null}
-                            </summary>
-                            <div className="mt-2 space-y-1.5 border-l pl-3">
+                            </CollapsibleTrigger>
+                            <CollapsibleContent className="mt-2 space-y-1.5 border-l pl-3">
                               {findingGroups.map((finding) => (
                                 <p key={`${finding.severity}:${finding.message}`} className="flex items-start gap-2 text-xs text-muted-foreground">
                                   <AlertTriangle className={cn("mt-0.5 h-3.5 w-3.5 shrink-0", finding.severity === "error" ? "text-destructive" : "text-warning")} />
                                   <span>{finding.message}{finding.count > 1 ? <span className="ml-1 font-medium text-foreground">×{finding.count}</span> : null}</span>
                                 </p>
                               ))}
-                            </div>
-                          </details>
+                            </CollapsibleContent>
+                          </Collapsible>
                         )}
                       </div>
-                      {proposal.status === "candidate" && <div className="flex shrink-0 gap-2"><Button size="sm" variant="outline" onClick={() => void resolveProposal(proposal, "reject")} disabled={!canWrite || proposalActionId === proposal.id}><X className="mr-1.5 h-3.5 w-3.5" />Reject</Button><Button size="sm" onClick={() => setRemediationProposal(proposal)} disabled={!canWrite || proposalActionId === proposal.id}>{proposalActionId === proposal.id ? <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1.5 h-3.5 w-3.5" />}Review & accept</Button></div>}
+                      {proposal.status === "candidate" && <div className="flex shrink-0 gap-2"><Button size="sm" variant="outline" onClick={() => void resolveProposal(proposal, "reject")} disabled={!canWrite || proposalActionId === proposal.id}><X className="mr-1.5 h-3.5 w-3.5" />Reject</Button><Button size="sm" onClick={() => setRemediationProposal(proposal)} disabled={!canWrite || proposalActionId === proposal.id}>{proposalActionId === proposal.id ? <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1.5 h-3.5 w-3.5" />}Accept</Button></div>}
                     </div>
                   </article>
                 );
@@ -623,6 +664,15 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
         onApprove={(componentIds, footprintResolutions) => void approveFolderDiscovery(componentIds, footprintResolutions)}
         onAttachFootprint={attachMissingFootprint}
         onAttachModel={attachMissingModel}
+      />
+      <ConfirmDialog
+        open={sessionToDelete !== null}
+        onOpenChange={(open) => { if (!open && !deletingSession) setSessionToDelete(null); }}
+        title="Delete import session"
+        description="Open candidates and staged files are removed. Accepted components stay in the catalog."
+        confirmLabel="Delete"
+        busy={deletingSession}
+        onConfirm={() => { if (sessionToDelete) void deleteSession(sessionToDelete); }}
       />
     </div>
   );

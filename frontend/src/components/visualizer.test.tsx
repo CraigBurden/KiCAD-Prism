@@ -91,6 +91,67 @@ describe("Visualizer through the ecad-viewer adapter", () => {
         expect(screen.queryByTestId("webgpu-3d-tab")).toBeNull();
     });
 
+    it("asks for the board only once the schematic on screen has loaded", async () => {
+        const order: string[] = [];
+        let releaseSchematic: () => void = () => {};
+        const schematicHeld = new Promise<void>((resolve) => { releaseSchematic = resolve; });
+        vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+            const url = String(input);
+            const path = new URL(url, "http://prism.test").pathname;
+            order.push(path);
+            if (path.endsWith("/schematic")) {
+                await schematicHeld;
+            }
+            return serve(url);
+        }));
+        renderVisualizer();
+        await waitFor(() => expect(order.some((path) => path.endsWith("/schematic"))).toBe(true));
+        expect(order.some((path) => path.endsWith("/pcb"))).toBe(false);
+
+        await act(async () => releaseSchematic());
+        await waitFor(() => expect(order.some((path) => path.endsWith("/pcb"))).toBe(true));
+    });
+
+    it("asks for the board at once when the board tab is the one shown", async () => {
+        const fetchMock = vi.fn(async (input: RequestInfo | URL) => serve(String(input)));
+        vi.stubGlobal("fetch", fetchMock);
+        renderVisualizer("pcb");
+        await waitFor(() => expect(fetchMock.mock.calls.some(([input]) =>
+            new URL(String(input), "http://prism.test").pathname.endsWith("/pcb"))).toBe(true));
+        expect(fetchMock.mock.calls.some(([input]) =>
+            new URL(String(input), "http://prism.test").pathname.endsWith("/schematic"))).toBe(false);
+    });
+
+    it("reads only the status of the assembly page before its tab opens", async () => {
+        const cancel = vi.fn(async () => {});
+        vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+            const url = String(input);
+            if (new URL(url, "http://prism.test").pathname.endsWith("/ibom")) {
+                const response = new Response("<html>bom</html>", { headers: { "Content-Type": "text/html" } });
+                Object.defineProperty(response, "body", { value: { cancel } });
+                return response;
+            }
+            return serve(url);
+        }));
+        renderVisualizer();
+        await waitFor(() => expect(cancel).toHaveBeenCalled());
+    });
+
+    it("says a failed bundle once, in the view, not again in the index banner", async () => {
+        const failed = () => json({ status: "failed", members: ["projections/project.json"], detail: "member-schema-invalid" }, 422);
+        vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+            const url = String(input);
+            const path = new URL(url, "http://prism.test").pathname;
+            if (path.endsWith("/schematic") || path.endsWith("/schematic/subsheets") || path.endsWith("/semantic-index/identity")) {
+                return failed();
+            }
+            return serve(url);
+        }));
+        renderVisualizer();
+        await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(1));
+        expect(screen.getAllByText("Design data could not be built")).toHaveLength(1);
+    });
+
     it("hands the schematic its project, page layout and subsheets with the root, in one load", async () => {
         // Support files arriving after the sheet would reload the whole design.
         const project = { filename: "board.kicad_pro", content: "{}" };

@@ -140,10 +140,10 @@ The producer reads these files, and only these:
    - Its `text_variables` and `net_settings.classes[]`.
    - Its drawing-sheet settings `schematic.page_layout_descr_file` and `pcbnew.page_layout_descr_file`. An empty or missing setting is not a reference: KiCad then uses its default sheet.
    - Every other string value for `text-path`.
-2. **The root schematic:** the effective configuration's `root_schematic`, or `<stem>.kicad_sch` beside the project file (KiCad's pairing; bundle-format §2.1).
-3. **Every schematic reached from it:** follow `sheet-file` references whose target is `repository` with `inSources` true, at any depth, reading each file once. A cycle ends at the first repeat.
+2. **The root schematic:** the effective configuration's `root_schematic`, or `<stem>.kicad_sch` beside the project file (KiCad's pairing; bundle-format §2.1). A KiCad 10 project's other top-level sheets (`schematic.top_level_sheets`, as stage parse reads them: cli-spec §5.2.2) follow it as `schematic` documents.
+3. **Every schematic reached from them:** follow `sheet-file` references whose target is `repository` with `inSources` true, at any depth, reading each file once. A cycle ends at the first repeat.
    - Detached sheets are not read (D5).
-   - A sheet file that is not in the sources is listed as a reference but not read. The CLI's `source-missing` rule (cli-spec §5.2.2) decides whether stage parse fails ("Cross-contract notes").
+   - A sheet file that is not in the sources is listed as a reference but not read. Stage parse loads it as an empty sheet with a `sheet-missing` warning, as KiCad does (cli-spec §5.2.2).
 4. **The board:** the effective configuration's `board`, or `<stem>.kicad_pcb`.
 5. **The project's two library tables, and only those:** `fp-lib-table` and `sym-lib-table` in the project directory (the anchor's directory, `${KIPRJMOD}`). KiCad loads only these plus the user's global table. Tables elsewhere in the repository are not read (D2).
 6. **Every drawing-sheet file** whose `drawing-sheet` reference resolves to `repository` with `inSources` true. It is read for `text-path` only.
@@ -232,6 +232,7 @@ Nothing else is consulted: no environment variable, no file outside the sources,
    - The segments are now relative to the repository root.
      - A leading `..`: `outside-repository`, `path` = the segments joined by `/`.
      - Otherwise `repository`, `path` = the segments joined by `/`, a `RepoPath`. `inSources` is true when the materialized source set holds `path`, or any `path/…`.
+     - Kind `sheet-file` whose `path` is not in the source set but matches exactly one source-set schematic when letter case is ignored: `path` is that schematic and `inSources` is true. This is KiCad's sheet file rule as the core and stage parse apply it (`prism_kicad_core::sheet_file`, cli-spec §5.2.2 `sheet-path-case`), so the projection walks the hierarchy the bundle was built from.
 6. **Library path.** Drop empty and `.` segments; a `..` removes the last segment.
    - A `..` with nothing to remove: `unresolved` / `outside-library-root`.
    - No segments left: `unresolved` / `empty-path`.
@@ -422,4 +423,4 @@ Real outputs validated against the schema with `scripts/check-contract.mjs`: the
 - **CLI spec §5.5** says `revision-key` must parse the board to find referenced 3D models. `revision-key-a1.tsp` selects 3D models by suffix across the repository, with no parse. Only one can hold. This member is the place a board-parse-based model list would come from, but it exists only after stage parse.
 - **Bundle format §2.2.** The role table maps "anything else in the source set" to `source-3d-model`. The revision-key source set also selects symbol libraries (`.kicad_sym`, `.lib`, `.dcm`), footprints (`.kicad_mod`), symlinks and gitlinks. The library URIs of this member point at those, so they need roles of their own.
 - **Placements.** The join above needs `PlacementsModel.path` to be byte-equal to this member's `raw`: the same unescaping, and no trimming.
-- **CLI spec §5.2.2 `source-missing`.** If a missing sub-sheet keeps failing stage parse, `sheet-file` targets in a written member always have `inSources: true`. The contract allows both outcomes.
+- **CLI spec §5.2.2 `sheet-missing`.** A missing sub-sheet no longer fails stage parse, so a written member can hold `sheet-file` targets with `inSources: false`.

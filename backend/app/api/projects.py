@@ -3,18 +3,25 @@ import logging
 import mimetypes
 import os
 import posixpath
-import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.api._blocking import run_bounded_io
-from app.api._helpers import authorized_project, get_project_for_role_or_404, _row_to_project, require_output_type, resolve_path_within_root
-from app.core.errors import caller_error, caller_errors, value_errors_as
+from app.api._helpers import (
+    authorized_project,
+    commit_file_response,
+    get_project_for_role_or_404,
+    _row_to_project,
+    require_output_type,
+    resolve_path_within_root,
+    revision_cache_headers,
+)
+from app.core.errors import caller_errors, value_errors_as
 from app.core.config import settings
 from app.core import policy
 from app.core.security import AuthenticatedUser, require_designer, require_viewer
@@ -25,7 +32,7 @@ from app.services import (
     path_config_service,
     project_deletion,
     project_import_service,
-    project_revision,
+    project_outputs,
     project_service,
     project_settings_service,
 )
@@ -35,7 +42,6 @@ from app.services.git_service import (
     get_branches,
     get_commit_distance,
     get_commit_file_summary,
-    get_commits_list,
     get_commits_list_filtered,
     get_head_commit,
     get_releases,
@@ -60,139 +66,13 @@ class Monorepo(BaseModel):
     repo_url: Optional[str] = None
 
 
-def _project_location(project: project_service.Project) -> project_revision.ProjectLocation:
-    """Where the project sits in its repository (``project_revision`` decides).
-
-    A project whose checkout is missing keeps its own path as the root, so the
-    Git read that follows reports the missing commit or file as before.
-    """
-    try:
-        return project_revision.locate(project)
-    except project_revision.ProjectNotInRepository:
-        return project_revision.ProjectLocation(
-            Path(project.path), "", project_service.project_anchor(project)
-        )
-
-
-def _repo_context(project: project_service.Project) -> tuple[str, Optional[str]]:
-    """Repository root and subproject path for project-scoped git operations."""
-    location = _project_location(project)
-    return str(location.repo_root), location.sub_path
-
-
-def _resolve_output_dir(project: project_service.Project, output_type: str) -> str:
-    resolved = project_service.resolved_paths_for(project)
-    output_dir = (
-        resolved.design_outputs_dir
-        if output_type == "design"
-        else resolved.manufacturing_outputs_dir
-    )
-    if not output_dir:
-        raise HTTPException(status_code=404, detail=f"{output_type} outputs folder not configured")
-    return output_dir
-
-
-def _join_relative_paths(*parts: Optional[str]) -> str:
-    cleaned = []
-    for part in parts:
-        if not part:
-            continue
-        normalized = posixpath.normpath(str(part).replace("\\", "/"))
-        if normalized in ("", "."):
-            continue
-        if normalized.startswith("/") or normalized == ".." or normalized.startswith("../"):
-            raise HTTPException(status_code=400, detail="Invalid file path")
-        cleaned.append(normalized)
-    return posixpath.join(*cleaned) if cleaned else ""
-
-
-def _path_config_from_commit(project: project_service.Project, commit: Optional[str]) -> PathConfig:
-    if not commit:
-        return project_service.path_config_for(project)
-    try:
-        return project_revision.path_config_at(_project_location(project), commit)
-    except project_revision.RevisionNotFound as error:
-        raise HTTPException(status_code=404, detail=f"Commit not found: {commit}") from error
-    except ValueError as error:
-        raise caller_error(error, 500) from error
-
-
-def _output_dir_from_config(config: PathConfig, output_type: str) -> str:
-    output_dir = (
-        config.designOutputs
-        if output_type == "design"
-        else config.manufacturingOutputs
-    )
-    if not output_dir:
-        raise HTTPException(status_code=404, detail=f"{output_type} outputs folder not configured")
-    return output_dir
-
-
-def _read_commit_file(
-    project: project_service.Project,
-    commit: str,
-    file_path: str,
-    *,
-    relative_prefix: Optional[str] = None,
-    not_found_detail: str = "File not found",
-) -> file_service.CommitFile:
-    repo_path, sub_path = _repo_context(project)
-    prefix = sub_path
-    if relative_prefix:
-        prefix = _join_relative_paths(prefix, relative_prefix)
-
-    return file_service.read_file_from_commit(
-        repo_path,
-        commit,
-        file_path,
-        relative_prefix=prefix,
-        not_found_detail=not_found_detail,
-    )
-
-
-#: Larger commit files are served from the content-addressed blob cache, not read whole.
-COMMIT_FILE_STREAM_BYTES = 1 << 20
-
-
-def _commit_file_response(
-    commit_file: file_service.CommitFile,
-    *,
-    inline: bool = True,
-    headers: Optional[Dict[str, str]] = None,
-) -> Response:
-    media_type = mimetypes.guess_type(commit_file.name)[0] or "application/octet-stream"
-    response_headers = dict(headers or {})
-    disposition = "inline" if inline else "attachment"
-    safe_name = commit_file.name.replace('"', "")
-    response_headers["Content-Disposition"] = (
-        f'{disposition}; filename="{safe_name}"; filename*=UTF-8\'\'{quote(commit_file.name)}'
-    )
-    if commit_file.size > COMMIT_FILE_STREAM_BYTES:
-        return FileResponse(commit_file.cached_path(), media_type=media_type, headers=response_headers)
-    return Response(content=commit_file.content, media_type=media_type, headers=response_headers)
-
-
-def _files_from_commit(
-    project: project_service.Project,
-    commit: str,
-    directory_path: str,
-) -> List[file_service.FileItem]:
-    repo_path, sub_path = _repo_context(project)
-    return file_service.get_files_from_commit(
-        repo_path,
-        commit,
-        directory_path,
-        relative_prefix=sub_path,
-    )
-
-
 def _find_commit_ibom(
     project: project_service.Project,
     commit: str,
     config: PathConfig,
 ) -> file_service.CommitFile:
-    design_dir = _output_dir_from_config(config, "design")
-    files = _files_from_commit(project, commit, design_dir)
+    design_dir = project_outputs.output_dir_in(config, "design")
+    files = project_outputs.list_commit_files(project, commit, design_dir)
     selected = next(
         (
             item for item in files
@@ -206,7 +86,7 @@ def _find_commit_ibom(
     if selected is None:
         raise HTTPException(status_code=404, detail="iBoM not found")
 
-    return _read_commit_file(
+    return project_outputs.read_commit_file(
         project,
         commit,
         selected.path,
@@ -243,7 +123,7 @@ def _read_file_from_commit(
     - Type-2: reads from parent repo and applies project sub-path prefix.
     """
     try:
-        commit_file = _read_commit_file(
+        commit_file = project_outputs.read_commit_file(
             project,
             commit,
             file_path,
@@ -265,7 +145,7 @@ def _load_project_readme_content(
     project: project_service.Project,
     commit: Optional[str] = None,
 ) -> Optional[str]:
-    config = _path_config_from_commit(project, commit)
+    config = project_outputs.path_config_at(project, commit)
     readme_filename = config.readme or "README.md"
 
     if commit:
@@ -554,7 +434,7 @@ async def get_project_branches(
 ):
     """List branch refs that can be viewed without switching the working checkout."""
     project = get_project_for_role_or_404(project_id, user.role)
-    repo_path, relative_path = _repo_context(project)
+    repo_path, relative_path = project_outputs.repo_context(project)
     return await asyncio.to_thread(get_branches, repo_path, relative_path)
 
 def _resolve_thumbnail_file(project, row: Optional[dict]) -> Optional[Path]:
@@ -860,8 +740,8 @@ def _project_files_response(
 ):
     project = get_project_for_role_or_404(project_id, user.role)
     if commit:
-        config = _path_config_from_commit(project, commit)
-        return _files_from_commit(project, commit, _output_dir_from_config(config, output_type))
+        config = project_outputs.path_config_at(project, commit)
+        return project_outputs.list_commit_files(project, commit, project_outputs.output_dir_in(config, output_type))
     return file_service.get_project_files(project.path, output_type)
 
 @router.get("/{project_id}/download")
@@ -897,17 +777,17 @@ def _download_file_response(
     project = get_project_for_role_or_404(project_id, user.role)
 
     if commit:
-        config = _path_config_from_commit(project, commit)
-        commit_file = _read_commit_file(
+        config = project_outputs.path_config_at(project, commit)
+        commit_file = project_outputs.read_commit_file(
             project,
             commit,
             path,
-            relative_prefix=_output_dir_from_config(config, output_type),
+            relative_prefix=project_outputs.output_dir_in(config, output_type),
             not_found_detail="File not found",
         )
-        return _commit_file_response(commit_file, inline=inline)
+        return commit_file_response(commit_file, inline=inline)
 
-    output_dir = _resolve_output_dir(project, output_type)
+    output_dir = project_outputs.output_dir(project, output_type)
 
     file_path = resolve_path_within_root(output_dir, path, invalid_detail="Invalid file path")
 
@@ -941,6 +821,7 @@ async def get_project_readme(
 async def get_project_asset(
     project_id: str,
     asset_path: str,
+    request: Request,
     commit: Optional[str] = None,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
@@ -949,18 +830,22 @@ async def get_project_asset(
     Typically used for README image references.
     """
     project = get_project_for_role_or_404(project_id, user.role)
-    return await run_bounded_io(_asset_response, project, asset_path, commit)
+    return await run_bounded_io(_asset_response, project, asset_path, commit, request)
 
 
-def _asset_response(project: project_service.Project, asset_path: str, commit: Optional[str]):
+def _asset_response(
+    project: project_service.Project, asset_path: str, commit: Optional[str], request: Request
+):
     if commit:
-        commit_file = _read_commit_file(
+        commit_file = project_outputs.read_commit_file(
             project,
             commit,
             asset_path,
             not_found_detail="Asset not found",
         )
-        return _commit_file_response(commit_file, inline=True)
+        return commit_file_response(
+            commit_file, inline=True, headers=revision_cache_headers(commit), request=request
+        )
 
     file_path = resolve_path_within_root(project.path, asset_path, invalid_detail="Invalid asset path")
 
@@ -988,9 +873,9 @@ async def get_docs_files(
 
 def _docs_files_response(project: project_service.Project, commit: Optional[str]):
     if commit:
-        config = _path_config_from_commit(project, commit)
+        config = project_outputs.path_config_at(project, commit)
         docs_path = config.documentation or "docs"
-        return _files_from_commit(project, commit, docs_path)
+        return project_outputs.list_commit_files(project, commit, docs_path)
 
     resolved = project_service.resolved_paths_for(project)
     docs_dir = resolved.documentation_dir
@@ -1018,7 +903,7 @@ async def get_doc_file_content(
 
 def _doc_file_content_response(project: project_service.Project, path: str, commit: Optional[str]):
     # Get documentation path from config
-    config = _path_config_from_commit(project, commit)
+    config = project_outputs.path_config_at(project, commit)
     docs_path = config.documentation or "docs"
 
     # If viewing a specific commit, use Git
@@ -1061,7 +946,7 @@ async def get_project_releases(
     """
     project = get_project_for_role_or_404(project_id, user.role)
     
-    repo_path, relative_path = _repo_context(project)
+    repo_path, relative_path = project_outputs.repo_context(project)
     if relative_path:
         page = await asyncio.to_thread(
             get_releases_filtered,
@@ -1105,7 +990,7 @@ async def get_project_commit_distance(
     """
     project = get_project_for_role_or_404(project_id, user.role)
 
-    repo_path, relative_path = _repo_context(project)
+    repo_path, relative_path = project_outputs.repo_context(project)
     commits_behind = await asyncio.to_thread(
         get_commit_distance,
         repo_path,
@@ -1131,28 +1016,11 @@ async def get_project_commits(
     """
     project = get_project_for_role_or_404(project_id, user.role)
     
-    repo_path, relative_path = _repo_context(project)
+    repo_path, history = await asyncio.to_thread(project_outputs.history_context, project)
     head = await asyncio.to_thread(get_head_commit, repo_path)
-    if relative_path:
-        page = await asyncio.to_thread(
-            get_commits_list_filtered,
-            repo_path,
-            relative_path,
-            limit,
-            ref,
-            offset,
-            include_total,
-        )
-    else:
-        page = await asyncio.to_thread(
-            get_commits_list,
-            project.path,
-            limit,
-            ref,
-            offset,
-            include_total,
-        )
-    
+    page = await asyncio.to_thread(
+        get_commits_list_filtered, repo_path, None, limit, ref, offset, include_total, history
+    )
     return {**page, "head": head}
 
 
@@ -1168,7 +1036,7 @@ async def get_project_commit_summary(
     For Type-2 projects, the file list is scoped to the subproject path.
     """
     project = get_project_for_role_or_404(project_id, user.role)
-    repo_path, relative_path = _repo_context(project)
+    repo_path, relative_path = project_outputs.repo_context(project)
     return await asyncio.to_thread(
         get_commit_file_summary,
         repo_path,
@@ -1200,7 +1068,7 @@ async def get_project_commit_file(
 def _commit_file_response_for_project(
     project: project_service.Project, commit_hash: str, path: str
 ):
-    repo_path, relative_path = _repo_context(project)
+    repo_path, relative_path = project_outputs.repo_context(project)
 
     # The summary path is already repo-relative (it includes the subproject
     # prefix for Type-2 projects), so read it against the repo root with no
@@ -1220,27 +1088,29 @@ def _commit_file_response_for_project(
         normalized,
         not_found_detail="File not found",
     )
-    return _commit_file_response(commit_file, inline=True)
+    return commit_file_response(commit_file, inline=True)
 
 
 @router.get("/{project_id}/ibom")
 async def get_project_ibom(
     project_id: str,
+    request: Request,
     commit: Optional[str] = None,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     project = get_project_for_role_or_404(project_id, user.role)
-    return await run_bounded_io(_ibom_response, project, commit)
+    return await run_bounded_io(_ibom_response, project, commit, request)
 
 
-def _ibom_response(project: project_service.Project, commit: Optional[str]):
+def _ibom_response(project: project_service.Project, commit: Optional[str], request: Request):
     if commit:
-        config = _path_config_from_commit(project, commit)
+        config = project_outputs.path_config_at(project, commit)
         commit_file = _find_commit_ibom(project, commit, config)
-        return _commit_file_response(
+        return commit_file_response(
             commit_file,
             inline=True,
-            headers={"Cache-Control": "public, max-age=60"},
+            headers=revision_cache_headers(commit),
+            request=request,
         )
 
     path = project_service.find_ibom_file(project.path)

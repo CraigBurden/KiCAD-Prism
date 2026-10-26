@@ -18,6 +18,7 @@ from app.api._helpers import get_project_for_role_or_404
 from app.core.errors import caller_errors
 from app.core.security import AuthenticatedUser, require_designer, require_viewer
 from app.services.design_bundle import regenerate, rows, store
+from app.services.design_bundle.manifest import incomplete_stages
 from app.services.design_bundle.cli import CliUnavailable
 
 router = APIRouter(prefix="/api/projects", tags=["design-bundles"])
@@ -26,6 +27,9 @@ router = APIRouter(prefix="/api/projects", tags=["design-bundles"])
 _BUNDLE_STATES = ("complete", "building", "queued", "failed")
 
 _COMMIT = re.compile(r"[0-9a-f]{40}")
+
+#: How many incomplete revisions the status route lists, newest first.
+_INCOMPLETE_LISTED = 20
 
 
 class RegenerateRequest(BaseModel):
@@ -66,8 +70,55 @@ async def get_design_bundles(
         state = str(bundle.get("state", ""))
         if state in counts:
             counts[state] += 1
+    incomplete = _incomplete(bundles)
 
-    return {"bundles": counts, "aliases": len(aliases), "storedBytes": stored_bytes}
+    return {
+        "bundles": counts,
+        "aliases": len(aliases),
+        "storedBytes": stored_bytes,
+        "incomplete": {
+            "failed": sum(1 for item in incomplete if item["failedStages"]),
+            "partial": sum(1 for item in incomplete if not item["failedStages"]),
+        },
+        "incompleteRevisions": incomplete[:_INCOMPLETE_LISTED],
+        "failedBuilds": _failed_builds(bundles)[:_INCOMPLETE_LISTED],
+    }
+
+
+def _failed_builds(bundles: list[dict]) -> list[dict]:
+    """Bundles whose build failed outright, newest first, with the job's error."""
+
+    found = []
+    for bundle in sorted(bundles, key=lambda row: str(row.get("updated_at") or ""), reverse=True):
+        if bundle.get("state") != "failed":
+            continue
+        found.append({
+            "commit": bundle.get("commit_sha"),
+            "revisionKey": bundle.get("revision_key"),
+            "reason": str(bundle.get("error") or ""),
+        })
+    return found
+
+
+def _incomplete(bundles: list[dict]) -> list[dict]:
+    """Complete bundles with a failed or partial stage, newest first, derived from their stages."""
+
+    found = []
+    for bundle in sorted(bundles, key=lambda row: str(row.get("updated_at") or ""), reverse=True):
+        if bundle.get("state") != "complete":
+            continue
+        stages = incomplete_stages(bundle.get("stages") or {})
+        if stages["failed"] or stages["partial"]:
+            found.append({
+                "commit": bundle.get("commit_sha"),
+                "revisionKey": bundle.get("revision_key"),
+                "failedStages": stages["failed"],
+                "partialStages": stages["partial"],
+                # The failed stages' errors, recorded when the stage was
+                # published; empty for a bundle built before that.
+                "reason": str(bundle.get("error") or ""),
+            })
+    return found
 
 
 @router.post("/{project_id}/design-bundles/regenerate", dependencies=[Depends(require_designer)])

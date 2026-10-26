@@ -4,9 +4,9 @@ import { TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
 /**
- * Simulation Studio's segmented tabs, in the look of Design Comparison's
- * Old/New switch: a primary-outlined group whose active segment is filled
- * with the primary colour, so the selection reads at a glance.
+ * The studios' segmented tabs (Simulation Studio, Release Studio), in the look
+ * of Design Comparison's Old/New switch: a primary-outlined group whose active
+ * segment is filled with the primary colour, so the selection reads at a glance.
  */
 export const SEGMENT_GROUP = "inline-flex items-center gap-0.5 rounded-md border border-primary/60 bg-background p-0.5";
 

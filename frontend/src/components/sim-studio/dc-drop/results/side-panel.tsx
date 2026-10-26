@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import { EChart, baseOption, type ChartTheme } from "./echart";
 import { percent, volts, watts, type ResultsModel } from "./results-model";
-import { SEGMENT_GROUP, segmentItem } from "../../studio-tabs";
+import { SEGMENT_GROUP, segmentItem } from "@/components/ui/studio-tabs";
 
 export interface Focus {
     component?: string;

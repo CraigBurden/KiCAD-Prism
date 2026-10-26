@@ -498,6 +498,15 @@ def get_project_import_session(
     return session
 
 
+@router.delete("/import-sessions/{session_id}", status_code=204)
+def delete_project_import_session(
+    session_id: str,
+    user: AuthenticatedUser = Depends(require_catalog_writer),
+):
+    _import_session_for_user(session_id, user)
+    catalog_service.delete_project_import_session(session_id)
+
+
 @router.get("/jobs/{job_id}")
 def get_catalog_job(job_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
     job = catalog_jobs.get(job_id)

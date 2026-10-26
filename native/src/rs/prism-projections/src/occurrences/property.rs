@@ -40,6 +40,7 @@ mod tests {
         SchematicSymbolProperty {
             key: key.to_owned(),
             value: value.to_owned(),
+            private: false,
         }
     }
 

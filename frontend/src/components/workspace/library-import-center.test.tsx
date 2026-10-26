@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Project } from "@/types/project";
@@ -6,6 +6,7 @@ import type { ProjectComponentImportProposal, ProjectComponentImportSession } fr
 import { ApiHttpError } from "@/lib/api";
 import {
   createFolderSnapshot,
+  deleteImportSession,
   listFolderImportRoots,
   listImportProposals,
   listImportSessions,
@@ -33,7 +34,7 @@ describe("LibraryImportCenter sources", () => {
     vi.mocked(listFolderImportRoots).mockResolvedValue({ items: [{ name: "cern", path_hint: "/libraries/cern" }] });
   });
 
-  it("separates library and project imports and uses source-oriented project labels", async () => {
+  it("groups project and library imports on one toolbar", async () => {
     render(
       <LibraryImportCenter
         projects={[project]}
@@ -41,23 +42,16 @@ describe("LibraryImportCenter sources", () => {
       />,
     );
 
-    expect(await screen.findByRole("heading", { name: "KiCad libraries" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Project components" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Choose local folder" })).toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: "Import server folder" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Import From Project" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Import From All Projects" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Import project" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Import Center" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("import-source-groups")).toHaveClass("grid-cols-1", "gap-2");
-    expect(screen.getByTestId("import-source-groups")).not.toHaveClass("import-source-groups--split");
-    expect(screen.getByRole("heading", { name: "KiCad libraries" }).closest("section")).toHaveClass("p-2");
-    expect(screen.getByRole("heading", { name: "Project components" }).closest("section")).toHaveClass("p-2");
+    const projects = await screen.findByRole("group", { name: "Project components" });
+    expect(within(projects).getByRole("button", { name: "Scan" })).toBeInTheDocument();
+    expect(within(projects).getByRole("button", { name: "All projects" })).toBeInTheDocument();
+    const libraries = screen.getByRole("group", { name: "KiCad libraries" });
+    expect(within(libraries).getByRole("button", { name: "Local folder" })).toBeInTheDocument();
+    expect(await within(libraries).findByRole("button", { name: "Server folder" })).toBeInTheDocument();
   });
 
-  it("allocates more space to project imports when the cards share a row", async () => {
+  it("offers a server folder only when the server has import roots", async () => {
     vi.mocked(listFolderImportRoots).mockResolvedValue({ items: [] });
-
     render(
       <LibraryImportCenter
         projects={[project]}
@@ -65,10 +59,8 @@ describe("LibraryImportCenter sources", () => {
       />,
     );
 
-    expect(await screen.findByTestId("import-source-groups")).toHaveClass(
-      "grid-cols-1",
-      "import-source-groups--split",
-    );
+    expect(await screen.findByRole("button", { name: "Local folder" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Server folder" })).not.toBeInTheDocument();
   });
 });
 
@@ -86,6 +78,7 @@ function importSession(id: string, status: ProjectComponentImportSession["status
     updated_at: "2026-08-27T00:00:00Z",
     error_message: "",
     proposal_count: 1,
+    candidate_count: 1,
     selection: { display_name: id },
   };
 }
@@ -142,6 +135,43 @@ describe("LibraryImportCenter session proposals", () => {
   });
 });
 
+describe("LibraryImportCenter session delete", () => {
+  beforeEach(() => {
+    vi.mocked(listImportProposals).mockResolvedValue({ items: [] });
+    vi.mocked(listFolderImportRoots).mockResolvedValue({ items: [] });
+    vi.mocked(deleteImportSession).mockReset();
+  });
+
+  it("deletes a reviewed session after confirmation and selects the next one", async () => {
+    vi.mocked(listImportSessions).mockResolvedValue({
+      items: [{ ...importSession("session-a"), candidate_count: 0 }, importSession("session-b")],
+    });
+    vi.mocked(deleteImportSession).mockResolvedValue(undefined);
+    render(<LibraryImportCenter projects={[project]} user={{ name: "Admin", email: "admin@example.com", role: "admin" }} />);
+
+    expect(await screen.findByRole("button", { name: /session-a/i })).toHaveAttribute("title", expect.stringContaining("0 of 1 open"));
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete import session" })[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(deleteImportSession).toHaveBeenCalledWith("session-a"));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /session-a/i })).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /session-b/i })).toHaveAttribute("aria-current", "true");
+  });
+
+  it("offers no delete while a session is still scanning, or to a reader", async () => {
+    vi.mocked(listImportSessions).mockResolvedValue({ items: [importSession("session-a", "scanning")] });
+    const { unmount } = render(<LibraryImportCenter projects={[project]} user={{ name: "Admin", email: "admin@example.com", role: "admin" }} />);
+    expect(await screen.findByRole("button", { name: /session-a/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete import session" })).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(listImportSessions).mockResolvedValue({ items: [importSession("session-a")] });
+    render(<LibraryImportCenter projects={[project]} user={{ name: "Viewer", email: "viewer@example.com", role: "viewer" }} />);
+    expect(await screen.findByRole("button", { name: /session-a/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete import session" })).not.toBeInTheDocument();
+  });
+});
+
 describe("LibraryImportCenter folder capture", () => {
   beforeEach(() => {
     vi.mocked(listImportSessions).mockResolvedValue({ items: [] });
@@ -155,7 +185,7 @@ describe("LibraryImportCenter folder capture", () => {
     const { container } = render(
       <LibraryImportCenter projects={[project]} user={{ name: "Admin", email: "admin@example.com", role: "admin" }} />,
     );
-    await screen.findByRole("button", { name: "Choose local folder" });
+    await screen.findByRole("button", { name: "Local folder" });
     const input = container.querySelector("input[type=file]") as HTMLInputElement;
     const file = new File(["(kicad_symbol_lib)"], "R.kicad_sym");
     Object.defineProperty(file, "webkitRelativePath", { value: "libs/R.kicad_sym" });

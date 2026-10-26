@@ -303,38 +303,32 @@ pub(super) fn model_from_span(
 ) -> Result<PcbModelReference, Error> {
     let header = bounded_scalar_values(source, &indexed.span, limits.max_model_children)?;
     let children = direct_children(source, &indexed.span, limits.max_model_children, limits)?;
-    let bare_hide = has_flag(header.get(1..).unwrap_or_default(), "hide");
-    let hide_rows: Vec<_> = children
-        .iter()
-        .filter(|field| field.head.as_deref() == Some("hide"))
-        .collect();
-    if hide_rows.len() > 1 || (bare_hide && !hide_rows.is_empty()) {
-        return Err(source_error(
-            "Ambiguous duplicate model hide declarations",
-            indexed.span.start,
-        ));
+    // KiCad reads the model fields in order and the last one wins
+    // (`PCB_IO_KICAD_SEXPR_PARSER::parse3DModel`): a bare `hide` (old files) or
+    // `(hide yes|no|true|false)`, and the inch `at` (before v5) or the mm `offset`.
+    let mut hidden = has_flag(header.get(1..).unwrap_or_default(), "hide").then_some(true);
+    let mut offset = [0.0; 3];
+    for field in &children {
+        match field.head.as_deref() {
+            Some("hide") => {
+                hidden = Some(match first_string(source, field)?.as_deref() {
+                    None | Some("yes" | "true") => true,
+                    Some("no" | "false") => false,
+                    _ => return Err(source_error("Expected yes/no for model hide", field.start)),
+                });
+            }
+            Some(head @ ("at" | "offset")) => {
+                if let Some(value) = xyz_of(source, field, limits)? {
+                    offset = if head == "at" {
+                        value.map(|value| value * 25.4)
+                    } else {
+                        value
+                    };
+                }
+            }
+            _ => {}
+        }
     }
-    let hidden = if let Some(row) = hide_rows.first() {
-        Some(match first_string(source, row)?.as_deref() {
-            None | Some("yes") => true,
-            Some("no") => false,
-            _ => return Err(source_error("Expected yes/no for model hide", row.start)),
-        })
-    } else {
-        bare_hide.then_some(true)
-    };
-    if child(&children, "at").is_some() && child(&children, "offset").is_some() {
-        return Err(source_error(
-            "Mixed legacy and modern model offset declarations",
-            indexed.span.start,
-        ));
-    }
-    let offset = if child(&children, "at").is_some() {
-        // KiCad parse3DModel: pre-v5 `at` is inches; modern `offset` is mm.
-        nested_xyz(source, &children, "at", [0.0; 3], limits)?.map(|value| value * 25.4)
-    } else {
-        nested_xyz(source, &children, "offset", [0.0; 3], limits)?
-    };
     Ok(PcbModelReference {
         owner: PcbFootprintMemberOwner::EmbeddedFootprint {
             footprint_index: indexed.parent_index,

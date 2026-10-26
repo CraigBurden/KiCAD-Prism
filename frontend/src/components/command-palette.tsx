@@ -63,6 +63,21 @@ const HELP_DIALOG_COMMANDS = [
   { id: "help:about", label: "About KiCAD Prism", group: "Help", icon: Info, keywords: "version build release", dialog: "about" },
 ] as const satisfies ReadonlyArray<Omit<PaletteCommand, "run"> & { dialog: HelpDialog }>;
 
+/**
+ * How the palette matches navigation and actions. A threshold of 0.3 still
+ * forgives one typo in a word of four or more letters, but no longer lets one
+ * wrong letter in three match: at 0.4 "GND" listed GNSS_RECEIVER and CNDH-BP.
+ */
+export const PALETTE_SEARCH_OPTIONS = {
+  keys: [
+    { name: "label", weight: 3 },
+    { name: "keywords", weight: 1 },
+    { name: "group", weight: 0.5 },
+  ],
+  threshold: 0.3,
+  ignoreLocation: true,
+};
+
 /** Shortest query worth sending to the catalog. "R" would match everything. */
 const COMPONENT_SEARCH_MIN_LENGTH = 2;
 const COMPONENT_SEARCH_DEBOUNCE_MS = 180;
@@ -291,15 +306,7 @@ export function CommandPalette({ open, onOpenChange, user, onShowShortcuts, onLo
 
   const fuse = useMemo(
     () =>
-      new Fuse(commands, {
-        keys: [
-          { name: "label", weight: 3 },
-          { name: "keywords", weight: 1 },
-          { name: "group", weight: 0.5 },
-        ],
-        threshold: 0.4,
-        ignoreLocation: true,
-      }),
+      new Fuse(commands, PALETTE_SEARCH_OPTIONS),
     [commands],
   );
 

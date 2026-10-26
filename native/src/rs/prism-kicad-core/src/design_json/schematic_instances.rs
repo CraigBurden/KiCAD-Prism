@@ -89,7 +89,7 @@ pub(super) fn schematic_instances(
 }
 
 fn sheet_name(occurrence: &SchematicOccurrence) -> String {
-    if occurrence.parent_index.is_none() {
+    if occurrence.is_root_schematic() {
         source_stem(&occurrence.source_path, occurrence.index)
     } else {
         occurrence.sheet_name.clone()

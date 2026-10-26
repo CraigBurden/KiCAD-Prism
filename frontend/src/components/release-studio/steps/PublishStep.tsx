@@ -54,8 +54,11 @@ export function PublishStep({
                         <ExternalLink className="h-3 w-3" /> {forgeUrl}
                     </a>
                 ) : (
-                    <p className="text-sm text-muted-foreground">
-                        Prism recorded this publish, but {forgeName} no longer has a Release for {tag || "this tag"}.
+                    <p
+                        className="truncate text-sm text-warning"
+                        title={`Prism recorded this publish, but ${forgeName} no longer has a Release for ${tag || "this tag"}.`}
+                    >
+                        {forgeName} Release missing
                     </p>
                 )}
                 <p className="text-sm text-muted-foreground">Tag {tag} · {documentName || "—"}</p>

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
+import { usePoll } from "@/lib/server-state";
 
 interface DesignBundleCounts {
     complete: number;
@@ -11,10 +13,33 @@ interface DesignBundleCounts {
     failed: number;
 }
 
+/** A stored bundle whose stages finished with a failed or partial stage. */
+interface IncompleteRevision {
+    commit: string | null;
+    revisionKey: string;
+    failedStages: string[];
+    partialStages: string[];
+    /** The failed stages' errors; empty for a bundle built before they were recorded. */
+    reason?: string;
+}
+
+/** A bundle whose build failed outright, with the job's error. */
+interface FailedBuild {
+    commit: string | null;
+    revisionKey: string;
+    reason: string;
+}
+
 interface DesignBundleStatus {
     bundles: DesignBundleCounts;
     aliases: number;
     storedBytes: number;
+    /** Stored bundles with a failed stage, and with only partial ones. */
+    incomplete?: { failed: number; partial: number };
+    /** The newest incomplete revisions (at most 20). */
+    incompleteRevisions?: IncompleteRevision[];
+    /** The newest failed builds (at most 20). */
+    failedBuilds?: FailedBuild[];
 }
 
 interface CommitsResponse {
@@ -30,6 +55,11 @@ interface DesignDataSectionProps {
 }
 
 type Scope = "commit" | "project";
+
+const STATUS_POLL_MS = 5000;
+
+/** ``load`` reports its own failure as "status unavailable". */
+const ignorePollError = () => {};
 
 /**
  * The Design data block of Project settings: how much parsed design data Prism
@@ -69,6 +99,11 @@ export function DesignDataSection({ projectId, canEdit }: DesignDataSectionProps
         load(controller.signal);
         return () => controller.abort();
     }, [load]);
+
+    // While a build is queued or running, keep the counts current so the line
+    // settles to the outcome instead of saying "building" until reopened.
+    const building = status !== null && status.bundles.building + status.bundles.queued > 0;
+    usePoll(building, load, { intervalMs: STATUS_POLL_MS, onError: ignorePollError });
 
     useEffect(() => {
         const controller = new AbortController();
@@ -116,7 +151,13 @@ export function DesignDataSection({ projectId, canEdit }: DesignDataSectionProps
         if (failed > 0) {
             summary.push(`${failed} failed`);
         }
+        const incomplete = (status.incomplete?.failed ?? 0) + (status.incomplete?.partial ?? 0);
+        if (incomplete > 0) {
+            summary.push(`${incomplete} incomplete`);
+        }
     }
+    const incompleteRevisions = status?.incompleteRevisions ?? [];
+    const failedBuilds = status?.failedBuilds ?? [];
 
     return (
         <section className="space-y-2">
@@ -127,6 +168,50 @@ export function DesignDataSection({ projectId, canEdit }: DesignDataSectionProps
             </p>
 
             {status && <p className="text-sm">{summary.join(" · ")}</p>}
+            {incompleteRevisions.length > 0 && (
+                <ul className="space-y-1" aria-label="Incomplete design data">
+                    {incompleteRevisions.map((revision) => (
+                        <li
+                            key={revision.revisionKey}
+                            className="flex min-w-0 items-center gap-2"
+                        >
+                            <span
+                                className="truncate font-mono text-xs text-muted-foreground"
+                                title={revision.commit ?? undefined}
+                            >
+                                {revision.commit ? revision.commit.slice(0, 8) : "—"}
+                            </span>
+                            {revision.failedStages.map((stage) => (
+                                <Badge key={`failed-${stage}`} variant="destructive">
+                                    {stage} failed
+                                </Badge>
+                            ))}
+                            {revision.partialStages.map((stage) => (
+                                <Badge key={`partial-${stage}`} variant="warning">
+                                    {stage} partial
+                                </Badge>
+                            ))}
+                            {revision.reason && <FailureReason reason={revision.reason} />}
+                        </li>
+                    ))}
+                </ul>
+            )}
+            {failedBuilds.length > 0 && (
+                <ul className="space-y-1" aria-label="Failed design data builds">
+                    {failedBuilds.map((build) => (
+                        <li key={build.revisionKey} className="flex min-w-0 items-center gap-2">
+                            <span
+                                className="truncate font-mono text-xs text-muted-foreground"
+                                title={build.commit ?? undefined}
+                            >
+                                {build.commit ? build.commit.slice(0, 8) : "—"}
+                            </span>
+                            <Badge variant="destructive">build failed</Badge>
+                            {build.reason && <FailureReason reason={build.reason} />}
+                        </li>
+                    ))}
+                </ul>
+            )}
             {unavailable && (
                 <p className="text-sm text-muted-foreground">Design data status unavailable</p>
             )}
@@ -174,5 +259,14 @@ export function DesignDataSection({ projectId, canEdit }: DesignDataSectionProps
                 }}
             />
         </section>
+    );
+}
+
+/** Why a revision's design data failed: one truncated line, the whole text on hover. */
+function FailureReason({ reason }: { reason: string }) {
+    return (
+        <span className="min-w-0 truncate text-xs text-muted-foreground" title={reason}>
+            {reason}
+        </span>
     );
 }

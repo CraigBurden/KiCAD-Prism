@@ -11,7 +11,9 @@ import argparse
 import contextlib
 import io
 import json
+import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -445,8 +447,10 @@ class RestoreStageTests(unittest.TestCase):
             code, _, pg_calls, output = self._restore(root, archive, failing={"pg_restore"})
 
             self.assertEqual(code, 1)
-            self.assertIn("--single-transaction", pg_calls[0])
-            self.assertIn("--clean", pg_calls[0])
+            self.assertIn("--single-transaction", prism_backup.RESTORE_SCRIPT)
+            self.assertIn("ON_ERROR_STOP=1", prism_backup.RESTORE_SCRIPT)
+            self.assertIn(prism_backup.RESTORE_SCRIPT, pg_calls[0])
+            self.assertIn(prism_backup.DROP_SCHEMAS_QUERY, pg_calls[0])
             self.assertEqual((root / "data/projects/live.txt").read_text(encoding="utf-8"), "live")
             self.assertFalse((root / "data/.projects.incoming").exists())
             self.assertIn("rolled back", output)
@@ -482,6 +486,381 @@ class RestoreStageTests(unittest.TestCase):
             self.assertEqual(len(pg_calls), 1)
             self.assertIn("Restore complete", output)
             self.assertEqual((root / "data/ssh/restored.txt").read_text(encoding="utf-8"), "restored")
+
+
+
+def compose_verb(command: list[str]) -> str:
+    if command[:2] == ["docker", "inspect"]:
+        return "inspect"
+    last = max(index for index, part in enumerate(command) if part == "-f")
+    return command[last + 2]
+
+
+def full_config_json(root: Path, *, secrets: bool = True, caddy: bool = True) -> bytes:
+    volumes = [
+        {"type": "bind", "source": str(root / "data/projects"), "target": "/app/projects"},
+        {"type": "bind", "source": str(root / "data/ssh"), "target": "/root/.ssh"},
+    ]
+    if secrets:
+        volumes.append({"type": "bind", "source": str(root / "data/secrets"), "target": "/run/secrets/prism"})
+    services: dict = {"backend": {"volumes": volumes}, "postgres": {}}
+    if caddy:
+        services["caddy"] = {
+            "volumes": [
+                {"type": "bind", "source": str(root / "generated/Caddyfile"), "target": "/etc/caddy/Caddyfile"},
+                {"type": "volume", "source": "caddy_data", "target": "/data"},
+            ]
+        }
+    return json.dumps({"services": services}).encode("utf-8")
+
+
+INSPECTED = [
+    {
+        "Name": "/kicad-prism-backend",
+        "Image": "sha256:backendid",
+        "Config": {
+            "Image": "kicad-prism-backend",
+            "Env": [
+                "PRISM_RELEASE=v5.0.0-alpha",
+                "PRISM_REVISION=0123456789abcdef",
+                "SESSION_SECRET=must-not-appear",
+            ],
+            "Labels": {"com.docker.compose.service": "backend"},
+        },
+    },
+    {
+        "Name": "/kicad-prism-frontend",
+        "Image": "sha256:frontendid",
+        "Config": {
+            "Image": "kicad-prism-frontend",
+            "Env": ["POSTGRES_PASSWORD=also-secret"],
+            "Labels": {
+                "com.docker.compose.service": "frontend",
+                "org.opencontainers.image.version": "v5.0.0-alpha",
+            },
+        },
+    },
+]
+
+
+class IdentityTests(unittest.TestCase):
+    def test_running_images_and_build_are_recorded_without_secrets(self) -> None:
+        containers, build = prism_backup.deployment_identity(INSPECTED, {"PRISM_CADDY_IMAGE": "caddy:2"})
+
+        self.assertEqual(containers["backend"]["image_id"], "sha256:backendid")
+        self.assertEqual(containers["frontend"]["image"], "kicad-prism-frontend")
+        self.assertEqual(containers["backend"]["container"], "kicad-prism-backend")
+        self.assertEqual(build["PRISM_RELEASE"], "v5.0.0-alpha")
+        self.assertEqual(build["PRISM_REVISION"], "0123456789abcdef")
+        self.assertEqual(build["PRISM_REVISION_source"], "container")
+        manifest = prism_backup.build_manifest(
+            created_at="now", root=Path("/deploy"), env={"SESSION_SECRET": "must-not-appear"},
+            versions={}, entries={}, hot=False, containers=containers, build=build,
+        )
+        serialised = json.dumps(manifest)
+        self.assertNotIn("must-not-appear", serialised)
+        self.assertNotIn("also-secret", serialised)
+        self.assertEqual(manifest["containers"]["backend"]["image_id"], "sha256:backendid")
+
+    def test_placeholder_identity_falls_back_to_labels_then_the_env_file(self) -> None:
+        inspected = [
+            {
+                "Name": "/b",
+                "Image": "sha256:x",
+                "Config": {"Env": ["PRISM_RELEASE=development", "PRISM_REVISION=unknown"],
+                           "Labels": {"com.docker.compose.service": "backend",
+                                      "org.opencontainers.image.version": "v5.0.0"}},
+            }
+        ]
+        _, build = prism_backup.deployment_identity(inspected, {"PRISM_REVISION": "feedface"})
+        self.assertEqual(build["PRISM_RELEASE"], "v5.0.0")
+        self.assertEqual(build["PRISM_RELEASE_source"], "image label")
+        self.assertEqual(build["PRISM_REVISION"], "feedface")
+        self.assertEqual(build["PRISM_REVISION_source"], "env file")
+
+    def test_nothing_known_records_nothing(self) -> None:
+        self.assertEqual(prism_backup.deployment_identity([], {}), ({}, {}))
+
+
+class OptionalPayloadTests(unittest.TestCase):
+    def test_the_signing_key_directory_is_found_when_mounted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = json.loads(full_config_json(root))
+            required = prism_backup.resolve_payloads([], root, config)
+            found, notes = prism_backup.resolve_optional_payloads(config, root, required)
+            self.assertEqual(found, [("secrets", "data/secrets")])
+            self.assertEqual(notes, [])
+
+    def test_an_older_deployment_without_the_mount_is_skipped_with_a_note(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = json.loads(full_config_json(root, secrets=False))
+            found, notes = prism_backup.resolve_optional_payloads(config, root, [])
+            self.assertEqual(found, [])
+            self.assertIn("secrets", notes[0])
+
+    def test_an_unsupported_layout_is_skipped_not_fatal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = {"services": {"backend": {"volumes": [
+                {"type": "volume", "source": "keys", "target": "/run/secrets/prism"},
+            ]}}}
+            found, notes = prism_backup.resolve_optional_payloads(config, root, [])
+            self.assertEqual(found, [])
+            self.assertIn("volume mount", notes[0])
+
+    def test_caddy_data_needs_a_volume_at_data(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertTrue(prism_backup.has_caddy_data(json.loads(full_config_json(root))))
+            self.assertFalse(prism_backup.has_caddy_data(json.loads(full_config_json(root, caddy=False))))
+
+    def test_config_files_lists_what_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "generated").mkdir()
+            (root / "generated/Caddyfile").write_text("x", encoding="utf-8")
+            (root / "generated/.env").write_text("SECRET=1", encoding="utf-8")
+            (root / "sites").mkdir()
+            (root / "sites/wiki.caddy").write_text("wiki {}", encoding="utf-8")
+            self.assertEqual(
+                prism_backup.config_files(root), ["generated/Caddyfile", "sites/wiki.caddy"]
+            )
+
+
+def make_deployment(tmp: str) -> Path:
+    root = Path(tmp) / "deploy"
+    for relative, content in (
+        ("data/projects/Board/Board.kicad_pcb", "board"),
+        ("data/projects/.kicad-prism/artifacts/job/out.glb", "derived"),
+        ("data/ssh/id_ed25519", "key"),
+        ("data/secrets/release-signing.key", "signing"),
+        ("generated/Caddyfile", "prism.example.com {}\nimport /etc/caddy/sites/*.caddy\n"),
+        ("generated/docker-compose.generated.yml", "services: {}\n"),
+        ("sites/wiki.caddy", "wiki.example.com {}\n"),
+    ):
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    (root / "compose.yml").write_text("services: {}", encoding="utf-8")
+    (root / ".env").write_text(
+        "POSTGRES_DB=kicad_prism\nPRISM_CADDY_IMAGE=caddy:2\nSESSION_SECRET=must-not-appear\n",
+        encoding="utf-8",
+    )
+    return root
+
+
+class CreateTests(unittest.TestCase):
+    def _create(self, root: Path, output: Path):
+        calls: list[list[str]] = []
+        staging_dirs: list[str] = []
+        real_temporary_directory = prism_backup.tempfile.TemporaryDirectory
+
+        def recording_temporary_directory(*args, **kwargs):
+            staging_dirs.append(kwargs.get("dir"))
+            return real_temporary_directory(*args, **kwargs)
+
+        def fake_run(command, cwd, *, capture=False):
+            calls.append(command)
+            verb = compose_verb(command)
+            stdout = b""
+            if verb == "config" and "--format" in command:
+                stdout = full_config_json(root)
+            elif verb == "config":
+                stdout = b"backend\nfrontend\npostgres\ncaddy\n"
+            elif verb == "ps":
+                stdout = b"c1\nc2\n"
+            elif verb == "inspect":
+                stdout = json.dumps(INSPECTED).encode("utf-8")
+            elif verb == "exec":
+                stdout = b"7 2\n"
+            return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr=b"")
+
+        def fake_subprocess_run(command, **kwargs):
+            calls.append(command)
+            if "pg_dump" in command:
+                kwargs["stdout"].write(b"dump")
+            elif "--entrypoint" in command:
+                kwargs["stdout"].write(b"caddy-volume")
+            return subprocess.CompletedProcess(command, 0, stderr=b"")
+
+        args = argparse.Namespace(root=root, env_file=None, compose_file=None, output=output, hot=False)
+        with patch.object(prism_backup, "run", fake_run), patch.object(
+            prism_backup.subprocess, "run", fake_subprocess_run
+        ), patch.object(prism_backup.tempfile, "TemporaryDirectory", recording_temporary_directory), \
+                contextlib.redirect_stdout(io.StringIO()):
+            code = prism_backup.create(args)
+        return code, calls, staging_dirs
+
+    def test_archive_holds_identity_and_every_payload_and_stages_beside_the_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_deployment(tmp)
+            output = Path(tmp) / "backups" / "out.tar.gz"
+            code, calls, staging_dirs = self._create(root, output)
+
+            self.assertEqual(code, 0)
+            self.assertEqual(staging_dirs, [output.parent.resolve()])
+            self.assertEqual([p.name for p in output.parent.iterdir()], ["out.tar.gz"], "no staging left over")
+            with tarfile.open(output, "r:gz") as handle:
+                names = set(handle.getnames())
+                manifest = json.loads(handle.extractfile("manifest.json").read())
+            self.assertTrue(
+                {"postgres.dump", "projects.tar.gz", "ssh.tar.gz", "secrets.tar.gz",
+                 "caddy_data.tar.gz", "config.tar.gz", "env", "manifest.json"} <= names
+            )
+            self.assertEqual(manifest["build"]["PRISM_RELEASE"], "v5.0.0-alpha")
+            self.assertEqual(manifest["containers"]["backend"]["image_id"], "sha256:backendid")
+            self.assertEqual(manifest["images"], {"PRISM_CADDY_IMAGE": "caddy:2"})
+            self.assertEqual(manifest["payloads"]["secrets"]["target"], "/run/secrets/prism")
+            self.assertEqual(
+                manifest["extras"]["config"]["files"],
+                ["generated/Caddyfile", "generated/docker-compose.generated.yml", "sites/wiki.caddy"],
+            )
+            self.assertNotIn("must-not-appear", json.dumps(manifest))
+
+            verbs = [compose_verb(call) for call in calls]
+            # The pause ends before the Caddy volume and the outer archive.
+            self.assertLess(verbs.index("stop"), verbs.index("start"))
+            caddy_call = next(i for i, call in enumerate(calls) if "--entrypoint" in call)
+            self.assertLess(verbs.index("start"), caddy_call)
+
+            verify_args = argparse.Namespace(archive=output)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(prism_backup.verify(verify_args), 0)
+
+
+class VerifyTests(unittest.TestCase):
+    def _archive(self, tmp: str, manifest: dict, members: dict[str, bytes]) -> Path:
+        archive = Path(tmp) / "old.tar.gz"
+        with tarfile.open(archive, "w:gz") as handle:
+            for name, data in {**members, "manifest.json": json.dumps(manifest).encode()}.items():
+                info = tarfile.TarInfo(name)
+                info.size = len(data)
+                handle.addfile(info, io.BytesIO(data))
+        return archive
+
+    def test_an_archive_from_before_identity_was_recorded_still_verifies(self) -> None:
+        import hashlib
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dump = b"dump"
+            manifest = {
+                "schema": prism_backup.MANIFEST_SCHEMA,
+                "created_at": "20260727T101500Z",
+                "hot": False,
+                "postgres": {"database": "kicad_prism"},
+                "images": {"PRISM_CADDY_IMAGE": "caddy:2"},
+                "versions": {},
+                "checksums": {"postgres.dump": hashlib.sha256(dump).hexdigest()},
+            }
+            archive = self._archive(tmp, manifest, {"postgres.dump": dump})
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(prism_backup.verify(argparse.Namespace(archive=archive)), 0)
+
+            damaged = self._archive(tmp, manifest, {"postgres.dump": b"dumq"})
+            problems, _ = prism_backup.archive_checksum_problems(manifest, damaged)
+            self.assertEqual(problems, [("postgres.dump", "checksum does not match the manifest")])
+
+    def test_runs_standalone_without_prism_deploy(self) -> None:
+        """`git show <tag>:scripts/prism_backup.py` must be enough to verify."""
+        import hashlib
+
+        with tempfile.TemporaryDirectory() as tmp:
+            alone = Path(tmp) / "tool"
+            alone.mkdir()
+            shutil.copy2(Path(prism_backup.__file__), alone / "prism_backup.py")
+            dump = b"dump"
+            manifest = {
+                "schema": prism_backup.MANIFEST_SCHEMA,
+                "checksums": {"postgres.dump": hashlib.sha256(dump).hexdigest()},
+            }
+            archive = self._archive(tmp, manifest, {"postgres.dump": dump})
+            result = subprocess.run(
+                [sys.executable, "-I", str(alone / "prism_backup.py"), "verify", str(archive)],
+                capture_output=True,
+                text=True,
+                cwd=tmp,
+                env={"PYTHONIOENCODING": "ascii"},
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Archive is intact", result.stdout)
+
+
+class RestoreExtrasTests(unittest.TestCase):
+    def test_signing_key_caddy_data_and_config_are_restored(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = make_deployment(tmp)
+            output = Path(tmp) / "out.tar.gz"
+            CreateTests()._create(source, output)
+
+            target = Path(tmp) / "target"
+            shutil.copytree(source, target)
+            (target / "data/secrets/release-signing.key").write_text("replaced", encoding="utf-8")
+            (target / "sites/wiki.caddy").write_text("changed", encoding="utf-8")
+            shutil.rmtree(target / "data/projects")
+            (target / "data/projects").mkdir()
+
+            calls: list[list[str]] = []
+            caddy_stdin: list[bytes] = []
+
+            def fake_run(command, cwd, *, capture=False):
+                calls.append(command)
+                verb = compose_verb(command)
+                if verb == "config" and "--format" in command:
+                    return subprocess.CompletedProcess(command, 0, stdout=full_config_json(target), stderr=b"")
+                if verb == "config":
+                    return subprocess.CompletedProcess(command, 0, stdout=b"backend\nfrontend\ncaddy\n", stderr=b"")
+                if verb == "exec":
+                    return subprocess.CompletedProcess(command, 0, stdout=b"7 2\n", stderr=b"")
+                return subprocess.CompletedProcess(command, 0, stdout=b"", stderr=b"")
+
+            def fake_subprocess_run(command, **kwargs):
+                calls.append(command)
+                if "--entrypoint" in command:
+                    caddy_stdin.append(kwargs["stdin"].read())
+                return subprocess.CompletedProcess(command, 0)
+
+            args = argparse.Namespace(
+                root=target, archive=output, env_file=None, compose_file=None, yes=True, with_config=True
+            )
+            with patch.object(prism_backup, "run", fake_run), patch.object(
+                prism_backup.subprocess, "run", fake_subprocess_run
+            ), contextlib.redirect_stdout(io.StringIO()) as out:
+                code = prism_backup.restore(args)
+
+            self.assertEqual(code, 0, out.getvalue())
+            self.assertEqual((target / "data/secrets/release-signing.key").read_text(encoding="utf-8"), "signing")
+            self.assertEqual((target / "data/projects/Board/Board.kicad_pcb").read_text(encoding="utf-8"), "board")
+            self.assertEqual((target / "sites/wiki.caddy").read_text(encoding="utf-8"), "wiki.example.com {}\n")
+            self.assertEqual(caddy_stdin, [b"caddy-volume"])
+            stop = next(call for call in calls if compose_verb(call) == "stop")
+            self.assertIn("caddy", stop)
+            self.assertEqual([p.name for p in target.iterdir() if p.name.startswith(".prism-")], [])
+
+    def test_config_is_kept_unless_asked(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = make_deployment(tmp)
+            output = Path(tmp) / "out.tar.gz"
+            CreateTests()._create(source, output)
+            (source / "sites/wiki.caddy").write_text("changed", encoding="utf-8")
+
+            def fake_run(command, cwd, *, capture=False):
+                verb = compose_verb(command)
+                if verb == "config" and "--format" in command:
+                    return subprocess.CompletedProcess(command, 0, stdout=full_config_json(source, caddy=False), stderr=b"")
+                return subprocess.CompletedProcess(command, 0, stdout=b"", stderr=b"")
+
+            args = argparse.Namespace(root=source, archive=output, env_file=None, compose_file=None, yes=True)
+            with patch.object(prism_backup, "run", fake_run), patch.object(
+                prism_backup.subprocess, "run", lambda command, **kw: subprocess.CompletedProcess(command, 0)
+            ), contextlib.redirect_stdout(io.StringIO()) as out:
+                code = prism_backup.restore(args)
+
+            self.assertEqual(code, 0, out.getvalue())
+            self.assertEqual((source / "sites/wiki.caddy").read_text(encoding="utf-8"), "changed")
+            self.assertIn("--with-config", out.getvalue())
 
 
 if __name__ == "__main__":

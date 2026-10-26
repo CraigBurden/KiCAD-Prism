@@ -21,6 +21,7 @@
 
 use super::scan;
 use crate::{ProjectionError, ProjectionInput, Sources};
+use prism_kicad_core::sheet_file;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 
@@ -97,7 +98,7 @@ fn board_records(
     Some(records)
 }
 
-/// Walk the root schematic and every sheet it reaches in hierarchy order
+/// Walk the top-level schematics and every sheet they reach in hierarchy order
 /// (`variant_catalog_service.py:308-328`).
 fn schematic_walk(input: &ProjectionInput<'_>, builder: &mut Builder) {
     let Some(root) = input
@@ -109,34 +110,56 @@ fn schematic_walk(input: &ProjectionInput<'_>, builder: &mut Builder) {
         return;
     };
     let project_dir = parent_dir(&input.config.project_file.0).to_owned();
-    let mut pending = vec![root];
+    // A KiCad 10 multi-root project starts from each top-level sheet the core
+    // realized; otherwise the root schematic.
+    let mut pending: Vec<String> = input.schematic.map_or_else(Vec::new, |model| {
+        model
+            .index
+            .occurrences()
+            .filter(|occurrence| occurrence.parent_index.is_none())
+            .map(|occurrence| occurrence.source_path.clone())
+            .collect()
+    });
+    if pending.is_empty() {
+        pending.push(root);
+    }
+    pending.reverse();
+    let text_variables = sheet_file::text_variables(input.project.text);
+    let project_name = sheet_file::project_name(&input.config.project_file.0);
+    let variables = sheet_file::Variables {
+        project_name: &project_name,
+        text: Some(&text_variables),
+    };
     let mut visited: BTreeSet<String> = BTreeSet::new();
     while let Some(path) = pending.pop() {
-        let Some(resolved) = normalize(&path) else {
-            builder.source_unparseable(SOURCE_SCHEMATIC, basename(&path));
-            continue;
-        };
-        if !visited.insert(resolved.clone()) {
+        if !visited.insert(path.clone()) {
             continue;
         }
         // Source files must stay within the project snapshot; never follow a
         // file-authored path into the host filesystem.
-        if !within_project(&project_dir, &resolved) {
+        if !within_project(&project_dir, &path) {
             builder.source_unparseable(SOURCE_SCHEMATIC, basename(&path));
             continue;
         }
-        let records =
-            read_text(input.sources, &resolved).map(|text| scan::scan(&text, "kicad_sch"));
+        let records = read_text(input.sources, &path).map(|text| scan::scan(&text, "kicad_sch"));
         let Some(records) = records.filter(|records| records.readable) else {
-            builder.source_unparseable(SOURCE_SCHEMATIC, &resolved);
+            builder.source_unparseable(SOURCE_SCHEMATIC, &path);
             continue;
         };
         for name in &records.names {
             builder.add_schematic_name(name);
         }
-        let directory = parent_dir(&resolved);
         for sheet in records.sheets.iter().rev() {
-            pending.push(join(directory, sheet));
+            // KiCad's sheet file rule, as the core and stage parse read it.
+            let Ok(resolved) = sheet_file::resolve(&path, sheet, variables) else {
+                builder.source_unparseable(SOURCE_SCHEMATIC, basename(sheet));
+                continue;
+            };
+            let exists = input.sources.exists(&resolved);
+            let found = sheet_file::locate(&resolved, exists, || {
+                input.sources.list("", &[".kicad_sch"])
+            });
+            pending.push(found.map_or(resolved, |(actual, _)| actual));
         }
     }
 }
@@ -339,34 +362,6 @@ fn parent_dir(path: &str) -> &str {
 /// The last segment of a repository path.
 fn basename(path: &str) -> &str {
     path.rsplit_once('/').map_or(path, |(_, name)| name)
-}
-
-/// Join a directory and a sheet name (`Path.parent / name`).
-fn join(directory: &str, name: &str) -> String {
-    if directory.is_empty() {
-        name.to_owned()
-    } else {
-        format!("{directory}/{name}")
-    }
-}
-
-/// Lexically resolve `.` and `..` (`Path.resolve`); `None` when it escapes
-/// above the repository root.
-fn normalize(path: &str) -> Option<String> {
-    if path.starts_with('/') {
-        return None;
-    }
-    let mut parts: Vec<&str> = Vec::new();
-    for part in path.split('/') {
-        match part {
-            "" | "." => {}
-            ".." => {
-                parts.pop()?;
-            }
-            name => parts.push(name),
-        }
-    }
-    Some(parts.join("/"))
 }
 
 /// Whether a repository path stays inside the project directory

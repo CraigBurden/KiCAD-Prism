@@ -58,6 +58,9 @@ def renderer_resource_digest() -> str:
 #: reproducibility claim the key exists to make. The golden-digest tests in
 #: `test_release_studio_documents.py` fail on any rendering change, so the bump
 #: cannot be skipped silently.
+#: d29 -- a fabrication sheet's caption sits under the overall width
+#: dimension instead of over it, and the notes stay under the drawing only
+#: when that caption clears them. `kicad` keeps the d23 look.
 #: d28 -- the 2026-10-22 documentation review: `prism` chooses one set ratio
 #: against the full body (the paper as before) and continues a sheet's tables
 #: on their own pages when they do not fit beside the art; a part whose
@@ -126,7 +129,7 @@ def renderer_resource_digest() -> str:
 #: d7 -- the default frame/title block is emitted by Monkey's public KiCad
 #: worksheet API and visible technical text uses Monkey's pinned NewStroke
 #: geometry. A deterministic hidden PDF text layer preserves search/copy.
-RENDERER_VERSION = "release-studio-documents/d28"
+RENDERER_VERSION = "release-studio-documents/d29"
 
 __all__ = [
     "ASSEMBLY_SIDES",

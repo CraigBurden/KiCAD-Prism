@@ -74,6 +74,11 @@ Four things hold state you cannot recreate:
 | Project storage | the rest of `data/projects` | imported repositories and checkouts |
 | Git identity | `data/ssh` | the keys your Git host has authorised |
 
+Smaller, but also worth keeping: `data/secrets` (the Release Studio signing key),
+the Caddy data volume (ACME account and issued certificates; public CAs
+rate-limit reissuing), and the deployment configuration in `generated/` and
+`sites/`. `prism_backup.py` archives each of these that the deployment has.
+
 **A database dump on its own is not a backup of Prism.** Restore it without the
 component store and every component in the catalog exists, with a broken
 reference to its files. The two have to travel together.
@@ -120,20 +125,46 @@ Source checkout:
 python3 scripts/prism_backup.py create
 ```
 
+Use the backup tool from the release you are running, or a newer one. It needs
+only Python 3 and Docker, not the rest of the checkout, so it can be fetched
+on its own:
+
+```bash
+git show <tag>:scripts/prism_backup.py > prism_backup.py
+python3 prism_backup.py --root /path/to/prism create
+```
+
 This stops `frontend`, `backend`, `prism-worker` and `catalog-worker`, leaves
-PostgreSQL running, then captures the dump and the files as one set and restarts
-the application. The pause is what makes the database and the filesystem
-describe the same moment. It usually costs under a minute.
+PostgreSQL running, captures the dump and the files as one set, and restarts
+the application before it hashes and writes the final archive. The pause is
+what makes the database and the filesystem describe the same moment.
+
+The pause lasts as long as compressing project storage takes. Expect seconds
+for a small installation; a Windows host with Docker Desktop has taken about
+2 minutes per GB of `data/projects` (16 minutes for 8.5 GB). Schedule it.
+
+Payloads are staged in a hidden `.prism-backup-*` directory beside the output
+archive, not in the system temp directory. Free space needed on that disk is
+about twice the finished archive while it is written. Point `--output` at
+another disk when the deployment disk is tight:
+
+```bash
+python3 scripts/prism_backup.py create --output D:/backups/prism-backup.tar.gz
+```
 
 `--hot` skips the pause. Use it for a routine off-hours snapshot, not before an
 upgrade: the whole point of this backup is that you may need it.
 
-The archive contains the dump, project storage, `data/ssh`, the `.env`, and a
-manifest recording the Prism images, both schema ledger versions, and a SHA-256
-of every payload.
+The archive contains the dump, project storage, `data/ssh`, the `.env`, and,
+when the deployment has them, `data/secrets`, the Caddy data volume, and the
+installer's `generated/` files plus `sites/`. Anything absent is skipped with a
+note. The manifest records the running containers' image names and IDs, the
+build's `PRISM_RELEASE` and `PRISM_REVISION`, both schema ledger versions, and
+a SHA-256 of every payload.
 
-> **The archive contains secrets.** Repositories, tokens, and SSH private keys,
-> plus the `.env` verbatim. Encrypt it and store it off this host.
+> **The archive contains secrets.** Repositories, tokens, SSH private keys, the
+> signing key and Caddy's ACME account key, plus the `.env` verbatim. Encrypt it
+> and store it off this host.
 
 ## 3. Check that the backup is real
 
@@ -151,9 +182,9 @@ For a source checkout:
 python3 scripts/prism_backup.py verify prism-backup-<timestamp>.tar.gz
 ```
 
-Every payload is re-hashed against the manifest. An untested backup is a
-rumour; this is thirty seconds against the possibility of finding out during a
-restore.
+Every payload is re-hashed against the manifest, read straight from the
+archive without unpacking it. An untested backup is a rumour; this is a few
+minutes against the possibility of finding out during a restore.
 
 ## 4. Read the release notes
 
@@ -187,6 +218,24 @@ python3 -m scripts.prism_deploy
 The installer reads existing answers, keeps secrets, and takes new defaults.
 It generates source Compose overlays; do not run it against a pull-only release
 bundle. Bundle users should carry values into the new `.env.example` manually.
+
+From v5, `docker-compose.yml` passes the deployment env file to `backend`,
+`catalog-worker` and `prism-worker` as `env_file: ${PRISM_ENV_FILE:-.env}`.
+Installer deployments keep it in `generated/.env`, so `PRISM_ENV_FILE` must name
+that file or every setting not listed under `environment:` (forge host tokens,
+for example) silently stops reaching the containers. Re-running the installer
+writes `PRISM_ENV_FILE=generated/.env` into `generated/.env` and pins the same
+file in `generated/docker-compose.generated.yml`. If you do not re-run it, add
+the line yourself and check:
+
+```bash
+grep '^PRISM_ENV_FILE=' generated/.env
+```
+
+Hand edits to `generated/Caddyfile` are overwritten by the installer. Move any
+extra site into `sites/<name>.caddy` first; the regenerated Caddyfile imports
+that directory. See
+[Additional Caddy sites](DEPLOYMENT.md#additional-caddy-sites).
 
 ## 6. Validate before you switch
 
@@ -244,7 +293,12 @@ build receiving it, because that would leave the database below the schema
 version its contents assume. On an empty or otherwise unreadable database it
 warns that this comparison could not run; stop and investigate before
 continuing. Restore replaces the database, project storage and SSH keys in
-place, and asks before it does.
+place, and asks before it does. It also puts back `data/secrets` and the Caddy
+data volume when the archive has them. It leaves `generated/`, `sites/` and the
+`.env` as they are unless you pass `--with-config`, which writes the archived
+`generated/` files and `sites/` over the current ones. Restore unpacks into a
+hidden `.prism-restore-*` directory inside the deployment, so that disk needs
+free space for the unpacked archive as well as the data it replaces.
 
 Never move or recreate a published Git tag to roll back. The previous bundle
 still pins the original image digests; that is what makes it a rollback.
@@ -259,8 +313,11 @@ or to rehearse one.
 1. Install the recorded release into an empty directory.
 2. Extract the archive's `env` and adapt it to the new host. Do not reuse a
    hostname or certificate that still belongs to the live installation.
+   Installer deployments put it at `generated/.env`.
 3. Bring up PostgreSQL alone: `docker compose up -d postgres`.
-4. `python3 scripts/prism_backup.py restore <archive>`.
+4. `python3 scripts/prism_backup.py restore <archive>`. Add `--with-config` to
+   bring back `generated/` and `sites/` as well; leave it off when the new host
+   needs a different hostname or certificate, and re-run the installer instead.
 5. Start everything: `docker compose up -d --wait`.
 6. Run the verification checklist.
 
@@ -565,6 +622,46 @@ only after `CATALOG_DRAFT_MODEL_QUARANTINE_DAYS` (default 30). Until then
 directory with the rest of the store. Reads of a quarantined model answer 404
 `asset_quarantined` (`asset_purged` once it is deleted).
 
+## API clients
+
+Scripts and integrations that call the Prism API directly, as opposed to the
+browser and the KiCad panel, see these changes:
+
+- **Error bodies.** Every error is `{"detail": "<message>", "code": "<code>"}`,
+  sometimes with extra fields. `detail` is unchanged, so a reader of it keeps
+  working; match on `code` instead of parsing the message.
+- **Scopes.** A bearer token needs `api:read` for every read and `api:write`
+  for every write. A service client created without either can no longer read;
+  give it `api:read`. KiCad provider tokens work only on
+  `/api/remote-provider/*`. See [Authentication and access](AUTHENTICATION_AND_ACCESS.md).
+- **Guarded writes.** Comment, reply and catalog component edits take `If-Match`
+  with the ETag that was read. A stale one answers 412 with the current ETag;
+  where the precondition is required, a missing one answers 428.
+
+## System Builder data is dropped
+
+System Builder never shipped in a tagged release: v4.0.0-alpha has none of its
+tables or catalog kinds, so an upgrade from v4.0.0-alpha loses nothing here.
+An installation that ran `dev` between 2026-10-09 and 2026-10-23 did store
+System Builder data, and the first start of v5.0.0-alpha deletes it without a
+copy:
+
+| Ledger | Step | Drops |
+|---|---|---|
+| workspace | 123 `drop_system_builder_v1` | every `system_*` table (v1 systems, harnesses, reviews, snapshots, exports) |
+| workspace | 124 `drop_mesh_viewer_readiness` | `ws_webgpu_ready`; the 3D tab reads the design bundle instead |
+| workspace | 129 `drop_system_builder_v2` | `ws_systems` and the other `ws_system_*` / `ws_board_sub_port*` tables |
+| catalog | 13 `retire_module_and_assembly` | `module` and `assembly` components, `catalog_module_connectors` |
+| catalog | 16 `retire_system_entries` | `system` components and `system_entry` assets |
+
+The catalog deletes cascade to those components' revisions, asset links,
+audit records and mates. Parts are untouched.
+
+To keep that data, take the backup in step 2 before starting the new release;
+the code that reads it is kept at the tag `archive/system-builder-v2`. After
+the upgrade, `.kicad-prism/system-bundles/` and `.kicad-prism/system-steps/`
+under the projects root are no longer read and can be deleted.
+
 ## Why the catalog gate is gone
 
 Until [`catalog_schema_migrations.py`](../backend/app/services/catalog_schema_migrations.py)
@@ -753,7 +850,8 @@ python3 scripts/prism_backup.py create --help
 | `restore` | replace this deployment's data with an archive; `--yes` to skip the prompt |
 
 Global: `--root` for the deployment directory, `--env-file` and `--compose-file`
-when detection needs help.
+when detection needs help. `restore --with-config` also restores the archived
+`generated/` files and `sites/`.
 
 ## Manifest
 
@@ -764,13 +862,47 @@ when detection needs help.
   "hot": false,
   "postgres": { "user": "kicad_prism", "database": "kicad_prism" },
   "images": { "PRISM_BACKEND_IMAGE": "ghcr.io/…@sha256:…" },
+  "build": {
+    "PRISM_RELEASE": "v5.0.0-alpha",
+    "PRISM_RELEASE_source": "container",
+    "PRISM_REVISION": "…",
+    "PRISM_REVISION_source": "container"
+  },
+  "containers": {
+    "backend": { "container": "kicad-prism-backend", "image": "kicad-prism-backend", "image_id": "sha256:…" }
+  },
+  "payloads": { "secrets": { "source": "data/secrets", "target": "/run/secrets/prism" } },
+  "extras": { "caddy_data": "caddy_data.tar.gz", "config": { "archive": "config.tar.gz", "files": ["generated/Caddyfile"] } },
   "versions": { "workspace_schema": "7", "catalog_schema": "2" },
   "checksums": { "postgres.dump": "…", "projects.tar.gz": "…" }
 }
 ```
 
+`images` lists the `*_IMAGE` settings from the env file, which a source build
+mostly does not set; `containers` and `build` say what was actually running.
+`build` comes from the backend container's environment (what
+`/api/health/ready` reports), then image labels, then the env file; the
+`*_source` keys say which. Archives written before these fields existed still
+verify and restore.
+
 The manifest itself holds no secrets, so it is safe to keep alongside an
 inventory of backups. The archive it describes is not.
+
+## Windows
+
+- **Console encoding.** On a cp1252 console the installer and backup tool fall
+  back to ASCII. Set `PYTHONUTF8=1` (for example `$env:PYTHONUTF8 = "1"` in
+  PowerShell) for the full output and UTF-8 file handling.
+- **Git Bash path conversion.** MSYS rewrites arguments that look like POSIX
+  paths, so `docker exec … /app/…` or `docker compose exec postgres psql -f /tmp/…`
+  receive `C:/Program Files/Git/app/…`. Prefix those commands with
+  `MSYS_NO_PATHCONV=1`. Do not export it for the whole shell: native commands
+  given MSYS paths, such as `git -C /c/prism …`, need the conversion. PowerShell
+  is not affected. `prism_backup.py` calls Docker directly, so it is not
+  affected either.
+- **Disk.** Docker Desktop keeps volumes inside its VM disk, and the backup
+  stages beside `--output`. Check free space on both before a backup or
+  restore.
 
 ## Known gaps
 

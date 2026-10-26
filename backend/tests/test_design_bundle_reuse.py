@@ -197,7 +197,7 @@ class PrebuildTests(_Workspace, unittest.TestCase):
         with self.scratch.connection() as conn:
             seed_job(conn, "active-1", "design_bundle", "running")
         outcome = backfill.tick(backfill.BackfillState())
-        self.assertEqual(outcome["busy"], "a design_bundle job is active")
+        self.assertEqual(outcome["busy"], "every design_bundle slot is taken")
         self.assertEqual(len(outcome["reused"]), 1)
 
     def test_retention_keeps_an_archive_an_alias_points_to(self) -> None:

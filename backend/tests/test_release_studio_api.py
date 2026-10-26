@@ -234,7 +234,7 @@ class ReleaseStudioDocumentSheetApiTests(unittest.TestCase):
 
     def test_sheet_preview_hides_corrupt_archive_details(self) -> None:
         with patch.object(self.api.ARCHIVES, "artifact_bytes", return_value=b"not a tar archive"):
-            with self.assertRaises(HTTPException) as caught:
+            with self.assertRaises(DomainError) as caught:
                 _run(
                     self.api.preview_document_sheet(
                         "proj", "build", "fabrication", user=self.user

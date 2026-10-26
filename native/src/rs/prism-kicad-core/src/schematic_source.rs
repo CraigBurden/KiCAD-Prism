@@ -1,17 +1,17 @@
 use crate::schematic_bundle::SchematicBundleLimits;
-use crate::sexpr::{Lexer, Token, TokenKind, decode_quoted};
 use crate::sexpr_projection::{FormSpan, ProjectionLimits, Selector, scan_form_spans_with_limits};
 use crate::source_bundle::{SourceBundleError, SourceBundleErrorKind};
-use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 mod bus_aliases;
 pub(crate) mod library_symbols;
+mod scalars;
 mod symbol_instances;
 mod symbols;
 pub use bus_aliases::SchematicBusAlias;
 pub(crate) use bus_aliases::parse_bus_aliases;
 pub(crate) use library_symbols::parse_embedded_library_symbols;
 pub use library_symbols::{SchematicLibraryPin, SchematicLibrarySubsymbol, SchematicLibrarySymbol};
+pub(crate) use scalars::{direct_scalars, property_scalars};
 pub use symbol_instances::{
     SchematicLegacySymbolInstance, SchematicSymbolInstance, SchematicSymbolInstanceVariant,
     SchematicSymbolVariantField,
@@ -515,12 +515,15 @@ fn parse_label(
     source_path: &str,
     limits: SchematicBundleLimits,
 ) -> Result<SchematicLabel, SourceBundleError> {
+    // A label carries any number of fields, each with its own nested `(at …)`
+    // (`SCH_IO_KICAD_SEXPR_PARSER::parseSchText`), so the selection scales with the
+    // per-symbol field limit rather than a fixed count.
     let spans = carrier_form_spans(
         source,
         &[root_head, "at", "shape", "uuid"],
         source_path,
         limits,
-        8,
+        limits.max_symbol_properties_per_symbol.saturating_add(8),
     )?;
     let root = spans
         .iter()
@@ -781,89 +784,6 @@ fn signed_magnitude(magnitude: u64, negative: bool) -> Option<i64> {
         }
     } else {
         i64::try_from(magnitude).ok()
-    }
-}
-
-fn direct_scalars(
-    source: &str,
-    span: &FormSpan,
-    maximum: usize,
-    source_path: &str,
-    limits: SchematicBundleLimits,
-) -> Result<Vec<String>, SourceBundleError> {
-    let text = span
-        .text(source)
-        .map_err(|error| source_error(source_path, error.to_string()))?;
-    let mut lexer = Lexer::new(text);
-    require_header(&mut lexer, source_path)?;
-    let mut depth = 1_usize;
-    let mut values = Vec::new();
-    for token in lexer {
-        let token = token.map_err(|error| source_error(source_path, error.to_string()))?;
-        match token.kind {
-            TokenKind::Left => depth = depth.saturating_add(1),
-            TokenKind::Right => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    break;
-                }
-            }
-            _ if depth == 1 => {
-                if values.len() >= maximum {
-                    return Err(limit_error(
-                        source_path,
-                        "direct scalar count exceeds its limit",
-                    ));
-                }
-                if token.lexeme.len() > limits.max_decoded_string_bytes.saturating_add(2) {
-                    return Err(limit_error(source_path, "decoded string exceeds its limit"));
-                }
-                let decoded = decoded(token);
-                if decoded.len() > limits.max_decoded_string_bytes {
-                    return Err(limit_error(source_path, "decoded string exceeds its limit"));
-                }
-                values.push(decoded.into_owned());
-            }
-            _ => {}
-        }
-    }
-    Ok(values)
-}
-
-fn require_header(lexer: &mut Lexer<'_>, source_path: &str) -> Result<(), SourceBundleError> {
-    let left = next_token(lexer, source_path)?;
-    let head = next_token(lexer, source_path)?;
-    if left.kind == TokenKind::Left && head.kind == TokenKind::Atom {
-        Ok(())
-    } else {
-        Err(source_error(
-            source_path,
-            "selected schematic form has an invalid header",
-        ))
-    }
-}
-
-fn next_token<'a>(
-    lexer: &mut Lexer<'a>,
-    source_path: &str,
-) -> Result<Token<'a>, SourceBundleError> {
-    lexer
-        .next()
-        .transpose()
-        .map_err(|error| source_error(source_path, error.to_string()))?
-        .ok_or_else(|| {
-            source_error(
-                source_path,
-                "selected schematic form ended before its header",
-            )
-        })
-}
-
-fn decoded(token: Token<'_>) -> Cow<'_, str> {
-    if token.kind == TokenKind::QuotedString {
-        Cow::Owned(decode_quoted(token.lexeme))
-    } else {
-        Cow::Borrowed(token.lexeme)
     }
 }
 
