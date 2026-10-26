@@ -266,5 +266,29 @@ class EventApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
 
 
+
+class CommentChangeQueueTests(unittest.TestCase):
+    """comment.changed is queued per writer, never on the pooled connection."""
+
+    def test_a_change_outside_a_writer_scope_is_not_queued(self) -> None:
+        from app.services import comment_live_events
+
+        comment_live_events._queue_event(project_id="p", comment_id="c1", change_kind="created")
+        with comment_live_events.queued_events() as queued:
+            comment_live_events._queue_event(project_id="p", comment_id="c2", change_kind="edited")
+        self.assertEqual(
+            queued, [{"projectId": "p", "commentId": "c2", "changeKind": "edited"}]
+        )
+
+    def test_nested_writers_keep_their_own_changes(self) -> None:
+        from app.services import comment_live_events
+
+        with comment_live_events.queued_events() as outer:
+            with comment_live_events.queued_events() as inner:
+                comment_live_events._queue_event(project_id="p", comment_id="c", change_kind="resolved")
+            comment_live_events._queue_event(project_id="p", comment_id="d", change_kind="created")
+        self.assertEqual([change["commentId"] for change in inner], ["c"])
+        self.assertEqual([change["commentId"] for change in outer], ["d"])
+
 if __name__ == "__main__":
     unittest.main()

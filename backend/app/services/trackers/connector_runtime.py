@@ -245,12 +245,9 @@ class ConnectorRuntime:
 
     @contextmanager
     def connection(self) -> Iterator[Any]:
-        queued: list[dict[str, str]] = []
-        with self._connect() as conn:
-            try:
+        with comment_live_events.queued_events() as queued:
+            with self._connect() as conn:
                 yield conn
-            finally:
-                queued = comment_live_events.take_queued_events(conn)
         comment_live_events.record_queued_events(queued)
 
     def issue_adapter(self, connector: Mapping[str, Any]) -> Any:

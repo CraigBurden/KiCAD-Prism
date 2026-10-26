@@ -88,12 +88,9 @@ class CommentsStoreWritesMixin:
         A raise rolls the transaction back, so nothing queued is recorded.
         """
 
-        queued: List[Dict[str, str]] = []
-        with self._connect() as conn:
-            try:
+        with comment_live_events.queued_events() as queued:
+            with self._connect() as conn:
                 yield conn
-            finally:
-                queued = comment_live_events.take_queued_events(conn)
         comment_live_events.record_queued_events(queued)
 
     def _root_row(self, conn, project_id: str, comment_id: str, *, canvas_only: bool = False):
