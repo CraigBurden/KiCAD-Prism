@@ -42,7 +42,7 @@
   "analyze_repository": {
     "method": "POST",
     "path": "/api/v1/projects/analyze",
-    "typed": false
+    "typed": true
   },
   "append_design_compare_debug_log": {
     "method": "POST",
@@ -92,7 +92,7 @@
   "cancel_job": {
     "method": "POST",
     "path": "/api/v1/jobs/{job_id}/cancel",
-    "typed": false
+    "typed": true
   },
   "catalog_health": {
     "method": "GET",
@@ -117,7 +117,7 @@
   "clear_project_thumbnail": {
     "method": "DELETE",
     "path": "/api/v1/projects/{project_id}/thumbnail",
-    "typed": false
+    "typed": true
   },
   "compare_component_revisions": {
     "method": "GET",
@@ -182,7 +182,7 @@
   "create_folder": {
     "method": "POST",
     "path": "/api/v1/folders/",
-    "typed": false
+    "typed": true
   },
   "create_folder_snapshot": {
     "method": "POST",
@@ -252,12 +252,12 @@
   "delete_folder": {
     "method": "DELETE",
     "path": "/api/v1/folders/{folder_id}",
-    "typed": false
+    "typed": true
   },
   "delete_project_endpoint": {
     "method": "DELETE",
     "path": "/api/v1/projects/{project_id}",
-    "typed": false
+    "typed": true
   },
   "delete_project_import_session": {
     "method": "DELETE",
@@ -307,7 +307,7 @@
   "detect_project_paths": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/detect-paths",
-    "typed": false
+    "typed": true
   },
   "discover_folder_snapshot": {
     "method": "POST",
@@ -392,7 +392,7 @@
   "generate_semantic_index": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/semantic-index/generate",
-    "typed": false
+    "typed": true
   },
   "generate_ssh_key": {
     "method": "POST",
@@ -857,7 +857,7 @@
   "import_access_help": {
     "method": "POST",
     "path": "/api/v1/projects/access-help",
-    "typed": false
+    "typed": true
   },
   "import_auxiliary_asset": {
     "method": "POST",
@@ -877,7 +877,7 @@
   "import_project": {
     "method": "POST",
     "path": "/api/v1/projects/import",
-    "typed": false
+    "typed": true
   },
   "import_proposals_csv": {
     "method": "POST",
@@ -1127,12 +1127,12 @@
   "move_project_to_folder": {
     "method": "POST",
     "path": "/api/v1/folders/projects/{project_id}/move",
-    "typed": false
+    "typed": true
   },
   "move_projects_to_folder": {
     "method": "POST",
     "path": "/api/v1/folders/projects/move",
-    "typed": false
+    "typed": true
   },
   "oauth_callback": {
     "method": "GET",
@@ -1252,17 +1252,17 @@
   "regenerate_design_bundles": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/design-bundles/regenerate",
-    "typed": false
+    "typed": true
   },
   "regenerate_project_thumbnail": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/thumbnail/regenerate",
-    "typed": false
+    "typed": true
   },
   "regenerate_project_thumbnails": {
     "method": "POST",
     "path": "/api/v1/projects/thumbnails/regenerate",
-    "typed": false
+    "typed": true
   },
   "reject_project_import_proposal": {
     "method": "POST",
@@ -1312,7 +1312,7 @@
   "retry_project_import_follow_ups": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/import-follow-ups/retry",
-    "typed": false
+    "typed": true
   },
   "revoke_connector": {
     "method": "POST",
@@ -1437,7 +1437,7 @@
   "sync_project_endpoint": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/sync",
-    "typed": false
+    "typed": true
   },
   "test_connector": {
     "method": "POST",
@@ -1457,7 +1457,7 @@
   "token": {
     "method": "POST",
     "path": "/api/v1/oauth/token",
-    "typed": false
+    "typed": true
   },
   "tracker_webhook": {
     "method": "POST",
@@ -1472,7 +1472,7 @@
   "trigger_workflow": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/workflows",
-    "typed": false
+    "typed": true
   },
   "trust_git_host_key": {
     "method": "POST",
@@ -1512,7 +1512,7 @@
   "update_folder": {
     "method": "PATCH",
     "path": "/api/v1/folders/{folder_id}",
-    "typed": false
+    "typed": true
   },
   "update_metadata_field": {
     "method": "PATCH",
@@ -1522,17 +1522,17 @@
   "update_project_config": {
     "method": "PUT",
     "path": "/api/v1/projects/{project_id}/config",
-    "typed": false
+    "typed": true
   },
   "update_project_description": {
     "method": "PUT",
     "path": "/api/v1/projects/{project_id}/description",
-    "typed": false
+    "typed": true
   },
   "update_project_name": {
     "method": "PUT",
     "path": "/api/v1/projects/{project_id}/name",
-    "typed": false
+    "typed": true
   },
   "update_project_tracker": {
     "method": "PUT",
@@ -1557,7 +1557,7 @@
   "upload_project_thumbnail": {
     "method": "PUT",
     "path": "/api/v1/projects/{project_id}/thumbnail",
-    "typed": false
+    "typed": true
   },
   "upsert_access_user": {
     "method": "PUT",

@@ -23,18 +23,31 @@ from app.api._helpers import (
 )
 from app.api.projects_models import (
     CommitDistance,
+    DetectedPaths,
     DocFileContent,
+    ImportAccessHelp,
+    JobStarted,
     MonorepoStructure,
     ProjectBranches,
     ProjectCommentsSourceUrls,
     ProjectCommitSummary,
     ProjectCommits,
+    ProjectConfigSaved,
+    ProjectDeleted,
     ProjectDescription,
+    ProjectDescriptionUpdated,
     ProjectName,
+    ProjectNameUpdated,
     ProjectPathConfig,
     ProjectReadme,
     ProjectReleases,
     ProjectSearchResults,
+    SyncQueued,
+    ThumbnailCleared,
+    ThumbnailQueued,
+    ThumbnailUploaded,
+    ThumbnailsQueued,
+    WorkflowQueued,
 )
 from app.core.errors import caller_errors, value_errors_as
 from app.core.config import settings
@@ -326,7 +339,7 @@ class ImportRequest(BaseModel):
 class RegenerateThumbnailsRequest(BaseModel):
     project_ids: List[str] = Field(min_length=1)
 
-@router.post("/analyze")
+@router.post("/analyze", response_model=JobStarted, summary="Start analyzing a repository for import")
 async def analyze_repository(
     request: AnalyzeRequest,
     user: AuthenticatedUser = Depends(require_designer),
@@ -347,7 +360,12 @@ async def analyze_repository(
         return {"job_id": job_id, "status": "started"}
 
 
-@router.post("/access-help", dependencies=[Depends(require_designer)])
+@router.post(
+    "/access-help",
+    dependencies=[Depends(require_designer)],
+    response_model=ImportAccessHelp,
+    summary="Where to register the key for a repository Prism cannot read",
+)
 async def import_access_help(request: AnalyzeRequest):
     """What to do about a repository Prism cannot read.
 
@@ -372,7 +390,7 @@ async def import_access_help(request: AnalyzeRequest):
     }
 
 
-@router.post("/import")
+@router.post("/import", response_model=JobStarted, summary="Start importing a repository")
 async def import_project(
     request: ImportRequest,
     user: AuthenticatedUser = Depends(require_designer),
@@ -393,7 +411,12 @@ async def import_project(
         )
         return {"job_id": job_id, "status": "started"}
 
-@router.post("/{project_id}/sync", dependencies=[Depends(require_designer)])
+@router.post(
+    "/{project_id}/sync",
+    dependencies=[Depends(require_designer)],
+    response_model=SyncQueued,
+    summary="Queue a sync with the project's remote",
+)
 async def sync_project_endpoint(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     """
     Sync project repository with remote.
@@ -417,7 +440,12 @@ class WorkflowRequest(BaseModel):
     author: Optional[str] = "anonymous"
     force: bool = False
 
-@router.post("/{project_id}/workflows", dependencies=[Depends(require_designer)])
+@router.post(
+    "/{project_id}/workflows",
+    dependencies=[Depends(require_designer)],
+    response_model=WorkflowQueued,
+    summary="Queue a KiCad workflow output job",
+)
 async def trigger_workflow(
     project_id: str,
     request: WorkflowRequest,
@@ -558,7 +586,12 @@ def _thumbnail_response(
         headers=headers,
     )
 
-@router.post("/{project_id}/thumbnail/regenerate", dependencies=[Depends(require_designer)])
+@router.post(
+    "/{project_id}/thumbnail/regenerate",
+    dependencies=[Depends(require_designer)],
+    response_model=ThumbnailQueued,
+    summary="Queue a fresh board thumbnail render",
+)
 async def regenerate_project_thumbnail(project_id: str, user: AuthenticatedUser = Depends(require_designer)):
     """Queue a fresh board render for this project.
 
@@ -582,7 +615,11 @@ async def regenerate_project_thumbnail(project_id: str, user: AuthenticatedUser 
     }
 
 
-@router.post("/thumbnails/regenerate")
+@router.post(
+    "/thumbnails/regenerate",
+    response_model=ThumbnailsQueued,
+    summary="Queue board thumbnail renders for several projects",
+)
 async def regenerate_project_thumbnails(
     request: RegenerateThumbnailsRequest,
     user: AuthenticatedUser = Depends(require_designer),
@@ -613,7 +650,12 @@ async def regenerate_project_thumbnails(
     }
 
 
-@router.put("/{project_id}/thumbnail", dependencies=[Depends(require_designer)])
+@router.put(
+    "/{project_id}/thumbnail",
+    dependencies=[Depends(require_designer)],
+    response_model=ThumbnailUploaded,
+    summary="Replace the project's thumbnail with an uploaded image",
+)
 async def upload_project_thumbnail(
     project_id: str,
     file: UploadFile = File(...),
@@ -652,7 +694,12 @@ async def upload_project_thumbnail(
     }
 
 
-@router.delete("/{project_id}/thumbnail", dependencies=[Depends(require_designer)])
+@router.delete(
+    "/{project_id}/thumbnail",
+    dependencies=[Depends(require_designer)],
+    response_model=ThumbnailCleared,
+    summary="Drop an uploaded thumbnail and fall back to the rendered board",
+)
 async def clear_project_thumbnail(
     project_id: str,
     user: AuthenticatedUser = Depends(require_designer),
@@ -723,7 +770,13 @@ async def get_project_comments_source_urls(
         "relative": urls["relative"],
     }
 
-@router.delete("/{project_id}", dependencies=[Depends(require_designer)])
+@router.delete(
+    "/{project_id}",
+    dependencies=[Depends(require_designer)],
+    response_model=ProjectDeleted,
+    response_model_exclude_unset=True,
+    summary="Delete a project and, where Prism owns them, its files",
+)
 async def delete_project_endpoint(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     """
     Delete a project from the registry.
@@ -1201,7 +1254,12 @@ async def get_project_config(project_id: str, user: AuthenticatedUser = Depends(
     }
 
 
-@router.post("/{project_id}/detect-paths", dependencies=[Depends(require_designer)])
+@router.post(
+    "/{project_id}/detect-paths",
+    dependencies=[Depends(require_designer)],
+    response_model=DetectedPaths,
+    summary="Auto-detect a project's paths without saving them",
+)
 async def detect_project_paths(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     """
     Run auto-detection on project paths.
@@ -1219,7 +1277,12 @@ async def detect_project_paths(project_id: str, user: AuthenticatedUser = Depend
     }
 
 
-@router.put("/{project_id}/config", dependencies=[Depends(require_designer)])
+@router.put(
+    "/{project_id}/config",
+    dependencies=[Depends(require_designer)],
+    response_model=ProjectConfigSaved,
+    summary="Save a project's path configuration",
+)
 async def update_project_config(
     project_id: str,
     config: PathConfig,
@@ -1281,7 +1344,12 @@ async def get_project_name(project_id: str, user: AuthenticatedUser = Depends(re
     }
 
 
-@router.put("/{project_id}/name", dependencies=[Depends(require_designer)])
+@router.put(
+    "/{project_id}/name",
+    dependencies=[Depends(require_designer)],
+    response_model=ProjectNameUpdated,
+    summary="Rename the project's display name",
+)
 async def update_project_name(
     project_id: str,
     request: ProjectNameRequest,
@@ -1324,7 +1392,12 @@ async def get_project_description(project_id: str, user: AuthenticatedUser = Dep
     }
 
 
-@router.put("/{project_id}/description", dependencies=[Depends(require_designer)])
+@router.put(
+    "/{project_id}/description",
+    dependencies=[Depends(require_designer)],
+    response_model=ProjectDescriptionUpdated,
+    summary="Update the project's description",
+)
 async def update_project_description(
     project_id: str,
     request: ProjectDescriptionRequest,
