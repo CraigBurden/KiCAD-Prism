@@ -60,6 +60,9 @@ import {
     type VisualizerTab,
 } from "./viewer-modes";
 import { usePrismCrossProbe } from "@/hooks/use-prism-cross-probe";
+import { registerProjectViewerState } from "@/lib/project-viewer-state";
+import { applyViewState } from "@/lib/view-state-apply";
+import { buildViewStateParams, parseViewState } from "@/lib/view-state-url";
 import {
     projectAssemblyState,
     physicalVisibility,
@@ -199,11 +202,27 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     // Open on the tab a caller asked for (e.g. clicking a changed .kicad_pcb in
     // the history file list), read once on mount; defaults to the schematic.
     const [searchParams, setSearchParams] = useSearchParams();
+    // The view state a link carries: selected parts, highlighted nets, sheet,
+    // framed region and insets (lib/view-state-url.ts).
+    const requestedViewState = useMemo(() => parseViewState(searchParams), [searchParams]);
+    const schematicViewerKey = buildViewerKey("schematic", projectId, commit);
+    const pcbViewerKey = buildViewerKey("pcb", projectId, commit);
     // Tab, comment mode, the comment draft, the selected comment and the right
     // rail, and the rules between them (viewer-modes.ts).
     const [modes, dispatchMode] = useReducer(viewerModesReducer, searchParams.get("tab"), initialViewerModes);
     const activeTab = modes.tab;
     const setActiveTab = useCallback((tab: VisualizerTab) => dispatchMode({ type: "tab", tab }), []);
+    // A navigation to another `tab` (window.prism.open, a link, Back) opens it.
+    // The visualizer's own tab clicks do not write the URL, so only a changed
+    // URL value moves the tab, never an unrelated query update.
+    const urlTab = searchParams.get("tab");
+    const lastUrlTab = useRef(urlTab);
+    useEffect(() => {
+        if (lastUrlTab.current === urlTab) return;
+        lastUrlTab.current = urlTab;
+        const tab = VIEWER_TABS.find((candidate) => candidate === urlTab);
+        if (tab) dispatchMode({ type: "tab", tab });
+    }, [urlTab]);
     // IN-61: T on a PCB inset shows the 3D tab's board, mounting the tab in
     // the background the first time.
     const [insetScene3d] = useState(() => new PrismInsetScene3D(() => dispatchMode({ type: "mount", view: "3d" })));
@@ -314,6 +333,16 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         clearGlobalSelection();
         clearHighlightedNets();
     }, [clearGlobalSelection, clearHighlightedNets]);
+    // `window.prism.getState` reads the live viewer through this: the elements
+    // for their own net/inset API, and the visualizer's selection for the part
+    // the element API cannot report.
+    useEffect(() => registerProjectViewerState(() => ({
+        tab: activeTab,
+        selection: globalSelection,
+        highlightedNets,
+        sch: viewers.sch.element,
+        pcb: viewers.pcb.element,
+    })), [activeTab, globalSelection, highlightedNets, pcb.element, sch.element, viewers]);
     // The index supplies the catalog and overlays atomically; there is no
     // independent catalog fetch or revision-reconciliation state.
     const requestedVariant = requestedVariantFromSearchParams(searchParams);
@@ -848,6 +877,33 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         viewers.pcb.setHighlightedNets(highlightRefs(highlightedNets));
     }, [highlightedNets, pcb.element, pcb.generation, viewers]);
 
+    // Apply the URL's view state once the active view has loaded its document,
+    // and again whenever the URL changes. Selected items go through the same
+    // element methods cross-probing uses; bbox is last so it wins the camera.
+    const appliedViewState = useRef<string | null>(null);
+    useEffect(() => {
+        if (!viewerActive) appliedViewState.current = null;
+    }, [viewerActive]);
+    useEffect(() => {
+        if (!viewerActive) return;
+        const view = activeTab === "sch" ? "sch" : activeTab === "pcb" ? "pcb" : null;
+        if (!view) return;
+        const viewerKey = view === "sch" ? schematicViewerKey : pcbViewerKey;
+        const loaded = (view === "sch" ? sch.readyRevision : pcb.readyRevision) === viewerKey;
+        const element = viewers.get(view).element;
+        if (!loaded || !element) return;
+        const signature = `${view}|${viewerKey}|${buildViewStateParams(requestedViewState).toString()}`;
+        if (appliedViewState.current === signature) return;
+        appliedViewState.current = signature;
+        // A sheet path belongs to the schematic; the board ignores it.
+        const state = view === "sch" ? requestedViewState : { ...requestedViewState, page: undefined };
+        void applyViewState(element, state);
+        if (requestedViewState.nets?.length) {
+            setHighlightedNets(requestedViewState.nets.map((netName) => ({ netName })));
+        }
+    }, [activeTab, pcb.readyRevision, pcbViewerKey, requestedViewState, sch.readyRevision, schematicViewerKey,
+        setHighlightedNets, viewerActive, viewers]);
+
     useEffect(() => {
         const applySelection = (
             viewer: EcadViewer,
@@ -1316,8 +1372,6 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         && !(viewFailure?.kind === "failed" && viewFailure.detail === semanticIndexError)
         ? semanticIndexError
         : null;
-    const schematicViewerKey = buildViewerKey("schematic", projectId, commit);
-    const pcbViewerKey = buildViewerKey("pcb", projectId, commit);
 
     return (
         <div className="relative flex h-full min-h-0 flex-col bg-background">
