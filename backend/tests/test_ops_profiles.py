@@ -61,6 +61,8 @@ class ProfileStoreTests(unittest.TestCase):
         self.assertEqual(row["status"], "completed")
         self.assertGreater(row["result"]["samples"], 0)
         self.assertEqual(profiler.get(row["id"])["target"], "api")
+        self.assertIsNotNone(row["started_at"])
+        self.assertLessEqual(row["started_at"], row["finished_at"])
 
     def test_profiles_are_exclusive(self) -> None:
         with database.connection() as holder:

@@ -113,10 +113,10 @@ def _insert(conn: Any, *, target: str, worker_id: str | None, seconds: float, re
     profile_id = uuid.uuid4().hex
     conn.execute(
         """
-        INSERT INTO ws_ops_profiles (id, target, worker_id, seconds, status, requested_by)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO ws_ops_profiles (id, target, worker_id, seconds, status, requested_by, started_at)
+        VALUES (%s, %s, %s, %s, %s, %s, CASE WHEN %s = 'running' THEN now() END)
         """,
-        (profile_id, target, worker_id, seconds, status, requested_by),
+        (profile_id, target, worker_id, seconds, status, requested_by, status),
     )
     return profile_id
 
