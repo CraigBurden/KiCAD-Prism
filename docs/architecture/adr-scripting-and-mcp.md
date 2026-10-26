@@ -1,7 +1,7 @@
 # ADR: Scriptable Prism and the MCP server
 
-- **Status:** Accepted (2026-10-26). §2 records the maintainer's decisions of 2026-10-25 and 2026-10-26; §3 was accepted as proposed on 2026-10-26, and §3.10 amended with D12 the same day.
-- **Branch:** work happens on `feature/scripting-mcp`; every PR in this effort targets it, and it merges into `dev` once the v5.1 slice (§7) is complete.
+- **Status:** Accepted (2026-10-26). §2 records the maintainer's decisions of 2026-10-25 and 2026-10-26; §3 was accepted as proposed on 2026-10-26, and §3.10 amended with D12 the same day. §10 adds the v5.2 slice (2026-10-26).
+- **Branch:** work happens on `feature/scripting-mcp`; every PR in this effort targets it. The maintainer holds the merge into `dev` until the v5.2 slice (§10) is complete as well.
 - **Builds on:**
   - the caller policy table, `backend/app/core/policy.py`: one rule per action, naming roles, bearer scopes and provider refusals;
   - the error contract (`{detail, code}`) and guarded writes (`If-Match`, 412/428), `backend/app/core/errors.py` and `preconditions.py`;
@@ -244,6 +244,7 @@ Each package is one PR into `feature/scripting-mcp`, in this order. Packages on 
 | MCP-08c | Event producers: jobs, comparisons, comments, revisions, bundles and releases append to the log | 08a |
 | MCP-09 | OAuth for MCP clients (CIMD, RFC 9728, RFC 9207, refresh, incremental consent) | 02, 03 |
 | MCP-10 | Tool registry and the read-only MCP server at `/mcp`, with tasks and resource links | 05, 06, 09 |
+| MCP-10b | Comparison tools (`compare_revisions`, `get_changes`, `get_comparison_review`, `get_job`) and the tasks extension | 10 |
 | MCP-11 | Governance switches and read audit | 10 |
 | MCP-12 | Python SDK and `prism` CLI | 06 |
 | MCP-13 | `render_view`: headless renders from the bundle, as a route and a tool (D9) | 05, 07, 10 |
@@ -263,3 +264,38 @@ The branch merges into `dev` when MCP-01 to MCP-14 are in and the full suites pa
 ## 9. Open questions
 
 None. The questions raised in review are settled as D6–D11.
+
+## 10. v5.2: write tools, handoff, webhooks, addressable views
+
+Supply and stock tracking is not part of this slice; it is reworked separately before it merges.
+
+### 10.1 Decisions
+
+| # | Decision |
+| --- | --- |
+| D13 | **Write tools declare their scope.** A registry `Tool` carries `write=True` and the policy action it needs. Write tools get `readOnlyHint: false`, an honest `destructiveHint` and `idempotentHint`, and an optional `idempotencyKey` argument that invoke forwards as the `Idempotency-Key` header. Invoke returns response headers as well as status and body. |
+| D14 | **Incremental consent over HTTP.** When a write route refuses an MCP OAuth caller for a missing scope, `/mcp` answers that `tools/call` with HTTP 403 and the route's `WWW-Authenticate: Bearer error="insufficient_scope", scope=...` challenge, so the client can ask the user for that scope and retry. PATs and other bearer callers get an ordinary tool error with code `insufficient-scope`. |
+| D15 | **Human-only handoff by URL.** A tool that reaches a human-only action (release approval or publishing, catalog QA, admin, resolving a comment) answers with JSON-RPC error `-32042` (URL elicitation required). Its `data.elicitations` holds one `{mode: "url", elicitationId, url, message}` pointing at the Prism page where a person acts. Handoff tools exist only where an agent plausibly needs them: `resolve_comment` and `request_release_approval`. They never change state. |
+| D16 | **Comment anchors from design identity.** `add_comment` anchors by component reference, net name, schematic sheet or comparison change id, resolved on the server from the revision's bundle (the geometry `render_view` already uses). Agents never send coordinates. Comments from MCP callers keep `authorKind: agent` and the client name, and the UI shows them with an agent badge. |
+| D17 | **Outbound webhooks are admin-owned.** An admin registers endpoints (HTTPS URL, event kinds, optional project list). Delivery reads the event log from a per-endpoint cursor on the worker, signs per the Standard Webhooks scheme (`webhook-id`, `webhook-timestamp`, `webhook-signature`, HMAC-SHA256 over `id.timestamp.body`), and retries with exponential backoff for up to 24 hours before marking the endpoint failing. Private and loopback addresses are refused unless `PRISM_WEBHOOK_ALLOW_PRIVATE=true`. Secrets are shown once. |
+| D18 | **One URL grammar for view state.** The project page reads `sel` (references or element uuids, comma separated), `nets` (net names), `page` (schematic sheet path), `bbox` (`x,y,w,h` in mm, framed with `focusBBox`) and `insets=1`, alongside the existing `section`, `commit` and `tab`. `core/links.py` builds them; component, net and comment results link with them. `window.prism` (`version: "v1"`) exposes `getState()`, `open(state)` and `link(state)` over the same grammar while a project page is mounted, in the shape of `prismSimStudio`. |
+| D19 | **Token activity audit.** Every non-GET request made with a bearer token (PAT, MCP, agent, service client) is recorded in the existing audit table with method `http`, the route template and the outcome. The audit view filters by token, client, user, project and read or write. |
+
+### 10.2 Work packages for v5.2
+
+| # | Package | Depends on |
+| --- | --- | --- |
+| MCP-15 | This section | — |
+| MCP-16 | Write-tool seam: `Tool.write` and policy action, write annotations, `idempotencyKey`, response headers from invoke, D14 challenge, D15 handoff error | 15 |
+| MCP-17 | Comment tools `add_comment`, `reply_to_comment`, `resolve_comment` (handoff), with D16 anchors | 16 |
+| MCP-18 | Design, release and catalog tools: `sync_project`, `start_release_build`, `request_release_approval` (handoff), `create_catalog_draft`, `update_import_proposal` | 16 |
+| MCP-19 | Agent badge on comments and replies (frontend) | 15 |
+| MCP-20 | Outbound webhooks: tables, delivery worker, signing, retries, admin routes | 15 |
+| MCP-20b | Webhooks tab in Settings | 20 |
+| MCP-21 | View-state URL grammar on the project page and `window.prism` (frontend) | 15 |
+| MCP-21b | `links.py` view-state params; component, net and comment results link with them | 16 |
+| MCP-22 | Token activity audit and the audit view filters (D19) | 16 |
+| MCP-23 | SDK regeneration, `prism comment`, `prism sync`, `prism release build`; CI templates for GitHub Actions and GitLab CI | 17, 18, 20 |
+| MCP-24 | Docs: write tools, webhooks, view links, CI templates in "Automating Prism" | 17–23 |
+
+The branch merges into `dev` when MCP-15 to MCP-24 are in and the full suites pass on it.
