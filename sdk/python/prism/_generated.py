@@ -331,6 +331,78 @@ class BulkImportAcceptanceItem(TypedDict, total=False):
     status: str
 
 
+class BundleBuildProfileOut(TypedDict, total=False):
+    archive_bytes: int
+    bundle_key: str
+    cache: BundleCacheOut
+    commit: str | None
+    completed_at: str | None
+    design_key: str | None
+    error: str
+    failed_stages: list[str]
+    invocations: list[BundleInvocationOut]
+    job_id: str | None
+    job_status: str | None
+    kicad_steps: list[BundleKicadStepOut]
+    partial_stages: list[str]
+    project_id: str
+    queue_wait_seconds: float | None
+    revision_key: str
+    slowest_step: str | None
+    stages: dict[str, str]
+    started_at: str | None
+    state: str
+    wall_seconds: float | None
+
+
+class BundleCacheOut(TypedDict, total=False):
+    models_cache_hit: bool | None
+    refill_cache_hit: bool | None
+    upgrade_cache_hits: int
+    upgrade_cache_misses: int
+
+
+class BundleInvocationOut(TypedDict, total=False):
+    elapsed_ms: float | None
+    executable: str
+    exit: int | None
+    peak_rss_bytes: int | None
+    subcommand: str
+
+
+class BundleKicadStepOut(TypedDict, total=False):
+    elapsed_ms: float | None
+    exit: int | None
+    peak_rss_bytes: int | None
+    runs: int
+    step: str
+
+
+class BundleStore(TypedDict, total=True):
+    archive_bytes: int
+    archives: int
+
+
+class CacheEntry(TypedDict, total=False):
+    disk_bytes: int | None
+    disk_files: int | None
+    disk_partial: bool
+    hit_rate: float | None
+    hits: int | None
+    misses: int | None
+    name: str
+    newest_access: str | None
+    oldest_access: str | None
+    table_bytes: int | None
+    table_rows: int | None
+
+
+class CacheStats(TypedDict, total=True):
+    bundle_store: BundleStore
+    caches: list[CacheEntry]
+    window_minutes: int
+
+
 class CandidateCreated(TypedDict, total=True):
     job: JobRecord
 
@@ -634,6 +706,15 @@ class ChangePasswordRequest(TypedDict, total=True):
 
 class CheckAccessRequest(TypedDict, total=True):
     url: str
+
+
+class ClaimAttemptOut(TypedDict, total=False):
+    ended_at: str | None
+    fence: int | None
+    outcome: str
+    seconds: float | None
+    started_at: str | None
+    worker_id: str | None
 
 
 class ClaimLatency(TypedDict, total=True):
@@ -1277,6 +1358,13 @@ class DeletedCommentView(TypedDict, total=True):
     deleted: str
 
 
+class DeliveryHealth(TypedDict, total=True):
+    deliveries: int
+    error_rate: float
+    failed: int
+    ok: int
+
+
 class DesignAssemblyOut(TypedDict, total=False):
     dnp: bool | None
     excludeFromBoard: bool | None
@@ -1467,6 +1555,19 @@ class DrillTool(TypedDict, total=True):
     hits: int
     plated: bool
     slots: int
+
+
+class EventAndWebhookHealth(TypedDict, total=False):
+    events_last_hour: list[EventKindCount]
+    head_cursor: int
+    oldest_retained_at: str | None
+    retention_days: int
+    webhooks: list[WebhookHealth]
+
+
+class EventKindCount(TypedDict, total=True):
+    count: int
+    kind: str
 
 
 class EventOut(TypedDict, total=True):
@@ -1968,14 +2069,37 @@ class JobCancelRequested(TypedDict, total=True):
     status: str | None
 
 
+class JobEventOut(TypedDict, total=False):
+    created_at: str | None
+    details: dict[str, Any]
+    event_type: str
+    id: int
+    percent: float | None
+    stage: str
+
+
 class JobEvents(TypedDict, total=True):
     events: list[app__api__jobs__JobEvent]
     job_id: str
 
 
+class JobLockOut(TypedDict, total=False):
+    fence: int | None
+    lease_expires_at: str | None
+    lease_owner: str
+    lock_key: str
+    mode: str
+
+
 class JobLogs(TypedDict, total=True):
     job_id: str
     lines: list[str]
+
+
+class JobPhasesOut(TypedDict, total=False):
+    claims: list[ClaimAttemptOut]
+    queue_wait: QueueWaitOut | None
+    stages: list[StageRunOut]
 
 
 class JobRecord(TypedDict, total=True):
@@ -2047,6 +2171,41 @@ class JobStatus(TypedDict, total=False):
     started_at: str | None
     status: str | None
     updated_at: str | None
+
+
+class JobSummaryOut(TypedDict, total=False):
+    attempt: int | None
+    cancel_requested_at: str | None
+    completed_at: str | None
+    created_at: str | None
+    error_code: str
+    error_message: str
+    exit_code: int | None
+    fence: int | None
+    job_id: str
+    kind: str
+    lease_owner: str
+    max_attempts: int | None
+    priority: int | None
+    project_id: str | None
+    repository_id: str | None
+    stage: str
+    started_at: str | None
+    status: str
+    updated_at: str | None
+    worker_pool: str
+
+
+class JobTimelineOut(TypedDict, total=True):
+    events: list[JobEventOut]
+    events_truncated: bool
+    job: JobSummaryOut
+    locks: list[JobLockOut]
+    log_tail: list[str]
+    payload_keys: list[str]
+    phases: JobPhasesOut
+    resource_slots: list[ResourceSlotOut]
+    result_metadata_keys: list[str]
 
 
 class JobUpdateRate(TypedDict, total=True):
@@ -2465,6 +2624,12 @@ class OAuthBeginResponse(TypedDict, total=True):
     authorizeUrl: str
 
 
+class OldestQueued(TypedDict, total=False):
+    age_seconds: float
+    oldest_queued_at: str | None
+    worker_pool: str
+
+
 class OpsProfile(TypedDict, total=False):
     createdAt: str
     error: str | None
@@ -2600,6 +2765,22 @@ class PlacementPart(TypedDict, total=True):
     value: str
     x: float
     y: float
+
+
+class PoolAndWorkers(TypedDict, total=True):
+    memory_budget_mib: int
+    oldest_queued: list[OldestQueued]
+    pool: dict[str, Any]
+    process: ProcessInfo
+    queue: list[QueueDepth]
+    resources: list[ResourceUsage]
+    workers: list[WorkerInfo]
+
+
+class ProcessInfo(TypedDict, total=True):
+    host: str
+    kind: str
+    pid: int
 
 
 class ProfileRequest(TypedDict, total=False):
@@ -2898,6 +3079,19 @@ class PushCommentsView(TypedDict, total=True):
     success: bool
 
 
+class QueueDepth(TypedDict, total=True):
+    count: int
+    kind: str
+    status: str
+    worker_pool: str
+
+
+class QueueWaitOut(TypedDict, total=False):
+    claimed_at: str | None
+    created_at: str | None
+    seconds: float | None
+
+
 class ReattachCommentRequest(TypedDict, total=False):
     commit: str
     elementId: str | None
@@ -3052,6 +3246,21 @@ class ResolvedPaths(TypedDict, total=False):
     schematic: str | None
     subsheets_dir: str | None
     thumbnail_dir: str | None
+
+
+class ResourceSlotOut(TypedDict, total=False):
+    fence: int | None
+    lease_expires_at: str | None
+    lease_owner: str
+    resource_name: str
+    slot_number: int
+
+
+class ResourceUsage(TypedDict, total=True):
+    capacity: int
+    free: int
+    in_use: int
+    resource: str
 
 
 class ReviewDecision(TypedDict, total=True):
@@ -3265,6 +3474,13 @@ class SourceResponse(TypedDict, total=True):
     forge: ForgeSummary
     ipc: IpcOptions
     source: SourceDiscovery
+
+
+class StageRunOut(TypedDict, total=False):
+    ended_at: str | None
+    seconds: float | None
+    stage: str
+    started_at: str | None
 
 
 class StartDesignCompareResponse(TypedDict, total=True):
@@ -3648,6 +3864,21 @@ class WebhookDeliveryView(TypedDict, total=False):
     statusCode: int | None
 
 
+class WebhookHealth(TypedDict, total=False):
+    attempts: int
+    cursor: int
+    deliveries_24h: DeliveryHealth
+    event_kinds: list[str]
+    failing_since: str | None
+    host: str
+    id: str
+    lag: int
+    last_error: str | None
+    last_status: int | None
+    next_attempt_at: str | None
+    status: str
+
+
 class WebhookSecret(TypedDict, total=True):
     """A rotated secret, shown once."""
     secret: str
@@ -3683,6 +3914,19 @@ class WebhookView(TypedDict, total=False):
     projectIds: list[str] | None
     status: str
     url: str
+
+
+class WorkerInfo(TypedDict, total=False):
+    concurrency: int | None
+    host: str | None
+    last_seen_at: str | None
+    memory_budget_mib: int | None
+    pid: int | None
+    pool: str
+    running_jobs: list[dict[str, Any]]
+    stale: bool
+    started_at: str | None
+    worker_id: str
 
 
 class WorkflowQueued(TypedDict, total=True):
@@ -3904,6 +4148,14 @@ class GeneratedClient:
             "/api/v1/catalog/import-sessions/{session_id}/proposals/bulk-accept",
             path_params={"session_id": session_id},
             body=body,
+        )
+
+    def cache_stats(self, *, window_minutes: int = 60) -> CacheStats:
+        """Cache hit rates, table sizes and bounded on-disk sizes"""
+        return self._request(
+            "GET",
+            "/api/v1/ops/caches",
+            query={"window_minutes": window_minutes},
         )
 
     def cancel_job(self, job_id: str) -> JobCancelRequested:
@@ -4383,6 +4635,13 @@ class GeneratedClient:
             body=body,
         )
 
+    def event_and_webhook_health(self) -> EventAndWebhookHealth:
+        """Event-log head, retention and webhook lag and delivery health"""
+        return self._request(
+            "GET",
+            "/api/v1/ops/event-health",
+        )
+
     def export_import_proposals_csv(self, session_id: str) -> Any:
         """Export import proposals as CSV"""
         return self._request(
@@ -4483,6 +4742,15 @@ class GeneratedClient:
             "GET",
             "/api/v1/projects/{project_id}/release-studio/builds/{build_id}/placement",
             path_params={"project_id": project_id, "build_id": build_id},
+        )
+
+    def get_bundle_build_profile(self, project_id: str, *, commit: str | None = None, job_id: str | None = None) -> BundleBuildProfileOut:
+        """A design bundle build's per-invocation and per-KiCad-step profile"""
+        return self._request(
+            "GET",
+            "/api/v1/ops/projects/{project_id}/bundle-profile",
+            path_params={"project_id": project_id},
+            query={"commit": commit, "job_id": job_id},
         )
 
     def get_candidate(self, project_id: str, candidate_id: str) -> CandidateWithBuilds:
@@ -4768,6 +5036,15 @@ class GeneratedClient:
             "/api/v1/jobs/{job_id}/logs",
             path_params={"job_id": job_id},
             query={"tail": tail},
+        )
+
+    def get_job_timeline(self, job_id: str, *, log_lines: int = 50) -> JobTimelineOut:
+        """A job's queue wait, claim attempts, stage durations and redacted log tail"""
+        return self._request(
+            "GET",
+            "/api/v1/ops/jobs/{job_id}/timeline",
+            path_params={"job_id": job_id},
+            query={"log_lines": log_lines},
         )
 
     def get_mcp_governance(self) -> McpGovernanceView:
@@ -5729,6 +6006,13 @@ class GeneratedClient:
         return self._request(
             "GET",
             "/api/v1/plugin/version",
+        )
+
+    def pool_and_workers(self) -> PoolAndWorkers:
+        """This process's pool, live workers, resource slots and queue depth"""
+        return self._request(
+            "GET",
+            "/api/v1/ops/pool-and-workers",
         )
 
     def preflight_setup(self, project_id: str, setup_id: str) -> dict[str, Any]:
