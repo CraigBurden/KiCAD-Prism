@@ -80,6 +80,8 @@ class CommentReplyView(_CommentModel):
     authorUserId: Optional[str]
     authorKind: str
     authorClientId: Optional[str]
+    #: The name the client declared when it was approved ("Claude Code").
+    authorClientName: Optional[str] = None
     timestamp: str
     updatedAt: str
     revision: int
@@ -138,6 +140,8 @@ class CommentView(_CommentModel):
     authorUserId: Optional[str]
     authorKind: str
     authorClientId: Optional[str]
+    #: The name the client declared when it was approved ("Claude Code").
+    authorClientName: Optional[str] = None
     timestamp: str
     updatedAt: str
     revision: int

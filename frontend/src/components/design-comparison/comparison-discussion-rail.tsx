@@ -275,6 +275,7 @@ function RailThread({
                             <CommentAuthorKindBadge
                                 authorKind={comment.authorKind}
                                 authorClientId={comment.authorClientId}
+                                authorClientName={comment.authorClientName}
                             />
                         </div>
                         <div className="mt-0.5 text-[10px] text-muted-foreground">
@@ -321,6 +322,7 @@ function RailThread({
                                     <CommentAuthorKindBadge
                                         authorKind={item.authorKind}
                                         authorClientId={item.authorClientId}
+                                        authorClientName={item.authorClientName}
                                     />
                                 </span>
                                 <ThreadMessage

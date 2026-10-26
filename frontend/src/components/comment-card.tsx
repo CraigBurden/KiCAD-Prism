@@ -99,6 +99,7 @@ export function CommentCard({
                         <CommentAuthorKindBadge
                             authorKind={comment.authorKind}
                             authorClientId={comment.authorClientId}
+                            authorClientName={comment.authorClientName}
                         />
                     </div>
                     <div className="text-[10px] text-muted-foreground">
@@ -158,6 +159,7 @@ export function CommentCard({
                                 <CommentAuthorKindBadge
                                     authorKind={item.authorKind}
                                     authorClientId={item.authorClientId}
+                                    authorClientName={item.authorClientName}
                                 />
                             </span>
                             <ThreadMessage

@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
-from app.services import comment_bundle, comments_revisions
+from app.services import comment_bundle, comment_client_names, comments_revisions
 from app.services.comments_revisions import Editor
 
 # 1.1 adds authorUserId/authorKind, reply ids, revision/updatedAt and the anchor
@@ -174,6 +174,7 @@ def _row_to_reply_dict(row) -> Dict:
         "authorUserId": row.get("author_user_id"),
         "authorKind": row.get("author_kind") or AUTHOR_KIND_LEGACY,
         "authorClientId": row.get("author_client_id") or None,
+        "authorClientName": comment_client_names.name_for(row.get("author_client_id")),
         "timestamp": _iso_timestamp(row["timestamp"]),
         "updatedAt": _iso_timestamp(row.get("updated_at") or row["timestamp"]),
         "revision": int(row.get("revision") or 1),
@@ -208,6 +209,7 @@ def _row_to_comment_dict(row, replies: List[Dict]) -> Dict:
         "authorUserId": row.get("author_user_id"),
         "authorKind": row.get("author_kind") or AUTHOR_KIND_LEGACY,
         "authorClientId": row.get("author_client_id") or None,
+        "authorClientName": comment_client_names.name_for(row.get("author_client_id")),
         "timestamp": _iso_timestamp(row["timestamp"]),
         "updatedAt": _iso_timestamp(row.get("updated_at") or row["timestamp"]),
         "revision": int(row.get("revision") or 1),
