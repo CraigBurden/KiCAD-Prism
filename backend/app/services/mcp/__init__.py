@@ -2,7 +2,8 @@
 
 ``registry`` holds the tool declarations, ``tools`` registers the v5.1 read
 set, ``tools_compare`` registers the two comparison tools, ``tools_writes``
-registers the design, release and catalog write tools, and ``invoke`` runs one
+registers the design, release and catalog write tools, ``tools_comments``
+registers the comment write tools, and ``invoke`` runs one
 tool through the same typed ``/api/v1`` route a browser or SDK calls, so policy,
 folder visibility and response shapes are the API's. ``governance`` decides
 which projects and tools an administrator has made reachable, and ``audit``

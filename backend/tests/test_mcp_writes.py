@@ -110,8 +110,11 @@ class WriteToolDefinitionTests(unittest.TestCase):
         }
 
     def test_the_write_tools_register_after_the_read_set(self) -> None:
-        names = [tool.name for tool in registry.tools()]
-        self.assertEqual(names[-len(WRITE_TOOL_ORDER):], WRITE_TOOL_ORDER)
+        tools = registry.tools()
+        last_read = max(index for index, tool in enumerate(tools) if not tool.write)
+        writes = [tool.name for tool in tools[last_read + 1 :]]
+        self.assertEqual([name for name in writes if name in WRITE_TOOL_ORDER], WRITE_TOOL_ORDER)
+        self.assertTrue(all(tool.write for tool in tools[last_read + 1 :]))
 
     def test_every_write_tool_advertises_write_annotations_and_an_idempotency_key(self) -> None:
         for name, definition in self.definitions().items():

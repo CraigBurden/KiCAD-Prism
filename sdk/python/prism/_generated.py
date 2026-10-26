@@ -51,6 +51,22 @@ class AnalyzeRequest(TypedDict, total=False):
     url: str
 
 
+class AnchoredCommentRequest(TypedDict, total=False):
+    """A comment for one design element, named instead of clicked.
+
+Exactly one of ``component``, ``net`` or ``sheet`` is required; the route
+answers 400 ``invalid-anchor`` otherwise, so the refusal carries the typed
+error the MCP tool surfaces rather than a validation array."""
+    commentClass: str | None
+    commit: str | None
+    component: str | None
+    content: str
+    net: str | None
+    severity: str | None
+    sheet: str | None
+    view: str | None
+
+
 class ApplyMetadataBatchRequest(TypedDict, total=False):
     item_ids: list[str]
 
@@ -3948,6 +3964,15 @@ class GeneratedClient:
             "/api/v1/catalog/components/{component_id}/models/convert",
             path_params={"component_id": component_id},
             query={"revisionId": revisionId},
+        )
+
+    def create_anchored_comment(self, project_id: str, *, body: dict[str, Any] | None = None) -> CommentView:
+        """Create a comment anchored by design identity"""
+        return self._request(
+            "POST",
+            "/api/v1/projects/{project_id}/comments/anchored",
+            path_params={"project_id": project_id},
+            body=body,
         )
 
     def create_candidate(self, project_id: str, *, body: dict[str, Any] | None = None) -> CandidateCreated:

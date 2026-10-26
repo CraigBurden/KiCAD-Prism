@@ -553,3 +553,6 @@ from app.services.mcp import tools_compare as _tools_compare  # noqa: E402, F401
 # The write tools register after the read set too, so a client that lists tools
 # sees every read first and every write after.
 from app.services.mcp import tools_writes as _write_tools  # noqa: E402, F401
+# The write tools follow the read set; they are declared in their own module
+# because they carry the policy action a write needs (ADR §10).
+from app.services.mcp import tools_comments as _tools_comments  # noqa: E402, F401

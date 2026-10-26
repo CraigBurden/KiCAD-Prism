@@ -63,6 +63,9 @@ TOOL_ORDER = [
     "request_release_approval",
     "create_catalog_draft",
     "update_import_proposal",
+    "add_comment",
+    "reply_to_comment",
+    "resolve_comment",
 ]
 
 #: Tools that change Prism; every other listed tool is a read.
@@ -73,6 +76,9 @@ WRITE_TOOLS = frozenset(
         "request_release_approval",
         "create_catalog_draft",
         "update_import_proposal",
+        "add_comment",
+        "reply_to_comment",
+        "resolve_comment",
     }
 )
 
@@ -331,6 +337,9 @@ class McpServerTests(unittest.TestCase):
         self.assertIn("id", by_name["get_project"]["outputSchema"]["properties"])
         self.assertIn("outputSchema", by_name["get_component"])
         self.assertIn("outputSchema", by_name["get_net"])
+        self.assertIn("outputSchema", by_name["add_comment"])
+        self.assertIn("outputSchema", by_name["reply_to_comment"])
+        self.assertIn("outputSchema", by_name["resolve_comment"])
 
     def test_get_project_matches_the_route_json(self) -> None:
         project = self._project()
