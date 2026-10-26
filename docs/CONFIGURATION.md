@@ -217,6 +217,8 @@ and general workers. See [Tracker integration](TRACKER_INTEGRATION.md) for
 
 ### MCP server
 
+Connecting clients and what they can do: [Automating Prism](AUTOMATING_PRISM.md).
+
 `PRISM_MCP_ENABLED` is `false` by default. While false, the read-only MCP
 server at `/mcp` and its OAuth metadata
 (`/.well-known/oauth-protected-resource`,
