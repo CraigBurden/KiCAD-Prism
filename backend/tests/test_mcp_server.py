@@ -58,7 +58,23 @@ TOOL_ORDER = [
     "get_release_status",
     "compare_revisions",
     "get_changes",
+    "sync_project",
+    "start_release_build",
+    "request_release_approval",
+    "create_catalog_draft",
+    "update_import_proposal",
 ]
+
+#: Tools that change Prism; every other listed tool is a read.
+WRITE_TOOLS = frozenset(
+    {
+        "sync_project",
+        "start_release_build",
+        "request_release_approval",
+        "create_catalog_draft",
+        "update_import_proposal",
+    }
+)
 
 
 def unique(prefix: str) -> str:
@@ -285,7 +301,7 @@ class McpServerTests(unittest.TestCase):
 
     # --------------------------------------------------------------- tools
 
-    def test_tools_list_is_deterministic_and_read_only(self) -> None:
+    def test_tools_list_is_deterministic_and_annotates_writes(self) -> None:
         first = self.mcp({"jsonrpc": "2.0", "id": 5, "method": "tools/list"}, headers=self.headers)
         second = self.mcp({"jsonrpc": "2.0", "id": 6, "method": "tools/list"}, headers=self.headers)
         self.assertEqual(first["result"], second["result"])
@@ -294,14 +310,20 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual([tool["name"] for tool in listed], TOOL_ORDER)
         for tool in listed:
             with self.subTest(tool=tool["name"]):
-                self.assertEqual(
-                    tool["annotations"],
-                    {
-                        "readOnlyHint": True,
-                        "idempotentHint": tool["name"] != "compare_revisions",
-                        "openWorldHint": False,
-                    },
-                )
+                if tool["name"] in WRITE_TOOLS:
+                    self.assertFalse(tool["annotations"]["readOnlyHint"])
+                    self.assertFalse(tool["annotations"]["destructiveHint"])
+                    self.assertIn("idempotencyKey", tool["inputSchema"]["properties"])
+                else:
+                    self.assertEqual(
+                        tool["annotations"],
+                        {
+                            "readOnlyHint": True,
+                            "idempotentHint": tool["name"] != "compare_revisions",
+                            "openWorldHint": False,
+                        },
+                    )
+                    self.assertNotIn("idempotencyKey", tool["inputSchema"]["properties"])
                 self.assertEqual(tool["inputSchema"]["type"], "object")
                 self.assertIn("properties", tool["inputSchema"])
         by_name = {tool["name"]: tool for tool in listed}
@@ -361,6 +383,45 @@ class McpServerTests(unittest.TestCase):
         self.assertTrue(result["isError"])
         self.assertIn("project_id", result["content"][0]["text"])
         self.assertEqual(result["structuredContent"]["error"]["code"], "invalid-arguments")
+
+    # --------------------------------------------------------------- writes
+
+    def assert_refused(self, name: str, arguments: dict) -> None:
+        result = self.mcp(call(name, arguments), headers=self.headers)["result"]
+        self.assertTrue(result["isError"], result)
+        self.assertEqual(result["structuredContent"]["error"]["code"], "forbidden")
+        self.assertIn("forbidden", result["content"][0]["text"])
+
+    def test_a_viewer_without_design_write_cannot_sync(self) -> None:
+        self.assert_refused("sync_project", {"project_id": self._project()})
+
+    def test_a_viewer_without_design_write_cannot_start_a_release_build(self) -> None:
+        self.assert_refused(
+            "start_release_build",
+            {"project_id": self._project(), "commit": COMMIT},
+        )
+
+    def test_a_viewer_without_catalog_write_cannot_create_a_catalog_draft(self) -> None:
+        self.assert_refused(
+            "create_catalog_draft",
+            {
+                "value": "10k",
+                "description": "Resistor 10k 1%",
+                "datasheet": "https://example.test/r.pdf",
+                "manufacturer": "Acme",
+                "manufacturer_part_number": "R-10K",
+                "change_summary": "Create a resistor draft",
+            },
+        )
+
+    def test_a_viewer_without_catalog_write_cannot_save_import_drafts(self) -> None:
+        self.assert_refused(
+            "update_import_proposal",
+            {
+                "session_id": unique("session"),
+                "drafts": {"proposal": {"metadata_overrides": {"value": "10k"}}},
+            },
+        )
 
     def test_an_unknown_tool_is_a_protocol_error(self) -> None:
         response = self.mcp(

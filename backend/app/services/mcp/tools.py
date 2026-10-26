@@ -470,6 +470,9 @@ def present(tool_name: str, arguments: dict[str, Any], result: dict[str, Any]) -
 
         return tools_compare.present(tool_name, arguments, result)
 
+    if tool_name in _write_tools.WRITE_TOOL_NAMES:
+        return _write_tools.present(tool_name, arguments, result)
+
     structured = result.get("structuredContent")
     if not isinstance(structured, dict):
         return result
@@ -546,3 +549,7 @@ __all__ = ["present"]
 # Imported last: the comparison tools register after the v5.1 read set, so
 # ``tools/list`` keeps that order.
 from app.services.mcp import tools_compare as _tools_compare  # noqa: E402, F401
+
+# The write tools register after the read set too, so a client that lists tools
+# sees every read first and every write after.
+from app.services.mcp import tools_writes as _write_tools  # noqa: E402, F401

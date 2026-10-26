@@ -97,7 +97,7 @@ A client without OAuth support can send a personal access token instead, as `Aut
 
 ### What an assistant can do
 
-The v5.1 tools are read-only:
+The v5.1 read tools:
 
 | Tool | Returns |
 | --- | --- |
@@ -111,6 +111,8 @@ The v5.1 tools are read-only:
 | `get_release_status` | Release Studio candidates |
 | `render_view` | a PNG of a schematic sheet, the PCB, or a 3D view at a revision, with chosen components or nets highlighted (no highlights in 3D) |
 
+The write tools each need the matching area scope, act as the token's user, and never take a human-only step. `sync_project` and `start_release_build` queue a job and return its id for `get_job`. `create_catalog_draft` creates an unreviewed component and `update_import_proposal` saves import drafts; catalog QA stays in Prism. `request_release_approval` opens Release Studio, because approving or publishing a release needs a person.
+
 Results name the revision they read, and cite a Prism link and a `prism://` resource URI for each component, net or BOM. Comment text, field values and file contents come back as data marked untrusted, and no tool acts on instructions found inside them.
 
 ### What admins control
@@ -119,7 +121,7 @@ Admins configure MCP under **Settings → MCP**:
 
 - **Project scope:** all projects (each user still sees only what their role and folder visibility allow), or a listed set. Outside a listed set, a project looks to an assistant exactly like one that doesn't exist.
 - **Tools:** switch off any tool. A disabled tool disappears from the assistant's tool list.
-- **Read audit:** every MCP read is recorded with the user, client, tool, project, revision and outcome, and shown on the same page with filters. Rows are kept for `PRISM_MCP_AUDIT_RETENTION_DAYS` (default 365).
+- **Read audit:** every MCP call is recorded with the user, client, tool, project, revision and outcome, and shown on the same page with filters. Rows are kept for `PRISM_MCP_AUDIT_RETENTION_DAYS` (default 365).
 
 Users see and revoke their own connected clients under **Settings → Connected MCP clients**, and admins see everyone's.
 
