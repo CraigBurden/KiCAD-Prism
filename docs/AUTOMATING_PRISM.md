@@ -156,6 +156,45 @@ Users see and revoke their own connected clients under **Settings → Connected 
 
 Designs an assistant reads are sent to that assistant's model provider. Before enabling MCP, decide which projects may leave Prism this way, and limit MCP to them.
 
+### Ops diagnostics
+
+On a deployed server, an admin's assistant can look into Prism's own health without shell access: why a job is stuck, which route is slow, whether the workers are alive. This is off by default. Turn it on with:
+
+```
+PRISM_MCP_OPS_ENABLED=true
+```
+
+It adds two scopes, `ops:read` and `ops:act` (which includes `ops:read`). Only admins can hold them. If anyone else's client asks for them, the consent page leaves them out and says so. A client connected before the flag was on asks for them the first time it calls an ops tool. Personal access tokens can carry them too. `api:write` never grants either one.
+
+Read tools (`ops:read`):
+
+| Tool | Returns |
+| --- | --- |
+| `get_job_timeline` | a job's events, its resource slots and locks, a redacted log tail (at most 200 lines) and the request that created it |
+| `get_bundle_build_profile` | a design-bundle build's time and peak memory per KiCad step, and its cache hits |
+| `get_route_latency` | p50, p95 and p99 latency and 4xx and 5xx rates per route over a window of up to 7 days |
+| `list_recent_requests`, `trace_request` | recent slow, failed and write requests, and one request id followed across the jobs, events and audit rows it created |
+| `get_slow_queries` | the slowest database statements from `pg_stat_statements`, or the reason they're unavailable |
+| `get_pool_and_workers` | the database pool, each worker's heartbeat, resource slots in use and the job queue by kind |
+| `get_cache_stats` | cache hit rates and the size of each cache table and directory |
+| `get_event_and_webhook_health` | the event log's head and retention, each webhook's lag and recent delivery failures |
+| `capture_profile` | a sampled CPU profile, up to 10 s, of the API process or a worker, as collapsed stacks for a flame graph (one at a time, at most 6 an hour) |
+
+Actions (`ops:act`):
+
+| Tool | Does |
+| --- | --- |
+| `cancel_job` | asks a job to cancel |
+| `requeue_job` | queues a failed job again, or a running one whose worker has died (its lease expired); a running job with a live worker, or one someone asked to cancel, is refused |
+| `rebuild_bundle` | drops one commit's design bundle and builds it again |
+| `set_debug_logging` | raises Prism's own loggers (`app` and below) to DEBUG for 1 to 30 minutes; every process picks it up within 15 s and reverts at the deadline; `0` clears it |
+
+There is no tool for SQL, shell commands or configuration changes. Results carry ids, timings, counts and sizes, never design content. Log lines, error messages, query text and URLs pass through a redactor that strips credentials and tokens. Every call is audited like any other MCP call.
+
+Each request gets an id, returned in the `X-Request-Id` response header; a client may send its own (1–64 characters of letters, digits, `.`, `_` or `-`). Slow requests (over 1 s), failed ones and writes are logged, and kept 3 days. Route statistics are kept 7 days.
+
+The same reads and actions are HTTP routes under `/api/v1/ops`, for scripts and the SDK.
+
 ## Webhooks
 
 Admins register endpoints under **Settings → Webhooks**: an HTTPS URL, the event kinds to send, and all projects or a chosen few. Prism posts one JSON request per event, in order:

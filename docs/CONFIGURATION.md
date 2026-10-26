@@ -231,7 +231,10 @@ folder visibility decide what they see and do.
 
 `PRISM_MCP_OPS_ENABLED` is `false` by default. Set it to `true` to turn on admin
 diagnostics: the `/api/ops` routes, the ops MCP tools, and the `ops:read` and
-`ops:act` scopes. Only admins can hold or grant those scopes.
+`ops:act` scopes. Only admins can hold or grant those scopes. The tools are
+listed in [Automating Prism](AUTOMATING_PRISM.md#ops-diagnostics). Request rows
+(`ws_ops_requests`) are kept 3 days, route and counter statistics 7 days, and
+captured profiles 7 days.
 `PUBLIC_BASE_URL` should name the deployment's public origin: it is the allowed
 `Origin`, the source of every result's link, and the OAuth resource.
 
