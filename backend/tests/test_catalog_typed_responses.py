@@ -12,7 +12,9 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -371,6 +373,61 @@ def _field() -> dict[str, Any]:
     }
 
 
+def _snapshot_row() -> dict[str, Any]:
+    """A ``catalog_import_snapshots`` row: timestamps are raw datetimes, as psycopg returns them."""
+    return {
+        "id": "snap-1", "source_type": "browser", "display_name": "KiCad libraries",
+        "source_locator": "", "status": "uploading", "manifest_sha256": "",
+        "file_count": 0, "size_bytes": 0, "created_by": USER.email,
+        "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc), "completed_at": None,
+    }
+
+
+def _discovery_match() -> dict[str, Any]:
+    return {
+        "component_id": "cmp-1", "revision_id": "rev-1", "version": 1, "name": "Resistor 10k",
+        "manufacturer": "Yageo", "manufacturer_part_number": "RC0603FR-0710KL", "is_active": True,
+    }
+
+
+def _discovery() -> dict[str, Any]:
+    return {
+        "components": [
+            {
+                "id": "disc-1",
+                "symbol_name": "R",
+                "library": "Device",
+                "metadata": {
+                    "value": "10k", "description": "Resistor", "datasheet": "",
+                    "manufacturer": "Yageo", "manufacturer_part_number": "RC0603FR-0710KL",
+                    "fields": {"Value": "10k", "Footprint": "Resistor_SMD:R_0603"},
+                },
+                "symbol": {"relative_path": "Device.kicad_sym"},
+                "footprint_reference": "Resistor_SMD:R_0603",
+                "footprint": {
+                    "status": "resolved",
+                    "selected": {
+                        "relative_path": "Resistor_SMD.pretty/R_0603.kicad_mod",
+                        "library": "Resistor_SMD", "name": "R_0603", "filename_name": "R_0603",
+                    },
+                    "candidates": [],
+                },
+                "models": [{
+                    "reference": "${KICAD}/R_0603.step", "status": "resolved",
+                    "candidates": [{"relative_path": "models/R_0603.step", "size_bytes": 12,
+                                    "suffix": ".step"}],
+                }],
+                "findings": [{"code": "missing_metadata_datasheet", "severity": "warning",
+                              "message": "Metadata is missing: datasheet."}],
+            }
+        ],
+        "required_paths": ["Device.kicad_sym"],
+        "inventory_file_count": 2,
+        "discovery_file_count": 3,
+        "directory_signature": "sig",
+    }
+
+
 class CatalogTypedResponses(unittest.TestCase):
     def setUp(self) -> None:
         self.addCleanup(patch.stopall)
@@ -696,6 +753,428 @@ class CatalogTypedResponses(unittest.TestCase):
         response = self._get("/api/catalog/inventory/export.csv")
         self.assertEqual(response.headers["content-type"], "text/csv; charset=utf-8")
         self.assertEqual(response.text, "\ufeffmpn,quantity\n")
+
+
+class CatalogWriteTypedResponses(unittest.TestCase):
+    """The catalog write routes' typed bodies are the bodies they returned before.
+
+    Same harness as the read cases above: the route runs through FastAPI, a
+    service stub returns the dictionary the catalog service builds, and the
+    whole JSON body is compared, so a field dropped, added or coerced fails.
+    """
+
+    def setUp(self) -> None:
+        self.addCleanup(patch.stopall)
+        self.app = FastAPI()
+        self.app.include_router(catalog_admin.router)
+        self.app.include_router(catalog_part_relations.router)
+        for dependency in (
+            require_catalog_admin,
+            require_catalog_browser,
+            require_catalog_reader,
+            require_catalog_writer,
+        ):
+            self.app.dependency_overrides[dependency] = lambda: USER
+        self.service = MagicMock()
+        self.artifact_store = MagicMock()
+        self.jobs = MagicMock()
+        self.jobs.enqueue.return_value = {"id": "job-1", "status": "queued"}
+
+    def _call(self, method: str, path: str, *, status: int = 200, **kwargs: Any) -> Any:
+        with patch.object(catalog_admin, "catalog_service", self.service), \
+                patch.object(catalog_part_relations, "catalog_service", self.service), \
+                patch.object(catalog_admin, "artifact_store", self.artifact_store), \
+                patch.object(catalog_admin, "catalog_jobs", self.jobs), \
+                patch.object(catalog_part_relations, "catalog_jobs", self.jobs):
+            response = TestClient(self.app, raise_server_exceptions=False).request(method, path, **kwargs)
+        self.assertEqual(response.status_code, status, response.text)
+        return response.json()
+
+    @staticmethod
+    def _etag(component_id: str = "cmp-1", revision_id: str = "rev-1") -> dict[str, str]:
+        return {"If-Match": f'"component:{component_id}:{revision_id}"'}
+
+    def _session_stub(self) -> None:
+        self.service.get_project_import_session.return_value = _session()
+
+    # -- import sessions and proposals ------------------------------------
+
+    def test_project_import_session_start(self) -> None:
+        self.service.create_project_import_session.return_value = _session()
+        workspace = MagicMock()
+        workspace.get_all_projects.return_value = [{"id": "prj-1"}]
+        revisions = MagicMock()
+        revisions.locate.return_value = MagicMock()
+        revisions.resolve_commit.return_value = "abc"
+        with patch.object(catalog_admin, "workspace", workspace), \
+                patch.object(catalog_admin, "project_revision", revisions):
+            body = self._call(
+                "POST", "/api/catalog/import-sessions/projects", status=202,
+                json={"scope": "project", "project_id": "prj-1", "source_revision": "abc"},
+            )
+        self.assertEqual(body, {**_session(), "job_id": "job-1"})
+
+    def test_folder_snapshot_writes(self) -> None:
+        self.service.get_project_import_session.return_value = _session()
+        self.artifact_store.get_snapshot.return_value = {
+            "created_by": USER.email, "status": "uploading", "display_name": "KiCad libraries",
+        }
+        self.artifact_store.create_snapshot.return_value = _snapshot_row()
+        self.artifact_store.complete_snapshot.return_value = {**_snapshot_row(), "status": "ready"}
+        self.artifact_store.put_stream.return_value = SimpleNamespace(sha256="sha", size_bytes=7)
+
+        created = self._call("POST", "/api/catalog/import-snapshots/folders", status=201,
+                             json={"display_name": "KiCad libraries"})
+        self.assertEqual(
+            created,
+            {
+                **_snapshot_row(),
+                "created_at": _snapshot_row()["created_at"].isoformat(),
+                "completed_at": None,
+            },
+        )
+
+        uploaded = self._call(
+            "POST", "/api/catalog/import-snapshots/folders/snap-1/files", status=201,
+            data={"relative_path": "lib/R.kicad_sym"},
+            files={"file": ("R.kicad_sym", b"(kicad_symbol_lib)", "application/octet-stream")},
+        )
+        self.assertEqual(uploaded, {"relative_path": "lib/R.kicad_sym", "sha256": "sha", "size_bytes": 7})
+
+        self.service.create_project_import_session.return_value = _session()
+        completed = self._call(
+            "POST", "/api/catalog/import-snapshots/folders/snap-1/complete", status=202, json={}
+        )
+        self.assertEqual(completed, {**_session(), "job_id": "job-1"})
+
+        with patch.object(catalog_admin, "resolve_server_import_path", return_value=Path("/srv/lib")):
+            server = self._call(
+                "POST", "/api/catalog/import-snapshots/folders/server", status=202,
+                json={"root_name": "lib", "subpath": ""},
+            )
+        self.assertEqual(server, {**_session(), "job_id": "job-1"})
+
+    def test_folder_discovery(self) -> None:
+        self.artifact_store.get_snapshot.return_value = {
+            "created_by": USER.email, "status": "uploading",
+        }
+        self.artifact_store.snapshot_files.return_value = []
+        discovery = _discovery()
+        self.service.match_component_identities.return_value = [_discovery_match()]
+        with patch.object(catalog_admin, "discover_library", return_value=discovery):
+            body = self._call(
+                "POST", "/api/catalog/import-snapshots/folders/snap-1/discover",
+                json={"files": [{"relative_path": "lib/R.kicad_sym", "size_bytes": 12}]},
+            )
+        component = {**discovery["components"][0], "existing_component": _discovery_match()}
+        self.assertEqual(
+            body,
+            {**discovery, "components": [component], "existing_component_count": 1},
+        )
+
+    def test_proposal_writes(self) -> None:
+        self._session_stub()
+        self.service.get_project_import_proposal.return_value = _proposal()
+        self.service.accept_project_import_proposal.return_value = {
+            "proposal": _proposal(), "component": _component(),
+        }
+        accepted = self._call("POST", "/api/catalog/import-proposals/proposal-1/accept", json={})
+        self.assertEqual(accepted, {"proposal": _proposal(), "component": _component()})
+
+        self.service.reject_project_import_proposal.return_value = {**_proposal(), "status": "rejected"}
+        rejected = self._call("POST", "/api/catalog/import-proposals/proposal-1/reject")
+        self.assertEqual(rejected, {**_proposal(), "status": "rejected"})
+
+        self.service.save_project_import_drafts.return_value = 1
+        drafts = self._call(
+            "PUT", "/api/catalog/import-sessions/session-1/proposals/drafts",
+            json={"drafts": {"proposal-1": {"metadata_overrides": {"value": "22k"}}}},
+        )
+        self.assertEqual(drafts, {"saved": 1})
+
+        csv_body = "proposal_id,value\nproposal-1,22k\n"
+        self.service.list_project_import_proposals.return_value = [_proposal()]
+        imported = self._call(
+            "POST", "/api/catalog/import-sessions/session-1/proposals.csv",
+            files={"file": ("proposals.csv", csv_body.encode(), "text/csv")},
+        )
+        self.assertEqual(imported, {"saved": 1, "skipped_unknown_rows": 0})
+
+    def test_bulk_accept_reports_each_row(self) -> None:
+        self._session_stub()
+        self.service.get_project_import_proposal.side_effect = [_proposal(), None]
+        self.service.accept_project_import_proposal.return_value = {
+            "proposal": _proposal(), "component": {"id": "cmp-1"},
+        }
+        body = self._call(
+            "POST", "/api/catalog/import-sessions/session-1/proposals/bulk-accept",
+            json={"items": [{"proposal_id": "proposal-1"}, {"proposal_id": "missing"}]},
+        )
+        self.assertEqual(
+            body,
+            {
+                "accepted": 1,
+                "failed": 1,
+                "results": [
+                    {"proposal_id": "proposal-1", "status": "accepted", "component_id": "cmp-1"},
+                    {"proposal_id": "missing", "status": "failed", "error": "Import proposal not found"},
+                ],
+            },
+        )
+
+    # -- component writes -------------------------------------------------
+
+    def test_component_writes_return_the_component(self) -> None:
+        self.service.create_manual_component.return_value = _component()
+        created = self._call(
+            "POST", "/api/catalog/components",
+            json={"value": "10k", "description": "", "datasheet": "",
+                  "manufacturer": "Yageo", "manufacturer_part_number": "RC0603FR-0710KL"},
+        )
+        self.assertEqual(created, _component())
+
+        self.service.update_component_metadata.return_value = _component()
+        updated = self._call(
+            "PATCH", "/api/catalog/components/cmp-1", headers=self._etag(), json={"value": "22k"}
+        )
+        self.assertEqual(updated, _component())
+
+        self.service.create_representation.return_value = _component()
+        self.assertEqual(
+            self._call("POST", "/api/catalog/components/cmp-1/representations", status=201,
+                       headers=self._etag(), json={"label": "Second"}),
+            _component(),
+        )
+        self.service.update_representation.return_value = _component()
+        self.assertEqual(
+            self._call("PATCH", "/api/catalog/components/cmp-1/representations/rep-1",
+                       headers=self._etag(), json={"label": "Renamed"}),
+            _component(),
+        )
+        self.service.delete_representation.return_value = _component()
+        self.assertEqual(
+            self._call("DELETE", "/api/catalog/components/cmp-1/representations/rep-1",
+                       headers=self._etag()),
+            _component(),
+        )
+
+        self.service.get_component.return_value = {**_component(), "workflow_stage": "open"}
+        self.service.set_release_status.return_value = _component()
+        with patch.object(catalog_admin, "_can_transition_workflow", return_value=True):
+            released = self._call(
+                "POST", "/api/catalog/components/cmp-1/release",
+                json={"workflow_stage": "released", "review_note": "ok"},
+            )
+        self.assertEqual(released, _component())
+
+        self.service.regenerate_component_previews.return_value = _component()
+        self.assertEqual(
+            self._call("POST", "/api/catalog/components/cmp-1/previews/regenerate"), _component()
+        )
+
+        self.service.delete_component.return_value = True
+        self.assertEqual(self._call("DELETE", "/api/catalog/components/cmp-1"), {"ok": True})
+
+    def test_asset_writes(self) -> None:
+        upload = {"files": {"file": ("asset.kicad_sym", b"data", "application/octet-stream")}}
+        self.service.import_symbol_library.return_value = {
+            "mode": "selection_required", "discovered_symbols": ["A", "B"],
+        }
+        self.assertEqual(
+            self._call("POST", "/api/catalog/components/cmp-1/symbol-import", **upload),
+            {"mode": "selection_required", "discovered_symbols": ["A", "B"]},
+        )
+        self.service.import_symbol_library.return_value = {
+            "mode": "imported", "discovered_symbols": ["A"], "selected_symbol": "A",
+            "component": _component(),
+        }
+        self.assertEqual(
+            self._call("POST", "/api/catalog/components/cmp-1/symbol-import", **upload),
+            {"mode": "imported", "discovered_symbols": ["A"], "selected_symbol": "A",
+             "component": _component()},
+        )
+
+        self.service.import_footprint.return_value = {
+            "mode": "imported", "discovered_footprints": ["R_0603"], "selected_footprint": "R_0603",
+            "component": _component(),
+        }
+        self.assertEqual(
+            self._call(
+                "POST", "/api/catalog/components/cmp-1/footprint-import",
+                files={"file": ("R.kicad_mod", b"data", "application/octet-stream")},
+            ),
+            {"mode": "imported", "discovered_footprints": ["R_0603"],
+             "selected_footprint": "R_0603", "component": _component()},
+        )
+
+        self.service.attach_auxiliary_asset.return_value = {"component": _component()}
+        self.assertEqual(
+            self._call(
+                "POST", "/api/catalog/components/cmp-1/assets/3dmodel",
+                files={"file": ("part.step", b"data", "application/octet-stream")},
+            ),
+            {"component": _component()},
+        )
+
+        self.service.link_library_asset.return_value = {"component": _component()}
+        self.assertEqual(
+            self._call(
+                "POST", "/api/catalog/components/cmp-1/assets/footprint/link",
+                json={"file_path": "Resistor_SMD.pretty/R_0603.kicad_mod"},
+            ),
+            {"component": _component()},
+        )
+
+        self.service.detach_asset.return_value = {"component": _component()}
+        self.assertEqual(
+            self._call("DELETE", "/api/catalog/components/cmp-1/assets/3dmodel"),
+            {"component": _component()},
+        )
+        self.service.detach_asset_by_id.return_value = {"component": _component()}
+        self.assertEqual(
+            self._call("DELETE", "/api/catalog/components/cmp-1/assets/id/asset-1",
+                       headers=self._etag()),
+            {"component": _component()},
+        )
+
+    # -- metadata ---------------------------------------------------------
+
+    def test_metadata_field_writes(self) -> None:
+        self.service.create_metadata_field.return_value = _field()
+        self.assertEqual(
+            self._call("POST", "/api/catalog/metadata/fields", status=201,
+                       json={"key": "tolerance", "label": "Tolerance"}),
+            _field(),
+        )
+        self.service.update_metadata_field.return_value = _field()
+        self.assertEqual(
+            self._call("PATCH", "/api/catalog/metadata/fields/builtin:value",
+                       json={"label": "Value"}),
+            _field(),
+        )
+        archived = {**_field(), "archived": True}
+        self.service.set_metadata_field_archived.return_value = archived
+        self.assertEqual(
+            self._call("POST", "/api/catalog/metadata/fields/builtin:value/archive"), archived
+        )
+        self.assertEqual(
+            self._call("POST", "/api/catalog/metadata/fields/builtin:value/restore"), archived
+        )
+
+    def test_metadata_batch_writes(self) -> None:
+        preferences = {"visible": ["value"], "order": ["value"], "widths": {"value": 120}, "pinned": []}
+        self.service.save_metadata_grid_preferences.return_value = preferences
+        self.assertEqual(
+            self._call("PUT", "/api/catalog/metadata/grid-preferences", json=preferences),
+            preferences,
+        )
+
+        self.service.stage_metadata_batch.return_value = _batch()
+        self.assertEqual(
+            self._call("POST", "/api/catalog/metadata/batches", status=201,
+                       json={"items": [{"component_id": "cmp-1", "expected_revision_id": "rev-1",
+                                        "patch": {"value": "22k"}}]}),
+            _batch(),
+        )
+
+        self.service.get_metadata_batch.return_value = _batch()
+        self.service.approve_metadata_batch_fields.return_value = _batch()
+        self.assertEqual(
+            self._call("POST", "/api/catalog/metadata/batches/batch-1/approve-fields"), _batch()
+        )
+
+        self.assertEqual(
+            self._call("POST", "/api/catalog/metadata/batches/batch-1/apply", status=202,
+                       json={"item_ids": ["item-1"]}),
+            {"batch_id": "batch-1", "job_id": "job-1", "status": "queued"},
+        )
+
+        preview = {**_batch(), "source_rows": 4, "skipped_unchanged_rows": 3}
+        self.service.preview_metadata_csv.return_value = preview
+        self.assertEqual(
+            self._call(
+                "POST", "/api/catalog/metadata/import-csv/preview", status=201,
+                files={"file": ("metadata.csv", b"mpn,value\nRC0603FR-0710KL,22k\n", "text/csv")},
+            ),
+            preview,
+        )
+
+    # -- queued work, exports and relations --------------------------------
+
+    def test_queued_writes(self) -> None:
+        queued = {"job_id": "job-1", "status": "queued"}
+        self.assertEqual(
+            self._call("POST", "/api/catalog/components/cmp-1/validate"), queued
+        )
+        self.assertEqual(self._call("POST", "/api/catalog/validation/run"), queued)
+        self.assertEqual(self._call("POST", "/api/catalog/previews/generate-missing"), queued)
+        self.assertEqual(
+            self._call("POST", "/api/catalog/artifacts/maintenance", status=202), queued
+        )
+
+    def test_export_and_inventory_writes(self) -> None:
+        bundle = {
+            "export_root": "/store/exports/dbl", "component_count": 1, "category_count": 1,
+            "sqlite_path": "/store/exports/dbl/Prism.sqlite",
+            "linux_dbl": "/store/exports/dbl/prism-dbl-linux.kicad_dbl",
+            "windows_dbl": "/store/exports/dbl/prism-dbl-windows.kicad_dbl",
+            "sym_lib_table": "/store/exports/dbl/sym-lib-table",
+            "fp_lib_table": "/store/exports/dbl/fp-lib-table",
+            "model_count": 1,
+            "missing_models": [{
+                "component_id": "cmp-1", "revision_id": "rev-1",
+                "asset_id": "asset-1", "reason": "file_missing",
+            }],
+        }
+        self.service.export_kicad_dbl_bundle.return_value = bundle
+        self.assertEqual(self._call("POST", "/api/catalog/exports/kicad-dbl"), bundle)
+
+        inventory = {"updated": 1, "not_found": 1, "errors": ["Row 3: unknown unit"]}
+        self.service.import_inventory_csv.return_value = inventory
+        self.assertEqual(
+            self._call(
+                "POST", "/api/catalog/inventory/sync-csv",
+                files={"file": ("inventory.csv", b"mpn,quantity\nRC0603FR-0710KL,10\n", "text/csv")},
+            ),
+            inventory,
+        )
+
+    def test_part_relation_writes(self) -> None:
+        mate = {
+            "componentId": "cmp-2", "name": "Socket", "mpn": "S-1",
+            "manufacturer": "Acme", "createdBy": USER.email,
+            "createdAt": "2026-01-01T00:00:00+00:00",
+        }
+        self.service.part_relations.set_mate.return_value = [mate]
+        self.assertEqual(
+            self._call("POST", "/api/catalog/components/cmp-1/mates-with",
+                       json={"componentId": "cmp-2"}),
+            {"items": [mate]},
+        )
+        self.assertEqual(
+            self._call("DELETE", "/api/catalog/components/cmp-1/mates-with/cmp-2"),
+            {"items": [mate]},
+        )
+
+        self.service.part_relations.list_models.return_value = []
+        converted = self._call("POST", "/api/catalog/components/cmp-1/models/convert")
+        self.assertEqual(converted, {"jobId": "job-1", "status": "queued"})
+
+        model = {
+            "assetId": "asset-1", "name": "part.step", "stepSha256": "sha",
+            "glb": None,
+            "alignment": {"offsetMm": [0.0, 0.0, 0.0], "rotationDeg": [0.0, 0.0, 0.0],
+                          "scale": 1.0, "updatedBy": USER.email,
+                          "updatedAt": "2026-01-01T00:00:00+00:00"},
+        }
+        self.service.part_relations.set_model_alignment.return_value = [model]
+        self.assertEqual(
+            self._call(
+                "PUT", "/api/catalog/components/cmp-1/models/asset-1/alignment",
+                json={"offsetMm": [0.0, 0.0, 0.0], "rotationDeg": [0.0, 0.0, 0.0], "scale": 1.0},
+            ),
+            {"items": [model]},
+        )
 
 
 if __name__ == "__main__":
