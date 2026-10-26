@@ -43,7 +43,7 @@ Prism's theme for the next major (v6) is AI integration. Prism does not run a mo
 | D6 | **Only people resolve comments** (2026-10-26). An agent may reply to any comment it can read, but resolving or reopening a thread is a human action, whoever wrote it and whatever the agent was asked to do. |
 | D7 | **Every MCP read is audited** (2026-10-26), with client, tool, project and revision; no sampling. |
 | D8 | **The SDK is designed to be published** (2026-10-26): its own package, versioning and licence metadata from the start. Whether and where to publish is decided later. |
-| D9 | **`render_view` ships in v5.1** (2026-10-26), not v5.2: PNG renders of a schematic region, PCB area or 3D view with highlights, for multimodal agents. |
+| D9 | **`render_view` ships in v5.1** (2026-10-26), not v5.2: PNG renders of a schematic region, PCB area or 3D view with highlights, for multimodal agents. Renders are kicad-cli plots (SVG for schematics and PCBs, with an SVG highlight overlay) rasterised with CairoSVG, not the browser viewer; 3D renders carry no highlights. |
 | D10 | **One MCP endpoint per deployment** (2026-10-26). A deployment is one workspace; agents see projects through folder visibility and the admin allowlist (§3.11). Per-workspace endpoints are reconsidered only if Prism becomes multi-tenant. |
 | D11 | **Not listed in the MCP Registry for now** (2026-10-26). Every Prism is self-hosted at its own URL, so v5.1 documents how to connect instead. Revisited once the server is stable. |
 | D12 | **One live event socket, fed by the event log** (2026-10-26). The live socket of §3.10 is part of MCP-08 instead of per-feature sockets; polling remains the fallback. |
@@ -131,7 +131,7 @@ services (projects, design bundle, compare, comments, catalog, release, jobs)
   - `list_comments`;
   - `search_catalog`, `get_catalog_component`;
   - `get_release_status`;
-  - `render_view` (D9): a PNG of a schematic region, PCB area or 3D view at a revision, with given components or nets highlighted, rendered headless from the revision's bundle with the same viewer code the web UI runs.
+  - `render_view` (D9): a PNG of a schematic region, PCB area or 3D view at a revision, with given components or nets highlighted. Schematic and PCB views are kicad-cli SVG plots cropped to the region, with the highlight drawn as an SVG overlay above the artwork, then rasterised with CairoSVG. A 3D view is kicad-cli's own render and carries no highlight overlay.
 - **Server.** Streamable HTTP, stateless. Cross-call state is always an explicit handle (job id, comparison id, commit sha), never a session.
 - **Long work.** Comparisons and bundle builds run as Prism jobs, exposed through the tasks extension (`io.modelcontextprotocol/tasks`). The task handle is the job id.
 - **Results.**
@@ -217,7 +217,7 @@ Design queries run in a **design-query service** over the revision's bundle proj
 ## 6. Security notes
 
 - The bearer path, not MCP, is the trust boundary: MCP adds no permission the policy table doesn't grant.
-- `render_view` runs the viewer headless on the worker, never in the request process, under the same memory budget as other worker jobs.
+- `render_view` runs on the worker, never in the request process, under the same memory budget as other worker jobs. It plots with kicad-cli and rasterises with CairoSVG; the browser viewer is not involved.
 - PATs and refresh tokens are stored hashed; access tokens are short-lived JWTs (proposed: 1 hour).
 - `/mcp` validates `Origin` and the token's audience (the resource indicator) on every request. A token minted for another resource is refused.
 - Rate limits per client and per token, configured by admins (v5.3), with defaults from v5.1.

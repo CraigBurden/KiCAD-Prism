@@ -14,7 +14,13 @@ OpenAPI schemas are shallow, and a self-referential model must not loop.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
+
+#: What a multi-step tool calls a route with: ``(app, method, path, query,
+#: authorization, json_body)``.
+RouteRequest = Callable[
+    [Any, str, str, str, str, dict[str, Any] | None], Awaitable[tuple[int, bytes]]
+]
 
 #: Every tool here reads. MCP clients never get a write tool (v5.1), and the
 #: annotations say so rather than leaving a client to infer it.
@@ -47,6 +53,9 @@ class Tool:
     ]
     annotations: dict[str, bool]
     output_schema: dict[str, Any] | None = None
+    #: A tool that needs more than one route (start then poll, then fetch
+    #: bytes) handles itself and returns the whole ``CallToolResult``.
+    execute: Callable[[Any, dict[str, Any], str, RouteRequest], Awaitable[dict[str, Any]]] | None = None
 
 
 _TOOLS: list[Tool] = []

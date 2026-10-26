@@ -1299,6 +1299,16 @@
     "path": "/api/v1/catalog/components/{component_id}/mates-with/{other_id}",
     "typed": true
   },
+  "render_png": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/renders/{render_id}.png",
+    "typed": true
+  },
+  "render_record": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/renders/{render_id}",
+    "typed": true
+  },
   "replace_setup": {
     "method": "PUT",
     "path": "/api/v1/projects/{project_id}/sim/a0/setups/{setup_id}",
@@ -1442,6 +1452,11 @@
   "start_login": {
     "method": "POST",
     "path": "/api/v1/auth/login/start",
+    "typed": true
+  },
+  "start_render": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/renders",
     "typed": true
   },
   "submit_setup": {

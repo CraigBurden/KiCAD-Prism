@@ -2885,6 +2885,54 @@ class ReleasedRevision(TypedDict, total=True):
     version: int
 
 
+class RenderHighlight(TypedDict, total=False):
+    components: list[str]
+    nets: list[str]
+
+
+class RenderHighlightOut(TypedDict, total=True):
+    found: bool
+    key: str
+    kind: str
+
+
+class RenderRecordResponse(TypedDict, total=False):
+    commit: str
+    height: int | None
+    highlights: list[RenderHighlightOut]
+    pngUrl: str | None
+    region: dict[str, float] | None
+    renderId: str
+    sheet: str | None
+    status: str
+    view: str
+    width: int
+
+
+class RenderRegion(TypedDict, total=True):
+    height: float
+    width: float
+    x: float
+    y: float
+
+
+class RenderRequest(TypedDict, total=False):
+    highlight: RenderHighlight | None
+    layers: str
+    region: RenderRegion | None
+    revision: str | None
+    sheet: str | None
+    side: str
+    view: str
+    width: int
+
+
+class RenderStartResponse(TypedDict, total=False):
+    jobId: str | None
+    renderId: str
+    status: str
+
+
 class ReplyCreatedView(TypedDict, total=True):
     comment: CommentView
     reply: CommentReplyView
@@ -5703,6 +5751,22 @@ class GeneratedClient:
             path_params={"component_id": component_id, "other_id": other_id},
         )
 
+    def render_png(self, project_id: str, render_id: str) -> Any:
+        """Download a rendered PNG"""
+        return self._request(
+            "GET",
+            "/api/v1/projects/{project_id}/renders/{render_id}.png",
+            path_params={"project_id": project_id, "render_id": render_id},
+        )
+
+    def render_record(self, project_id: str, render_id: str) -> RenderRecordResponse:
+        """Read a render's record"""
+        return self._request(
+            "GET",
+            "/api/v1/projects/{project_id}/renders/{render_id}",
+            path_params={"project_id": project_id, "render_id": render_id},
+        )
+
     def replace_setup(self, project_id: str, setup_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
         """Replace Setup"""
         return self._request(
@@ -5939,6 +6003,15 @@ class GeneratedClient:
         return self._request(
             "POST",
             "/api/v1/auth/login/start",
+        )
+
+    def start_render(self, project_id: str, *, body: dict[str, Any] | None = None) -> RenderStartResponse:
+        """Queue a PNG render of a revision, or reuse a stored one"""
+        return self._request(
+            "POST",
+            "/api/v1/projects/{project_id}/renders",
+            path_params={"project_id": project_id},
+            body=body,
         )
 
     def submit_setup(self, project_id: str, setup_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:

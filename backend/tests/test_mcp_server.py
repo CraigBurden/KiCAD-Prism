@@ -42,6 +42,7 @@ BASE = "https://prism.test"
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 
 TOOL_ORDER = [
+    "render_view",
     "search_projects",
     "get_project",
     "list_revisions",
@@ -344,6 +345,16 @@ class McpServerTests(unittest.TestCase):
         self.assertTrue(result["isError"])
         self.assertEqual(result["structuredContent"]["error"]["status"], 404)
         self.assertEqual(result["content"][0]["text"], f"{invoke.DATA_PREFIX}\nnot_found: Project not found")
+
+    def test_render_view_refuses_a_hidden_project(self) -> None:
+        hidden = self._project(hidden=True)
+        result = self.mcp(
+            call("render_view", {"project_id": hidden, "view": "pcb"}),
+            headers=self.headers,
+        )["result"]
+        self.assertTrue(result["isError"])
+        self.assertEqual(result["structuredContent"]["error"]["status"], 404)
+        self.assertIn("not_found", result["content"][0]["text"])
 
     def test_a_missing_required_argument_is_a_tool_execution_error(self) -> None:
         result = self.mcp(call("get_project", {}), headers=self.headers)["result"]
