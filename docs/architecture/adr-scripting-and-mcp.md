@@ -230,19 +230,26 @@ Each package is one PR into `feature/scripting-mcp`, in this order. Packages on 
 | --- | --- | --- |
 | MCP-00 | This ADR | — |
 | MCP-01 | `/api/v1` mount, `operation_id` convention, untyped-route ratchet in CI | 00 |
-| MCP-02 | Area scopes and human-only actions in `policy.py`; actor columns and `authorKind` | 00 |
+| MCP-02 | Area scopes and human-only actions in `policy.py` | 00 |
+| MCP-02b | Actor columns (`editor_*`, `author_client_id`) and `authorKind` | 02 |
 | MCP-03 | Personal access tokens (model, routes, Settings UI) | 02 |
-| MCP-04 | Idempotency keys and revision pinning on v1 | 01 |
-| MCP-05 | Server-side BOM, review grouping and anchor resolution; the design-query service | 01 |
-| MCP-06 | Typing pass over the routes MCP and the SDK use | 01, 05 |
+| MCP-04 | Idempotency keys on v1 | 01 |
+| MCP-05a | Server-side BOM (`design_query/bom.py`), with a parity fixture | 01 |
+| MCP-05b | Review grouping on the server (`/design-compare/{job_id}/review`), with a parity fixture | 01 |
+| MCP-05c | The design-query index: search, component and net routes, and revision pinning | 01 |
+| MCP-06a–f | Typing pass, in six route slices: project reads (a); comments, comparison, auth and settings (b); catalog reads (c); Release Studio and remote provider (d); catalog writes (e); project writes (f) | 01, 05 |
 | MCP-07 | Identity contract test; URL grammar helper; `deep_links.py` fix | 00 |
-| MCP-08 | Event log, `GET /api/v1/events` and the live socket `/api/v1/events/live` (§3.10) | 01 |
+| MCP-08a | Event log and `GET /api/v1/events` | 01 |
+| MCP-08b | The live socket `/api/v1/events/live` (§3.10, D12) | 08a |
+| MCP-08c | Event producers: jobs, comparisons, comments, revisions, bundles and releases append to the log | 08a |
 | MCP-09 | OAuth for MCP clients (CIMD, RFC 9728, RFC 9207, refresh, incremental consent) | 02, 03 |
 | MCP-10 | Tool registry and the read-only MCP server at `/mcp`, with tasks and resource links | 05, 06, 09 |
 | MCP-11 | Governance switches and read audit | 10 |
 | MCP-12 | Python SDK and `prism` CLI | 06 |
 | MCP-13 | `render_view`: headless renders from the bundle, as a route and a tool (D9) | 05, 07, 10 |
 | MCP-14 | Docs: "Automating Prism" (SDK, CLI, MCP client setup) | 10, 12 |
+
+Packages were split where one PR would have mixed unrelated reviews: the BOM, review-grouping and index ports each carry their own parity fixture, and the typing pass is sliced by route area so slices can run in parallel. Revision pinning moved from MCP-04 to MCP-05c, where the index that needs it lives. A response-model safety net (#879) landed with the typing pass: a response that does not match its model is served unvalidated and logged in production, and fails tests (`PRISM_STRICT_RESPONSE_MODELS=1`).
 
 The branch merges into `dev` when MCP-01 to MCP-14 are in and the full suites pass on it. The automated upgrade and rollback check from the release plan is separate, not part of this branch.
 
