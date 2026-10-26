@@ -116,8 +116,18 @@ STRUCTURED_GEOMETRY_KEYS = frozenset(
     )
 )
 
-#: Literal casing of JS's localeCompare output is not reproducible; the fixture
-#: avoids colliding labels that need locale-specific collation.
+#: ICU's primary order for printable ASCII, lowercased: punctuation, then
+#: digits, then letters. JavaScript's default ``localeCompare`` sorts by this
+#: order and only then by case, so ``"#PWR01"`` follows ``"/Power/3V3"`` and
+#: precedes ``"bus"``. Comparing Python code points instead would put every
+#: uppercase letter before every lowercase one and reorder review rows.
+_ICU_ASCII_ORDER = (
+    " _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$"
+    "0123456789"
+    "abcdefghijklmnopqrstuvwxyz"
+)
+_ICU_ASCII_RANK = {char: index for index, char in enumerate(_ICU_ASCII_ORDER)}
+
 #: The BOM's natural order, mirrored from ``design_query.bom``.
 _DIGITS = re.compile(r"(\d+)")
 
@@ -168,10 +178,18 @@ def _natural_key(text: str) -> tuple[tuple[int, int, str], ...]:
     return tuple(key)
 
 
+def _collation_key(text: str) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """ICU's primary (case-folded) order, then lowercase-before-uppercase."""
+
+    primary = tuple(_ICU_ASCII_RANK.get(char.casefold(), 1000 + ord(char)) for char in text)
+    case = tuple(1 if char.isupper() else 0 for char in text)
+    return primary, case
+
+
 def _locale_compare(left: str, right: str) -> int:
-    folded_left, folded_right = left.casefold(), right.casefold()
-    if folded_left != folded_right:
-        return -1 if folded_left < folded_right else 1
+    left_key, right_key = _collation_key(left), _collation_key(right)
+    if left_key != right_key:
+        return -1 if left_key < right_key else 1
     if left == right:
         return 0
     return -1 if left < right else 1
