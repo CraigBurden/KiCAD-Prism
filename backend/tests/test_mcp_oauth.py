@@ -73,7 +73,7 @@ def document() -> dict:
     }
 
 
-def fake_fetch(url: str) -> tuple[int, str, bytes]:
+def fake_fetch(url: str, address: str) -> tuple[int, str, bytes]:
     return 200, "application/json", json.dumps(document()).encode()
 
 
@@ -104,7 +104,6 @@ class McpMetadataTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         for patcher in getattr(cls, "_patchers", []):
             patcher.stop()
-        mcp_auth_service._last_base = ""
 
     def test_protected_resource_metadata(self) -> None:
         client = self.TestClient(self.main.app)
@@ -178,7 +177,6 @@ class McpOAuthFlowTests(unittest.TestCase):
         mcp_clients.clear_cache()
         mcp_auth_service._grant_state.clear()
         mcp_auth_service._last_touched.clear()
-        mcp_auth_service._last_base = ""
         self._ttl = patch.object(mcp_auth_service, "GRANT_STATE_TTL_SECONDS", 0)
         self._ttl.start()
         self.addCleanup(self._ttl.stop)
@@ -345,6 +343,27 @@ class McpOAuthFlowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["error"], "invalid_client")
 
+    def test_only_globally_routable_addresses_are_fetched(self) -> None:
+        for address in ("100.64.0.9", "10.1.2.3", "169.254.169.254", "::1", "fd00::1"):
+            with self.subTest(address=address):
+                with self.assertRaises(mcp_clients.McpClientError):
+                    mcp_clients._ensure_public_host(
+                        "client.example",
+                        resolver=lambda host, port, **kwargs: [
+                            (socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port))
+                        ],
+                    )
+
+    def test_the_fetch_connects_to_the_checked_address(self) -> None:
+        seen: list[str] = []
+
+        def recording_fetch(url: str, address: str) -> tuple[int, str, bytes]:
+            seen.append(address)
+            return fake_fetch(url, address)
+
+        mcp_clients.fetch_document(CLIENT_ID, fetcher=recording_fetch)
+        self.assertEqual(seen, [PUBLIC_ADDRESS])
+
     def test_a_token_for_another_audience_is_refused(self) -> None:
         email = unique_email("aud")
         use_user(email, "designer")
@@ -367,6 +386,24 @@ class McpOAuthFlowTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as caught:
             _resolve_bearer_user(token)
         self.assertEqual(caught.exception.status_code, 401)
+
+    def test_without_a_public_base_any_mcp_audience_is_accepted(self) -> None:
+        with patch.object(settings, "PUBLIC_BASE_URL", ""):
+            self.assertTrue(mcp_auth_service._audience_ok("http://10.0.0.5:8080/mcp"))
+            self.assertFalse(mcp_auth_service._audience_ok("http://10.0.0.5:8080/api"))
+            self.assertFalse(mcp_auth_service._audience_ok("mcp"))
+        self.assertFalse(mcp_auth_service._audience_ok("http://10.0.0.5:8080/mcp"))
+
+    def test_a_cross_origin_consent_is_refused(self) -> None:
+        client = self._client_for(unique_email("xorigin"), "designer")
+        _verifier, params = self._authorize_params()
+        response = client.post(
+            "/oauth/mcp/authorize",
+            data={**params, "decision": "allow"},
+            headers={"origin": "https://attacker.example"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 403)
 
     def test_deny_redirects_with_access_denied(self) -> None:
         client = self._client_for(unique_email("deny"), "designer")

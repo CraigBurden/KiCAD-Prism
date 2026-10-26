@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 from html import escape
 from typing import Any
-from urllib.parse import quote, urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse, urlsplit
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -77,14 +77,12 @@ def _authorization_server(base: str) -> dict[str, Any]:
 @router.get("/.well-known/oauth-protected-resource", include_in_schema=False)
 async def protected_resource_metadata(request: Request) -> dict[str, Any]:
     base = _base_url(request)
-    mcp_auth_service.remember_base(base)
     return _protected_resource(base)
 
 
 @router.get("/.well-known/oauth-protected-resource/mcp", include_in_schema=False)
 async def protected_resource_metadata_mcp(request: Request) -> dict[str, Any]:
     base = _base_url(request)
-    mcp_auth_service.remember_base(base)
     return _protected_resource(base)
 
 
@@ -157,7 +155,6 @@ async def authorize(
 ) -> HTMLResponse | RedirectResponse | JSONResponse:
     """Show the consent page, signing the user in first if needed."""
     base = _base_url(request)
-    mcp_auth_service.remember_base(base)
     try:
         document, normalized_scope = await _validate_authorize_request(
             base=base,
@@ -218,7 +215,11 @@ async def authorize_submit(
 ) -> RedirectResponse | JSONResponse:
     """Issue the code on Allow, or answer ``access_denied`` on Deny."""
     base = _base_url(request)
-    mcp_auth_service.remember_base(base)
+    # The session cookie is SameSite=Lax, which already keeps it off a
+    # cross-site POST; refusing a foreign Origin also covers same-site hosts.
+    origin = request.headers.get("origin")
+    if origin and urlsplit(origin).netloc != urlsplit(base).netloc:
+        return _oauth_error("invalid_request", "Consent must come from this server", status_code=403)
     try:
         document, normalized_scope = await _validate_authorize_request(
             base=base,
@@ -289,7 +290,6 @@ async def token(
 ) -> JSONResponse:
     """Exchange an authorization code, or rotate a refresh token."""
     base = _base_url(request)
-    mcp_auth_service.remember_base(base)
     try:
         if grant_type == "authorization_code":
             if not (client_id and code and redirect_uri and code_verifier):

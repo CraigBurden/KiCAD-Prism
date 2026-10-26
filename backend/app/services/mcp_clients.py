@@ -6,8 +6,9 @@ be sent back to. Prism fetches that document, caches it briefly, and requires
 every request's ``redirect_uri`` to be listed in it.
 
 Fetching a URL supplied by an unauthenticated caller is a server-side request
-forgery risk, so the host is resolved first and every address is checked against
-private, loopback, link-local and multicast ranges before a connection is made.
+forgery risk, so the host is resolved once, every address must be globally
+routable, and the connection goes to the checked address (TLS still verifies the
+real hostname), so a second DNS answer cannot point the fetch inward.
 A document is also size-capped (64 KiB), must be ``application/json``, and may
 not redirect.
 """
@@ -22,7 +23,7 @@ import time
 from typing import Any, Callable
 from urllib.parse import urlparse
 
-import requests
+import urllib3
 
 DOCUMENT_CACHE_SECONDS = 60 * 60
 FETCH_TIMEOUT_SECONDS = 5
@@ -30,7 +31,6 @@ MAX_DOCUMENT_BYTES = 64 * 1024
 MAX_CLIENT_NAME_LENGTH = 120
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost"})
-_BLOCKED_ADDRESS_FLAGS = ("is_private", "is_loopback", "is_link_local", "is_multicast", "is_unspecified")
 
 
 class McpClientError(Exception):
@@ -44,7 +44,7 @@ class McpClientError(Exception):
 
 
 # Injectable seams: tests replace these rather than reaching the network.
-_FETCHER: Callable[[str], tuple[int, str, bytes]] = lambda url: _requests_fetch(url)
+_FETCHER: Callable[[str, str], tuple[int, str, bytes]] = lambda url, address: _pinned_fetch(url, address)
 _RESOLVER: Callable[..., Any] = socket.getaddrinfo
 
 _cache: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -56,21 +56,37 @@ def clear_cache() -> None:
         _cache.clear()
 
 
-def _requests_fetch(url: str) -> tuple[int, str, bytes]:
-    response = requests.get(
-        url,
-        timeout=FETCH_TIMEOUT_SECONDS,
-        allow_redirects=False,
+def _pinned_fetch(url: str, address: str) -> tuple[int, str, bytes]:
+    """GET ``url`` from ``address``, verifying TLS against the URL's own host."""
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    pool = urllib3.HTTPSConnectionPool(
+        address,
+        port=parsed.port or 443,
+        server_hostname=host,
+        assert_hostname=host,
+        cert_reqs="CERT_REQUIRED",
+        timeout=urllib3.Timeout(total=FETCH_TIMEOUT_SECONDS),
+        retries=False,
+    )
+    path = parsed.path + (f"?{parsed.query}" if parsed.query else "")
+    response = pool.request(
+        "GET",
+        path,
+        headers={"Host": parsed.netloc, "Accept": "application/json"},
+        redirect=False,
+        preload_content=False,
     )
     try:
         body = bytearray()
-        for chunk in response.iter_content(chunk_size=4096):
+        for chunk in response.stream(4096):
             body.extend(chunk)
             if len(body) > MAX_DOCUMENT_BYTES:
                 break
-        return response.status_code, response.headers.get("content-type", ""), bytes(body)
+        return response.status, response.headers.get("content-type", ""), bytes(body)
     finally:
-        response.close()
+        response.release_conn()
+        pool.close()
 
 
 def host_of(client_id: str) -> str:
@@ -87,32 +103,31 @@ def client_id_is_url(client_id: str) -> bool:
     )
 
 
-def _address_flag(address: str) -> str | None:
+def _is_public(address: str) -> bool:
     try:
-        parsed = ipaddress.ip_address(address)
+        return ipaddress.ip_address(address).is_global
     except ValueError:
-        return "invalid"
-    for flag in _BLOCKED_ADDRESS_FLAGS:
-        if getattr(parsed, flag):
-            return flag
-    return None
+        return False
 
 
-def _ensure_public_host(host: str, *, resolver: Callable[..., Any] | None = None) -> None:
-    """Refuse a host that resolves anywhere inside this machine's network."""
+def _ensure_public_host(host: str, port: int = 443, *, resolver: Callable[..., Any] | None = None) -> str:
+    """Refuse a host that resolves anywhere but the public internet.
+
+    Returns the checked address the fetch must connect to.
+    """
     if not host:
         raise McpClientError("invalid_client", "client_id has no host")
     resolve = resolver or _RESOLVER
     try:
-        infos = resolve(host, 443, type=socket.SOCK_STREAM)
+        infos = resolve(host, port, type=socket.SOCK_STREAM)
     except OSError as exc:
         raise McpClientError("invalid_client", "Could not resolve the client host") from exc
-    addresses = {str(info[4][0]) for info in infos if len(info) >= 5}
+    addresses = sorted({str(info[4][0]) for info in infos if len(info) >= 5})
     if not addresses:
         raise McpClientError("invalid_client", "Could not resolve the client host")
-    for address in addresses:
-        if _address_flag(address) is not None:
-            raise McpClientError("invalid_client", "client_id resolves to a private address")
+    if not all(_is_public(address) for address in addresses):
+        raise McpClientError("invalid_client", "client_id resolves to a private address")
+    return addresses[0]
 
 
 def _parse_redirect_uri(value: object) -> str:
@@ -147,9 +162,14 @@ def validate_document(client_id: str, document: object) -> dict[str, Any]:
     }
 
 
-def _fetch_document(client_id: str, *, fetcher: Callable[[str], tuple[int, str, bytes]] | None = None) -> dict[str, Any]:
+def _fetch_document(
+    client_id: str,
+    address: str,
+    *,
+    fetcher: Callable[[str, str], tuple[int, str, bytes]] | None = None,
+) -> dict[str, Any]:
     fetch = fetcher or _FETCHER
-    status, content_type, body = fetch(client_id)
+    status, content_type, body = fetch(client_id, address)
     if status != 200:
         raise McpClientError("invalid_client", "Could not fetch the client metadata document")
     media_type = content_type.split(";", 1)[0].strip().lower()
@@ -168,7 +188,7 @@ def fetch_document(
     client_id: str,
     *,
     resolver: Callable[..., Any] | None = None,
-    fetcher: Callable[[str], tuple[int, str, bytes]] | None = None,
+    fetcher: Callable[[str, str], tuple[int, str, bytes]] | None = None,
 ) -> dict[str, Any]:
     """The validated metadata document for ``client_id``, cached for an hour."""
     if not client_id_is_url(client_id):
@@ -180,8 +200,10 @@ def fetch_document(
         if cached and cached[0] > now:
             return cached[1]
 
-    _ensure_public_host(host_of(client_id), resolver=resolver)
-    document = _fetch_document(client_id, fetcher=fetcher)
+    address = _ensure_public_host(
+        host_of(client_id), urlparse(client_id).port or 443, resolver=resolver
+    )
+    document = _fetch_document(client_id, address, fetcher=fetcher)
     with _cache_lock:
         _cache[client_id] = (now + DOCUMENT_CACHE_SECONDS, document)
     return document

@@ -19,6 +19,7 @@ import secrets
 import threading
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import HTTPException
 from psycopg.types.json import Jsonb
@@ -61,27 +62,8 @@ class OAuthError(Exception):
         self.status_code = status_code
 
 
-# When PUBLIC_BASE_URL is unset (a local deployment, or a test), the base the
-# last flow saw is the only way bearer validation -- which has no request -- can
-# name the audience. Tokens are always minted with an aud, so this only matters
-# for deployments that never configure a public origin.
-_last_base = ""
-_last_base_lock = threading.Lock()
-
-
-def remember_base(base_url: str) -> str:
-    """Record the request-derived public origin for later bearer validation."""
-    global _last_base
-    root = (base_url or "").strip().rstrip("/")
-    if root:
-        with _last_base_lock:
-            _last_base = root
-    return root
-
-
 def _base_url(base_url: str | None = None) -> str:
-    root = (base_url or settings.PUBLIC_BASE_URL or _last_base or "").strip().rstrip("/")
-    return root
+    return (base_url or settings.PUBLIC_BASE_URL or "").strip().rstrip("/")
 
 
 def resource_for(base_url: str | None = None) -> str:
@@ -90,8 +72,19 @@ def resource_for(base_url: str | None = None) -> str:
     return f"{root}/mcp" if root else ""
 
 
-def expected_audience() -> str:
-    return resource_for()
+def _audience_ok(audience: str) -> bool:
+    """Whether ``audience`` names this server's MCP endpoint.
+
+    With ``PUBLIC_BASE_URL`` set the match is exact. Without it the server has
+    no fixed origin (it answers on whatever host reached it), so any
+    ``<origin>/mcp`` is accepted; the signature, token type and live grant
+    still bind the token to this deployment.
+    """
+    expected = resource_for()
+    if expected:
+        return audience == expected
+    parsed = urlsplit(audience)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc) and parsed.path == "/mcp"
 
 
 def normalize_scope(scope: str) -> str:
@@ -404,8 +397,7 @@ def validate_access_token(token: str) -> dict[str, Any]:
     payload = provider_auth_service._decode_payload(token)
     if payload.get("type") != _TOKEN_TYPE:
         raise HTTPException(status_code=401, detail="Invalid MCP token")
-    expected = expected_audience()
-    if not expected or str(payload.get("aud") or "") != expected:
+    if not _audience_ok(str(payload.get("aud") or "")):
         raise HTTPException(status_code=401, detail="Invalid token audience")
     grant_id = str(payload.get("grant") or "")
     if not grant_id or not _grant_is_live(grant_id):
