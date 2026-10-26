@@ -219,7 +219,7 @@ class McpServerTests(unittest.TestCase):
     # -------------------------------------------------------------- protocol
 
     def test_initialize_negotiates_the_protocol_and_publishes_capabilities(self) -> None:
-        for requested in ("2026-07-28", "2025-06-18", "2025-03-26"):
+        for requested in ("2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"):
             with self.subTest(requested=requested):
                 result = self.mcp(initialize(requested), headers=self.headers)["result"]
                 self.assertEqual(result["protocolVersion"], requested)

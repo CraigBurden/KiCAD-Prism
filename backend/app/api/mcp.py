@@ -48,7 +48,11 @@ from app.services.mcp import audit, governance, invoke, registry, tools as mcp_t
 
 router = APIRouter()
 
-PROTOCOL_VERSIONS = ("2026-07-28", "2025-06-18", "2025-03-26")
+#: Every revision Prism answers in. Nothing it serves differs between them:
+#: stateless HTTP, the tasks extension and URL elicitation behave the same.
+#: 2025-11-25 is what current clients (Claude Code 2.1) ask for; a client that
+#: asks for an unlisted revision is offered the newest and may disconnect.
+PROTOCOL_VERSIONS = ("2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26")
 DEFAULT_PROTOCOL_VERSION = "2026-07-28"
 #: Bearer identity kinds this endpoint serves. A browser session, a KiCad
 #: remote-provider token and the implicit guest are not MCP clients.
