@@ -11,8 +11,9 @@
 # `linux` is the existing suite, to show the port changed nothing there. `wine` runs the Windows
 # test executables under Wine: it covers the file, path and process code, not git.exe (the
 # revision-key and reuse tests need a real Windows host), Job Objects or console Ctrl events.
-# The tests run on a copy of the tree with text files converted to LF, so a Windows checkout
-# (core.autocrlf=true) does not fail the fixtures.
+# The tests run on a copy of the tree. Files git stores as LF but a Windows checkout
+# (core.autocrlf=true) holds as CRLF are converted back to LF in the copy; files committed as CRLF
+# (the JLCPCB goldens, marked -text) are left alone.
 set -euo pipefail
 
 IMAGE="rust:1.98.0-bookworm"
@@ -43,14 +44,15 @@ if [[ -n "${PRISM_IN_CONTAINER:-}" ]]; then
   cp -a /fixtures /work/fixtures
   cp -a /backend-fixtures /work/backend/tests/fixtures
   cd /work
-  find . -type f -not -path './native/target/*' | while read -r file; do
-    if grep -Iq . "$file" 2>/dev/null; then sed -i 's/\r$//' "$file"; fi
-  done
+  while IFS= read -r file; do
+    if [[ -f "$file" ]]; then sed -i 's/\r$//' "$file"; fi
+  done </eol.list
   cd /work/native
   exec "$@"
 fi
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+root_posix="$root"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
   root="$(cd "$root" && pwd -W)"
@@ -65,11 +67,22 @@ if [[ "$1" == export ]]; then
   exit 0
 fi
 
+# Files git stores as LF that this checkout holds as CRLF, relative to the repository root.
+eol_list="$(mktemp)"
+trap 'rm -f "$eol_list"' EXIT
+(cd "$root_posix" && git ls-files --eol native fixtures backend/tests/fixtures) \
+  | awk -F'\t' '$1 ~ /^i\/lf +w\/crlf/ {print $2}' >"$eol_list"
+eol_mount="$eol_list"
+if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
+  eol_mount="$(cygpath -w "$eol_list")"
+fi
+
 mode="$1"
 shift
-exec docker run --rm \
+docker run --rm \
   -v "$root/native:/src:ro" -v "$root/fixtures:/fixtures:ro" \
   -v "$root/backend/tests/fixtures:/backend-fixtures:ro" \
+  -v "$eol_mount:/eol.list:ro" \
   -v "$here:/scripts:ro" \
   -v "$CARGO_VOLUME:/usr/local/cargo/registry" -v "$TARGET_VOLUME:/target" \
   -e CARGO_TARGET_DIR=/target -e PRISM_IN_CONTAINER=1 -w /src "$IMAGE" \

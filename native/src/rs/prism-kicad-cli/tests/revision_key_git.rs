@@ -149,8 +149,12 @@ fn a_dirty_tree_has_the_key_of_its_next_commit() {
             )
         })
         .collect();
-    assert!(kinds.contains(&("p.kicad_pcb", "executable")));
-    assert!(kinds.contains(&("models", "symlink")));
+    // Windows has no mode bits and, without privileges, no symlinks: the test makes neither there.
+    #[cfg(unix)]
+    {
+        assert!(kinds.contains(&("p.kicad_pcb", "executable")));
+        assert!(kinds.contains(&("models", "symlink")));
+    }
     assert!(kinds.contains(&("vendor/kicad-libraries", "gitlink")));
     assert!(!kinds.iter().any(|(path, _)| *path == "ignored.kicad_sch"));
 }

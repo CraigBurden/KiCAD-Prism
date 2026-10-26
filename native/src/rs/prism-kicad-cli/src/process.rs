@@ -2,7 +2,8 @@
 //! that enforces `max-memory-bytes`, the wall-clock watchdog for
 //! `timeout-ms`, the SIGTERM/SIGINT/SIGHUP handlers (console control events
 //! on Windows), the Linux `RLIMIT_AS` backstop (a job object's process memory
-//! limit on Windows), and the raw writes and `_exit` they end with.
+//! limit on Windows, where a kill-on-close job object also ends `git`'s tree), and the raw writes
+//! and `_exit` they end with.
 //!
 //! This is the only module that uses `unsafe`, each block for one libc or
 //! Win32 call or for the `GlobalAlloc` contract.
@@ -18,7 +19,8 @@ static LIVE: AtomicUsize = AtomicUsize::new(0);
 static LIMIT: AtomicUsize = AtomicUsize::new(usize::MAX);
 static OUT_OF_MEMORY: OnceLock<(Vec<u8>, Vec<u8>)> = OnceLock::new();
 static SIGNAL: AtomicI32 = AtomicI32::new(0);
-/// Unix: the process group of a running `git`. Windows: its job object handle.
+/// The process group of a running `git`. Unix only: Windows confines children with a job object.
+#[cfg(unix)]
 static CHILD_GROUP: AtomicUsize = AtomicUsize::new(0);
 static STDOUT_TAKEN: AtomicBool = AtomicBool::new(false);
 static TEMP_FILE: Mutex<Option<PathBuf>> = Mutex::new(None);
@@ -317,73 +319,37 @@ pub fn remove_temp_file() {
     }
 }
 
-/// Remember a running `git`, for the watchdog to kill: on Unix its process
-/// group, on Windows a job object that holds it and its children.
+/// Remember a running `git`, for the watchdog to kill: on Unix its process group. On Windows
+/// nothing is kept: this process is in a kill-on-close job object (see
+/// [`install_signal_handlers`]) that `git` and everything it starts inherit at creation, and
+/// the process exits right after the watchdog fires, which ends the whole tree.
 pub fn track_child(child: &Child) {
     #[cfg(unix)]
     CHILD_GROUP.store(child.id() as usize, Ordering::SeqCst);
     #[cfg(windows)]
-    {
-        use std::os::windows::io::AsRawHandle;
-        use windows_sys::Win32::System::JobObjects::{
-            AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-            SetInformationJobObject,
-        };
-        // SAFETY: an all-zero limit structure is valid.
-        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        // SAFETY: null attributes and name are allowed.
-        let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
-        if job.is_null() {
-            return;
-        }
-        // SAFETY: `info` is a live structure of the size passed, and the
-        // child handle stays open while `child` lives.
-        unsafe {
-            SetInformationJobObject(
-                job,
-                JobObjectExtendedLimitInformation,
-                (&raw const info).cast(),
-                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-            );
-            AssignProcessToJobObject(job, child.as_raw_handle());
-        }
-        CHILD_GROUP.store(job as usize, Ordering::SeqCst);
-    }
+    let _ = child;
 }
 
 /// Forget the tracked `git` once it has exited.
 pub fn untrack_child() {
-    let previous = CHILD_GROUP.swap(0, Ordering::SeqCst);
-    #[cfg(windows)]
-    if previous != 0 {
-        // SAFETY: the handle was made by `track_child` and is closed once
-        // here; closing kills anything the job still holds.
-        unsafe {
-            windows_sys::Win32::Foundation::CloseHandle(previous as _);
-        }
-    }
-    #[cfg(not(windows))]
-    let _ = previous;
+    #[cfg(unix)]
+    CHILD_GROUP.store(0, Ordering::SeqCst);
 }
 
+#[cfg(unix)]
 fn kill_child_group() {
     let group = CHILD_GROUP.load(Ordering::SeqCst);
-    if group == 0 {
-        return;
-    }
-    #[cfg(unix)]
-    // SAFETY: `kill` with a negative pid signals that process group.
-    unsafe {
-        libc::kill(-(group as i32), libc::SIGKILL);
-    }
-    #[cfg(windows)]
-    // SAFETY: the handle is a job object kept open by `track_child`.
-    unsafe {
-        windows_sys::Win32::System::JobObjects::TerminateJobObject(group as _, 1);
+    if group != 0 {
+        // SAFETY: `kill` with a negative pid signals that process group.
+        unsafe {
+            libc::kill(-(group as i32), libc::SIGKILL);
+        }
     }
 }
+
+/// Windows ends a running `git` by exiting: the job object kills the tree.
+#[cfg(windows)]
+fn kill_child_group() {}
 
 #[cfg(unix)]
 extern "C" fn on_signal(signal: libc::c_int) {
@@ -415,9 +381,46 @@ unsafe extern "system" fn on_console_event(event: u32) -> i32 {
     1
 }
 
-/// Handle Ctrl+C, Ctrl+Break and console close like the Unix signals.
+/// Put this process in a job object that kills everything in it when its last handle closes, which
+/// is when this process exits. `git` and its children are created inside it, so no child can outlive
+/// a timeout or a signal, and there is no handle to close or reuse while the watchdog runs.
+#[cfg(windows)]
+fn join_kill_on_exit_job() {
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+        SetInformationJobObject,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    // SAFETY: an all-zero limit structure is valid; the field set is the one the flag names.
+    let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+    info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    // SAFETY: null attributes and name are allowed. The handle is never closed: the job must
+    // outlive every use of it, and process exit closes it.
+    let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+    if job.is_null() {
+        return;
+    }
+    // SAFETY: `info` is a live structure of the size passed. A failure (the process is already
+    // in a job that forbids nesting) leaves `git` unconfined, as on a platform without jobs.
+    unsafe {
+        if SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            (&raw const info).cast(),
+            size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        ) != 0
+        {
+            AssignProcessToJobObject(job, GetCurrentProcess());
+        }
+    }
+}
+
+/// Handle Ctrl+C, Ctrl+Break and console close like the Unix signals, and confine child
+/// processes to this one's lifetime.
 #[cfg(windows)]
 pub fn install_signal_handlers() {
+    join_kill_on_exit_job();
     // SAFETY: the handler only stores into an atomic.
     unsafe {
         windows_sys::Win32::System::Console::SetConsoleCtrlHandler(Some(on_console_event), 1);

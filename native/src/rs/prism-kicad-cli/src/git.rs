@@ -156,11 +156,16 @@ pub fn git_failed(message: &str) -> Failure {
     failure
 }
 
-/// Whether `git-lfs` is on `PATH`.
+/// Whether `git-lfs` is on `PATH` (`git-lfs.exe` on Windows).
 #[must_use]
 pub fn lfs_on_path() -> bool {
+    let name = if cfg!(windows) {
+        "git-lfs.exe"
+    } else {
+        "git-lfs"
+    };
     std::env::var_os("PATH")
-        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join("git-lfs").is_file()))
+        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(name).is_file()))
 }
 
 /// Split NUL-terminated records.
