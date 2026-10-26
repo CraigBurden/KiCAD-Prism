@@ -11,7 +11,9 @@ calls. The grammar the frontend reads is recorded in
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Optional
 from urllib.parse import quote, unquote, urlencode
 
@@ -29,6 +31,15 @@ RESOURCE_KINDS = frozenset({
 
 _PRISM_PROJECT_PREFIX = "prism://project/"
 _COMMIT = re.compile(r"[0-9a-f]{40}")
+
+
+class _RawQueryValue(str):
+    """A query value assembled by the caller and appended without re-encoding.
+
+    A list parameter is percent-encoded one item at a time and joined with a
+    literal comma; ``urlencode`` would turn those separators into ``%2C`` (and
+    the items' own escapes into ``%25``), so this value bypasses it.
+    """
 
 
 def normalize_public_base_url(base: str) -> str:
@@ -51,8 +62,74 @@ def project_url(
     if not base:
         raise ValueError("public_base_url is required")
     url = f"{base}/project/{quote(project_id, safe='')}"
-    query = urlencode({key: value for key, value in params.items() if value})
+    query = "&".join(
+        f"{quote(key, safe='')}={value}"
+        if isinstance(value, _RawQueryValue)
+        else urlencode({key: value})
+        for key, value in params.items()
+        if value
+    )
     return f"{url}?{query}" if query else url
+
+
+def _joined_query_value(values: Iterable[str]) -> _RawQueryValue | None:
+    """Each item quoted on its own, joined by literal commas."""
+
+    if isinstance(values, str):
+        values = (values,)
+    items = [quote(str(item), safe="") for item in values if str(item)]
+    return _RawQueryValue(",".join(items)) if items else None
+
+
+def _compact_number(value: float) -> str:
+    """A number without a trailing ``.0`` or trailing zeros."""
+
+    text = format(Decimal(str(value)).normalize(), "f")
+    return "0" if text in {"", "-0"} else text
+
+
+def _bbox_query_value(bbox: Sequence[float] | None) -> _RawQueryValue | None:
+    if not bbox:
+        return None
+    x, y, width, height = bbox
+    return _RawQueryValue(
+        ",".join(_compact_number(value) for value in (x, y, width, height))
+    )
+
+
+def view_url(
+    public_base_url: str,
+    project_id: str,
+    *,
+    tab: str | None = None,
+    commit: str | None = None,
+    sel: Iterable[str] = (),
+    nets: Iterable[str] = (),
+    page: str | None = None,
+    bbox: Sequence[float] | None = None,
+    insets: bool = False,
+) -> str:
+    """A project URL that opens the visualizer at one view state (ADR §10 D18).
+
+    ``sel`` holds references or element uuids, ``nets`` net names, ``page`` a
+    schematic sheet path, ``bbox`` ``(x, y, width, height)`` in mm and
+    ``insets`` whether the inset panes are open. The parameters are always
+    written in the same order, and list items are quoted one at a time so a
+    comma inside a name is not read as a separator.
+    """
+
+    return project_url(
+        public_base_url,
+        project_id,
+        section="visualizers",
+        tab=tab,
+        commit=commit,
+        sel=_joined_query_value(sel),
+        nets=_joined_query_value(nets),
+        page=page,
+        bbox=_bbox_query_value(bbox),
+        insets="1" if insets else None,
+    )
 
 
 @dataclass(frozen=True)
@@ -123,4 +200,5 @@ __all__ = [
     "parse_resource_uri",
     "project_url",
     "resource_uri",
+    "view_url",
 ]
