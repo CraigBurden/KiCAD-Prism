@@ -26703,7 +26703,7 @@
     },
     "/api/v1/projects/search": {
       "get": {
-        "description": "Search across all projects (standalone and monorepo sub-projects).\nUses SQL LIKE \u2014 no full hydration needed.",
+        "description": "Search across all projects (standalone and monorepo sub-projects).\nUses SQL LIKE \u2014 no full hydration needed. An empty query lists every project\nthe caller may see, by name, up to ``limit``.",
         "operationId": "search_projects",
         "parameters": [
           {

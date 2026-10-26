@@ -39,6 +39,9 @@ class BomParityTests(unittest.TestCase):
             build_bom(_load("components.json"), "prototype")
 
 
+HEAD = "0123456789abcdef0123456789abcdef01234567"
+
+
 class BomRouteTests(unittest.TestCase):
     def _response(self, assembly: str, commit: str | None = "abcdef"):
         components = _load("components.json")
@@ -50,7 +53,10 @@ class BomRouteTests(unittest.TestCase):
                     api.semantic_index_service,
                     "artifact_file",
                     return_value=(path, "design-revision-key"),
+                ) as artifact, mock.patch.object(
+                    api.design_revision, "resolve", side_effect=lambda _project, rev: rev or HEAD
                 ):
+                    self.artifact = artifact
                     return asyncio.run(
                         api.get_project_bom("p1", commit, assembly, SimpleNamespace(role="viewer"))
                     )
@@ -68,8 +74,9 @@ class BomRouteTests(unittest.TestCase):
                 expected[assembly]["lines"],
             )
 
-    def test_a_request_without_a_commit_answers_with_none(self) -> None:
-        self.assertIsNone(self._response("all", commit=None).commit)
+    def test_a_request_without_a_commit_names_the_head_it_read(self) -> None:
+        self.assertEqual(self._response("all", commit=None).commit, HEAD)
+        self.assertEqual(self.artifact.call_args.args[1], HEAD)
 
 
 if __name__ == "__main__":

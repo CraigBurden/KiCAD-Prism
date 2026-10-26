@@ -370,6 +370,16 @@ class McpServerTests(unittest.TestCase):
                 self.assertFalse(result["isError"], result)
                 Draft202012Validator(schemas[name]).validate(result["structuredContent"])
 
+    def test_search_projects_without_a_query_lists_the_visible_projects(self) -> None:
+        # Found by a real MCP client, which had to search for "a" to list projects.
+        visible = self._project()
+        hidden = self._project(hidden=True)
+        result = self.mcp(call("search_projects", {"limit": 500}), headers=self.headers)["result"]
+        self.assertFalse(result["isError"], result)
+        ids = {row["id"] for row in result["structuredContent"]["results"]}
+        self.assertIn(visible, ids)
+        self.assertNotIn(hidden, ids)
+
     def test_a_hidden_project_is_a_tool_execution_error(self) -> None:
         hidden = self._project(hidden=True)
         result = self.mcp(call("get_project", {"project_id": hidden}), headers=self.headers)["result"]

@@ -45,8 +45,17 @@ def result_revision(
         commit = structured.get("commit")
         if isinstance(commit, str) and commit:
             return commit
-    requested = arguments.get("revision")
-    return str(requested) if isinstance(requested, str) and requested else None
+        # A comment names the commit it is anchored to.
+        anchor = structured.get("anchor")
+        if isinstance(anchor, dict):
+            commit = anchor.get("commit")
+            if isinstance(commit, str) and commit:
+                return commit
+    for key in ("revision", "commit"):
+        requested = arguments.get(key)
+        if isinstance(requested, str) and requested:
+            return requested
+    return None
 
 
 def record(

@@ -23,6 +23,7 @@ from app.api._helpers import get_project_for_role_or_404
 from app.core.errors import caller_errors
 from app.core.security import AuthenticatedUser, require_viewer
 from app.services import semantic_index_service
+from app.services.design_query import revision as design_revision
 from app.services.design_query.bom import build_bom
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
@@ -36,9 +37,8 @@ class BomLineOut(BaseModel):
 
 
 class BomOut(BaseModel):
-    #: The requested revision. ``artifact_file`` exposes the design revision
-    #: key but not the commit it resolved, so a request without one answers
-    #: ``null`` rather than pretending HEAD was a commit.
+    #: The commit read: the one requested, or the checkout's HEAD resolved to
+    #: its full id, so a caller can pin later reads to it.
     commit: Optional[str]
     #: The bundle's design revision key.
     designKey: str
@@ -59,6 +59,7 @@ async def get_project_bom(
 ) -> BomOut:
     project = get_project_for_role_or_404(project_id, user.role)
     with caller_errors((ValueError, 400), (RuntimeError, 503)):
+        commit = await asyncio.to_thread(design_revision.resolve, project, commit)
         artifact = await asyncio.to_thread(
             semantic_index_service.artifact_file,
             project,

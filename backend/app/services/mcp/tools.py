@@ -108,7 +108,10 @@ register(
         ),
         input_schema=_object(
             {
-                "query": {"type": "string", "description": "Text to match; omitted matches nothing."},
+                "query": {
+                    "type": "string",
+                    "description": "Text to match in name, description or repository; omit it to list every project.",
+                },
                 "limit": _LIMIT,
             }
         ),
