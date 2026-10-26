@@ -591,8 +591,12 @@ async def _handle(
         if tool is None:
             return _rpc_error(request_id, -32602, f"unknown tool: {name!r}")
         arguments = params.get("arguments")
-        if not isinstance(arguments, dict):
+        if arguments is None:
             arguments = {}
+        if not isinstance(arguments, dict):
+            return _rpc_result(
+                request_id, invoke.tool_error("invalid-arguments", "Invalid arguments: arguments must be an object")
+            )
         result = await _execute_tool(
             request,
             method="tools/call",
