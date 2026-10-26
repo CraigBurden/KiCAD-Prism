@@ -160,6 +160,37 @@ def refusal(caller: Caller, action: Action) -> str | None:
     return None
 
 
+def _mcp_missing_scope(caller: Caller, action: Action) -> str | None:
+    """The scope an MCP client would need, when that is the reason it is refused.
+
+    Human-only actions never carry the incremental-consent header: consent
+    cannot grant them, so naming a scope would invite a retry that cannot work.
+    """
+    if caller.auth_type != MCP_AUTH_TYPE:
+        return None
+    rule = RULES[action]
+    if rule.human_only or not rule.scopes:
+        return None
+    if has_scope(caller, *rule.scopes):
+        return None
+    return rule.scopes[0]
+
+
+def _insufficient_scope_header(scope: str) -> str:
+    from app.core.config import settings  # policy stays request-free
+
+    base = settings.PUBLIC_BASE_URL.strip().rstrip("/")
+    resource = (
+        f"{base}/.well-known/oauth-protected-resource"
+        if base
+        else "/.well-known/oauth-protected-resource"
+    )
+    return (
+        f'Bearer error="insufficient_scope", scope="{scope}", '
+        f'resource_metadata="{resource}"'
+    )
+
+
 def allows(caller: Caller, action: Action) -> bool:
     return refusal(caller, action) is None
 
@@ -173,7 +204,13 @@ def authorize(caller: Caller, action: Action) -> Any:
     """Return ``caller`` when it may do ``action``; raise 403 otherwise."""
     detail = refusal(caller, action)
     if detail is not None:
-        raise HTTPException(status_code=403, detail=detail)
+        missing = _mcp_missing_scope(caller, action)
+        headers = (
+            {"WWW-Authenticate": _insufficient_scope_header(missing)}
+            if missing is not None
+            else None
+        )
+        raise HTTPException(status_code=403, detail=detail, headers=headers)
     return caller
 
 

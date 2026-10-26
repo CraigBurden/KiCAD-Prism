@@ -186,6 +186,28 @@ Prism can also validate externally issued JWTs when issuer, audience, role
 claim, and scope claim settings are configured. Audience validation is
 mandatory.
 
+## MCP clients
+
+An MCP client such as Claude Desktop or Cursor signs in through the browser and
+acts as its user. The protected resource is `<PUBLIC_BASE_URL>/mcp`; its
+discovery document is `/.well-known/oauth-protected-resource`, and the
+authorization server is `<PUBLIC_BASE_URL>/oauth/mcp` with metadata at
+`/.well-known/oauth-authorization-server/oauth/mcp`.
+
+Clients identify themselves with a Client ID Metadata Document: `client_id` is
+an `https://` URL serving a JSON document with `client_id`, `client_name` and
+`redirect_uris`. Prism fetches it once an hour and refuses hosts that resolve to
+private, loopback, link-local or multicast addresses. The flow is authorization
+code with PKCE (S256); `iss` is returned in the authorization response, and the
+refresh token rotates on every use. Access tokens last one hour.
+
+MCP clients may hold `api:read`, `comments:write`, `design:write` and
+`catalog:write`. `release:approve`, `catalog:qa`, `admin` and `api:write` are
+never granted to one: those actions stay with a person signed in to Prism. A
+refused call names the scope it needs in `WWW-Authenticate`, so the client can
+ask the user to consent to just that scope. Settings → Connected MCP clients
+lists each grant and revokes it; revoking ends every token minted under it.
+
 ## Tracker user OAuth
 
 GitHub user account linking for tracker writes uses a separate OAuth flow from

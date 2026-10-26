@@ -904,6 +904,11 @@
     "path": "/api/v1/settings/access/users",
     "typed": true
   },
+  "list_all_mcp_clients": {
+    "method": "GET",
+    "path": "/api/v1/auth/mcp-clients/all",
+    "typed": true
+  },
   "list_all_personal_tokens": {
     "method": "GET",
     "path": "/api/v1/auth/tokens/all",
@@ -1002,6 +1007,11 @@
   "list_mates_with": {
     "method": "GET",
     "path": "/api/v1/catalog/components/{component_id}/mates-with",
+    "typed": true
+  },
+  "list_mcp_clients": {
+    "method": "GET",
+    "path": "/api/v1/auth/mcp-clients",
     "typed": true
   },
   "list_mention_candidates": {
@@ -1307,6 +1317,11 @@
   "revoke_connector": {
     "method": "POST",
     "path": "/api/v1/admin/trackers/connectors/{connector_id}/revoke",
+    "typed": true
+  },
+  "revoke_mcp_client": {
+    "method": "DELETE",
+    "path": "/api/v1/auth/mcp-clients/{grant_id}",
     "typed": true
   },
   "revoke_other_sessions": {

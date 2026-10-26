@@ -12,6 +12,7 @@ from app.services import (
     access_service,
     agent_auth_service,
     auth_service,
+    mcp_auth_service,
     personal_tokens,
     provider_auth_service,
     service_client_service,
@@ -169,6 +170,30 @@ def _resolve_bearer_user(token: str) -> AuthenticatedUser:
                 raise
             # Not an agent token (or an invalid one); fall through to the other
             # bearer kinds, which use the same v1. envelope.
+
+        try:
+            payload = mcp_auth_service.validate_access_token(token)
+            # MCP tokens carry scopes, not identity: re-read the owner and their
+            # role now, so a role change or removed account takes effect at once.
+            current = access_service.get_user_by_email(str(payload["email"]))
+            role = _resolve_allowed_user_role(str(payload["email"]))
+            if current is None or role is None:
+                raise HTTPException(status_code=401, detail="Invalid bearer token")
+            return AuthenticatedUser(
+                email=str(current["email"]),
+                name=str(current["name"]),
+                picture=str(current.get("picture") or ""),
+                role=role,
+                auth_type=policy.MCP_AUTH_TYPE,
+                client_id=str(payload.get("client_id") or ""),
+                token_id=str(payload.get("jti") or ""),
+                scopes=str(payload.get("scope") or "").split(),
+                user_id=str(current.get("user_id") or ""),
+            )
+        except HTTPException as exc:
+            if exc.status_code >= 500:
+                raise
+            # Not an MCP token (or one no longer valid); try the provider next.
 
         try:
             payload = provider_auth_service.validate_access_token(token)
