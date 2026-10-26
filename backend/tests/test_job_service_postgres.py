@@ -199,6 +199,9 @@ class JobServicePostgresTests(unittest.TestCase):
         finalized = self.service.get(first["job_id"])
         self.assertEqual(finalized["status"], "cancelled")
 
+        finished = [row for row in self._events(first["job_id"]) if row["kind"] == "job.finished"]
+        self.assertEqual([row["payload"]["state"] for row in finished], ["cancelled"])
+
         replacement = self.enqueue("cancel-expire")
         self.assertFalse(replacement.get("deduplicated"))
         self.assertNotEqual(first["job_id"], replacement["job_id"])
@@ -219,6 +222,9 @@ class JobServicePostgresTests(unittest.TestCase):
         failed = self.service.get(running["job_id"])
         self.assertEqual((failed["status"], failed["error_code"]), ("failed", "orphaned"))
         self.assertEqual(self.service.get(cancelling["job_id"])["status"], "cancelled")
+        for job_id, state in ((running["job_id"], "failed"), (cancelling["job_id"], "cancelled")):
+            finished = [row for row in self._events(job_id) if row["kind"] == "job.finished"]
+            self.assertEqual([row["payload"]["state"] for row in finished], [state])
 
         replacement = self.enqueue("unleased-running")
         self.assertNotEqual(running["job_id"], replacement["job_id"])
