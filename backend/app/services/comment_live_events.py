@@ -2,7 +2,9 @@
 
 Call ``record_change`` inside the same transaction as the comment mutation.
 PostgreSQL NOTIFY only wakes listeners; ``comment_change_events`` is the replay
-source after a disconnected client or API worker resumes.
+source after a disconnected client or API worker resumes. Each change is also
+queued on its connection and the store appends ``comment.changed`` to the event
+log once that transaction commits (``take_queued_events``).
 """
 
 from __future__ import annotations
@@ -10,8 +12,14 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.services import event_log
+
 
 CHANNEL = "prism_comment_changes"
+
+# A connection carries the changes its transaction appended, so its owner can
+# put them in the event log after the commit. See ``take_queued_events``.
+_QUEUED_EVENTS = "_prism_comment_changed_events"
 
 
 def apply_schema(conn: Any) -> None:
@@ -101,7 +109,47 @@ def record_change(
         "SELECT pg_notify(%s, %s)",
         (CHANNEL, json.dumps({"projectId": project_id, "cursor": cursor}, separators=(",", ":"))),
     )
+    _queue_event(conn, project_id=project_id, comment_id=comment_id, change_kind=change_kind)
     return cursor
+
+
+def _queue_event(conn: Any, *, project_id: str, comment_id: str, change_kind: str) -> None:
+    """Remember one change on its connection so it can be logged after commit.
+
+    The event log is written outside the comment transaction: its head row
+    serializes writers, and an event for a mutation that rolled back would be a
+    lie. ``CommentsStoreWritesMixin._write_connection`` drains this once the
+    transaction commits.
+    """
+
+    queued = getattr(conn, _QUEUED_EVENTS, None)
+    if queued is None:
+        queued = []
+        setattr(conn, _QUEUED_EVENTS, queued)
+    queued.append(
+        {"projectId": project_id, "commentId": comment_id, "changeKind": change_kind}
+    )
+
+
+def take_queued_events(conn: Any) -> list[dict[str, str]]:
+    """The changes ``conn`` queued, removed from it; empty after a rollback."""
+
+    queued = getattr(conn, _QUEUED_EVENTS, None)
+    if not queued:
+        return []
+    setattr(conn, _QUEUED_EVENTS, [])
+    return list(queued)
+
+
+def record_queued_events(events: list[dict[str, str]]) -> None:
+    """Append one ``comment.changed`` event for each committed change."""
+
+    for change in events:
+        event_log.record_quietly(
+            "comment.changed",
+            project_id=change["projectId"],
+            payload={"commentId": change["commentId"], "changeKind": change["changeKind"]},
+        )
 
 
 def record_thread_change(conn: Any, *, project_id: str, comment_id: str, change_kind: str) -> int:

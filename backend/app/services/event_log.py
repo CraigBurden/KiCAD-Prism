@@ -9,13 +9,16 @@ socket (MCP-08b), never the delivery itself: workers write from other processes.
 
 Every caller of :func:`record` owns the transaction it is recording about. Pass
 its connection when the event must commit or roll back with the mutation; leave
-``conn`` out to append in a transaction of its own. Writers take ids from one
-locked head row, so ids become visible in order; keep that transaction short,
-because other writers wait for it.
+``conn`` out to append in a transaction of its own. Producers record after their
+mutation commits with :func:`record_quietly`, which logs and swallows a failure
+instead of failing the work it describes. Writers take ids from one locked head
+row, so ids become visible in order; keep that transaction short, because other
+writers wait for it.
 """
 
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from typing import Any, Iterator
 
@@ -40,6 +43,8 @@ EVENT_KINDS: tuple[str, ...] = (
 
 #: The channel the live socket listens on. Payload: the event id as text.
 CHANNEL = "prism_events"
+
+logger = logging.getLogger(__name__)
 
 _MIN_LIMIT = 1
 _MAX_LIMIT = 500
@@ -80,6 +85,31 @@ def record(
 
     with connect() as own_conn:
         return _insert(own_conn, kind, project_id, resolved_topic, payload or {})
+
+
+def record_quietly(
+    kind: str,
+    *,
+    project_id: str | None,
+    topic: str | None = None,
+    payload: dict[str, Any] | None = None,
+) -> int | None:
+    """Append one event for a change that has already committed; never raise.
+
+    Producers call this after their own transaction so the log's head-row lock
+    cannot outlive a failed mutation. The event is a record of the work, not
+    part of it: a database outage here loses the row and logs a warning rather
+    than failing a sync, a build or a comment write. Returns ``None`` when the
+    row could not be appended.
+    """
+
+    try:
+        return record(kind, project_id=project_id, topic=topic, payload=payload)
+    except Exception:
+        logger.warning(
+            "Could not record the %s event for project %s", kind, project_id, exc_info=True
+        )
+        return None
 
 
 def _insert(conn: Any, kind: str, project_id: str | None, topic: str, payload: dict[str, Any]) -> int:

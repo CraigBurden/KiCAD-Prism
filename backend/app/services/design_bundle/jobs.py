@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from app.core.config import settings
-from app.services import kicad_tools, project_revision
+from app.services import event_log, kicad_tools, project_revision
 from app.services.design_bundle import (
     cli,
     design_keys,
@@ -311,6 +311,8 @@ class _Run:
         self.revision_key = key.key.revision_key  # type: ignore[union-attr]
         self.generator = generator
         self.bundle_key = generator.bundle_key(self.revision_key)
+        # ``bundle.built`` names this job's completion, once, not every stage publish.
+        self._built_recorded = False
         self.work = context.staging_dir
         self.archive_path = store.prepare(self.project_id, self.revision_key, generator.digest)
         self.details: dict[str, Any] = {
@@ -408,6 +410,12 @@ class _Run:
             job_id=self.context.job_id, archive_bytes=self.archive_path.stat().st_size,
             error=manifest_rules.failure_reasons(archive.manifest),
         )
+        if state == "complete" and not self._built_recorded:
+            self._built_recorded = True
+            event_log.record_quietly(
+                "bundle.built", project_id=self.project_id,
+                payload={"commit": self.key.commit, "revisionKey": self.revision_key},
+            )
         if stage == "parse":
             self.details["design_key"] = design_keys.record(self.project_id, self.bundle_key, archive)
         self.details["stages"] = statuses
@@ -656,6 +664,14 @@ def settle_design_bundle_end(job: Mapping[str, Any]) -> bool:
         bundle_key=bundle_key, project_id=found["project_id"], revision_key=found["revision_key"],
         generator_digest=found["generator_digest"], commit=found.get("commit_sha"), state="failed",
         error=str(job.get("error_message") or job.get("status")),
+    )
+    event_log.record_quietly(
+        "bundle.failed", project_id=project_id,
+        payload={
+            "commit": found.get("commit_sha"),
+            "revisionKey": found["revision_key"],
+            "reason": str(job.get("error_message") or job.get("status") or ""),
+        },
     )
     return True
 

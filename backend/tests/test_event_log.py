@@ -178,6 +178,15 @@ class EventLogPostgresTests(unittest.TestCase):
                 conn.execute("SELECT COUNT(*) AS count FROM ws_events").fetchone()["count"], 0
             )
 
+    def test_record_quietly_swallows_and_logs_a_database_error(self) -> None:
+        with patch.object(event_log, "record", side_effect=RuntimeError("database is down")):
+            with self.assertLogs(event_log.logger, level="WARNING") as logged:
+                self.assertIsNone(
+                    event_log.record_quietly("bundle.built", project_id=self.project)
+                )
+        self.assertIn("bundle.built", "\n".join(logged.output))
+        self.assertEqual(self._events()[0], [])
+
 
 @unittest.skipUnless(DATABASE_URL, "PRISM_DATABASE_URL is required for the events route test")
 @unittest.skipUnless(HAS_TEST_CLIENT, "starlette.testclient needs httpx2 or httpx")
