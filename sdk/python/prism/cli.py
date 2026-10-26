@@ -205,22 +205,211 @@ def _events(client: Client, args: argparse.Namespace) -> int:
             cursor = next_cursor
 
 
-def _job(client: Client, args: argparse.Namespace) -> int:
-    job = client.wait_for_job(args.id) if args.wait else client.get_job(args.id)
-    if args.json:
-        _json(job)
-        return 0
-    job = job or {}
+def _job_table(job: dict[str, Any], job_id: str) -> None:
     _table(
         ["FIELD", "VALUE"],
         [
-            ("Job", job.get("job_id", args.id)),
+            ("Job", job.get("job_id", job_id)),
             ("Status", job.get("status") or ""),
             ("Kind", job.get("kind") or ""),
             ("Percent", job.get("percent") if job.get("percent") is not None else ""),
             ("Message", job.get("message") or ""),
             ("Error", (job.get("error_code") or "") + (f": {job['error_message']}" if job.get("error_message") else "")),
         ],
+    )
+
+
+def _job(client: Client, args: argparse.Namespace) -> int:
+    job = client.wait_for_job(args.id) if args.wait else client.get_job(args.id)
+    if args.json:
+        _json(job)
+        return 0
+    _job_table(job or {}, args.id)
+    return 0
+
+
+def _text(value: str) -> str:
+    """A text argument; ``-`` reads the rest of standard input."""
+    return sys.stdin.read() if value == "-" else value
+
+
+def _job_failed(job: dict[str, Any]) -> bool:
+    return str(job.get("status") or "") in {"failed", "cancelled"}
+
+
+def _report_job_failure(job: dict[str, Any]) -> None:
+    code = job.get("error_code") or job.get("status") or "job-failed"
+    message = job.get("error_message") or ""
+    print(f"{code}: {message}" if message else str(code), file=sys.stderr)
+
+
+def _wait_for_job(client: Client, job_id: str) -> dict[str, Any]:
+    return client.wait_for_job(job_id) or {}
+
+
+def _comment_add(client: Client, args: argparse.Namespace) -> int:
+    body: dict[str, Any] = {"content": _text(args.text)}
+    for key in ("component", "net", "sheet", "commit", "severity"):
+        value = getattr(args, key)
+        if value is not None:
+            body[key] = value
+    if args.comment_class is not None:
+        body["commentClass"] = args.comment_class
+    comment = client.create_anchored_comment(args.project, body=body) or {}
+    if args.json:
+        _json(comment)
+        return 0
+    fields: list[tuple[str, Any]] = [("ID", comment.get("id", ""))]
+    if comment.get("link"):
+        fields.append(("Link", comment["link"]))
+    _table(["FIELD", "VALUE"], fields)
+    return 0
+
+
+def _comment_reply(client: Client, args: argparse.Namespace) -> int:
+    data = client.add_reply(
+        args.project, args.comment_id, body={"content": _text(args.text)}
+    ) or {}
+    if args.json:
+        _json(data)
+        return 0
+    comment = data.get("comment") or {}
+    reply = data.get("reply") or {}
+    fields: list[tuple[str, Any]] = [
+        ("Comment", comment.get("id", args.comment_id)),
+        ("Reply", reply.get("id", "")),
+    ]
+    link = data.get("link") or comment.get("link")
+    if link:
+        fields.append(("Link", link))
+    _table(["FIELD", "VALUE"], fields)
+    return 0
+
+
+def _first_line(content: str, limit: int = 80) -> str:
+    lines = (content or "").strip().splitlines()
+    line = lines[0].strip() if lines else ""
+    return line if len(line) <= limit else line[: limit - 3].rstrip() + "..."
+
+
+def _comment_list(client: Client, args: argparse.Namespace) -> int:
+    data = client.get_comments(args.project) or {}
+    if args.json:
+        _json(data)
+        return 0
+    rows = []
+    for comment in data.get("comments") or []:
+        rows.append(
+            [
+                comment.get("id", ""),
+                comment.get("status", ""),
+                comment.get("author", ""),
+                comment.get("elementRef") or comment.get("semanticItemId") or comment.get("filePath") or "",
+                _first_line(comment.get("content", "")),
+            ]
+        )
+    _table(["ID", "STATUS", "AUTHOR", "REF", "CONTENT"], rows)
+    return 0
+
+
+def _sync(client: Client, args: argparse.Namespace) -> int:
+    data = client.sync_project_endpoint(args.project) or {}
+    job_id = str(data.get("job_id") or "")
+    if args.wait and job_id:
+        job = _wait_for_job(client, job_id)
+        if args.json:
+            _json(job)
+        else:
+            _job_table(job, job_id)
+        if _job_failed(job):
+            _report_job_failure(job)
+            return 1
+        return 0
+    if args.json:
+        _json(data)
+        return 0
+    _table(
+        ["FIELD", "VALUE"],
+        [
+            ("Job", job_id),
+            ("Status", data.get("status") or ""),
+            ("Message", data.get("message") or ""),
+        ],
+    )
+    return 0
+
+
+def _release_build(client: Client, args: argparse.Namespace) -> int:
+    data = client.create_candidate(
+        args.project,
+        body={
+            "commit_sha": args.commit,
+            "config_key": args.config,
+            "variant": args.variant or "",
+        },
+    ) or {}
+    job = data.get("job") or {}
+    job_id = str(job.get("job_id") or "")
+    waited = False
+    if args.wait and job_id:
+        job = _wait_for_job(client, job_id)
+        waited = True
+    if args.json:
+        _json(job if waited else data)
+        return 0
+    _job_table(job, job_id)
+    if waited and _job_failed(job):
+        _report_job_failure(job)
+        return 1
+    return 0
+
+
+def _compare_reviews(client: Client, project: str, job_id: str) -> dict[str, Any]:
+    return {
+        "schematic": client.get_comparison_review(project, job_id, domain="sch") or {},
+        "pcb": client.get_comparison_review(project, job_id, domain="pcb") or {},
+    }
+
+
+def _compare(client: Client, args: argparse.Namespace) -> int:
+    started = client.start_design_compare(
+        args.project, body={"base": args.base, "head": args.head}
+    ) or {}
+    job_id = str(started.get("job_id") or "")
+    if args.wait and job_id:
+        job = _wait_for_job(client, job_id)
+        if _job_failed(job):
+            if args.json:
+                _json(job)
+            else:
+                _job_table(job, job_id)
+            _report_job_failure(job)
+            return 1
+        reviews = _compare_reviews(client, args.project, job_id)
+        if args.json:
+            _json({"jobId": job_id, "reviews": reviews})
+            return 0
+        rows = []
+        for domain, review in reviews.items():
+            for group in review.get("groups") or []:
+                rows.append(
+                    [
+                        domain,
+                        group.get("impact", ""),
+                        group.get("kind", ""),
+                        group.get("title", ""),
+                        group.get("summary", ""),
+                        ", ".join(str(reference) for reference in group.get("references") or []),
+                    ]
+                )
+        _table(["DOMAIN", "IMPACT", "KIND", "TITLE", "SUMMARY", "REFERENCES"], rows)
+        return 0
+    if args.json:
+        _json(started)
+        return 0
+    _table(
+        ["FIELD", "VALUE"],
+        [("Job", job_id), ("Status", started.get("status") or "queued")],
     )
     return 0
 
@@ -283,6 +472,59 @@ def build_parser() -> argparse.ArgumentParser:
     job.add_argument("--wait", action="store_true", help="poll until the job finishes")
     job.add_argument("--json", action="store_true", help="print the raw JSON")
     job.set_defaults(handler=_job)
+
+    comment = commands.add_parser("comment", help="Review comments")
+    comment_commands = comment.add_subparsers(dest="action", required=True)
+
+    comment_add = comment_commands.add_parser("add", help="Comment on a component, net or sheet")
+    comment_add.add_argument("project")
+    anchor = comment_add.add_mutually_exclusive_group(required=True)
+    anchor.add_argument("--component", metavar="REF", help="component reference, for example R1")
+    anchor.add_argument("--net", metavar="NAME", help="net name")
+    anchor.add_argument("--sheet", metavar="PATH", help="schematic sheet path")
+    comment_add.add_argument("--commit", help="commit or ref (default: HEAD)")
+    comment_add.add_argument("--severity", help="severity, for example info or warning")
+    comment_add.add_argument("--class", dest="comment_class", help="comment class")
+    comment_add.add_argument("text", help="comment text, or - to read standard input")
+    comment_add.add_argument("--json", action="store_true", help="print the raw JSON")
+    comment_add.set_defaults(handler=_comment_add)
+
+    comment_reply = comment_commands.add_parser("reply", help="Reply to a comment")
+    comment_reply.add_argument("project")
+    comment_reply.add_argument("comment_id")
+    comment_reply.add_argument("text", help="reply text, or - to read standard input")
+    comment_reply.add_argument("--json", action="store_true", help="print the raw JSON")
+    comment_reply.set_defaults(handler=_comment_reply)
+
+    comment_list = comment_commands.add_parser("list", help="List a project's comment threads")
+    comment_list.add_argument("project")
+    comment_list.add_argument("--json", action="store_true", help="print the raw JSON")
+    comment_list.set_defaults(handler=_comment_list)
+
+    sync = commands.add_parser("sync", help="Sync a project with its remote")
+    sync.add_argument("project")
+    sync.add_argument("--wait", action="store_true", help="poll until the sync job finishes")
+    sync.add_argument("--json", action="store_true", help="print the raw JSON")
+    sync.set_defaults(handler=_sync)
+
+    release = commands.add_parser("release", help="Release Studio")
+    release_commands = release.add_subparsers(dest="action", required=True)
+    release_build = release_commands.add_parser("build", help="Queue a release build")
+    release_build.add_argument("project")
+    release_build.add_argument("--commit", required=True, metavar="SHA", help="the 40-character commit to build")
+    release_build.add_argument("--config", default="release", metavar="KEY", help="release configuration key (default: release)")
+    release_build.add_argument("--variant", default="", metavar="V", help="design variant")
+    release_build.add_argument("--wait", action="store_true", help="poll until the build job finishes")
+    release_build.add_argument("--json", action="store_true", help="print the raw JSON")
+    release_build.set_defaults(handler=_release_build)
+
+    compare = commands.add_parser("compare", help="Compare two revisions")
+    compare.add_argument("project")
+    compare.add_argument("base", help="base commit, branch or tag")
+    compare.add_argument("head", help="commit, branch or tag to compare against base")
+    compare.add_argument("--wait", action="store_true", help="wait for the job and print the review groups")
+    compare.add_argument("--json", action="store_true", help="print the raw JSON")
+    compare.set_defaults(handler=_compare)
 
     return parser
 

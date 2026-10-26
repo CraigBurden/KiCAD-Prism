@@ -80,13 +80,20 @@ prism bom <project> [--revision R] [--assembly all|assembly] [--csv] [--json]
 prism design search <project> <query> [--revision R] [--json]
 prism design component <project> <ref> [--revision R] [--json]
 prism design net <project> <name> [--revision R] [--json]
+prism comment add <project> (--component REF | --net NAME | --sheet PATH) [--commit SHA] [--severity S] [--class C] <text> [--json]
+prism comment reply <project> <comment_id> <text> [--json]
+prism comment list <project> [--json]
+prism sync <project> [--wait] [--json]
+prism release build <project> --commit SHA [--config KEY] [--variant V] [--wait] [--json]
+prism compare <project> <base> <head> [--wait] [--json]
 prism events [--after N] [--follow] [--json]
 prism job <id> [--wait] [--json]
 ```
 
 Human-readable tables are the default; `--json` prints the API body. `bom`
-prints CSV with `--csv`. A refused request exits 1 and prints `code: detail` on
-stderr; a missing base URL exits 2.
+prints CSV with `--csv`. A text argument of `-` reads standard input. `--wait`
+polls the queued job and exits 1 when it fails or is cancelled. A refused
+request exits 1 and prints `code: detail` on stderr; a missing base URL exits 2.
 
 Examples:
 
@@ -95,6 +102,12 @@ prism projects list
 prism bom my-board --revision v1.2.0 --assembly assembly --csv > bom.csv
 prism design search my-board "10k"
 prism design net my-board "/USB_D+"
+prism comment add my-board --component R1 "check the derating" --severity warning
+prism comment reply my-board 0f3c... "confirmed"
+prism comment list my-board
+prism sync my-board --wait
+prism release build my-board --commit abc123 --wait
+prism compare my-board v1.1.0 v1.2.0 --wait --json > comparison.json
 prism events --follow
 prism job 0f3c... --wait
 ```
