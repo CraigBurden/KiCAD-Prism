@@ -1,6 +1,6 @@
 # ADR: Scriptable Prism and the MCP server
 
-- **Status:** Accepted (2026-10-26). §2 records the maintainer's decisions of 2026-10-25 and 2026-10-26; §3 was accepted as proposed on 2026-10-26, and §3.10 amended with D12 the same day. §10 adds the v5.2 slice (2026-10-26), implemented the same day.
+- **Status:** Accepted (2026-10-26). §2 records the maintainer's decisions of 2026-10-25 and 2026-10-26; §3 was accepted as proposed on 2026-10-26, and §3.10 amended with D12 the same day. §10 adds the v5.2 slice (2026-10-26), implemented the same day. §11 adds the ops slice (2026-10-26).
 - **Branch:** work happens on `feature/scripting-mcp`; every PR in this effort targets it. The maintainer holds the merge into `dev` until the v5.2 slice (§10) is complete as well.
 - **Builds on:**
   - the caller policy table, `backend/app/core/policy.py`: one rule per action, naming roles, bearer scopes and provider refusals;
@@ -301,3 +301,55 @@ Supply and stock tracking is not part of this slice; it is reworked separately b
 Two follow-ups from v5.1 landed with this slice: lease recovery now appends `job.finished` for the jobs it ends (webhooks would otherwise miss them), and CI runs the SDK's own tests.
 
 The branch merges into `dev` when MCP-15 to MCP-24 are in and the full suites pass on it.
+
+## 11. Ops: diagnostics for deployed instances
+
+On a team's server the people debugging Prism usually can't reach a shell. Narrow, audited diagnostics over MCP let an agent answer "why is the BOM tab slow on this project?" without one. Locally they add little: `docker exec`, `psql` and the logs are already there.
+
+### 11.1 Decisions
+
+| # | Decision |
+| --- | --- |
+| D20 | **Ops is a separate capability, off by default.** `PRISM_MCP_OPS_ENABLED` (default `false`) gates the ops routes, tools and scopes. Two new scopes and policy actions: `ops:read` (`ops_read`) and `ops:act` (`ops_act`). Both are admin-role only. Neither is implied by `api:write`, and `ops:act` implies `ops:read`. PATs may hold them. MCP clients may request them, but the consent page grants them only to an admin; for anyone else they are dropped from the grant and the page says so. While the flag is off, the routes answer 404, the tools are not listed and the scopes are not advertised. |
+| D21 | **Diagnostics are admin reads, not sign-offs.** This amends §3.5: `admin` and `catalog_admin` stay human-only, but `ops_read` and `ops_act` are new actions outside that list. The actions are fixed and small: cancel a job, requeue a failed or stuck job, rebuild one design bundle, and raise logging to debug for at most 30 minutes. Arbitrary SQL, shell access and configuration changes are never tools. |
+| D22 | **Output limits.** Ops results carry identifiers, timings, counts and sizes, never design content: no comment text, field values or file contents. Every string that can hold a secret (log lines, error messages, query text, URLs) passes through one redactor (`app/core/redaction.py`), which strips URL credentials, bearer and `prism_pat_`/`whsec_` tokens, authorization headers and `key=value` secrets. Log tails are capped at 200 lines. |
+| D23 | **Route and counter statistics are flushed per minute.** Each process keeps per-minute aggregates in memory: for each route template, a request count, 4xx and 5xx counts and a log-scale duration histogram, plus named counters such as cache hits and misses. A background thread flushes them every 60 s to `ws_ops_route_stats` and `ws_ops_counters`. Percentiles come from the merged histograms across processes. Rows are kept 7 days. |
+| D24 | **Request ids.** A middleware gives every request an id, taking an inbound `X-Request-Id` when it is 1–64 characters of `[A-Za-z0-9._-]`. It returns the id in the response header and stores it on the jobs, events and audit rows the request creates. Every non-GET request, every request slower than 1 s and every 5xx gets a row in `ws_ops_requests`: route, status, duration, time spent holding a database connection, caller kind. Rows are kept 3 days. `trace_request` joins these. |
+| D25 | **Slow queries from `pg_stat_statements` when it is loaded.** Local and release compose start Postgres with `shared_preload_libraries=pg_stat_statements`, and a migration creates the extension when it can. Where it isn't loaded, `get_slow_queries` answers `available: false` with the reason, rather than failing. Query text is Postgres's normalised form, redacted and cut to 2 kB. |
+| D26 | **Sampling profiles in-process, bounded.** `capture_profile` samples stacks with the standard library (`sys._current_frames`, 100 Hz) for at most 10 s, and returns collapsed stacks (flame-graph input, top 500, paths shortened to modules). Its target is either the API process that answers the call or a prism worker's supervisor, which polls a request row. One profile runs at a time across the deployment (advisory lock), and at most 6 per hour. |
+| D27 | **Live worker state is published.** Each prism worker upserts a heartbeat row in `ws_ops_workers` every 15 s: id, pool, host, pid, start time, concurrency, memory budget, running jobs. Rows not seen for 2 minutes are reported stale. The API reports its own pool statistics for the process that answers. |
+| D28 | **Debug logging is time-boxed.** `ops:act` can set Prism's loggers to DEBUG until a deadline of at most 30 minutes, stored in `ws_ops_settings`. Every process checks the setting every 15 s and reverts at the deadline, with no restart. |
+
+### 11.2 Tools
+
+| Tool | Scope | Source |
+| --- | --- | --- |
+| `get_job_timeline` | `ops:read` | `ws_jobs`, `ws_job_events`, resource slots and locks, a redacted log tail, the request id |
+| `get_bundle_build_profile` | `ops:read` | the bundle job's `result_metadata`: per-invocation and per-KiCad-step elapsed time and peak RSS, cache hits |
+| `get_route_latency` | `ops:read` | `ws_ops_route_stats` over a window: p50/p95/p99, 4xx and 5xx rates per route template |
+| `get_slow_queries` | `ops:read` | `pg_stat_statements` by total and by mean time |
+| `get_pool_and_workers` | `ops:read` | this process's DB pool, `ws_ops_workers`, resource slots in use, queue depth by kind and status |
+| `get_cache_stats` | `ops:read` | cache hit and miss counters, cache table sizes and on-disk cache sizes (measured at most every 5 minutes) |
+| `trace_request` | `ops:read` | `ws_ops_requests` plus the jobs, events and audit rows carrying that request id |
+| `capture_profile` | `ops:read` | D26 |
+| `get_event_and_webhook_health` | `ops:read` | event-log head and retention, each webhook's cursor lag, failing endpoints, delivery error rates |
+| `cancel_job`, `requeue_job` | `ops:act` | the job service: cancel is the existing request; requeue resets a failed or lease-expired job to `queued` |
+| `rebuild_bundle` | `ops:act` | the existing design-bundle regenerate path |
+| `set_debug_logging` | `ops:act` | D28 |
+
+Every ops tool call is audited like any other MCP call, and the HTTP routes behind them are audited by D19.
+
+### 11.3 Work packages
+
+| # | Package | Depends on |
+| --- | --- | --- |
+| OPS-00 | This section | — |
+| OPS-01 | Seam: flag, scopes, policy actions, consent rule, `core/redaction.py`, the `/api/v1/ops` router and conditional tool registration | 00 |
+| OPS-02 | Instrumentation: request-id middleware, `ws_ops_requests`, route statistics, counters and the flusher (migration 139) | 01 |
+| OPS-03 | Worker heartbeats and time-boxed debug logging (migration 140) | 01 |
+| OPS-04a | `get_job_timeline`, `get_bundle_build_profile` | 01 |
+| OPS-04b | `get_route_latency`, `trace_request`, `get_slow_queries` and `pg_stat_statements` (migration 141) | 02 |
+| OPS-04c | `get_pool_and_workers`, `get_cache_stats`, `get_event_and_webhook_health` | 02, 03 |
+| OPS-05 | `capture_profile` (migration 142) | 01 |
+| OPS-06 | Actions: `cancel_job`, `requeue_job`, `rebuild_bundle`, `set_debug_logging` | 03 |
+| OPS-07 | Docs and a live check through a real client | all |
