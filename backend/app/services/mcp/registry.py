@@ -22,20 +22,41 @@ RouteRequest = Callable[
     [Any, str, str, str, str, dict[str, Any] | None], Awaitable[tuple[int, bytes]]
 ]
 
-#: Every tool here reads. MCP clients never get a write tool (v5.1), and the
-#: annotations say so rather than leaving a client to infer it.
+#: A read tool says so rather than leaving a client to infer it.
 READ_ONLY_ANNOTATIONS: dict[str, bool] = {
     "readOnlyHint": True,
     "idempotentHint": True,
     "openWorldHint": False,
 }
 
+#: The argument every write tool accepts (D13). Invoke sends it as the route's
+#: ``Idempotency-Key`` header, so a client that retries a write with the same
+#: key gets the first answer back instead of a second comment.
+IDEMPOTENCY_KEY = "idempotencyKey"
+IDEMPOTENCY_KEY_SCHEMA: dict[str, Any] = {
+    "type": "string",
+    "minLength": 1,
+    "maxLength": 255,
+    "description": "Optional. Reuse the same key when retrying this call, so the write happens once.",
+}
+
+
+def write_annotations(*, destructive: bool = False, idempotent: bool = False) -> dict[str, bool]:
+    """Annotations for a tool that changes Prism (ADR §10, D13)."""
+
+    return {
+        "readOnlyHint": False,
+        "destructiveHint": destructive,
+        "idempotentHint": idempotent,
+        "openWorldHint": False,
+    }
+
 _MAX_REF_DEPTH = 32
 
 
 @dataclass(frozen=True)
 class Tool:
-    """One task-level read, and the route that answers it."""
+    """One task-level read or write, and the route that answers it."""
 
     name: str
     title: str
@@ -56,6 +77,26 @@ class Tool:
     #: A tool that needs more than one route (start then poll, then fetch
     #: bytes) handles itself and returns the whole ``CallToolResult``.
     execute: Callable[[Any, dict[str, Any], str, RouteRequest], Awaitable[dict[str, Any]]] | None = None
+    #: The policy action a write needs (``comment``, ``design``,
+    #: ``catalog_write``). Set only on write tools: ``/mcp`` checks it before the
+    #: route runs, so a client missing the scope is asked for it (D14).
+    action: str | None = None
+
+    @property
+    def write(self) -> bool:
+        return self.action is not None
+
+    def advertised_input_schema(self) -> dict[str, Any]:
+        """``input_schema``, plus ``idempotencyKey`` on a write tool."""
+
+        if not self.write:
+            return self.input_schema
+        schema = dict(self.input_schema)
+        schema["properties"] = {
+            **(schema.get("properties") or {}),
+            IDEMPOTENCY_KEY: IDEMPOTENCY_KEY_SCHEMA,
+        }
+        return schema
 
 
 _TOOLS: list[Tool] = []
@@ -162,7 +203,7 @@ def tool_definition(tool: Tool, app: Any | None = None) -> dict[str, Any]:
         "name": tool.name,
         "title": tool.title,
         "description": tool.description,
-        "inputSchema": tool.input_schema,
+        "inputSchema": tool.advertised_input_schema(),
         "annotations": dict(tool.annotations),
     }
     output_schema = tool.output_schema
@@ -178,6 +219,7 @@ def tool_definitions(app: Any | None = None) -> list[dict[str, Any]]:
 
 
 __all__ = [
+    "IDEMPOTENCY_KEY",
     "READ_ONLY_ANNOTATIONS",
     "Tool",
     "register",
@@ -186,4 +228,5 @@ __all__ = [
     "tool_definitions",
     "tool_named",
     "tools",
+    "write_annotations",
 ]

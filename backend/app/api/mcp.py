@@ -167,9 +167,37 @@ def _rpc_result(request_id: Any, result: Any) -> JSONResponse:
     return JSONResponse({"jsonrpc": "2.0", "id": request_id, "result": result})
 
 
-def _rpc_error(request_id: Any, code: int, message: str) -> JSONResponse:
+def _rpc_error(
+    request_id: Any, code: int, message: str, data: dict[str, Any] | None = None
+) -> JSONResponse:
+    error: dict[str, Any] = {"code": code, "message": message}
+    if data is not None:
+        error["data"] = data
+    return JSONResponse({"jsonrpc": "2.0", "id": request_id, "error": error})
+
+
+#: JSON-RPC error for "a person has to act at this URL first" (URL elicitation).
+URL_ELICITATION_REQUIRED = -32042
+
+
+def _scope_challenge_response(challenge: invoke.ScopeChallenge) -> JSONResponse:
+    """Incremental consent (D14): HTTP 403 naming the scope to ask the user for."""
+
     return JSONResponse(
-        {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
+        {"detail": challenge.detail, "code": "insufficient-scope"},
+        status_code=403,
+        headers={"WWW-Authenticate": challenge.challenge},
+    )
+
+
+def _handoff_response(request_id: Any, handoff: invoke.HandoffRequired) -> JSONResponse:
+    """A human-only step (D15): the client opens ``url`` for the user."""
+
+    return _rpc_error(
+        request_id,
+        URL_ELICITATION_REQUIRED,
+        handoff.message,
+        {"elicitations": [handoff.elicitation()]},
     )
 
 
@@ -463,13 +491,40 @@ async def _execute_tool(
     started = time.monotonic()
     state = await asyncio.to_thread(governance.current)
     project_id = await governance.project_for_arguments(tool.name, arguments)
+
+    async def record(outcome: str, code: Any, structured: Any) -> None:
+        await asyncio.to_thread(
+            audit.record_quietly,
+            user_email=user.email,
+            auth_type=user.auth_type,
+            client_id=user.client_id,
+            token_id=user.token_id,
+            method=method,
+            tool=tool.name,
+            project_id=project_id,
+            revision=audit.result_revision(structured, arguments),
+            outcome=outcome,
+            code=str(code) if code else None,
+            duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+        )
+
     refused = governance.refusal(state, tool.name, project_id)
     if refused is not None:
         result = refused
     else:
-        result = await invoke.call_tool(
-            request.app, tool, arguments, authorization=authorization
-        )
+        try:
+            challenge = policy.scope_challenge(user, tool.action) if tool.action else None
+            if challenge is not None:
+                raise invoke.ScopeChallenge(challenge, f"{tool.name} needs a scope this client was not granted")
+            result = await invoke.call_tool(
+                request.app, tool, arguments, authorization=authorization
+            )
+        except invoke.ScopeChallenge:
+            await record("refused", "insufficient-scope", None)
+            raise
+        except invoke.HandoffRequired:
+            await record("refused", "handoff", None)
+            raise
         result = mcp_tools.present(tool.name, arguments, result)
         if not result.get("isError"):
             governance.filter_search_projects(state, result)
@@ -480,20 +535,7 @@ async def _execute_tool(
     outcome = "refused" if refused is not None else (
         "ok" if not result.get("isError") else "error"
     )
-    await asyncio.to_thread(
-        audit.record_quietly,
-        user_email=user.email,
-        auth_type=user.auth_type,
-        client_id=user.client_id,
-        token_id=user.token_id,
-        method=method,
-        tool=tool.name,
-        project_id=project_id,
-        revision=audit.result_revision(structured, arguments),
-        outcome=outcome,
-        code=str(code) if code else None,
-        duration_ms=max(0, int((time.monotonic() - started) * 1000)),
-    )
+    await record(outcome, code, structured)
     return result
 
 
@@ -597,14 +639,21 @@ async def _handle(
             return _rpc_result(
                 request_id, invoke.tool_error("invalid-arguments", "Invalid arguments: arguments must be an object")
             )
-        result = await _execute_tool(
-            request,
-            method="tools/call",
-            tool=tool,
-            arguments=arguments,
-            authorization=authorization,
-            user=user,
-        )
+        try:
+            result = await _execute_tool(
+                request,
+                method="tools/call",
+                tool=tool,
+                arguments=arguments,
+                authorization=authorization,
+                user=user,
+            )
+        except invoke.ScopeChallenge as challenge:
+            if user.auth_type == policy.MCP_AUTH_TYPE:
+                return _scope_challenge_response(challenge)
+            return _rpc_result(request_id, invoke.tool_error("insufficient-scope", challenge.detail))
+        except invoke.HandoffRequired as handoff:
+            return _handoff_response(request_id, handoff)
         if isinstance(arguments, dict):
             result = await _refine_tool_result(
                 request, tool.name, arguments, result, authorization

@@ -191,6 +191,18 @@ def _insufficient_scope_header(scope: str) -> str:
     )
 
 
+def scope_challenge(caller: Caller, action: Action) -> str | None:
+    """The ``WWW-Authenticate`` challenge an MCP client gets for ``action``.
+
+    ``None`` unless the caller is an MCP client refused only for a scope that
+    consent could grant (ADR §10, D14).
+    """
+    if refusal(caller, action) is None:
+        return None
+    missing = _mcp_missing_scope(caller, action)
+    return _insufficient_scope_header(missing) if missing is not None else None
+
+
 def allows(caller: Caller, action: Action) -> bool:
     return refusal(caller, action) is None
 
