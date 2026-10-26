@@ -21,6 +21,7 @@ import tempfile
 from pathlib import Path
 
 from app.services import git_host_service
+from app.services.checkout_line_endings import CLONE_ARGS
 from app.services.git_host_service import GitHostError
 from app.services.workspace_service import _new_id, workspace
 
@@ -196,7 +197,7 @@ def _clone_for_server(project_id: str, origin: str) -> str:
 
     bare = git_host_service.repo_path(project_id)
     result = subprocess.run(
-        ["git", "clone", str(bare), str(dest)],
+        ["git", "clone", *CLONE_ARGS, str(bare), str(dest)],
         capture_output=True,
         text=True,
         check=False,
