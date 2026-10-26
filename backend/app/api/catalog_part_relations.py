@@ -78,6 +78,13 @@ class MateRequest(BaseModel):
     componentId: str = Field(min_length=1, max_length=200)
 
 
+class ModelConversionJob(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    jobId: str | None
+    status: str | None
+
+
 def _mates_call(action):
     with caller_errors((LookupError, 404), (ValueError, 422)):
         return {"items": action()}
@@ -90,12 +97,14 @@ def list_mates_with(component_id: str, user: AuthenticatedUser = Depends(require
     return _mates_call(lambda: catalog_service.part_relations.list_mates_with(component_id))
 
 
-@router.post("/components/{component_id}/mates-with")
+@router.post("/components/{component_id}/mates-with", response_model=MatePage,
+             response_model_exclude_unset=True, summary="Mark two parts as mating")
 def add_mate(component_id: str, body: MateRequest, user: AuthenticatedUser = Depends(require_catalog_writer)):
     return _mates_call(lambda: catalog_service.part_relations.set_mate(component_id, body.componentId, mates=True, actor=user.email))
 
 
-@router.delete("/components/{component_id}/mates-with/{other_id}")
+@router.delete("/components/{component_id}/mates-with/{other_id}", response_model=MatePage,
+               response_model_exclude_unset=True, summary="Remove a mating between two parts")
 def remove_mate(component_id: str, other_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
     return _mates_call(lambda: catalog_service.part_relations.set_mate(component_id, other_id, mates=False, actor=user.email))
 
@@ -134,7 +143,8 @@ def list_models(component_id: str, revision_id: str | None = Query(None, alias="
     return _mates_call(lambda: catalog_service.part_relations.list_models(component_id, revision_id))
 
 
-@router.post("/components/{component_id}/models/convert")
+@router.post("/components/{component_id}/models/convert", response_model=ModelConversionJob,
+             response_model_exclude_unset=True, summary="Queue STEP to GLB conversion")
 def convert_models(component_id: str, revision_id: str | None = Query(None, alias="revisionId"),
                    user: AuthenticatedUser = Depends(require_catalog_writer)):
     """Queue GLB conversion of the current revision's STEP models, or of ``revisionId``'s (a pinned one)."""
@@ -146,7 +156,8 @@ def convert_models(component_id: str, revision_id: str | None = Query(None, alia
     return {"jobId": job.get("id"), "status": job.get("status")}
 
 
-@router.put("/components/{component_id}/models/{asset_id}/alignment")
+@router.put("/components/{component_id}/models/{asset_id}/alignment", response_model=ModelPage,
+            response_model_exclude_unset=True, summary="Save a model's alignment")
 def set_model_alignment(component_id: str, asset_id: str, body: AlignmentRequest,
                         user: AuthenticatedUser = Depends(require_catalog_writer)):
     return _mates_call(lambda: catalog_service.part_relations.set_model_alignment(component_id, asset_id, body.model_dump(),

@@ -7,7 +7,7 @@
   "accept_project_import_proposal": {
     "method": "POST",
     "path": "/api/v1/catalog/import-proposals/{proposal_id}/accept",
-    "typed": false
+    "typed": true
   },
   "acknowledge_project_tracker": {
     "method": "POST",
@@ -22,7 +22,7 @@
   "add_mate": {
     "method": "POST",
     "path": "/api/v1/catalog/components/{component_id}/mates-with",
-    "typed": false
+    "typed": true
   },
   "add_reply": {
     "method": "POST",
@@ -52,7 +52,7 @@
   "apply_metadata_batch": {
     "method": "POST",
     "path": "/api/v1/catalog/metadata/batches/{batch_id}/apply",
-    "typed": false
+    "typed": true
   },
   "approve_build": {
     "method": "POST",
@@ -62,12 +62,12 @@
   "approve_metadata_batch_fields": {
     "method": "POST",
     "path": "/api/v1/catalog/metadata/batches/{batch_id}/approve-fields",
-    "typed": false
+    "typed": true
   },
   "archive_metadata_field": {
     "method": "POST",
     "path": "/api/v1/catalog/metadata/fields/{field_id}/archive",
-    "typed": false
+    "typed": true
   },
   "begin_oauth": {
     "method": "POST",
@@ -87,7 +87,7 @@
   "bulk_accept_project_import_proposals": {
     "method": "POST",
     "path": "/api/v1/catalog/import-sessions/{session_id}/proposals/bulk-accept",
-    "typed": false
+    "typed": true
   },
   "cancel_job": {
     "method": "POST",
@@ -127,7 +127,7 @@
   "complete_folder_snapshot": {
     "method": "POST",
     "path": "/api/v1/catalog/import-snapshots/folders/{snapshot_id}/complete",
-    "typed": false
+    "typed": true
   },
   "components_by_category": {
     "method": "GET",
@@ -147,7 +147,7 @@
   "convert_models": {
     "method": "POST",
     "path": "/api/v1/catalog/components/{component_id}/models/convert",
-    "typed": false
+    "typed": true
   },
   "create_candidate": {
     "method": "POST",
@@ -157,7 +157,7 @@
   "create_catalog_component": {
     "method": "POST",
     "path": "/api/v1/catalog/components",
-    "typed": false
+    "typed": true
   },
   "create_comment": {
     "method": "POST",
@@ -172,7 +172,7 @@
   "create_component_representation": {
     "method": "POST",
     "path": "/api/v1/catalog/components/{component_id}/representations",
-    "typed": false
+    "typed": true
   },
   "create_connector": {
     "method": "POST",
@@ -187,17 +187,17 @@
   "create_folder_snapshot": {
     "method": "POST",
     "path": "/api/v1/catalog/import-snapshots/folders",
-    "typed": false
+    "typed": true
   },
   "create_metadata_batch": {
     "method": "POST",
     "path": "/api/v1/catalog/metadata/batches",
-    "typed": false
+    "typed": true
   },
   "create_metadata_field": {
     "method": "POST",
     "path": "/api/v1/catalog/metadata/fields",
-    "typed": false
+    "typed": true
   },
   "create_personal_token": {
     "method": "POST",
@@ -207,12 +207,12 @@
   "create_project_import_session": {
     "method": "POST",
     "path": "/api/v1/catalog/import-sessions/projects",
-    "typed": false
+    "typed": true
   },
   "create_server_folder_snapshot": {
     "method": "POST",
     "path": "/api/v1/catalog/import-snapshots/folders/server",
-    "typed": false
+    "typed": true
   },
   "create_service_client": {
     "method": "POST",
@@ -227,7 +227,7 @@
   "delete_catalog_component": {
     "method": "DELETE",
     "path": "/api/v1/catalog/components/{component_id}",
-    "typed": false
+    "typed": true
   },
   "delete_comment": {
     "method": "DELETE",
@@ -237,7 +237,7 @@
   "delete_component_representation": {
     "method": "DELETE",
     "path": "/api/v1/catalog/components/{component_id}/representations/{representation_id}",
-    "typed": false
+    "typed": true
   },
   "delete_connector": {
     "method": "DELETE",
@@ -297,12 +297,12 @@
   "detach_component_asset": {
     "method": "DELETE",
     "path": "/api/v1/catalog/components/{component_id}/assets/{asset_type}",
-    "typed": false
+    "typed": true
   },
   "detach_component_asset_by_id": {
     "method": "DELETE",
     "path": "/api/v1/catalog/components/{component_id}/assets/id/{asset_id}",
-    "typed": false
+    "typed": true
   },
   "detect_project_paths": {
     "method": "POST",
@@ -312,7 +312,7 @@
   "discover_folder_snapshot": {
     "method": "POST",
     "path": "/api/v1/catalog/import-snapshots/folders/{snapshot_id}/discover",
-    "typed": false
+    "typed": true
   },
   "download_asset": {
     "method": "GET",
@@ -372,7 +372,7 @@
   "export_kicad_dbl_bundle": {
     "method": "POST",
     "path": "/api/v1/catalog/exports/kicad-dbl",
-    "typed": false
+    "typed": true
   },
   "export_metadata_csv": {
     "method": "GET",
@@ -387,7 +387,7 @@
   "generate_missing_previews": {
     "method": "POST",
     "path": "/api/v1/catalog/previews/generate-missing",
-    "typed": false
+    "typed": true
   },
   "generate_semantic_index": {
     "method": "POST",
@@ -862,17 +862,17 @@
   "import_auxiliary_asset": {
     "method": "POST",
     "path": "/api/v1/catalog/components/{component_id}/assets/{asset_type}",
-    "typed": false
+    "typed": true
   },
   "import_footprint": {
     "method": "POST",
     "path": "/api/v1/catalog/components/{component_id}/footprint-import",
-    "typed": false
+    "typed": true
   },
   "import_inventory_csv": {
     "method": "POST",
     "path": "/api/v1/catalog/inventory/sync-csv",
-    "typed": false
+    "typed": true
   },
   "import_project": {
     "method": "POST",
@@ -882,12 +882,12 @@
   "import_proposals_csv": {
     "method": "POST",
     "path": "/api/v1/catalog/import-sessions/{session_id}/proposals.csv",
-    "typed": false
+    "typed": true
   },
   "import_symbol_library": {
     "method": "POST",
     "path": "/api/v1/catalog/components/{component_id}/symbol-import",
-    "typed": false
+    "typed": true
   },
   "infer_power_tree": {
     "method": "GET",
@@ -897,7 +897,7 @@
   "link_library_asset": {
     "method": "POST",
     "path": "/api/v1/catalog/components/{component_id}/assets/{asset_type}/link",
-    "typed": false
+    "typed": true
   },
   "list_access_users": {
     "method": "GET",
@@ -1172,7 +1172,7 @@
   "preview_metadata_csv": {
     "method": "POST",
     "path": "/api/v1/catalog/metadata/import-csv/preview",
-    "typed": false
+    "typed": true
   },
   "project_tracker_health": {
     "method": "GET",
@@ -1247,7 +1247,7 @@
   "regenerate_component_previews": {
     "method": "POST",
     "path": "/api/v1/catalog/components/{component_id}/previews/regenerate",
-    "typed": false
+    "typed": true
   },
   "regenerate_design_bundles": {
     "method": "POST",
@@ -1267,7 +1267,7 @@
   "reject_project_import_proposal": {
     "method": "POST",
     "path": "/api/v1/catalog/import-proposals/{proposal_id}/reject",
-    "typed": false
+    "typed": true
   },
   "release_queue": {
     "method": "GET",
@@ -1282,7 +1282,7 @@
   "remove_mate": {
     "method": "DELETE",
     "path": "/api/v1/catalog/components/{component_id}/mates-with/{other_id}",
-    "typed": false
+    "typed": true
   },
   "replace_setup": {
     "method": "PUT",
@@ -1297,7 +1297,7 @@
   "restore_metadata_field": {
     "method": "POST",
     "path": "/api/v1/catalog/metadata/fields/{field_id}/restore",
-    "typed": false
+    "typed": true
   },
   "resume_connector": {
     "method": "POST",
@@ -1352,17 +1352,17 @@
   "run_artifact_maintenance": {
     "method": "POST",
     "path": "/api/v1/catalog/artifacts/maintenance",
-    "typed": false
+    "typed": true
   },
   "save_import_proposal_drafts": {
     "method": "PUT",
     "path": "/api/v1/catalog/import-sessions/{session_id}/proposals/drafts",
-    "typed": false
+    "typed": true
   },
   "save_metadata_grid_preferences": {
     "method": "PUT",
     "path": "/api/v1/catalog/metadata/grid-preferences",
-    "typed": false
+    "typed": true
   },
   "save_source_defaults": {
     "method": "PUT",
@@ -1402,7 +1402,7 @@
   "set_model_alignment": {
     "method": "PUT",
     "path": "/api/v1/catalog/components/{component_id}/models/{asset_id}/alignment",
-    "typed": false
+    "typed": true
   },
   "set_service_client_enabled": {
     "method": "PATCH",
@@ -1467,7 +1467,7 @@
   "transition_release_status": {
     "method": "POST",
     "path": "/api/v1/catalog/components/{component_id}/release",
-    "typed": false
+    "typed": true
   },
   "trigger_workflow": {
     "method": "POST",
@@ -1492,7 +1492,7 @@
   "update_catalog_component": {
     "method": "PATCH",
     "path": "/api/v1/catalog/components/{component_id}",
-    "typed": false
+    "typed": true
   },
   "update_comment": {
     "method": "PATCH",
@@ -1502,7 +1502,7 @@
   "update_component_representation": {
     "method": "PATCH",
     "path": "/api/v1/catalog/components/{component_id}/representations/{representation_id}",
-    "typed": false
+    "typed": true
   },
   "update_connector": {
     "method": "PATCH",
@@ -1517,7 +1517,7 @@
   "update_metadata_field": {
     "method": "PATCH",
     "path": "/api/v1/catalog/metadata/fields/{field_id}",
-    "typed": false
+    "typed": true
   },
   "update_project_config": {
     "method": "PUT",
@@ -1552,7 +1552,7 @@
   "upload_folder_snapshot_file": {
     "method": "POST",
     "path": "/api/v1/catalog/import-snapshots/folders/{snapshot_id}/files",
-    "typed": false
+    "typed": true
   },
   "upload_project_thumbnail": {
     "method": "PUT",
@@ -1567,12 +1567,12 @@
   "validate_catalog": {
     "method": "POST",
     "path": "/api/v1/catalog/validation/run",
-    "typed": false
+    "typed": true
   },
   "validate_component_klc": {
     "method": "POST",
     "path": "/api/v1/catalog/components/{component_id}/validate",
-    "typed": false
+    "typed": true
   },
   "validate_setup": {
     "method": "POST",
