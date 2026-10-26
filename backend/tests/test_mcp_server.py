@@ -55,6 +55,8 @@ TOOL_ORDER = [
     "search_catalog",
     "get_catalog_component",
     "get_release_status",
+    "compare_revisions",
+    "get_changes",
 ]
 
 
@@ -206,6 +208,7 @@ class McpServerTests(unittest.TestCase):
             {
                 "tools": {"listChanged": False},
                 "resources": {"subscribe": False, "listChanged": False},
+                "extensions": {"io.modelcontextprotocol/tasks": {}},
             },
         )
         self.assertEqual(fallback["serverInfo"]["name"], "kicad-prism")
@@ -292,7 +295,11 @@ class McpServerTests(unittest.TestCase):
             with self.subTest(tool=tool["name"]):
                 self.assertEqual(
                     tool["annotations"],
-                    {"readOnlyHint": True, "idempotentHint": True, "openWorldHint": False},
+                    {
+                        "readOnlyHint": True,
+                        "idempotentHint": tool["name"] != "compare_revisions",
+                        "openWorldHint": False,
+                    },
                 )
                 self.assertEqual(tool["inputSchema"]["type"], "object")
                 self.assertIn("properties", tool["inputSchema"])

@@ -402,7 +402,12 @@ def _cite(structured: dict[str, Any], project_id: str, commit: str, kind: str, k
 
 
 def present(tool_name: str, arguments: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
-    """Shape one tool result: the status filter, then citations."""
+    """Shape one tool result: the status filter, the comparison rows, then citations."""
+
+    if tool_name in {"compare_revisions", "get_changes"}:
+        from app.services.mcp import tools_compare
+
+        return tools_compare.present(tool_name, arguments, result)
 
     structured = result.get("structuredContent")
     if not isinstance(structured, dict):
@@ -450,3 +455,8 @@ def present(tool_name: str, arguments: dict[str, Any], result: dict[str, Any]) -
 
 
 __all__ = ["present"]
+
+
+# Imported last: the comparison tools register after the v5.1 read set, so
+# ``tools/list`` keeps that order.
+from app.services.mcp import tools_compare as _tools_compare  # noqa: E402, F401

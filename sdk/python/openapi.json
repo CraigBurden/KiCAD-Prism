@@ -15535,6 +15535,14 @@
             "title": "Kind",
             "type": "string"
           },
+          "references": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "References",
+            "type": "array"
+          },
           "section": {
             "title": "Section",
             "type": "string"

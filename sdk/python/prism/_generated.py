@@ -2911,11 +2911,12 @@ class ReviewDecisionRequest(TypedDict, total=False):
     slot: str
 
 
-class ReviewGroupOut(TypedDict, total=True):
+class ReviewGroupOut(TypedDict, total=False):
     changeIds: list[str]
     id: str
     impact: str
     kind: str
+    references: list[str]
     section: str
     summary: str
     title: str

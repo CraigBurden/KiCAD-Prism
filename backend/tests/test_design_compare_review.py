@@ -74,10 +74,24 @@ class ReviewRouteTests(unittest.TestCase):
             self.assertIsInstance(response, api.ComparisonReviewOut)
             self.assertEqual(response.jobId, "job-1")
             self.assertEqual(response.domain, domain)
+            # The groups are the TypeScript queue's; references are the
+            # route's own addition, joined from the changes.
             self.assertEqual(
-                [group.model_dump() for group in response.groups],
+                [group.model_dump(exclude={"references"}) for group in response.groups],
                 expected[domain],
             )
+
+    def test_each_group_names_the_designators_of_its_changes(self) -> None:
+        response = self._call(
+            status={"project_id": "p1", "status": "completed"},
+            result=_load("input.json"),
+            domain="sch",
+        )
+        by_id = {group.id: group.references for group in response.groups}
+        self.assertEqual(by_id["schematic:components:cmp:r13"], ["R13"])
+        self.assertEqual(by_id["schematic:rules:erc-exclusions"], [])
+        part_groups = [refs for gid, refs in by_id.items() if gid.startswith("schematic:components:part>")]
+        self.assertTrue(any(len(refs) > 1 for refs in part_groups))
 
     def test_a_running_job_answers_comparison_not_ready(self) -> None:
         with self.assertRaises(HTTPException) as raised:
