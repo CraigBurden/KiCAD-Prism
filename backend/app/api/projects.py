@@ -57,6 +57,7 @@ from app.services import (
     derived_assets,
     file_service,
     git_access_service,
+    git_remote_access,
     path_config_service,
     project_deletion,
     project_import_service,
@@ -373,7 +374,7 @@ async def import_access_help(request: AnalyzeRequest):
     key to register and a link to the right page on the detected forge, instead
     of leaving the user with a message and nowhere to go.
     """
-    parsed = parse_remote_url(request.url, project_import_service.remote_url_policy())
+    parsed = parse_remote_url(request.url, git_remote_access.remote_url_policy())
 
     key = await asyncio.to_thread(git_access_service.describe_key)
     guidance = git_access_service.guidance_for(parsed)

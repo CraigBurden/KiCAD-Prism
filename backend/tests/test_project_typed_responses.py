@@ -117,11 +117,7 @@ class ProjectTypedResponses(unittest.TestCase):
         key = git_access_service.KeyInfo(
             exists=True, public_key="ssh-ed25519 AAAA prism", fingerprint="SHA256:abc"
         )
-        # The route reads the remote policy off its import-service alias; stub the
-        # alias so this test exercises the body rather than that lookup.
-        import_service = MagicMock()
-        with patch.object(projects, "project_import_service", import_service), \
-                patch.object(projects, "parse_remote_url", return_value=SimpleNamespace(host="github.com")), \
+        with patch.object(projects, "parse_remote_url", return_value=SimpleNamespace(host="github.com")), \
                 patch.object(git_access_service, "describe_key", return_value=key), \
                 patch.object(git_access_service, "guidance_for", return_value=guidance), \
                 patch.object(git_access_service, "is_host_trusted", return_value=True):
