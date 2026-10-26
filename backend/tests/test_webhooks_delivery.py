@@ -113,6 +113,55 @@ class WebhookDeliveryTests(unittest.TestCase):
             )
             conn.commit()
 
+    def test_a_pass_does_nothing_while_another_worker_holds_the_lock(self) -> None:
+        self._create()
+        event_log.record("revision.synced", project_id=self.project, payload={})
+        with self.scratch.connect() as holder:
+            holder.execute("SELECT pg_advisory_lock(%s)", (delivery.PASS_LOCK_KEY,))
+            sender = FakeSender()
+            stats = delivery.run_pass(sender=sender, now=NOW)
+            holder.execute("SELECT pg_advisory_unlock(%s)", (delivery.PASS_LOCK_KEY,))
+        self.assertEqual(stats["webhooks"], 0)
+        self.assertEqual(sender.calls, [])
+        after = FakeSender()
+        delivery.run_pass(sender=after, now=NOW)
+        self.assertEqual(len(after.calls), 1)
+
+    def test_the_http_sender_refuses_a_target_that_now_resolves_inward(self) -> None:
+        with patch.object(targets, "resolve_addresses", lambda _h, _p: [ipaddress.ip_address("10.0.0.5")]):
+            outcome = delivery.http_sender("https://hooks.example.test/prism", b"{}", {})
+        self.assertFalse(outcome.ok)
+        self.assertIsNone(outcome.status_code)
+        self.assertIn("public address", outcome.error or "")
+
+    def test_the_http_sender_connects_to_the_checked_address(self) -> None:
+        seen = {}
+
+        class Pool:
+            def __init__(self, address, **kwargs):
+                seen["address"] = address
+                seen["server_hostname"] = kwargs.get("server_hostname")
+
+            def request(self, method, path, **kwargs):
+                seen["host_header"] = kwargs["headers"]["Host"]
+                seen["path"] = path
+
+                class Response:
+                    status = 204
+
+                return Response()
+
+            def close(self):
+                pass
+
+        with patch.object(delivery.urllib3, "HTTPSConnectionPool", Pool):
+            outcome = delivery.http_sender("https://hooks.example.test/prism?a=1", b"{}", {})
+        self.assertTrue(outcome.ok)
+        self.assertEqual(seen["address"], "93.184.216.34")
+        self.assertEqual(seen["server_hostname"], "hooks.example.test")
+        self.assertEqual(seen["host_header"], "hooks.example.test")
+        self.assertEqual(seen["path"], "/prism?a=1")
+
     def test_a_pass_delivers_matching_events_in_order_and_advances_the_cursor(self) -> None:
         created, _secret = self._create()
         first = event_log.record("revision.synced", project_id=self.project, payload={"n": 1})

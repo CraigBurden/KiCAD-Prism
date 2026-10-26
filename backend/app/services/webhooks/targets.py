@@ -56,6 +56,20 @@ def require_target(url: str, *, allow_private: bool | None = None) -> str:
     ``allow_private`` defaults to ``PRISM_WEBHOOK_ALLOW_PRIVATE``.
     """
 
+    return _checked(url, allow_private)[0]
+
+
+def checked_address(url: str, *, allow_private: bool | None = None) -> str:
+    """The address a send to ``url`` must connect to, after the same checks.
+
+    Connecting to the address that was checked, rather than resolving the host
+    again, keeps a second DNS answer from pointing the request inward.
+    """
+
+    return str(_checked(url, allow_private)[1][0])
+
+
+def _checked(url: str, allow_private: bool | None) -> tuple[str, list[Address]]:
     if allow_private is None:
         allow_private = settings.PRISM_WEBHOOK_ALLOW_PRIVATE
     text = (url or "").strip()
@@ -79,7 +93,7 @@ def require_target(url: str, *, allow_private: bool | None = None) -> str:
         raise BadRequest(
             "A webhook URL must resolve to a public address.", code=REFUSED
         )
-    return text
+    return text, addresses
 
 
 def _addresses(host: str, port: int) -> list[Address]:
@@ -94,4 +108,4 @@ def _addresses(host: str, port: int) -> list[Address]:
     return addresses
 
 
-__all__ = ["REFUSED", "is_public", "require_target", "resolve_addresses"]
+__all__ = ["REFUSED", "checked_address", "is_public", "require_target", "resolve_addresses"]

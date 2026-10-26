@@ -26,7 +26,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Mapping
 
-import requests
+from urllib.parse import urlsplit
+
+import urllib3
 
 from app.core.errors import Conflict, DomainError
 from app.services.trackers.secrets import SecretStoreLocked
@@ -56,20 +58,46 @@ Sender = Callable[[str, bytes, Mapping[str, str]], SendOutcome]
 
 
 def http_sender(url: str, body: bytes, headers: Mapping[str, str]) -> SendOutcome:
-    """The production sender: one POST, ten seconds, never following redirects."""
+    """The production sender: one POST, ten seconds, never following redirects.
+
+    The connection goes to the address ``targets`` just checked, with TLS still
+    verified against the URL's own host name (as ``mcp_clients`` fetches do).
+    """
 
     started = time.monotonic()
     try:
-        response = requests.post(
-            url,
-            data=body,
-            headers=dict(headers),
-            timeout=SEND_TIMEOUT_SECONDS,
-            allow_redirects=False,
+        address = targets.checked_address(url)
+    except DomainError as exc:
+        return SendOutcome(None, False, str(exc.detail), _elapsed_ms(started))
+    parsed = urlsplit(url)
+    host = parsed.hostname or ""
+    timeout = urllib3.Timeout(total=SEND_TIMEOUT_SECONDS)
+    if parsed.scheme == "https":
+        pool: urllib3.HTTPConnectionPool = urllib3.HTTPSConnectionPool(
+            address,
+            port=parsed.port or 443,
+            server_hostname=host,
+            assert_hostname=host,
+            cert_reqs="CERT_REQUIRED",
+            timeout=timeout,
+            retries=False,
         )
-    except requests.RequestException as exc:
+    else:  # only reachable with PRISM_WEBHOOK_ALLOW_PRIVATE
+        pool = urllib3.HTTPConnectionPool(address, port=parsed.port or 80, timeout=timeout, retries=False)
+    path = (parsed.path or "/") + (f"?{parsed.query}" if parsed.query else "")
+    try:
+        response = pool.request(
+            "POST",
+            path,
+            body=body,
+            headers={**dict(headers), "Host": parsed.netloc},
+            redirect=False,
+        )
+    except urllib3.exceptions.HTTPError as exc:
         return SendOutcome(None, False, _error_text(exc), _elapsed_ms(started))
-    status = int(response.status_code)
+    finally:
+        pool.close()
+    status = int(response.status)
     ok = 200 <= status < 300
     return SendOutcome(
         status,
@@ -79,9 +107,28 @@ def http_sender(url: str, body: bytes, headers: Mapping[str, str]) -> SendOutcom
     )
 
 
-def run_pass(*, sender: Sender | None = None, now: datetime | None = None) -> dict[str, int]:
-    """Deliver every due registration once, then prune old delivery rows."""
+#: Several workers may serve the ``prism`` pool; one pass at a time across all
+#: of them, or each would post every event.
+PASS_LOCK_KEY = 0x5052_4953_4D57_4831  # "PRISMWH1"
 
+
+def run_pass(*, sender: Sender | None = None, now: datetime | None = None) -> dict[str, int]:
+    """Deliver every due registration once, then prune old delivery rows.
+
+    A pass that finds another worker's pass running does nothing.
+    """
+
+    with store.connect() as conn:
+        locked = conn.execute("SELECT pg_try_advisory_lock(%s) AS locked", (PASS_LOCK_KEY,)).fetchone()
+        if not (locked["locked"] if isinstance(locked, Mapping) else locked[0]):
+            return {"webhooks": 0, "delivered": 0, "failed": 0, "pruned": 0}
+        try:
+            return _run_pass(sender=sender, now=now)
+        finally:
+            conn.execute("SELECT pg_advisory_unlock(%s)", (PASS_LOCK_KEY,))
+
+
+def _run_pass(*, sender: Sender | None, now: datetime | None) -> dict[str, int]:
     moment = now or datetime.now(timezone.utc)
     chosen = sender or http_sender
     stats = {"webhooks": 0, "delivered": 0, "failed": 0, "pruned": 0}
