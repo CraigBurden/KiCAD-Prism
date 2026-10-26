@@ -15,9 +15,8 @@ interface CommentAuthorKindBadgeProps {
 }
 
 /**
- * Marks a comment or reply written by an AI agent or a service. A person's
- * words are unmarked, so the badge is only evidence that a human did not write
- * them.
+ * Marks a comment or reply written by an AI agent or a service; a person's
+ * stay unmarked.
  */
 export function CommentAuthorKindBadge({
     authorKind,
