@@ -559,3 +559,7 @@ from app.services.mcp import tools_writes as _write_tools  # noqa: E402, F401
 # The write tools follow the read set; they are declared in their own module
 # because they carry the policy action a write needs (ADR §10).
 from app.services.mcp import tools_comments as _tools_comments  # noqa: E402, F401
+
+# Ops diagnostics register last; the registry lists them only while
+# ``PRISM_MCP_OPS_ENABLED`` is on (ADR §11).
+from app.services.mcp import tools_ops_requests as _ops_requests  # noqa: E402, F401

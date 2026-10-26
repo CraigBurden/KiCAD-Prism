@@ -809,6 +809,11 @@
     "path": "/api/v1/projects/{project_id}/comments/{comment_id}/replies/{reply_id}/history",
     "typed": true
   },
+  "get_route_latency": {
+    "method": "GET",
+    "path": "/api/v1/ops/route-latency",
+    "typed": true
+  },
   "get_semantic_index_identity": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/semantic-index/identity",
@@ -822,6 +827,11 @@
   "get_signed_comment_attachment": {
     "method": "GET",
     "path": "/api/v1/public/comment-attachments/{project_id}/{attachment_id}",
+    "typed": true
+  },
+  "get_slow_queries": {
+    "method": "GET",
+    "path": "/api/v1/ops/slow-queries",
     "typed": true
   },
   "get_source": {
@@ -1082,6 +1092,11 @@
   "list_projects": {
     "method": "GET",
     "path": "/api/v1/projects/",
+    "typed": true
+  },
+  "list_recent_requests": {
+    "method": "GET",
+    "path": "/api/v1/ops/requests",
     "typed": true
   },
   "list_runs": {
@@ -1527,6 +1542,11 @@
   "token": {
     "method": "POST",
     "path": "/api/v1/oauth/token",
+    "typed": true
+  },
+  "trace_request": {
+    "method": "GET",
+    "path": "/api/v1/ops/requests/{request_id}",
     "typed": true
   },
   "tracker_webhook": {

@@ -62,6 +62,8 @@ password auth), or if required secret or database settings are incomplete.
 | `PRISM_*_CONCURRENCY` | fenced slots for heavy job classes |
 | `PRISM_JOB_*` | leases, heartbeat, cancellation, and artifact retention |
 
+Both Compose files start PostgreSQL with `shared_preload_libraries=pg_stat_statements` and `pg_stat_statements.track=top` so the ops `get_slow_queries` diagnostic can report normalised statement timings; a managed instance must set the same or that tool answers `available: false`.
+
 Database capacity must cover all API and worker pools, not only one process.
 
 ### Git import
