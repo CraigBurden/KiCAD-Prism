@@ -39,6 +39,7 @@ Source builds use Docker build arguments instead.
 | `SESSION_SECRET` | signs session and provider tokens |
 | `SESSION_TTL_HOURS` | absolute session lifetime |
 | `SESSION_IDLE_TIMEOUT_MINUTES` | optional idle revocation |
+| `PRISM_PAT_MAX_DAYS` | longest personal access token lifetime in days (default 365); a create request defaults to 90 |
 | `PUBLIC_BASE_URL` | canonical public HTTPS origin |
 | `CORS_ORIGINS_STR` | exact browser origins permitted to send credentials |
 | `BOOTSTRAP_ADMIN_USERS_STR` | initial administrator emails |

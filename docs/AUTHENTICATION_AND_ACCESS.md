@@ -155,6 +155,16 @@ Do not reuse KiCad provider tokens as general API credentials. Prism refuses
 them everywhere except the `/api/remote-provider/*` routes KiCad and its panel
 call (the signed asset download and `/oauth/*` take no Prism credential).
 
+## Personal access tokens
+
+A signed-in person creates scoped, expiring tokens in Settings → Personal
+access tokens for scripts and CI. The secret is shown once and stored only as a
+SHA-256 hash; the first twelve characters (`prism_pat_` plus two) are kept so it
+can be recognised in a listing. Tokens are sent as `Authorization: Bearer`, or
+as the HTTP Basic password for `git clone`. The owner or an administrator can
+revoke one at any time, and a token never grants more than its owner's current
+role. Expiry defaults to 90 days and is capped by `PRISM_PAT_MAX_DAYS`.
+
 Bearer tokens need `api:read` for every read (projects, comments, systems,
 release studio, catalog, Git clone, the live comment stream) and `api:write`
 for every mutation. `api:write` implies `api:read`, and `*` holds every scope.
@@ -169,6 +179,8 @@ Browser sessions carry no scopes and need none. Token issuers:
   provider must issue `api:read` (or `api:write`) for the token to read.
 - KiCad provider tokens: `remote_symbols.read` only, accepted on
   `/api/remote-provider/*` and nowhere else.
+- Personal access tokens: the scopes chosen at creation, never
+  `remote_symbols.read` and never `*`.
 
 Prism can also validate externally issued JWTs when issuer, audience, role
 claim, and scope claim settings are configured. Audience validation is

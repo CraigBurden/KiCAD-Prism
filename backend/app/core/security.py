@@ -12,6 +12,7 @@ from app.services import (
     access_service,
     agent_auth_service,
     auth_service,
+    personal_tokens,
     provider_auth_service,
     service_client_service,
     session_store_service,
@@ -113,7 +114,39 @@ def _resolve_session_user(session_id: str) -> AuthenticatedUser:
     )
 
 
+def _resolve_pat_user(row: dict) -> AuthenticatedUser:
+    """Build the caller from a personal access token's row.
+
+    The token carries scopes, not identity: the owner is re-read on every request
+    so a role change (or a removed account) takes effect immediately.
+    """
+    current = access_service.get_user_by_email(str(row["user_email"]))
+    role = _resolve_allowed_user_role(str(row["user_email"]))
+    if current is None or role is None:
+        raise HTTPException(status_code=401, detail="Invalid bearer token")
+    personal_tokens.touch(row)
+    return AuthenticatedUser(
+        email=current["email"],
+        name=current["name"],
+        picture=current["picture"],
+        role=role,
+        auth_type="pat",
+        client_id=f"pat:{row['id']}",
+        token_id=str(row["id"]),
+        scopes=[str(scope) for scope in (row.get("scopes") or [])],
+        user_id=current["user_id"],
+    )
+
+
 def _resolve_bearer_user(token: str) -> AuthenticatedUser:
+    # Personal access tokens are recognisably prefixed rather than signed, so they
+    # are checked before the ``v1.`` envelope and never fall through to it.
+    if token.startswith(personal_tokens.TOKEN_PREFIX):
+        row = personal_tokens.validate(token)
+        if row is None:
+            raise HTTPException(status_code=401, detail="Invalid bearer token")
+        return _resolve_pat_user(row)
+
     provider_error: HTTPException | None = None
     if token.startswith("v1."):
         try:
