@@ -14,7 +14,7 @@ from app.api._helpers import authorize_job_read
 from app.core import policy
 from app.core.security import AuthenticatedUser, require_admin, require_viewer
 from app.services.job_artifact_service import job_artifacts
-from app.services.job_runtime import job_state_root
+from app.services.job_runtime import JobLogNotFound, tail_job_log
 from app.services.job_service import jobs
 from app.services.postgres_database import database
 from app.services.comment_live_broker import broker as comment_live_broker
@@ -324,19 +324,10 @@ async def get_job_artifact(
 
 
 def _tail_log(path: Path, line_count: int) -> list[str]:
-    root = (job_state_root() / "jobs").resolve()
-    resolved = path.resolve()
     try:
-        resolved.relative_to(root)
-    except ValueError as error:
+        return tail_job_log(path, line_count)
+    except JobLogNotFound as error:
         raise HTTPException(status_code=404, detail="Job log not found") from error
-    if not resolved.is_file():
-        raise HTTPException(status_code=404, detail="Job log not found")
-    with resolved.open("rb") as handle:
-        size = handle.seek(0, 2)
-        handle.seek(max(0, size - 256 * 1024))
-        text = handle.read(256 * 1024).decode("utf-8", errors="replace")
-    return text.splitlines()[-line_count:]
 
 
 @router.get("/{job_id}/logs", response_model=JobLogs, summary="The tail of a job's log")
