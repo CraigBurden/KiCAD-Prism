@@ -17,14 +17,22 @@ from html import escape
 from typing import Any
 from urllib.parse import quote, urlencode, urlparse, urlsplit
 
-from fastapi import APIRouter, Form, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from app.core.config import settings
 from app.core.security import get_current_user, refuse_provider_token
 from app.services import mcp_auth_service, mcp_clients
 
-router = APIRouter()
+
+def _require_mcp_enabled() -> None:
+    """The MCP surface answers 404 while it is switched off (ADR §3.11)."""
+
+    if not settings.PRISM_MCP_ENABLED:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+
+router = APIRouter(dependencies=[Depends(_require_mcp_enabled)])
 
 ISSUER_PATH = "/oauth/mcp"
 

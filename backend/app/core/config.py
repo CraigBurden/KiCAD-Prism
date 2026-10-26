@@ -322,6 +322,14 @@ class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
         description="Enable the comment WebSocket gateway; disable during staged rollout to use HTTP refresh fallback.",
     )
 
+    PRISM_MCP_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "The read-only MCP server at /mcp and its OAuth metadata. Off by "
+            "default: agents reach Prism only when an administrator turns it on."
+        ),
+    )
+
     PRISM_EVENT_RETENTION_DAYS: int = Field(
         default=30,
         ge=0,

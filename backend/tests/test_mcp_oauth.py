@@ -92,6 +92,7 @@ class McpMetadataTests(unittest.TestCase):
             patch.object(settings, "PASSWORD_AUTH_ENABLED", True),
             patch.object(settings, "SESSION_SECRET", TEST_SECRET),
             patch.object(settings, "PUBLIC_BASE_URL", BASE),
+            patch.object(settings, "PRISM_MCP_ENABLED", True),
         ]
         for patcher in cls._patchers:
             patcher.start()
@@ -156,6 +157,7 @@ class McpOAuthFlowTests(unittest.TestCase):
             patch.object(settings, "PASSWORD_AUTH_ENABLED", True),
             patch.object(settings, "SESSION_SECRET", TEST_SECRET),
             patch.object(settings, "PUBLIC_BASE_URL", BASE),
+            patch.object(settings, "PRISM_MCP_ENABLED", True),
         ]
         for patcher in cls._patchers:
             patcher.start()
