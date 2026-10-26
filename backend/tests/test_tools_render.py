@@ -80,7 +80,7 @@ class ImageResultTests(unittest.TestCase):
         self.assertEqual(
             structured["uri"], f"prism://project/p1/rev/{COMMIT}/render/{RENDER_ID}"
         )
-        self.assertEqual(routes.calls[0][2], json.dumps(tools_render._body(arguments()), separators=(",", ":")).encode())
+        self.assertEqual(routes.calls[0][2], tools_render._body(arguments()))
 
 
 class PendingTests(unittest.TestCase):
@@ -135,8 +135,14 @@ class ServerContentTests(unittest.TestCase):
             "method": "tools/call",
             "params": {"name": "render_view", "arguments": arguments()},
         }
-        with mock.patch.object(invoke, "call_tool", new=mock.AsyncMock(return_value=image_result)):
-            response = asyncio.run(mcp_api._handle(Request(), payload, "Bearer token"))
+        from app.core.security import AuthenticatedUser
+        from app.services.mcp import audit, governance
+
+        user = AuthenticatedUser(email="agent@example.test", name="Agent", role="viewer", auth_type="pat", scopes=["api:read"])
+        with mock.patch.object(invoke, "call_tool", new=mock.AsyncMock(return_value=image_result)), \
+                mock.patch.object(governance, "current", return_value=governance.McpGovernance()), \
+                mock.patch.object(audit, "record_quietly"):
+            response = asyncio.run(mcp_api._handle(Request(), payload, "Bearer token", user))
         body = json.loads(response.body)
         self.assertEqual(body["result"]["content"][0]["type"], "image")
         self.assertEqual(body["result"]["content"][1]["text"], "ready")
