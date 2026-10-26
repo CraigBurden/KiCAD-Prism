@@ -877,33 +877,6 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         viewers.pcb.setHighlightedNets(highlightRefs(highlightedNets));
     }, [highlightedNets, pcb.element, pcb.generation, viewers]);
 
-    // Apply the URL's view state once the active view has loaded its document,
-    // and again whenever the URL changes. Selected items go through the same
-    // element methods cross-probing uses; bbox is last so it wins the camera.
-    const appliedViewState = useRef<string | null>(null);
-    useEffect(() => {
-        if (!viewerActive) appliedViewState.current = null;
-    }, [viewerActive]);
-    useEffect(() => {
-        if (!viewerActive) return;
-        const view = activeTab === "sch" ? "sch" : activeTab === "pcb" ? "pcb" : null;
-        if (!view) return;
-        const viewerKey = view === "sch" ? schematicViewerKey : pcbViewerKey;
-        const loaded = (view === "sch" ? sch.readyRevision : pcb.readyRevision) === viewerKey;
-        const element = viewers.get(view).element;
-        if (!loaded || !element) return;
-        const signature = `${view}|${viewerKey}|${buildViewStateParams(requestedViewState).toString()}`;
-        if (appliedViewState.current === signature) return;
-        appliedViewState.current = signature;
-        // A sheet path belongs to the schematic; the board ignores it.
-        const state = view === "sch" ? requestedViewState : { ...requestedViewState, page: undefined };
-        void applyViewState(element, state);
-        if (requestedViewState.nets?.length) {
-            setHighlightedNets(requestedViewState.nets.map((netName) => ({ netName })));
-        }
-    }, [activeTab, pcb.readyRevision, pcbViewerKey, requestedViewState, sch.readyRevision, schematicViewerKey,
-        setHighlightedNets, viewerActive, viewers]);
-
     useEffect(() => {
         const applySelection = (
             viewer: EcadViewer,
@@ -971,6 +944,57 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             crossProbeRequestForSelection(selection, sourceContext, semanticIndex),
         );
     }, [activeSchematicPage, activeTab, crossProbeGlobal, semanticIndex, viewers]);
+
+    // Apply the URL's view state once the active view has loaded its document
+    // and the semantic index is in, and again whenever the URL changes. A
+    // reference in `sel` selects the way a design-search pick does, so the
+    // selection panel, the other views and window.prism all see it; uuids,
+    // the sheet, insets and the framed region go to the element directly,
+    // with bbox last so it wins the camera.
+    const appliedViewState = useRef<string | null>(null);
+    useEffect(() => {
+        if (!viewerActive) appliedViewState.current = null;
+    }, [viewerActive]);
+    useEffect(() => {
+        if (!viewerActive || !semanticIndex) return;
+        const view = activeTab === "sch" ? "sch" : activeTab === "pcb" ? "pcb" : null;
+        if (!view) return;
+        const viewerKey = view === "sch" ? schematicViewerKey : pcbViewerKey;
+        const loaded = (view === "sch" ? sch.readyRevision : pcb.readyRevision) === viewerKey;
+        const element = viewers.get(view).element;
+        if (!loaded || !element) return;
+        const signature = `${view}|${viewerKey}|${buildViewStateParams(requestedViewState).toString()}`;
+        if (appliedViewState.current === signature) return;
+        appliedViewState.current = signature;
+
+        const selected = requestedViewState.sel ?? [];
+        const firstComponent = selected
+            .map((reference) => semanticIndex.components.find((entry) => entry.reference === reference))
+            .find((component) => component !== undefined);
+        const direct = {
+            ...requestedViewState,
+            // A sheet path belongs to the schematic; the board ignores it.
+            page: view === "sch" ? requestedViewState.page : undefined,
+            sel: selected.filter((item) => !semanticIndex.components.some((entry) => entry.reference === item)),
+        };
+        void (async () => {
+            if (firstComponent) {
+                handleDesignSearchPick({
+                    kind: "component",
+                    id: firstComponent.reference,
+                    title: firstComponent.reference,
+                    subtitle: "",
+                    score: 0,
+                    component: firstComponent,
+                });
+            }
+            await applyViewState(element, direct);
+        })();
+        if (requestedViewState.nets?.length) {
+            setHighlightedNets(requestedViewState.nets.map((netName) => ({ netName })));
+        }
+    }, [activeTab, handleDesignSearchPick, pcb.readyRevision, pcbViewerKey, requestedViewState, sch.readyRevision,
+        schematicViewerKey, semanticIndex, setHighlightedNets, viewerActive, viewers]);
 
     // The active CAD view, or null on non-CAD tabs (3D, stackup, ...).
     const activeViewContext: "SCH" | "PCB" | null =
