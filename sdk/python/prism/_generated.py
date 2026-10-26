@@ -378,6 +378,31 @@ class BundleKicadStepOut(TypedDict, total=False):
     step: str
 
 
+class BundleStore(TypedDict, total=True):
+    archive_bytes: int
+    archives: int
+
+
+class CacheEntry(TypedDict, total=False):
+    disk_bytes: int | None
+    disk_files: int | None
+    disk_partial: bool
+    hit_rate: float | None
+    hits: int | None
+    misses: int | None
+    name: str
+    newest_access: str | None
+    oldest_access: str | None
+    table_bytes: int | None
+    table_rows: int | None
+
+
+class CacheStats(TypedDict, total=True):
+    bundle_store: BundleStore
+    caches: list[CacheEntry]
+    window_minutes: int
+
+
 class CandidateCreated(TypedDict, total=True):
     job: JobRecord
 
@@ -1333,6 +1358,13 @@ class DeletedCommentView(TypedDict, total=True):
     deleted: str
 
 
+class DeliveryHealth(TypedDict, total=True):
+    deliveries: int
+    error_rate: float
+    failed: int
+    ok: int
+
+
 class DesignAssemblyOut(TypedDict, total=False):
     dnp: bool | None
     excludeFromBoard: bool | None
@@ -1523,6 +1555,19 @@ class DrillTool(TypedDict, total=True):
     hits: int
     plated: bool
     slots: int
+
+
+class EventAndWebhookHealth(TypedDict, total=False):
+    events_last_hour: list[EventKindCount]
+    head_cursor: int
+    oldest_retained_at: str | None
+    retention_days: int
+    webhooks: list[WebhookHealth]
+
+
+class EventKindCount(TypedDict, total=True):
+    count: int
+    kind: str
 
 
 class EventOut(TypedDict, total=True):
@@ -2579,6 +2624,12 @@ class OAuthBeginResponse(TypedDict, total=True):
     authorizeUrl: str
 
 
+class OldestQueued(TypedDict, total=False):
+    age_seconds: float
+    oldest_queued_at: str | None
+    worker_pool: str
+
+
 class OpsStatus(TypedDict, total=True):
     enabled: bool
     scopes: list[str]
@@ -2695,6 +2746,22 @@ class PlacementPart(TypedDict, total=True):
     value: str
     x: float
     y: float
+
+
+class PoolAndWorkers(TypedDict, total=True):
+    memory_budget_mib: int
+    oldest_queued: list[OldestQueued]
+    pool: dict[str, Any]
+    process: ProcessInfo
+    queue: list[QueueDepth]
+    resources: list[ResourceUsage]
+    workers: list[WorkerInfo]
+
+
+class ProcessInfo(TypedDict, total=True):
+    host: str
+    kind: str
+    pid: int
 
 
 class Project(TypedDict, total=False):
@@ -2982,6 +3049,13 @@ class PushCommentsView(TypedDict, total=True):
     success: bool
 
 
+class QueueDepth(TypedDict, total=True):
+    count: int
+    kind: str
+    status: str
+    worker_pool: str
+
+
 class QueueWaitOut(TypedDict, total=False):
     claimed_at: str | None
     created_at: str | None
@@ -3150,6 +3224,13 @@ class ResourceSlotOut(TypedDict, total=False):
     lease_owner: str
     resource_name: str
     slot_number: int
+
+
+class ResourceUsage(TypedDict, total=True):
+    capacity: int
+    free: int
+    in_use: int
+    resource: str
 
 
 class ReviewDecision(TypedDict, total=True):
@@ -3753,6 +3834,21 @@ class WebhookDeliveryView(TypedDict, total=False):
     statusCode: int | None
 
 
+class WebhookHealth(TypedDict, total=False):
+    attempts: int
+    cursor: int
+    deliveries_24h: DeliveryHealth
+    event_kinds: list[str]
+    failing_since: str | None
+    host: str
+    id: str
+    lag: int
+    last_error: str | None
+    last_status: int | None
+    next_attempt_at: str | None
+    status: str
+
+
 class WebhookSecret(TypedDict, total=True):
     """A rotated secret, shown once."""
     secret: str
@@ -3788,6 +3884,19 @@ class WebhookView(TypedDict, total=False):
     projectIds: list[str] | None
     status: str
     url: str
+
+
+class WorkerInfo(TypedDict, total=False):
+    concurrency: int | None
+    host: str | None
+    last_seen_at: str | None
+    memory_budget_mib: int | None
+    pid: int | None
+    pool: str
+    running_jobs: list[dict[str, Any]]
+    stale: bool
+    started_at: str | None
+    worker_id: str
 
 
 class WorkflowQueued(TypedDict, total=True):
@@ -4009,6 +4118,14 @@ class GeneratedClient:
             "/api/v1/catalog/import-sessions/{session_id}/proposals/bulk-accept",
             path_params={"session_id": session_id},
             body=body,
+        )
+
+    def cache_stats(self, *, window_minutes: int = 60) -> CacheStats:
+        """Cache hit rates, table sizes and bounded on-disk sizes"""
+        return self._request(
+            "GET",
+            "/api/v1/ops/caches",
+            query={"window_minutes": window_minutes},
         )
 
     def cancel_job(self, job_id: str) -> JobCancelRequested:
@@ -4478,6 +4595,13 @@ class GeneratedClient:
             "/api/v1/projects/{project_id}/sim/a0/setups",
             path_params={"project_id": project_id},
             body=body,
+        )
+
+    def event_and_webhook_health(self) -> EventAndWebhookHealth:
+        """Event-log head, retention and webhook lag and delivery health"""
+        return self._request(
+            "GET",
+            "/api/v1/ops/event-health",
         )
 
     def export_import_proposals_csv(self, session_id: str) -> Any:
@@ -5836,6 +5960,13 @@ class GeneratedClient:
         return self._request(
             "GET",
             "/api/v1/plugin/version",
+        )
+
+    def pool_and_workers(self) -> PoolAndWorkers:
+        """This process's pool, live workers, resource slots and queue depth"""
+        return self._request(
+            "GET",
+            "/api/v1/ops/pool-and-workers",
         )
 
     def preflight_setup(self, project_id: str, setup_id: str) -> dict[str, Any]:
