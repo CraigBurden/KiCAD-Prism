@@ -98,6 +98,8 @@ class PrismWorker:
         self._bundle_backfill_state = None
         self._next_webhook_delivery = 0.0
         self._webhook_delivery: threading.Thread | None = None
+        self._next_profile_poll = 0.0
+        self._profile_run: threading.Thread | None = None
 
     @staticmethod
     def resource_capacities() -> dict[str, int]:
@@ -614,6 +616,28 @@ class PrismWorker:
         )
         self._webhook_delivery.start()
 
+    def schedule_profiles(self) -> None:
+        """Take a requested ops profile of this supervisor (ADR §11, D26), once a second.
+
+        The sampling runs in its own daemon thread, so it watches the
+        supervision loop rather than stalling it.
+        """
+
+        if self.worker_pool != "prism" or time.monotonic() < self._next_profile_poll:
+            return
+        self._next_profile_poll = time.monotonic() + 1.0
+        if self._profile_run is not None and self._profile_run.is_alive():
+            return
+        from app.services.ops import profiler
+
+        claimed = profiler.claim_for_worker(self.worker_id)
+        if claimed is None:
+            return
+        self._profile_run = threading.Thread(
+            target=profiler.run_claimed, args=(claimed,), name="ops-profile", daemon=True
+        )
+        self._profile_run.start()
+
     def _deliver_webhooks(self) -> None:
         from app.services.webhooks import delivery
 
@@ -697,6 +721,10 @@ class PrismWorker:
                 self.schedule_webhook_deliveries()
             except Exception:
                 self._log_database_error("schedule webhook deliveries")
+            try:
+                self.schedule_profiles()
+            except Exception:
+                self._log_database_error("schedule ops profiles")
             try:
                 self.sweep_job_ends()
             except Exception:

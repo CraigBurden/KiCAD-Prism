@@ -13276,6 +13276,148 @@
         "title": "OAuthBeginResponse",
         "type": "object"
       },
+      "OpsProfile": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finishedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finishedat"
+          },
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host"
+          },
+          "hz": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hz"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "pid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pid"
+          },
+          "requestedBy": {
+            "title": "Requestedby",
+            "type": "string"
+          },
+          "samples": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Samples"
+          },
+          "seconds": {
+            "title": "Seconds",
+            "type": "number"
+          },
+          "stacks": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ProfileStack"
+            },
+            "title": "Stacks",
+            "type": "array"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "workerId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workerid"
+          }
+        },
+        "required": [
+          "id",
+          "target",
+          "status",
+          "seconds",
+          "requestedBy",
+          "createdAt"
+        ],
+        "title": "OpsProfile",
+        "type": "object"
+      },
       "OpsStatus": {
         "properties": {
           "enabled": {
@@ -13886,6 +14028,57 @@
           "status"
         ],
         "title": "PlacementPart",
+        "type": "object"
+      },
+      "ProfileRequest": {
+        "properties": {
+          "seconds": {
+            "default": 5.0,
+            "maximum": 10.0,
+            "minimum": 0.1,
+            "title": "Seconds",
+            "type": "number"
+          },
+          "target": {
+            "default": "api",
+            "enum": [
+              "api",
+              "worker"
+            ],
+            "title": "Target",
+            "type": "string"
+          },
+          "workerId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workerid"
+          }
+        },
+        "title": "ProfileRequest",
+        "type": "object"
+      },
+      "ProfileStack": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "stack": {
+            "title": "Stack",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stack",
+          "count"
+        ],
+        "title": "ProfileStack",
         "type": "object"
       },
       "Project": {
@@ -26494,6 +26687,89 @@
         "summary": "Exchange client credentials for a service token",
         "tags": [
           "oauth"
+        ]
+      }
+    },
+    "/api/v1/ops/profiles": {
+      "post": {
+        "operationId": "capture_profile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpsProfile"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Take a bounded sampling profile",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/api/v1/ops/profiles/{profile_id}": {
+      "get": {
+        "operationId": "get_profile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "title": "Profile Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpsProfile"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One sampling profile",
+        "tags": [
+          "ops"
         ]
       }
     },
