@@ -222,6 +222,99 @@
         "title": "AnalyzeRequest",
         "type": "object"
       },
+      "AnchoredCommentRequest": {
+        "description": "A comment for one design element, named instead of clicked.\n\nExactly one of ``component``, ``net`` or ``sheet`` is required; the route\nanswers 400 ``invalid-anchor`` otherwise, so the refusal carries the typed\nerror the MCP tool surfaces rather than a validation array.",
+        "properties": {
+          "commentClass": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "general",
+            "title": "Commentclass"
+          },
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          },
+          "component": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "net": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "info",
+            "title": "Severity"
+          },
+          "sheet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheet"
+          },
+          "view": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "View"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "AnchoredCommentRequest",
+        "type": "object"
+      },
       "ApplyMetadataBatchRequest": {
         "properties": {
           "item_ids": {
@@ -26833,6 +26926,59 @@
           }
         },
         "summary": "Create a comment on the design",
+        "tags": [
+          "comments"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/comments/anchored": {
+      "post": {
+        "description": "Resolve a component, net or sheet in the revision's bundle, then comment on it.",
+        "operationId": "create_anchored_comment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnchoredCommentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create a comment anchored by design identity",
         "tags": [
           "comments"
         ]

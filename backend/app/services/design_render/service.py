@@ -334,11 +334,7 @@ def _member(read: Any, path: str) -> Any:
 
 
 def _index_component(index: Mapping[str, Any], reference: str) -> Mapping[str, Any] | None:
-    folded = reference.casefold()
-    for component in index.get("components") or []:
-        if str(component.get("reference") or "").casefold() == folded:
-            return component
-    return None
+    return geometry.index_component(index, reference)
 
 
 def _first_sheet(
@@ -355,14 +351,6 @@ def _first_sheet(
             document = geometry.document_for_symbol(board_objects, str(sheet_ref.get("symbolUuid") or ""))
             return page, str(document.get("path")) if document else None
     return "1", None
-
-
-def _sheet_for_component(index: Mapping[str, Any], reference: str) -> str | None:
-    component = _index_component(index, reference)
-    if component is None:
-        return None
-    first = next(iter(component.get("schematicRefs") or []), None)
-    return str(first.get("sheetInstancePath")) if isinstance(first, Mapping) else None
 
 
 def _select_sheet(

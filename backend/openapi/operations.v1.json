@@ -149,6 +149,11 @@
     "path": "/api/v1/catalog/components/{component_id}/models/convert",
     "typed": true
   },
+  "create_anchored_comment": {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/comments/anchored",
+    "typed": true
+  },
   "create_candidate": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/release-studio/candidates",

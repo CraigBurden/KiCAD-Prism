@@ -28,6 +28,7 @@ from app.api.project_catalog_usage import router as project_catalog_usage_router
 from app.api.project_import_followups import router as project_import_followups_router
 from app.api.design_bundles import router as design_bundles_router
 from app.api.comments import router as comments_router
+from app.api.comments_anchored import router as comments_anchored_router
 from app.api.comment_attachment_links import router as comment_attachment_links_router
 from app.api.comment_live import router as comment_live_router
 from app.api.design_compare import router as design_compare_router
@@ -331,6 +332,7 @@ app.include_router(
     project_import_followups_router, prefix="/api/projects", tags=["projects"]
 )
 app.include_router(comments_router, prefix="/api/projects", tags=["comments"])
+app.include_router(comments_anchored_router, prefix="/api/projects", tags=["comments"])
 app.include_router(comment_live_router, prefix="/api/projects", tags=["comments-live"])
 app.include_router(project_variants_router, prefix="/api/projects", tags=["variants"])
 app.include_router(project_design_query_router, prefix="/api/projects", tags=["design-query"])

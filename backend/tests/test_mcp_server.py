@@ -58,7 +58,12 @@ TOOL_ORDER = [
     "get_release_status",
     "compare_revisions",
     "get_changes",
+    "add_comment",
+    "reply_to_comment",
+    "resolve_comment",
 ]
+
+WRITE_TOOLS = frozenset({"add_comment", "reply_to_comment", "resolve_comment"})
 
 
 def unique(prefix: str) -> str:
@@ -285,7 +290,7 @@ class McpServerTests(unittest.TestCase):
 
     # --------------------------------------------------------------- tools
 
-    def test_tools_list_is_deterministic_and_read_only(self) -> None:
+    def test_tools_list_is_deterministic_and_typed(self) -> None:
         first = self.mcp({"jsonrpc": "2.0", "id": 5, "method": "tools/list"}, headers=self.headers)
         second = self.mcp({"jsonrpc": "2.0", "id": 6, "method": "tools/list"}, headers=self.headers)
         self.assertEqual(first["result"], second["result"])
@@ -294,14 +299,18 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual([tool["name"] for tool in listed], TOOL_ORDER)
         for tool in listed:
             with self.subTest(tool=tool["name"]):
-                self.assertEqual(
-                    tool["annotations"],
-                    {
-                        "readOnlyHint": True,
-                        "idempotentHint": tool["name"] != "compare_revisions",
-                        "openWorldHint": False,
-                    },
-                )
+                if tool["name"] in WRITE_TOOLS:
+                    self.assertFalse(tool["annotations"]["readOnlyHint"])
+                    self.assertIn("idempotencyKey", tool["inputSchema"]["properties"])
+                else:
+                    self.assertEqual(
+                        tool["annotations"],
+                        {
+                            "readOnlyHint": True,
+                            "idempotentHint": tool["name"] != "compare_revisions",
+                            "openWorldHint": False,
+                        },
+                    )
                 self.assertEqual(tool["inputSchema"]["type"], "object")
                 self.assertIn("properties", tool["inputSchema"])
         by_name = {tool["name"]: tool for tool in listed}
@@ -309,6 +318,9 @@ class McpServerTests(unittest.TestCase):
         self.assertIn("id", by_name["get_project"]["outputSchema"]["properties"])
         self.assertIn("outputSchema", by_name["get_component"])
         self.assertIn("outputSchema", by_name["get_net"])
+        self.assertIn("outputSchema", by_name["add_comment"])
+        self.assertIn("outputSchema", by_name["reply_to_comment"])
+        self.assertIn("outputSchema", by_name["resolve_comment"])
 
     def test_get_project_matches_the_route_json(self) -> None:
         project = self._project()

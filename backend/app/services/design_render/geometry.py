@@ -52,6 +52,12 @@ class Box:
     def height(self) -> float:
         return self.max_y - self.min_y
 
+    @property
+    def center(self) -> tuple[float, float]:
+        """The point a marker comment is anchored at: the box's centre."""
+
+        return (self.min_x + self.max_x) / 2, (self.min_y + self.max_y) / 2
+
     def union(self, other: "Box") -> "Box":
         return Box(
             min(self.min_x, other.min_x),
@@ -296,10 +302,11 @@ def _schematic_points(
     symbol: Mapping[str, Any] | None,
     *,
     pin: str | None = None,
+    include_anchor: bool = True,
 ) -> list[tuple[float, float]]:
     points: list[tuple[float, float]] = []
     anchor = _point(symbol.get("at")) if symbol is not None else None
-    if anchor is not None:
+    if include_anchor and anchor is not None:
         points.append(anchor)
     parent_uuid = str(symbol.get("uuid") or "") if symbol is not None else ""
     for item in (document or {}).get("objects") or []:
@@ -333,6 +340,42 @@ def component_highlight_schematic(
     if symbol is None:
         return Highlight("component", reference, None)
     return Highlight("component", reference, _box_of_points(_schematic_points(document, symbol)))
+
+
+def schematic_pin_point(
+    document: Mapping[str, Any] | None, reference: str, pin: str
+) -> tuple[float, float] | None:
+    """One schematic pin's point on the page, in mm (y down).
+
+    ``_schematic_points`` also carries the symbol's own anchor; a pin's
+    position is the pin object's ``at``, so the anchor is left out here.
+    """
+
+    symbol = schematic_symbols(document).get(reference)
+    if symbol is None:
+        return None
+    points = _schematic_points(document, symbol, pin=pin, include_anchor=False)
+    return points[0] if points else None
+
+
+def index_component(index: Mapping[str, Any], reference: str) -> Mapping[str, Any] | None:
+    """The semantic-index component whose reference matches, ignoring case."""
+
+    folded = reference.casefold()
+    for component in index.get("components") or []:
+        if str(component.get("reference") or "").casefold() == folded:
+            return component
+    return None
+
+
+def sheet_for_component(index: Mapping[str, Any], reference: str) -> str | None:
+    """The first sheet instance path a component is drawn on, if any."""
+
+    component = index_component(index, reference)
+    if component is None:
+        return None
+    first = next(iter(component.get("schematicRefs") or []), None)
+    return str(first.get("sheetInstancePath")) if isinstance(first, Mapping) else None
 
 
 def net_highlight_schematic(
@@ -388,11 +431,14 @@ __all__ = [
     "document_for_symbol",
     "fit_region",
     "footprint_box",
+    "index_component",
     "net_highlight_schematic",
     "net_pcb_highlight",
     "pad_box",
     "placements_by_reference",
     "rotate_local",
+    "schematic_pin_point",
     "schematic_symbols",
+    "sheet_for_component",
     "union",
 ]
