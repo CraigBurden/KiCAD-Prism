@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.redaction import redact_text, redact_value
+from app.services.job_runtime import JobLogNotFound, tail_job_log
 from app.services.job_service import jobs
 from app.services.postgres_database import database
 
@@ -233,14 +234,9 @@ def _log_tail(job: dict[str, Any], line_count: int) -> list[str]:
     log_path = str(job.get("log_path") or "")
     if not log_path:
         return []
-    # The jobs route owns the "is this path inside the job state root" check.
-    from fastapi import HTTPException
-
-    from app.api.jobs import _tail_log
-
     try:
-        lines = _tail_log(Path(log_path), line_count)
-    except (HTTPException, OSError):
+        lines = tail_job_log(Path(log_path), line_count)
+    except (JobLogNotFound, OSError):
         # A missing, moved or out-of-root log is not an ops failure: the
         # timeline still answers from the database.
         return []
