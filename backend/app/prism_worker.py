@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import IO
 
 from app.core.config import settings
+from app.core import runtime_logging
 from app.services.job_handlers import settle_job_end, sweep_job_ends
 from app.services.job_kinds import resource_capacities
 from app.services.job_runtime import job_state_root
@@ -41,6 +42,10 @@ class RunningJob:
     termination_reason: str = ""
     finalized_observed: float | None = None
     log_closed: bool = False
+    #: The claimed job's kind and the moment this process started it; the ops
+    #: heartbeat publishes both without reading the job row again.
+    kind: str = ""
+    started_at: datetime | None = None
 
 
 @dataclass
@@ -85,6 +90,7 @@ class PrismWorker:
         self.running: dict[str, RunningJob] = {}
         self.pending_releases: dict[str, PendingRelease] = {}
         self.stopping = False
+        self.started_at = datetime.now(timezone.utc)
         self._last_database_error_log = 0.0
         self._catalog_maintenance_date = ""
         self._auto_sync_attempts: dict[str, datetime] = {}
@@ -98,6 +104,7 @@ class PrismWorker:
         self._bundle_backfill_state = None
         self._next_webhook_delivery = 0.0
         self._webhook_delivery: threading.Thread | None = None
+        self._next_worker_heartbeat = 0.0
 
     @staticmethod
     def resource_capacities() -> dict[str, int]:
@@ -326,6 +333,8 @@ class PrismWorker:
             process=process,
             log_handle=log_handle,
             last_heartbeat=now,
+            kind=str(job.get("kind") or ""),
+            started_at=datetime.now(timezone.utc),
         )
         logger.info(
             "Started job=%s fence=%s attempt=%s pid=%s",
@@ -596,6 +605,38 @@ class PrismWorker:
             except Exception:
                 logger.exception("Design bundle retention failed")
 
+    def schedule_worker_heartbeat(self) -> None:
+        """Publish this worker's row at most every fifteen seconds.
+
+        The row carries identifiers, timings and counts only, never design
+        content: one ``{job_id, kind, started_at, pid}`` per running job.
+        """
+
+        now = time.monotonic()
+        if now < self._next_worker_heartbeat:
+            return
+        self._next_worker_heartbeat = now + 15
+        from app.services.ops import workers
+
+        workers.heartbeat(
+            self.worker_id,
+            self.worker_pool,
+            socket.gethostname(),
+            os.getpid(),
+            self.started_at,
+            self.concurrency,
+            settings.PRISM_WORKER_MEMORY_BUDGET_MIB,
+            [
+                {
+                    "job_id": running.job_id,
+                    "kind": running.kind,
+                    "started_at": running.started_at,
+                    "pid": running.process.pid,
+                }
+                for running in self.running.values()
+            ],
+        )
+
     def schedule_webhook_deliveries(self) -> None:
         """One outbound-webhook pass every five seconds, never two at once.
 
@@ -669,6 +710,7 @@ class PrismWorker:
             return
         self.validate_memory_admission()
         self.mount_tracker_composition()
+        runtime_logging.start_poller()
         logger.info(
             "Worker %s started pool=%s concurrency=%s memory_budget=%sMiB",
             self.worker_id,
@@ -701,6 +743,10 @@ class PrismWorker:
                 self.sweep_job_ends()
             except Exception:
                 self._log_database_error("settle ended jobs")
+            try:
+                self.schedule_worker_heartbeat()
+            except Exception:
+                self._log_database_error("publish the worker heartbeat")
             self.supervise()
             available_slots = self.concurrency - len(self.running) - len(self.pending_releases)
             while available_slots > 0:
@@ -747,6 +793,12 @@ class PrismWorker:
                 "Worker stopped with %s abandoned claims pending lease recovery",
                 len(self.pending_releases),
             )
+        try:
+            from app.services.ops import workers
+
+            workers.forget(self.worker_id)
+        except Exception:
+            logger.exception("Could not remove this worker's ops heartbeat")
         logger.info("Worker %s stopped", self.worker_id)
 
 
