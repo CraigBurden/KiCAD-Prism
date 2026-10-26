@@ -2135,6 +2135,27 @@ class MateRequest(TypedDict, total=True):
     componentId: str
 
 
+class McpAuditPage(TypedDict, total=True):
+    next: int | None
+    rows: list[McpAuditRow]
+
+
+class McpAuditRow(TypedDict, total=False):
+    at: str
+    auth_type: str
+    client_id: str
+    code: str | None
+    duration_ms: int
+    id: int
+    method: str
+    outcome: str
+    project_id: str | None
+    revision: str | None
+    token_id: str
+    tool: str
+    user_email: str
+
+
 class McpClientAdminView(TypedDict, total=False):
     client_name: str
     created_at: str
@@ -2153,6 +2174,26 @@ class McpClientView(TypedDict, total=False):
     id: str
     last_used_at: str | None
     scopes: list[str]
+
+
+class McpGovernance(TypedDict, total=False):
+    """The workspace's MCP policy, in the spelling the Settings API uses."""
+    disabledTools: list[str]
+    projectIds: list[str]
+    projectScope: str
+
+
+class McpGovernanceView(TypedDict, total=False):
+    """The saved policy plus every registered tool, disabled or not."""
+    disabledTools: list[str]
+    projectIds: list[str]
+    projectScope: str
+    tools: list[McpToolView]
+
+
+class McpToolView(TypedDict, total=True):
+    name: str
+    title: str
 
 
 class MemberRecord(TypedDict, total=True):
@@ -4522,6 +4563,13 @@ class GeneratedClient:
             query={"tail": tail},
         )
 
+    def get_mcp_governance(self) -> McpGovernanceView:
+        """Get Mcp Governance"""
+        return self._request(
+            "GET",
+            "/api/v1/settings/mcp",
+        )
+
     def get_metadata_batch(self, batch_id: str) -> MetadataBatch:
         """Read a metadata batch"""
         return self._request(
@@ -5203,6 +5251,14 @@ class GeneratedClient:
             path_params={"component_id": component_id},
         )
 
+    def list_mcp_audit(self, *, client_id: str | None = None, user: str | None = None, project_id: str | None = None, tool: str | None = None, before: int | None = None, limit: int = 100) -> McpAuditPage:
+        """List Mcp Audit"""
+        return self._request(
+            "GET",
+            "/api/v1/admin/mcp-audit",
+            query={"client_id": client_id, "user": user, "project_id": project_id, "tool": tool, "before": before, "limit": limit},
+        )
+
     def list_mcp_clients(self) -> list[McpClientView]:
         """List Mcp Clients"""
         return self._request(
@@ -5492,6 +5548,14 @@ class GeneratedClient:
             "POST",
             "/api/v1/projects/{project_id}/comments/push",
             path_params={"project_id": project_id},
+        )
+
+    def put_mcp_governance(self, *, body: dict[str, Any] | None = None) -> McpGovernance:
+        """Put Mcp Governance"""
+        return self._request(
+            "PUT",
+            "/api/v1/settings/mcp",
+            body=body,
         )
 
     def read_catalog(self) -> dict[str, Any]:

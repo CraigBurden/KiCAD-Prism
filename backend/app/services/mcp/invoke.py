@@ -155,6 +155,24 @@ def _failure(code: str, message: str) -> dict[str, Any]:
     return error_result(code, message)
 
 
+def tool_error(code: str, detail: str) -> dict[str, Any]:
+    """A policy refusal shaped like any other tool execution error."""
+
+    return error_result(code, detail)
+
+
+def not_found_error() -> dict[str, Any]:
+    """The refusal a hidden project already gets, so an allowlist does not leak.
+
+    The text and the ``{code, detail}`` body are exactly ``_execution_error``
+    produces for the project routes' 404.
+    """
+
+    return _execution_error(
+        404, _json({"detail": "Project not found", "code": "not_found"}).encode("utf-8")
+    )
+
+
 async def _call_route(
     app: Any,
     method: str,
@@ -291,6 +309,8 @@ __all__ = [
     "call_route",
     "call_tool",
     "error_result",
+    "not_found_error",
     "success_result",
     "text_block",
+    "tool_error",
 ]
