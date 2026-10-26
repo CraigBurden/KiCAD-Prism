@@ -93,6 +93,7 @@ export interface CommentReply {
     author: string;
     authorKind?: CommentAuthorKind;
     authorClientId?: string | null;
+    authorClientName?: string | null;
     timestamp: string;
     content: string;
     contentFormat?: CommentContentFormat;
@@ -112,6 +113,7 @@ export interface Comment {
     author: string;
     authorKind?: CommentAuthorKind;
     authorClientId?: string | null;
+    authorClientName?: string | null;
     timestamp: string;
     status: CommentStatus;
     context: CommentContext;

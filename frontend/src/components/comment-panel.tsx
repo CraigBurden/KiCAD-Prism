@@ -277,6 +277,7 @@ function PanelCommentCard({
                         <CommentAuthorKindBadge
                             authorKind={comment.authorKind}
                             authorClientId={comment.authorClientId}
+                            authorClientName={comment.authorClientName}
                         />
                         {comment.elementRef && (
                             <Badge variant="outline" className="h-5 px-1 text-[10px]">
@@ -410,6 +411,7 @@ function PanelCommentCard({
                                                 <CommentAuthorKindBadge
                                                     authorKind={item.authorKind}
                                                     authorClientId={item.authorClientId}
+                                                    authorClientName={item.authorClientName}
                                                 />
                                             </span>
                                             <span className="text-[10px] text-muted-foreground">

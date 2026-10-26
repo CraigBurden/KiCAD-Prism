@@ -4287,6 +4287,17 @@
             ],
             "title": "Authorclientid"
           },
+          "authorClientName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authorclientname"
+          },
           "authorKind": {
             "title": "Authorkind",
             "type": "string"
@@ -4485,6 +4496,17 @@
               }
             ],
             "title": "Authorclientid"
+          },
+          "authorClientName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authorclientname"
           },
           "authorKind": {
             "title": "Authorkind",

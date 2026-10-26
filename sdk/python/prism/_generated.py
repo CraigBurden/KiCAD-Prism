@@ -766,6 +766,7 @@ class CommentReplyView(TypedDict, total=False):
     attachments: list[CommentAttachmentView] | None
     author: str
     authorClientId: str | None
+    authorClientName: str | None
     authorKind: str
     authorUserId: str | None
     content: str
@@ -795,6 +796,7 @@ class CommentView(TypedDict, total=False):
     attachments: list[CommentAttachmentView] | None
     author: str
     authorClientId: str | None
+    authorClientName: str | None
     authorKind: str
     authorUserId: str | None
     baseCommit: str | None
