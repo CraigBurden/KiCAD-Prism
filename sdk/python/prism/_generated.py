@@ -2630,6 +2630,25 @@ class OldestQueued(TypedDict, total=False):
     worker_pool: str
 
 
+class OpsProfile(TypedDict, total=False):
+    createdAt: str
+    error: str | None
+    finishedAt: str | None
+    host: str | None
+    hz: int | None
+    id: str
+    pid: int | None
+    requestedBy: str
+    samples: int | None
+    seconds: float
+    stacks: list[ProfileStack]
+    startedAt: str | None
+    status: str
+    target: str
+    truncated: bool
+    workerId: str | None
+
+
 class OpsStatus(TypedDict, total=True):
     enabled: bool
     scopes: list[str]
@@ -2762,6 +2781,17 @@ class ProcessInfo(TypedDict, total=True):
     host: str
     kind: str
     pid: int
+
+
+class ProfileRequest(TypedDict, total=False):
+    seconds: float
+    target: str
+    workerId: str | None
+
+
+class ProfileStack(TypedDict, total=True):
+    count: int
+    stack: str
 
 
 class Project(TypedDict, total=False):
@@ -4136,6 +4166,14 @@ class GeneratedClient:
             path_params={"job_id": job_id},
         )
 
+    def capture_profile(self, *, body: dict[str, Any] | None = None) -> OpsProfile:
+        """Take a bounded sampling profile"""
+        return self._request(
+            "POST",
+            "/api/v1/ops/profiles",
+            body=body,
+        )
+
     def catalog_health(self, *, check_files: bool = False) -> CatalogHealth:
         """Report catalog health"""
         return self._request(
@@ -5097,6 +5135,14 @@ class GeneratedClient:
             "GET",
             "/api/v1/catalog/previews/jobs/{job_id}",
             path_params={"job_id": job_id},
+        )
+
+    def get_profile(self, profile_id: str) -> OpsProfile:
+        """One sampling profile"""
+        return self._request(
+            "GET",
+            "/api/v1/ops/profiles/{profile_id}",
+            path_params={"profile_id": profile_id},
         )
 
     def get_project_3d_model(self, project_id: str, *, commit: str | None = None) -> Any:

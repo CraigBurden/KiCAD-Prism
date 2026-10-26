@@ -99,6 +99,11 @@
     "path": "/api/v1/jobs/{job_id}/cancel",
     "typed": true
   },
+  "capture_profile": {
+    "method": "POST",
+    "path": "/api/v1/ops/profiles",
+    "typed": true
+  },
   "catalog_health": {
     "method": "GET",
     "path": "/api/v1/catalog/health",
@@ -682,6 +687,11 @@
   "get_preview_job": {
     "method": "GET",
     "path": "/api/v1/catalog/previews/jobs/{job_id}",
+    "typed": true
+  },
+  "get_profile": {
+    "method": "GET",
+    "path": "/api/v1/ops/profiles/{profile_id}",
     "typed": true
   },
   "get_project_3d_model": {

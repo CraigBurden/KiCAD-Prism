@@ -565,3 +565,4 @@ from app.services.mcp import tools_comments as _tools_comments  # noqa: E402, F4
 from app.services.mcp import tools_ops_jobs as _tools_ops_jobs  # noqa: E402, F401
 # Ops diagnostics register last, and are listed only while ops is on (ADR §11).
 from app.services.mcp import tools_ops_runtime as _tools_ops_runtime  # noqa: E402, F401
+from app.services.mcp import tools_ops_profile as _tools_ops_profile  # noqa: E402, F401
