@@ -220,6 +220,15 @@ class EventLiveSocketTests(unittest.TestCase):
 
         self.assertEqual(frame, {"type": "heartbeat", "next": after})
 
+    def test_nothing_is_delivered_before_the_first_subscribe(self) -> None:
+        event_log.record("job.finished", project_id=self.project)
+        with patch.object(self.events_live, "_HEARTBEAT_SECONDS", 0.1):
+            with self._socket() as socket:
+                frame = socket.receive_json()
+
+        # The idle read waits for the client's cursor instead of replaying the log from 0.
+        self.assertEqual(frame, {"type": "heartbeat", "next": 0})
+
     def test_a_provider_token_is_refused_before_accept(self) -> None:
         user = _user(auth_type="kicad_provider", scopes=["api:read"])
         with self.assertRaises(WebSocketDisconnect) as refused:

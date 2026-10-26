@@ -176,6 +176,9 @@ async def live_events(websocket: WebSocket) -> None:
     await websocket.accept()
     topics: list[str] | None = None
     cursor = 0
+    # Nothing is delivered before the first subscribe frame: it carries the
+    # client's cursor, and reading from 0 would replay the whole retained log.
+    subscribed = False
     try:
         heartbeat_at = time.monotonic() + _HEARTBEAT_SECONDS
         while True:
@@ -207,6 +210,7 @@ async def live_events(websocket: WebSocket) -> None:
                     if not isinstance(frame, dict):
                         raise BadSubscribe("a frame must be a JSON object")
                     cursor, topics = await _subscribe(websocket, frame, user, cursor)
+                    subscribed = True
                 except (BadSubscribe, json.JSONDecodeError):
                     await _send_error(websocket, "invalid-subscribe")
                 heartbeat_at = time.monotonic() + _HEARTBEAT_SECONDS
@@ -217,11 +221,14 @@ async def live_events(websocket: WebSocket) -> None:
                 # that arrived while this socket was busy.
                 while not queue.empty():
                     queue.get_nowait()
-                cursor, _delivered = await _deliver(websocket, cursor, user, topics)
+                if subscribed:
+                    cursor, _delivered = await _deliver(websocket, cursor, user, topics)
             else:
                 # Idle. Read anyway so a lost NOTIFY cannot stall the stream,
                 # and send the heartbeat when the read found nothing.
-                cursor, delivered = await _deliver(websocket, cursor, user, topics)
+                delivered = False
+                if subscribed:
+                    cursor, delivered = await _deliver(websocket, cursor, user, topics)
                 if not delivered:
                     await asyncio.wait_for(
                         websocket.send_json({"type": "heartbeat", "next": cursor}),
