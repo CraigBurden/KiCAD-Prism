@@ -20,7 +20,7 @@ from typing import Any
 from urllib.parse import quote
 
 from app.core.config import settings
-from app.core.links import project_url, resource_uri
+from app.core.links import resource_uri, view_url
 from app.services.mcp import invoke
 from app.services.mcp.registry import (
     READ_ONLY_ANNOTATIONS,
@@ -51,12 +51,19 @@ def _body(arguments: dict[str, Any]) -> dict[str, Any]:
     return {key: arguments[key] for key in fields if arguments.get(key) is not None}
 
 
-def _link(project_id: str, commit: str, view: str) -> str | None:
+def _link(project_id: str, commit: str, view: str, highlights: Any) -> str | None:
     base = settings.PUBLIC_BASE_URL.strip().rstrip("/")
     if not base:
         return None
     tab = {"schematic": "sch", "pcb": "pcb", "3d": "3d"}.get(view, "sch")
-    return project_url(base, project_id, section="visualizers", tab=tab, commit=commit)
+    found = [
+        item
+        for item in highlights or []
+        if isinstance(item, dict) and item.get("found") and item.get("key")
+    ]
+    sel = tuple(str(item["key"]) for item in found if item.get("kind") == "component")
+    nets = tuple(str(item["key"]) for item in found if item.get("kind") == "net")
+    return view_url(base, project_id, tab=tab, commit=commit, sel=sel, nets=nets)
 
 
 def _summary(record: dict[str, Any]) -> str:
@@ -77,7 +84,12 @@ def _summary(record: dict[str, Any]) -> str:
 
 def _image_result(record: dict[str, Any], png: bytes, *, project_id: str) -> dict[str, Any]:
     structured = dict(record)
-    link = _link(project_id, str(record.get("commit") or ""), str(record.get("view") or ""))
+    link = _link(
+        project_id,
+        str(record.get("commit") or ""),
+        str(record.get("view") or ""),
+        record.get("highlights") or [],
+    )
     if link:
         structured["link"] = link
     structured["uri"] = resource_uri(

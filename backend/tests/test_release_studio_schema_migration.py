@@ -1756,6 +1756,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (135, "mcp_governance"),
                 (136, "mcp_audit"),
                 (137, "webhooks"),
+                (138, "token_audit"),
             ],
         )
 
