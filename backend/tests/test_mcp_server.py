@@ -499,7 +499,7 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual(
             net["link"],
             f"{BASE}/project/project%2Fone?section=visualizers&tab=pcb"
-            f"&commit={COMMIT}&nets=Power%2F%2B12V",
+            f"&commit={COMMIT}&nets=Power%252F%252B12V",
         )
 
         bom = mcp_tools.present(
@@ -536,7 +536,7 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual(
             rows[2]["link"],
             f"{BASE}/project/project%2Fone?section=visualizers&tab=pcb"
-            f"&commit={COMMIT}&nets=Power%2F%2B12V",
+            f"&commit={COMMIT}&nets=Power%252F%252B12V",
         )
 
 

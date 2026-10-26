@@ -104,7 +104,7 @@ class LinkTests(unittest.TestCase):
         self.assertEqual(
             link,
             "https://prism.test/project/p1?section=visualizers&tab=pcb"
-            f"&commit={COMMIT}&sel=R1&nets=Power%2F%2B12V",
+            f"&commit={COMMIT}&sel=R1&nets=Power%252F%252B12V",
         )
 
 

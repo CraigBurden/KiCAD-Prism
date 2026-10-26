@@ -73,11 +73,17 @@ def project_url(
 
 
 def _joined_query_value(values: Iterable[str]) -> _RawQueryValue | None:
-    """Each item quoted on its own, joined by literal commas."""
+    """Each item quoted on its own, joined by literal commas.
+
+    The frontend (``lib/view-state-url.ts``) reads the parameter's decoded
+    value, splits it on commas, then decodes each item again. So an item is
+    quoted twice: once as a list item, once as part of the query value. A
+    plain reference such as ``R1`` comes out unchanged.
+    """
 
     if isinstance(values, str):
         values = (values,)
-    items = [quote(str(item), safe="") for item in values if str(item)]
+    items = [quote(quote(str(item), safe=""), safe="") for item in values if str(item)]
     return _RawQueryValue(",".join(items)) if items else None
 
 

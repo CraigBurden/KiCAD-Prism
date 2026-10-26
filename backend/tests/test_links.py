@@ -151,10 +151,19 @@ class ViewUrlTests(unittest.TestCase):
             sel=("U1", "R,2", "A/B", "C D", "板"),
             nets=("Power/+12V", "GND"),
         )
-        self.assertIn("sel=U1,R%2C2,A%2FB,C%20D,%E6%9D%BF&", url)
-        self.assertIn("nets=Power%2F%2B12V,GND", url)
-        self.assertNotIn("%252C", url)
+        self.assertIn("sel=U1,R%252C2,A%252FB,C%2520D,%25E6%259D%25BF&", url)
+        self.assertIn("nets=Power%252F%252B12V,GND", url)
         self.assertIn("sel=U1", view_url(BASE, "prj_1", sel="U1"))
+
+    def test_lists_read_back_the_way_the_frontend_reads_them(self) -> None:
+        # lib/view-state-url.ts: URLSearchParams.get (one decode), split on
+        # commas, decodeURIComponent each item.
+        from urllib.parse import parse_qs, unquote, urlsplit
+
+        items = ["U1", "R,2", "A/B", "C D", "板", "50%"]
+        query = parse_qs(urlsplit(view_url(BASE, "prj_1", sel=items, nets=items)).query)
+        for key in ("sel", "nets"):
+            self.assertEqual([unquote(part) for part in query[key][0].split(",")], items)
 
     def test_bbox_numbers_have_no_trailing_zeros(self) -> None:
         self.assertIn(
