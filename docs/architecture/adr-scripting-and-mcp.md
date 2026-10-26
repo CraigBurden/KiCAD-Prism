@@ -330,12 +330,12 @@ On a team's server the people debugging Prism usually can't reach a shell. Narro
 | `get_slow_queries` | `ops:read` | `pg_stat_statements` by total and by mean time |
 | `get_pool_and_workers` | `ops:read` | this process's DB pool, `ws_ops_workers`, resource slots in use, queue depth by kind and status |
 | `get_cache_stats` | `ops:read` | cache hit and miss counters, cache table sizes and on-disk cache sizes (measured at most every 5 minutes) |
-| `trace_request` | `ops:read` | `ws_ops_requests` plus the jobs, events and audit rows carrying that request id |
+| `list_recent_requests`, `trace_request` | `ops:read` | `ws_ops_requests` newest first, and one request id joined with the jobs, events and audit rows carrying it |
 | `capture_profile` | `ops:read` | D26 |
 | `get_event_and_webhook_health` | `ops:read` | event-log head and retention, each webhook's cursor lag, failing endpoints, delivery error rates |
-| `cancel_job`, `requeue_job` | `ops:act` | the job service: cancel is the existing request; requeue resets a failed or lease-expired job to `queued` |
+| `cancel_job`, `requeue_job` | `ops:act` | the job service: cancel is the existing request; requeue resets a failed, retry-waiting or lease-expired running job to `queued`, never one with a cancel requested |
 | `rebuild_bundle` | `ops:act` | the existing design-bundle regenerate path |
-| `set_debug_logging` | `ops:act` | D28 |
+| `set_debug_logging` | `ops:act` | D28; only `app` and its child loggers, since third-party loggers can log URLs and query arguments |
 
 Every ops tool call is audited like any other MCP call, and the HTTP routes behind them are audited by D19.
 
