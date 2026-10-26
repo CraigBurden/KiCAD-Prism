@@ -8,9 +8,10 @@ queue's decoder; every model accepts keys it does not name
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class LocalInventory(BaseModel):
@@ -810,6 +811,268 @@ class MetadataBatch(BaseModel):
     items: list[MetadataBatchItem]
 
 
+# ─── Write responses ────────────────────────────────────────────────────────
+#
+# ``ImportSessionCreated`` and its siblings describe what a write route returns
+# today. Optional fields are absent from a body when the service omits the key;
+# every route that can omit one is served with ``response_model_exclude_unset``.
+
+
+class ImportSessionCreated(ImportSession):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    job_id: str
+
+
+class FolderSnapshot(BaseModel):
+    """A ``catalog_import_snapshots`` row as ``create_snapshot`` returns it.
+
+    ``created_at`` and ``completed_at`` arrive as ``datetime`` values from
+    PostgreSQL. The route's JSON has always carried their ISO spelling
+    (``+00:00``, not Pydantic's ``Z``), so the model states the wire type and
+    converts the raw value instead of re-serializing it.
+    """
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    id: str
+    source_type: str
+    display_name: str
+    source_locator: str
+    status: str
+    manifest_sha256: str
+    file_count: int
+    size_bytes: int
+    created_by: str
+    created_at: str
+    completed_at: str | None
+
+    @field_validator("created_at", "completed_at", mode="before")
+    @classmethod
+    def _wire_timestamp(cls, value: Any) -> Any:
+        return value.isoformat() if isinstance(value, datetime) else value
+
+
+class FolderSnapshotFile(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    relative_path: str
+    sha256: str
+    size_bytes: int
+
+
+class FolderDiscoveryFootprintFile(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    relative_path: str
+    library: str
+    name: str
+    filename_name: str
+
+
+class FolderDiscoveryFootprint(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    status: str
+    selected: FolderDiscoveryFootprintFile | None
+    candidates: list[FolderDiscoveryFootprintFile]
+
+
+class FolderDiscoveryModel(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    reference: str
+    status: str
+    candidates: list[dict[str, Any]]
+
+
+class FolderDiscoveryFinding(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    code: str
+    severity: str
+    message: str
+
+
+class FolderDiscoveryMetadata(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    value: str
+    description: str
+    datasheet: str
+    manufacturer: str
+    manufacturer_part_number: str
+    fields: dict[str, str]
+
+
+class FolderDiscoverySymbol(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    relative_path: str
+
+
+class FolderDiscoveryMatch(BaseModel):
+    """The catalog part an identity already belongs to (``existing_component``)."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    component_id: str
+    revision_id: str
+    version: int
+    name: str
+    manufacturer: str
+    manufacturer_part_number: str
+    is_active: bool
+
+
+class FolderDiscoveryComponent(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    id: str
+    symbol_name: str
+    library: str
+    metadata: FolderDiscoveryMetadata
+    symbol: FolderDiscoverySymbol
+    footprint_reference: str
+    footprint: FolderDiscoveryFootprint
+    models: list[FolderDiscoveryModel]
+    findings: list[FolderDiscoveryFinding]
+    existing_component: FolderDiscoveryMatch | None
+
+
+class FolderDiscovery(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    components: list[FolderDiscoveryComponent]
+    required_paths: list[str]
+    inventory_file_count: int
+    discovery_file_count: int
+    directory_signature: str
+    existing_component_count: int
+
+
+class ImportProposalAcceptance(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    proposal: ImportProposal | None
+    component: CatalogComponent | None
+
+
+class BulkImportAcceptanceItem(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    proposal_id: str
+    status: str
+    component_id: str | None = None
+    error: str | None = None
+
+
+class BulkImportAcceptance(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    accepted: int
+    failed: int
+    results: list[BulkImportAcceptanceItem]
+
+
+class SavedImportDrafts(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    saved: int
+
+
+class ImportedProposalCsv(SavedImportDrafts):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    skipped_unknown_rows: int
+
+
+class ComponentMutation(BaseModel):
+    """A write that answers with the component's fresh payload."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    component: CatalogComponent | None
+
+
+class ComponentDeleteResult(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    ok: bool
+
+
+class SymbolImportResult(BaseModel):
+    """``selection_required`` stops before writing; ``imported`` carries the component."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    mode: str
+    discovered_symbols: list[str] | None = None
+    selected_symbol: str | None = None
+    component: CatalogComponent | None = None
+
+
+class FootprintImportResult(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    mode: str
+    discovered_footprints: list[str] | None = None
+    selected_footprint: str | None = None
+    component: CatalogComponent | None = None
+
+
+class CatalogJobQueued(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    job_id: str
+    status: str
+
+
+class MetadataBatchStarted(CatalogJobQueued):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    batch_id: str
+
+
+class MetadataCsvPreview(MetadataBatch):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    source_rows: int
+    skipped_unchanged_rows: int
+
+
+class KicadDblMissingModel(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    component_id: str
+    revision_id: str
+    asset_id: str
+    reason: str
+
+
+class KicadDblBundle(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    export_root: str
+    component_count: int
+    category_count: int
+    sqlite_path: str
+    linux_dbl: str
+    windows_dbl: str
+    sym_lib_table: str
+    fp_lib_table: str
+    model_count: int
+    missing_models: list[KicadDblMissingModel]
+
+
+class InventoryImportResult(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    updated: int
+    not_found: int
+    errors: list[str]
+
+
 __all__ = [
     "AssetBrowseResult",
     "AssetChange",
@@ -818,14 +1081,19 @@ __all__ = [
     "AuditEvent",
     "AuditEventPage",
     "AuditVerification",
+    "BulkImportAcceptance",
+    "BulkImportAcceptanceItem",
     "CatalogCategories",
     "CatalogCategory",
     "CatalogComponent",
     "CatalogComponentPage",
     "CatalogHealth",
     "CatalogJob",
+    "CatalogJobQueued",
     "CatalogJobWithEvents",
     "ComponentAsset",
+    "ComponentDeleteResult",
+    "ComponentMutation",
     "ComponentPreview",
     "ComponentReleaseRecord",
     "ComponentReleaseRecordPage",
@@ -836,15 +1104,35 @@ __all__ = [
     "ComponentUsage",
     "ComponentUsagePage",
     "ComponentValidation",
+    "FolderDiscovery",
+    "FolderDiscoveryComponent",
+    "FolderDiscoveryFinding",
+    "FolderDiscoveryFootprint",
+    "FolderDiscoveryFootprintFile",
+    "FolderDiscoveryMatch",
+    "FolderDiscoveryMetadata",
+    "FolderDiscoveryModel",
+    "FolderDiscoverySymbol",
     "FolderImportRoot",
     "FolderImportRootPage",
+    "FolderSnapshot",
+    "FolderSnapshotFile",
+    "FootprintImportResult",
     "ImportProposal",
+    "ImportProposalAcceptance",
     "ImportProposalPage",
     "ImportSession",
+    "ImportSessionCreated",
     "ImportSessionPage",
+    "ImportedProposalCsv",
+    "InventoryImportResult",
+    "KicadDblBundle",
+    "KicadDblMissingModel",
     "MetadataBatch",
     "MetadataBatchItem",
+    "MetadataBatchStarted",
     "MetadataChange",
+    "MetadataCsvPreview",
     "MetadataField",
     "MetadataFieldPage",
     "MetadataGridPage",
@@ -854,6 +1142,8 @@ __all__ = [
     "RepresentationChange",
     "RevisionComparison",
     "RevisionComparisonSummary",
+    "SavedImportDrafts",
+    "SymbolImportResult",
     "ValidationRun",
     "ValidationSummary",
     "WorkflowSummary",
