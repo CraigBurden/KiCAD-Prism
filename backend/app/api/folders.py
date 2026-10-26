@@ -2,14 +2,53 @@ import asyncio
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.errors import value_errors_as
 from app.core.security import AuthenticatedUser, require_designer, require_viewer
+from app.services import project_service
 from app.services.workspace_service import workspace
 from app.api._helpers import _row_to_project
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
+
+
+class FolderNode(BaseModel):
+    """One row of the folder tree the workspace renders."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    id: str
+    name: str
+    parent_id: Optional[str]
+    depth: int
+    has_children: bool
+    direct_project_count: int
+    total_project_count: int
+    visibility_mode: Optional[str]
+    allowed_roles: List[str]
+
+
+class FolderRecord(BaseModel):
+    """A ``ws_folders`` row as the folder-content route returns it."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    id: str
+    name: str
+    parent_id: Optional[str]
+    visibility_mode: Optional[str]
+    allowed_roles: List[str]
+    created_at: str
+    updated_at: str
+
+
+class FolderContents(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    folders: List[FolderRecord]
+    projects: List[project_service.Project]
+
 
 
 class CreateFolderRequest(BaseModel):
@@ -38,12 +77,12 @@ def _normalize_folder_name(name: str) -> str:
     return normalized
 
 
-@router.get("/tree")
+@router.get("/tree", response_model=List[FolderNode], summary="The folder tree the workspace renders")
 async def get_folder_tree(user: AuthenticatedUser = Depends(require_viewer)):
     return await asyncio.to_thread(workspace.get_folder_tree, user.role)
 
 
-@router.get("/contents")
+@router.get("/contents", response_model=FolderContents, summary="Folders and projects directly inside one folder")
 async def get_folder_contents(
     folder_id: Optional[str] = Query(default=None),
     user: AuthenticatedUser = Depends(require_viewer),

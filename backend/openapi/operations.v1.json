@@ -77,7 +77,7 @@
   "benchmark_metrics": {
     "method": "GET",
     "path": "/api/v1/jobs/benchmark-metrics",
-    "typed": false
+    "typed": true
   },
   "browse_library_assets": {
     "method": "GET",
@@ -342,7 +342,7 @@
   "download_file": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/download",
-    "typed": false
+    "typed": true
   },
   "download_member": {
     "method": "GET",
@@ -517,7 +517,7 @@
   "get_design_bundles": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/design-bundles",
-    "typed": false
+    "typed": true
   },
   "get_design_component": {
     "method": "GET",
@@ -532,12 +532,12 @@
   "get_doc_file_content": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/docs/content",
-    "typed": false
+    "typed": true
   },
   "get_docs_files": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/docs",
-    "typed": false
+    "typed": true
   },
   "get_fabrication_layer": {
     "method": "GET",
@@ -552,12 +552,12 @@
   "get_folder_contents": {
     "method": "GET",
     "path": "/api/v1/folders/contents",
-    "typed": false
+    "typed": true
   },
   "get_folder_tree": {
     "method": "GET",
     "path": "/api/v1/folders/tree",
-    "typed": false
+    "typed": true
   },
   "get_git_access": {
     "method": "GET",
@@ -572,22 +572,22 @@
   "get_job": {
     "method": "GET",
     "path": "/api/v1/jobs/{job_id}",
-    "typed": false
+    "typed": true
   },
   "get_job_artifact": {
     "method": "GET",
     "path": "/api/v1/jobs/{job_id}/artifact",
-    "typed": false
+    "typed": true
   },
   "get_job_events": {
     "method": "GET",
     "path": "/api/v1/jobs/{job_id}/events",
-    "typed": false
+    "typed": true
   },
   "get_job_logs": {
     "method": "GET",
     "path": "/api/v1/jobs/{job_id}/logs",
-    "typed": false
+    "typed": true
   },
   "get_metadata_batch": {
     "method": "GET",
@@ -607,7 +607,7 @@
   "get_monorepo_structure": {
     "method": "GET",
     "path": "/api/v1/projects/monorepos/{repo_name}/structure",
-    "typed": false
+    "typed": true
   },
   "get_oauth_callback_url": {
     "method": "GET",
@@ -627,7 +627,7 @@
   "get_output_placement": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/placement",
-    "typed": false
+    "typed": true
   },
   "get_part_manifest": {
     "method": "GET",
@@ -642,12 +642,12 @@
   "get_project_3d_model": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/3d-model",
-    "typed": false
+    "typed": true
   },
   "get_project_asset": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/asset/{asset_path}",
-    "typed": false
+    "typed": true
   },
   "get_project_bom": {
     "method": "GET",
@@ -657,7 +657,7 @@
   "get_project_branches": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/branches",
-    "typed": false
+    "typed": true
   },
   "get_project_comments_source_urls": {
     "method": "GET",
@@ -667,32 +667,32 @@
   "get_project_commit_distance": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/commits/distance",
-    "typed": false
+    "typed": true
   },
   "get_project_commit_file": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/commits/{commit_hash}/file",
-    "typed": false
+    "typed": true
   },
   "get_project_commit_summary": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/commits/{commit_hash}/summary",
-    "typed": false
+    "typed": true
   },
   "get_project_commits": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/commits",
-    "typed": false
+    "typed": true
   },
   "get_project_config": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/config",
-    "typed": false
+    "typed": true
   },
   "get_project_description": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/description",
-    "typed": false
+    "typed": true
   },
   "get_project_detail": {
     "method": "GET",
@@ -707,7 +707,7 @@
   "get_project_ibom": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/ibom",
-    "typed": false
+    "typed": true
   },
   "get_project_import_session": {
     "method": "GET",
@@ -717,17 +717,17 @@
   "get_project_name": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/name",
-    "typed": false
+    "typed": true
   },
   "get_project_overview": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/overview",
-    "typed": false
+    "typed": true
   },
   "get_project_pcb": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/pcb",
-    "typed": false
+    "typed": true
   },
   "get_project_properties": {
     "method": "GET",
@@ -737,32 +737,32 @@
   "get_project_readme": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/readme",
-    "typed": false
+    "typed": true
   },
   "get_project_releases": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/releases",
-    "typed": false
+    "typed": true
   },
   "get_project_schematic": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/schematic",
-    "typed": false
+    "typed": true
   },
   "get_project_subsheets": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/schematic/subsheets",
-    "typed": false
+    "typed": true
   },
   "get_project_thumbnail": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/thumbnail",
-    "typed": false
+    "typed": true
   },
   "get_project_thumbnail_version": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/thumbnail/{thumbnail_digest}",
-    "typed": false
+    "typed": true
   },
   "get_project_tracker": {
     "method": "GET",
@@ -772,12 +772,12 @@
   "get_project_variants": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/variants",
-    "typed": false
+    "typed": true
   },
   "get_project_viewer_support_files": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/viewer/support-files",
-    "typed": false
+    "typed": true
   },
   "get_reply_history": {
     "method": "GET",
@@ -787,17 +787,17 @@
   "get_semantic_index_identity": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/semantic-index/identity",
-    "typed": false
+    "typed": true
   },
   "get_semantic_index_status": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/semantic-index/status",
-    "typed": false
+    "typed": true
   },
   "get_signed_comment_attachment": {
     "method": "GET",
     "path": "/api/v1/public/comment-attachments/{project_id}/{attachment_id}",
-    "typed": false
+    "typed": true
   },
   "get_source": {
     "method": "GET",
@@ -842,7 +842,7 @@
   "get_workspace_bootstrap": {
     "method": "GET",
     "path": "/api/v1/workspace/bootstrap",
-    "typed": false
+    "typed": true
   },
   "impedance_template": {
     "method": "GET",
@@ -1377,7 +1377,7 @@
   "search_projects": {
     "method": "GET",
     "path": "/api/v1/projects/search",
-    "typed": false
+    "typed": true
   },
   "set_model_alignment": {
     "method": "PUT",

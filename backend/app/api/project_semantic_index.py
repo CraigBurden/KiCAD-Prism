@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.api._helpers import get_project_for_role_or_404, gzip_served_path
 from app.core.errors import caller_errors, value_errors_as
@@ -15,7 +15,47 @@ from app.services import semantic_index_service
 router = APIRouter(dependencies=[Depends(require_viewer)])
 
 
-@router.get("/{project_id}/semantic-index/status")
+class SemanticIndexGenerator(BaseModel):
+    """The generator envelope the status route reports."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    name: str
+    version: str
+    build: str
+    cacheTag: str
+    kicadMonkeyVersion: str
+
+
+class SemanticIndexStatus(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    # ``schema`` is the payload's own key; the field is named around Pydantic's
+    # deprecated ``BaseModel.schema`` attribute and serialized by its alias.
+    schema_document: str = Field(alias="schema")
+    projectId: str
+    sourceRevisionKey: str
+    commit: Optional[str]
+    available: bool
+    generator: SemanticIndexGenerator
+
+
+class SemanticIndexDocument(BaseModel):
+    """The generated semantic-index member, served as stored.
+
+    The document's own schema belongs to ``prism-kicad`` and the route passes
+    its file through without parsing it, so this model declares only the JSON
+    object the reader receives.
+    """
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+
+@router.get(
+    "/{project_id}/semantic-index/status",
+    response_model=SemanticIndexStatus,
+    summary="Whether the revision's semantic index is ready",
+)
 async def get_semantic_index_status(
     project_id: str,
     response: Response,
@@ -53,7 +93,11 @@ async def generate_semantic_index(
         return result
 
 
-@router.get("/{project_id}/semantic-index/identity")
+@router.get(
+    "/{project_id}/semantic-index/identity",
+    response_model=SemanticIndexDocument,
+    summary="The revision's semantic-index document",
+)
 async def get_semantic_index_identity(
     request: Request,
     project_id: str,
