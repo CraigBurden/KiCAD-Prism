@@ -71,6 +71,7 @@ from app.services.event_live_broker import broker as event_live_broker
 from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
 from app.core.config import settings
+from app.core import runtime_logging
 from app.core.security_headers import apply_security_headers
 import asyncio
 import os
@@ -83,6 +84,7 @@ import logging
 from app.core.api_version import ApiVersionMiddleware, install_versioned_openapi, operation_id
 from app.core.idempotency import IdempotencyMiddleware
 from app.core.token_audit import TokenAuditMiddleware
+from app.core.request_stats import RequestStatsMiddleware
 from urllib.parse import urlsplit
 
 # Configure logging
@@ -219,6 +221,7 @@ async def lifespan(app: FastAPI):
     configure_git()
     ensure_ssh_dir()
     bring_every_schema_to_head()
+    runtime_logging.start_poller()
     try:
         await asyncio.to_thread(idempotency_store.sweep_expired)
     except Exception as exc:
@@ -238,6 +241,9 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Could not prune the MCP audit log: %s", exc)
     cleanup_superseded_stores()
+    from app.services.ops import stats as ops_stats
+
+    ops_stats.start("api")
     from app.services.trackers.composition import initialize_tracker_composition
 
     initialize_tracker_composition()
@@ -324,6 +330,10 @@ app.add_middleware(IdempotencyMiddleware)
 
 # Outermost: /api/v1/... is rewritten to /api/... before anything else sees it.
 app.add_middleware(ApiVersionMiddleware)
+
+# ADR scripting-and-mcp §11 D23–D24: outermost, so the request id and timing
+# cover everything the other middleware does.
+app.add_middleware(RequestStatsMiddleware)
 
 # Include Routers
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])

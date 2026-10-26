@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Callable, Mapping, Sequence
 
+from app.core import request_context
 from app.services import (
     event_log,
     job_artifact_records,
@@ -193,11 +194,12 @@ class JobService:
                     id, kind, worker_pool, status, message, percent, payload,
                     priority, artifact_key, project_id, repository_id,
                     requested_by, max_attempts, resource_requirements,
-                    lock_requirements, created_at, updated_at, available_at
+                    lock_requirements, created_at, updated_at, available_at,
+                    request_id
                 ) VALUES (
                     %s, %s, %s, 'queued', 'Queued', 0, %s::jsonb,
                     %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb,
-                    NOW(), NOW(), NOW()
+                    NOW(), NOW(), NOW(), %s
                 )
                 RETURNING *
                 """,
@@ -214,6 +216,7 @@ class JobService:
                     int(max_attempts),
                     _json(resource_requirements),
                     _json(lock_requirements),
+                    request_context.request_id(),
                 ),
             ).fetchone()
             self._event(conn, job_id, "queued")
