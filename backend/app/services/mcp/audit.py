@@ -1,10 +1,11 @@
-"""The MCP read audit behind ``GET /api/admin/mcp-audit`` (ADR §3.11, D7).
+"""The token-activity audit behind ``GET /api/admin/mcp-audit`` (ADR §3.11, D7/D19).
 
 Every ``tools/call`` and ``resources/read`` appends one row after it finishes:
 who called it, which project and revision the result names, and whether it
-succeeded, failed or was refused. :func:`record_quietly` owns a transaction of
-its own and logs a failure instead of failing the call it describes — the audit
-is a record, not part of the read.
+succeeded, failed or was refused. ``app.core.token_audit`` appends the same
+shape for each HTTP write made with a bearer token, marked ``method = 'http'``.
+:func:`record_quietly` owns a transaction of its own and logs a failure instead
+of failing the call it describes — the audit is a record, not part of the read.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import logging
 from contextlib import contextmanager
 from typing import Any, Iterator
 
+from app.services.mcp import registry
 from app.services.postgres_database import database
 
 logger = logging.getLogger(__name__)
@@ -96,12 +98,18 @@ def record_quietly(**values: Any) -> int | None:
         return record(**values)
     except Exception:
         logger.warning(
-            "Could not record the MCP %s of %s",
+            "Could not record the audit row for %s %s",
             values.get("method"),
             values.get("tool"),
             exc_info=True,
         )
         return None
+
+
+def write_tool_names() -> list[str]:
+    """The registered tools that change Prism, and therefore count as writes."""
+
+    return sorted(tool.name for tool in registry.tools() if tool.write)
 
 
 def list_page(
@@ -110,10 +118,16 @@ def list_page(
     user_email: str | None = None,
     project_id: str | None = None,
     tool: str | None = None,
+    token_id: str | None = None,
+    kind: str | None = None,
     before: int | None = None,
     limit: int = 100,
 ) -> tuple[list[dict[str, Any]], int | None]:
-    """Newest-first rows and the cursor to read the next page with."""
+    """Newest-first rows and the cursor to read the next page with.
+
+    ``kind`` is ``"write"`` for an HTTP write and for a registered write tool's
+    ``tools/call``; everything else (reads, tasks) is ``"read"``.
+    """
 
     limit = max(_MIN_LIMIT, min(_MAX_LIMIT, int(limit)))
     params = {
@@ -121,6 +135,9 @@ def list_page(
         "user_email": user_email or None,
         "project_id": project_id or None,
         "tool": tool or None,
+        "token_id": token_id or None,
+        "kind": kind if kind in ("read", "write") else None,
+        "write_tools": write_tool_names(),
         "before": before,
         "limit": limit,
     }
@@ -134,6 +151,19 @@ def list_page(
               AND (%(user_email)s::text IS NULL OR user_email = %(user_email)s)
               AND (%(project_id)s::text IS NULL OR project_id = %(project_id)s)
               AND (%(tool)s::text IS NULL OR tool = %(tool)s)
+              AND (%(token_id)s::text IS NULL OR token_id = %(token_id)s)
+              AND (
+                  %(kind)s::text IS NULL
+                  OR (
+                      %(kind)s = 'write'
+                      AND (method = 'http' OR tool = ANY(%(write_tools)s::text[]))
+                  )
+                  OR (
+                      %(kind)s = 'read'
+                      AND method <> 'http'
+                      AND NOT (tool = ANY(%(write_tools)s::text[]))
+                  )
+              )
               AND (%(before)s::bigint IS NULL OR id < %(before)s)
             ORDER BY id DESC
             LIMIT %(limit)s
@@ -181,4 +211,5 @@ __all__ = [
     "record_quietly",
     "result_revision",
     "sweep_older_than",
+    "write_tool_names",
 ]

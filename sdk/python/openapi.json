@@ -11611,6 +11611,7 @@
           },
           "method": {
             "enum": [
+              "http",
               "tools/call",
               "resources/read",
               "tasks/get",
@@ -19392,6 +19393,42 @@
                 }
               ],
               "title": "Tool"
+            }
+          },
+          {
+            "in": "query",
+            "name": "token_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Token Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "read",
+                    "write"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
             }
           },
           {

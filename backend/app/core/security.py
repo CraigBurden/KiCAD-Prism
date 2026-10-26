@@ -20,6 +20,12 @@ from app.services import (
 )
 
 
+#: Where the resolved caller is left in the request's ASGI state. The token-activity
+#: audit (``app.core.token_audit``) reads it after the response, so authentication is
+#: resolved once, by the dependency that already had to do it.
+AUTHENTICATED_USER_STATE = "authenticated_user"
+
+
 class AuthenticatedUser(BaseModel):
     email: str
     name: str
@@ -76,19 +82,26 @@ async def get_current_user_allowing_password_change(request: HTTPConnection) -> 
     event loop that every other request shares.
     """
     if not settings.AUTH_ENABLED:
-        return guest_user()
+        return _remember(request, guest_user())
 
     token = request.cookies.get(SESSION_COOKIE_NAME)
     payload = decode_session_token(token or "")
     if payload:
-        return await asyncio.to_thread(_resolve_session_user, payload["sid"])
+        return _remember(request, await asyncio.to_thread(_resolve_session_user, payload["sid"]))
 
     authorization = request.headers.get("authorization") or ""
     scheme, _, bearer_token = authorization.partition(" ")
     if scheme.casefold() == "bearer" and bearer_token.strip():
-        return await asyncio.to_thread(_resolve_bearer_user, bearer_token.strip())
+        return _remember(request, await asyncio.to_thread(_resolve_bearer_user, bearer_token.strip()))
 
     raise HTTPException(status_code=401, detail="Authentication required")
+
+
+def _remember(request: HTTPConnection, user: AuthenticatedUser) -> AuthenticatedUser:
+    """Leave the resolved caller where the activity audit can read it afterwards."""
+
+    setattr(request.state, AUTHENTICATED_USER_STATE, user)
+    return user
 
 
 def _resolve_session_user(session_id: str) -> AuthenticatedUser:

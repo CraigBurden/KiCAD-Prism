@@ -79,7 +79,7 @@ beforeEach(() => {
 });
 
 describe("McpGovernanceSettings", () => {
-    it("lists tools and the read audit", async () => {
+    it("lists tools and the audit", async () => {
         render(<McpGovernanceSettings />);
 
         expect(await screen.findByText("Get a project")).toBeInTheDocument();
@@ -87,6 +87,7 @@ describe("McpGovernanceSettings", () => {
         expect(await screen.findByText("priya@example.test")).toBeInTheDocument();
         expect(screen.getByText("project-alpha")).toBeInTheDocument();
         expect(screen.getByText("01234567")).toBeInTheDocument();
+        expect(screen.getByRole("columnheader", { name: "Token" })).toBeInTheDocument();
         expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
     });
 
@@ -133,6 +134,25 @@ describe("McpGovernanceSettings", () => {
         await waitFor(() =>
             expect(fetchApi).toHaveBeenCalledWith(
                 "/api/admin/mcp-audit?limit=100&client_id=pat%3Atok",
+                expect.anything(),
+            ),
+        );
+
+        fireEvent.change(screen.getByLabelText("Audit token filter"), {
+            target: { value: "tok" },
+        });
+        await waitFor(() =>
+            expect(fetchApi).toHaveBeenCalledWith(
+                "/api/admin/mcp-audit?limit=100&client_id=pat%3Atok&token_id=tok",
+                expect.anything(),
+            ),
+        );
+
+        fireEvent.click(screen.getByLabelText("Audit kind filter"));
+        fireEvent.click(await screen.findByRole("option", { name: "Writes" }));
+        await waitFor(() =>
+            expect(fetchApi).toHaveBeenCalledWith(
+                "/api/admin/mcp-audit?limit=100&client_id=pat%3Atok&token_id=tok&kind=write",
                 expect.anything(),
             ),
         );

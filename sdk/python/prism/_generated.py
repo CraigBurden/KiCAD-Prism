@@ -5299,12 +5299,12 @@ class GeneratedClient:
             path_params={"component_id": component_id},
         )
 
-    def list_mcp_audit(self, *, client_id: str | None = None, user: str | None = None, project_id: str | None = None, tool: str | None = None, before: int | None = None, limit: int = 100) -> McpAuditPage:
+    def list_mcp_audit(self, *, client_id: str | None = None, user: str | None = None, project_id: str | None = None, tool: str | None = None, token_id: str | None = None, kind: str | None = None, before: int | None = None, limit: int = 100) -> McpAuditPage:
         """List Mcp Audit"""
         return self._request(
             "GET",
             "/api/v1/admin/mcp-audit",
-            query={"client_id": client_id, "user": user, "project_id": project_id, "tool": tool, "before": before, "limit": limit},
+            query={"client_id": client_id, "user": user, "project_id": project_id, "tool": tool, "token_id": token_id, "kind": kind, "before": before, "limit": limit},
         )
 
     def list_mcp_clients(self) -> list[McpClientView]:

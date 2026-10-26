@@ -56,6 +56,7 @@ from app.services.workspace_migrations import m133_personal_access_tokens
 from app.services.workspace_migrations import m134_mcp_grants
 from app.services.workspace_migrations import m135_mcp_governance
 from app.services.workspace_migrations import m136_mcp_audit
+from app.services.workspace_migrations import m138_token_audit
 
 
 Migration = Callable[[Any], None]
@@ -108,6 +109,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (134, "mcp_grants", m134_mcp_grants.migrate),
     (135, "mcp_governance", m135_mcp_governance.migrate),
     (136, "mcp_audit", m136_mcp_audit.migrate),
+    (138, "token_audit", m138_token_audit.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.
