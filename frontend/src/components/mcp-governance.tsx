@@ -63,7 +63,7 @@ function timeLabel(value: string): string {
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
-/** Settings → MCP: what clients may reach, and what they read (ADR §3.11, D7). */
+/** Settings → MCP: what clients may reach, and what they did (ADR §3.11, D7/D19). */
 export function McpGovernanceSettings() {
     const [governance, setGovernance] = useState<McpGovernanceView>(EMPTY_GOVERNANCE);
     const [projects, setProjects] = useState<ProjectOption[]>([]);
@@ -235,6 +235,8 @@ function AuditTable({ projects, tools }: AuditTableProps) {
     const [client, setClient] = useState("");
     const [project, setProject] = useState("");
     const [tool, setTool] = useState("");
+    const [token, setToken] = useState("");
+    const [kind, setKind] = useState("");
 
     const load = useCallback(
         async (options: { reset: boolean; before?: number | null; signal?: AbortSignal }) => {
@@ -242,6 +244,8 @@ function AuditTable({ projects, tools }: AuditTableProps) {
             if (client.trim()) params.set("client_id", client.trim());
             if (project) params.set("project_id", project);
             if (tool) params.set("tool", tool);
+            if (token.trim()) params.set("token_id", token.trim());
+            if (kind) params.set("kind", kind);
             if (!options.reset && options.before !== null && options.before !== undefined) {
                 params.set("before", String(options.before));
             }
@@ -270,7 +274,7 @@ function AuditTable({ projects, tools }: AuditTableProps) {
                 }
             }
         },
-        [client, project, tool],
+        [client, project, tool, token, kind],
     );
 
     useEffect(() => {
@@ -281,7 +285,7 @@ function AuditTable({ projects, tools }: AuditTableProps) {
 
     return (
         <div className="space-y-2">
-            <Label>Read audit</Label>
+            <Label>Audit</Label>
             <div className="flex flex-wrap items-center gap-2">
                 <Input
                     value={client}
@@ -289,6 +293,13 @@ function AuditTable({ projects, tools }: AuditTableProps) {
                     placeholder="Client"
                     className="h-8 w-44 text-xs"
                     aria-label="Audit client filter"
+                />
+                <Input
+                    value={token}
+                    onChange={(event) => setToken(event.target.value)}
+                    placeholder="Token"
+                    className="h-8 w-44 text-xs"
+                    aria-label="Audit token filter"
                 />
                 <Select value={project || "all"} onValueChange={(value) => setProject(value === "all" ? "" : value)}>
                     <SelectTrigger size="sm" className="w-44" aria-label="Audit project filter">
@@ -312,14 +323,25 @@ function AuditTable({ projects, tools }: AuditTableProps) {
                         ))}
                     </SelectContent>
                 </Select>
+                <Select value={kind || "all"} onValueChange={(value) => setKind(value === "all" ? "" : value)}>
+                    <SelectTrigger size="sm" className="w-36" aria-label="Audit kind filter">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">Reads and writes</SelectItem>
+                        <SelectItem value="read">Reads</SelectItem>
+                        <SelectItem value="write">Writes</SelectItem>
+                    </SelectContent>
+                </Select>
             </div>
 
             <div className="overflow-x-auto rounded-md border">
-                <table className="w-full min-w-[52rem] table-fixed text-xs">
+                <table className="w-full min-w-[58rem] table-fixed text-xs">
                     <colgroup>
                         <col className="w-32" />
                         <col />
                         <col className="w-36" />
+                        <col className="w-24" />
                         <col className="w-28" />
                         <col className="w-28" />
                         <col className="w-20" />
@@ -330,6 +352,7 @@ function AuditTable({ projects, tools }: AuditTableProps) {
                             <th scope="col" className="px-2 py-1.5 font-medium">Time</th>
                             <th scope="col" className="px-2 py-1.5 font-medium">User</th>
                             <th scope="col" className="px-2 py-1.5 font-medium">Client</th>
+                            <th scope="col" className="px-2 py-1.5 font-medium">Token</th>
                             <th scope="col" className="px-2 py-1.5 font-medium">Tool</th>
                             <th scope="col" className="px-2 py-1.5 font-medium">Project</th>
                             <th scope="col" className="px-2 py-1.5 font-medium">Revision</th>
@@ -339,8 +362,8 @@ function AuditTable({ projects, tools }: AuditTableProps) {
                     <tbody className="divide-y">
                         {rows.length === 0 ? (
                             <tr>
-                                <td colSpan={7} className="px-2 py-2 text-muted-foreground">
-                                    {loading ? "Loading…" : "No reads"}
+                                <td colSpan={8} className="px-2 py-2 text-muted-foreground">
+                                    {loading ? "Loading…" : "No activity"}
                                 </td>
                             </tr>
                         ) : rows.map((row) => (
@@ -348,6 +371,7 @@ function AuditTable({ projects, tools }: AuditTableProps) {
                                 <Cell value={timeLabel(row.at)} label={timeLabel(row.at)} />
                                 <Cell value={row.user_email} label={row.user_email} />
                                 <Cell value={row.client_id} label={row.client_id} />
+                                <Cell value={row.token_id.slice(0, 8)} label={row.token_id} />
                                 <Cell value={row.tool} label={row.tool} />
                                 <Cell value={row.project_id ?? ""} label={row.project_id ?? ""} />
                                 <Cell value={row.revision ? row.revision.slice(0, 8) : ""} label={row.revision ?? ""} />
