@@ -634,6 +634,11 @@
     "path": "/api/v1/projects/{project_id}/asset/{asset_path}",
     "typed": false
   },
+  "get_project_bom": {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/bom",
+    "typed": true
+  },
   "get_project_branches": {
     "method": "GET",
     "path": "/api/v1/projects/{project_id}/branches",
