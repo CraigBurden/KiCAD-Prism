@@ -310,9 +310,26 @@ class McpServerTests(unittest.TestCase):
         result = self.mcp(call("get_project", {"project_id": project}), headers=self.headers)["result"]
         self.assertFalse(result["isError"])
         structured = dict(result["structuredContent"])
-        self.assertEqual(structured.pop("_meta"), {"source": "prism", "untrusted": True})
+        self.assertEqual(result["_meta"], {"source": "prism", "untrusted": True})
         self.assertEqual(structured, route.json())
         self.assertTrue(result["content"][0]["text"].startswith(invoke.DATA_PREFIX))
+
+    def test_results_validate_against_their_output_schema(self) -> None:
+        from jsonschema import Draft202012Validator
+
+        project = self._project()
+        listed = self.mcp({"jsonrpc": "2.0", "id": 9, "method": "tools/list"}, headers=self.headers)
+        schemas = {tool["name"]: tool.get("outputSchema") for tool in listed["result"]["tools"]}
+        for name, arguments in (
+            ("get_project", {"project_id": project}),
+            ("search_projects", {"query": project}),
+        ):
+            with self.subTest(tool=name):
+                self.assertIsNotNone(schemas[name])
+                self.assertEqual(schemas[name]["type"], "object")
+                result = self.mcp(call(name, arguments), headers=self.headers)["result"]
+                self.assertFalse(result["isError"], result)
+                Draft202012Validator(schemas[name]).validate(result["structuredContent"])
 
     def test_a_hidden_project_is_a_tool_execution_error(self) -> None:
         hidden = self._project(hidden=True)

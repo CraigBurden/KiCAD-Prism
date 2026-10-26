@@ -88,10 +88,22 @@ def text_block(structured: dict[str, Any]) -> str:
 
 
 def _structured(payload: Any) -> dict[str, Any]:
-    structured = payload if isinstance(payload, dict) else {"result": payload}
-    structured = dict(structured)
-    structured["_meta"] = dict(UNTRUSTED_META)
-    return structured
+    """The route's body as ``structuredContent``; a non-object goes under ``result``.
+
+    ``registry.output_schema`` wraps the declared schema the same way, so the
+    content always validates against the tool's ``outputSchema``.
+    """
+    return dict(payload) if isinstance(payload, dict) else {"result": payload}
+
+
+def _result(structured: dict[str, Any], text: str, *, is_error: bool) -> dict[str, Any]:
+    """A ``CallToolResult``, marked on its ``_meta`` as untrusted data from Prism."""
+    return {
+        "content": [{"type": "text", "text": text}],
+        "structuredContent": structured,
+        "isError": is_error,
+        "_meta": dict(UNTRUSTED_META),
+    }
 
 
 def _error_body(status: int, raw: bytes) -> dict[str, Any]:
@@ -116,11 +128,12 @@ def _execution_error(status: int, raw: bytes) -> dict[str, Any]:
     body = _error_body(status, raw)
     code, detail = _error_detail(body, status)
     structured = _structured({"error": {**body, "status": status}})
-    return {
-        "content": [{"type": "text", "text": f"{DATA_PREFIX}\n{code}: {detail}"}],
-        "structuredContent": structured,
-        "isError": True,
-    }
+    return _result(structured, f"{DATA_PREFIX}\n{code}: {detail}", is_error=True)
+
+
+def _failure(code: str, message: str) -> dict[str, Any]:
+    structured = _structured({"error": {"code": code, "detail": message}})
+    return _result(structured, f"{DATA_PREFIX}\n{message}", is_error=True)
 
 
 async def _call_route(
@@ -184,22 +197,13 @@ async def call_tool(
     problems = _argument_errors(tool, arguments)
     if problems:
         message = "Invalid arguments: " + "; ".join(problems)
-        return {
-            "content": [{"type": "text", "text": f"{DATA_PREFIX}\n{message}"}],
-            "structuredContent": _structured({"error": {"code": "invalid-arguments", "detail": message}}),
-            "isError": True,
-        }
+        return _failure("invalid-arguments", message)
 
     try:
         path_params, query = tool.args(dict(arguments))
         path = _build_path(tool.route[1], path_params)
     except (KeyError, TypeError, ValueError) as error:
-        message = f"Invalid arguments: {error}"
-        return {
-            "content": [{"type": "text", "text": f"{DATA_PREFIX}\n{message}"}],
-            "structuredContent": _structured({"error": {"code": "invalid-arguments", "detail": message}}),
-            "isError": True,
-        }
+        return _failure("invalid-arguments", f"Invalid arguments: {error}")
 
     try:
         status, raw = await _call_route(
@@ -211,12 +215,7 @@ async def call_tool(
         )
     except Exception:  # noqa: BLE001 - never leak exception detail across MCP
         logger.exception("MCP tool %s failed to reach its route", tool.name)
-        message = "internal: the Prism request failed"
-        return {
-            "content": [{"type": "text", "text": f"{DATA_PREFIX}\n{message}"}],
-            "structuredContent": _structured({"error": {"code": "internal", "detail": message}}),
-            "isError": True,
-        }
+        return _failure("internal", "internal: the Prism request failed")
 
     if not 200 <= status < 300:
         return _execution_error(status, raw)
@@ -224,19 +223,10 @@ async def call_tool(
     try:
         payload = json.loads(raw.decode("utf-8")) if raw else None
     except (UnicodeDecodeError, json.JSONDecodeError):
-        message = f"Prism answered {status} with a body that is not JSON"
-        return {
-            "content": [{"type": "text", "text": f"{DATA_PREFIX}\n{message}"}],
-            "structuredContent": _structured({"error": {"code": "invalid-response", "detail": message}}),
-            "isError": True,
-        }
+        return _failure("invalid-response", f"Prism answered {status} with a body that is not JSON")
 
     structured = _structured(payload)
-    return {
-        "content": [{"type": "text", "text": text_block(structured)}],
-        "structuredContent": structured,
-        "isError": False,
-    }
+    return _result(structured, text_block(structured), is_error=False)
 
 
 __all__ = ["DATA_PREFIX", "MAX_TEXT_BYTES", "call_tool", "text_block"]

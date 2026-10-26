@@ -110,7 +110,35 @@ def response_schema(app: Any, route: tuple[str, str]) -> dict[str, Any] | None:
     if not isinstance(schema, dict) or not schema:
         return None
     schemas = (document.get("components") or {}).get("schemas") or {}
-    return _inline(schema, schemas, _MAX_REF_DEPTH)
+    return output_schema(_inline(schema, schemas, _MAX_REF_DEPTH))
+
+
+#: Keys ``tools.present`` adds to a result to cite what it returned.
+_CITATION_PROPERTIES = {
+    "link": {"type": "string", "description": "The Prism page for this result."},
+    "uri": {"type": "string", "description": "The prism:// resource URI for this result."},
+}
+
+
+def output_schema(route_schema: dict[str, Any]) -> dict[str, Any]:
+    """The ``outputSchema`` for a tool whose route answers ``route_schema``.
+
+    MCP requires an object. A route that answers a list (or anything else) has
+    its body under ``result``, the same wrapping ``invoke`` applies, and an
+    object route also admits the citation keys the presenter adds.
+    """
+
+    if route_schema.get("type") != "object":
+        return {
+            "type": "object",
+            "properties": {"result": route_schema, **_CITATION_PROPERTIES},
+            "required": ["result"],
+        }
+    schema = dict(route_schema)
+    schema["properties"] = {**_CITATION_PROPERTIES, **(schema.get("properties") or {})}
+    if schema.get("additionalProperties") is False:
+        schema["additionalProperties"] = True
+    return schema
 
 
 def tool_definition(tool: Tool, app: Any | None = None) -> dict[str, Any]:
