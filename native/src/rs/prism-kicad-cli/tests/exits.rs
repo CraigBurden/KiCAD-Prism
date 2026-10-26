@@ -178,21 +178,24 @@ const SHEET: &str = "(kicad_sch (version 20260306) (generator \"eeschema\") (uui
 
 #[test]
 fn source_root_rules_exit_three() {
-    let linked = source_tree(&[("p.kicad_pro", "{}"), ("p.kicad_sch", SHEET)]);
-    std::os::unix::fs::symlink("p.kicad_sch", linked.join("q.kicad_sch")).unwrap();
-    let link = run(&[
-        "bundle",
-        "build",
-        s(&linked.join("p.kicad_pro")),
-        "--stage",
-        "parse",
-        "-o",
-        s(&linked.join("o.prism")),
-    ]);
-    assert_eq!(
-        (link.code, link.code_field()),
-        (3, "source-not-regular-file")
-    );
+    #[cfg(unix)]
+    {
+        let linked = source_tree(&[("p.kicad_pro", "{}"), ("p.kicad_sch", SHEET)]);
+        std::os::unix::fs::symlink("p.kicad_sch", linked.join("q.kicad_sch")).unwrap();
+        let link = run(&[
+            "bundle",
+            "build",
+            s(&linked.join("p.kicad_pro")),
+            "--stage",
+            "parse",
+            "-o",
+            s(&linked.join("o.prism")),
+        ]);
+        assert_eq!(
+            (link.code, link.code_field()),
+            (3, "source-not-regular-file")
+        );
+    }
     let escaping = SHEET.replace(
         "(lib_symbols))",
         "(lib_symbols) (sheet (at 0 0) (size 1 1) (uuid \"6c5f0000-0000-4000-8000-000000000002\") (property \"Sheetname\" \"S\") (property \"Sheetfile\" \"../outside.kicad_sch\")))",
@@ -718,6 +721,7 @@ fn reader_limits_and_timeouts() {
 }
 
 #[test]
+#[cfg(unix)]
 fn a_signal_leaves_no_document_and_no_temp_file() {
     let recordings = scratch("signal-recordings");
     let cynthion = fixtures(&recordings)
