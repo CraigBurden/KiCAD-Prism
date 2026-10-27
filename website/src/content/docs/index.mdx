@@ -3,72 +3,71 @@ title: KiCAD Prism
 description: Browser review, release and library management for KiCad projects in Git.
 template: splash
 hero:
-  title: KiCAD Prism
-  tagline: Browser review, release and library management for KiCad projects in Git.
+  title: Design review, releases and libraries for KiCad teams
+  tagline: Prism reads your KiCad projects from Git. Your team opens schematics, boards and the 3D model in the browser, compares revisions, signs off releases and shares one library of approved parts.
   image:
-    file: ../../assets/screenshots/workspace.jpg
-    alt: "The Prism workspace: projects in the sidebar and gallery cards with rendered board thumbnails"
+    file: ../../assets/screenshots/3d.jpg
+    alt: "A board's 3D model in Prism, with every component model in place"
   actions:
-    - text: Try it
+    - text: Try it on your machine
       link: /KiCAD-Prism/get-started/try-it/
       variant: primary
-    - text: What is Prism?
+    - text: What Prism is
       link: /KiCAD-Prism/get-started/what-is-prism/
       variant: secondary
     - text: GitHub
       link: https://github.com/krishna-swaroop/KiCAD-Prism
       variant: minimal
-      icon: external
       attrs:
-        target: _blank
         rel: external
 ---
 
-import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+<h2 class="prism-section-title">What your team does with it</h2>
 
-<CardGrid>
-	<LinkCard
-		title="View designs"
-		href="/KiCAD-Prism/use/viewing-designs/"
-		description="Read schematics, boards and the 3D model in the browser, and cross-probe between them."
-	/>
-	<LinkCard
-		title="Compare revisions"
-		href="/KiCAD-Prism/use/design-comparison/"
-		description="Review what changed between two commits, one change at a time."
-	/>
-	<LinkCard
-		title="Review with comments"
-		href="/KiCAD-Prism/use/comments/"
-		description="Comment on parts, nets and areas, discuss in threads and resolve them."
-	/>
-	<LinkCard
-		title="Release Studio"
-		href="/KiCAD-Prism/use/release-studio/"
-		description="Build manufacturing documents, get sign-off and publish the release."
-	/>
-	<LinkCard
-		title="Library Manager"
-		href="/KiCAD-Prism/use/library-manager/"
-		description="Create, import, review and release shared KiCad components."
-	/>
-	<LinkCard
-		title="Automate with the API, SDK and MCP"
-		href="/KiCAD-Prism/automate/overview/"
-		description="Drive Prism from scripts, CI, AI assistants and other services."
-	/>
-</CardGrid>
+<div class="prism-features">
+	<a href="/KiCAD-Prism/use/viewing-designs/">
+		<strong>View designs</strong>
+		<span>Read schematics, boards and the 3D model in the browser, and cross-probe between them.</span>
+	</a>
+	<a href="/KiCAD-Prism/use/design-comparison/">
+		<strong>Compare revisions</strong>
+		<span>Review what changed between two commits, one change at a time.</span>
+	</a>
+	<a href="/KiCAD-Prism/use/comments/">
+		<strong>Review with comments</strong>
+		<span>Comment on parts, nets and areas, discuss in threads and resolve them.</span>
+	</a>
+	<a href="/KiCAD-Prism/use/release-studio/">
+		<strong>Release a board</strong>
+		<span>Build manufacturing documents, get sign-off and publish the release.</span>
+	</a>
+	<a href="/KiCAD-Prism/use/library-manager/">
+		<strong>Share one component library</strong>
+		<span>Create, import, review and release KiCad components, then place them in KiCad.</span>
+	</a>
+	<a href="/KiCAD-Prism/automate/overview/">
+		<strong>Automate it</strong>
+		<span>Drive Prism from scripts, CI, AI assistants and other services.</span>
+	</a>
+</div>
 
-## Designs shown on this site
+<div class="prism-credits">
+
+### Designs shown on this site
 
 | Project | Author | Source | License |
 | --- | --- | --- | --- |
+| ThunderScope | EEVengers | [EEVengers/ThunderScope](https://github.com/EEVengers/ThunderScope) | MIT |
 | Cynthion | Great Scott Gadgets | [greatscottgadgets/cynthion-hardware](https://github.com/greatscottgadgets/cynthion-hardware) | CERN-OHL-P v2 |
+| Jetson AGX Thor baseboard | Antmicro | [antmicro/jetson-agx-thor-baseboard](https://github.com/antmicro/jetson-agx-thor-baseboard) | Apache-2.0 |
 | WREN (vme-wren, vme-wren-fp-single, EDA-04903, EDA-04949) | CERN, BE-CEM | [be-cem-edl/chronos/wren/wren-hw](https://gitlab.cern.ch/be-cem-edl/chronos/wren/wren-hw) | CERN-OHL-W v2 or later and CC BY-SA 4.0, as stated on the schematic sheets |
 | OpenSwitch 10x10G carrier and LAN969x | Quentin Freimanis | [qfreiman/openswitch-10x10g-carrier](https://gitlab.com/qfreiman/openswitch-10x10g-carrier), [qfreiman/openswitch-lan969x](https://gitlab.com/qfreiman/openswitch-lan969x) | No license is stated in the repositories; see them for the author's terms |
 | USB-PD-Trigger-Board | Krishna Swaroop (Prism maintainer) | [krishna-swaroop/USB-PD-Trigger-Board](https://github.com/krishna-swaroop/USB-PD-Trigger-Board) | MIT |
 
-The component catalog in the Library Manager screenshot is CERN's public
-KiCad database library. If you are an author of one of these designs and would
-like a screenshot changed, credited differently or removed, please
+These are public KiCad projects by other designers, imported into Prism the way a team would
+import its own. The component catalog in the Library Manager screenshots is CERN's public KiCad
+database library. If you are an author of one of these designs and would like a screenshot
+changed, credited differently or removed, please
 [open an issue](https://github.com/krishna-swaroop/KiCAD-Prism/issues).
+
+</div>

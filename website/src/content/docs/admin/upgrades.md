@@ -154,7 +154,7 @@ docker compose logs -f backend
 ### 8. Verify or roll back
 
 Sign in, open a project, view the schematic, PCB and 3D, run a comparison,
-search the Library Manager and place a part from KiCad. If you use issue
+search the Library Manager and place a part in KiCad. If you use issue
 trackers, run **Test connection** on each.
 
 If something is wrong and the release changed no data incompatibly, put the
@@ -244,7 +244,7 @@ follow:
 
 ### Placed parts carry a catalog stamp and embed their 3D models
 
-Parts placed from KiCad now carry two hidden symbol properties,
+Parts placed in KiCad now carry two hidden symbol properties,
 `Prism_Component` and `Prism_Revision`, and embed their 3D models in the
 footprint. The remote provider reports version `0.4.0`.
 
@@ -339,7 +339,7 @@ library again. Do it in this order:
    first with `--dry-run`, then for real.
 8. Import the CERN library again, without `--replace-catalog`, and generate
    previews.
-9. Start everything, then check search and place parts from KiCad before
+9. Start everything, then check search and place parts in KiCad before
    people use it again.
 
 Run the scripts in the backend image with

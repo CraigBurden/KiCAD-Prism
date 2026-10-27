@@ -113,7 +113,7 @@ Practise a restore on an isolated host before you need one.
    ```
 
 6. Sign in, open a project, check comments and a comparison, search the
-   Library Manager and place a part from KiCad.
+   Library Manager and place a part in KiCad.
 
 `restore` replaces the database, project storage and SSH keys, and asks before
 it does. It also puts back `data/secrets` and the Caddy data volume when the
@@ -237,7 +237,7 @@ back. Back up `quarantine/` with the rest of the store.
 `scripts/report_unpinned_board_models.py` lists board footprints whose 3D model
 still points at the shared remote-library folder instead of being embedded, so
 a fresh clone of that project opens without it. It only reads. Place such a part
-again from KiCad to embed its model.
+again in KiCad to embed its model.
 
 ## Common faults
 
@@ -279,7 +279,7 @@ repository's remote is GitHub or a known GitLab host, and that the tag is not
 already used. Tags are never overwritten. See
 [Release Studio](/KiCAD-Prism/admin/configuration/#release-studio).
 
-### A part cannot be placed from KiCad
+### A part cannot be placed in KiCad
 
 Run the library file check above, and check that
 `/.well-known/kicad-remote-provider` shows your public `https://` address.

@@ -80,7 +80,7 @@ generated KiCad database library.
 ![The Library Manager catalog: a component list with the selected part's symbol, footprint and fields](../../../assets/screenshots/library-manager.jpg)
 
 See [Library Manager](/KiCAD-Prism/use/library-manager/) and
-[Place parts from desktop KiCad](/KiCAD-Prism/use/remote-symbols/).
+[Place parts in desktop KiCad](/KiCAD-Prism/use/remote-symbols/).
 
 ## Automate it
 

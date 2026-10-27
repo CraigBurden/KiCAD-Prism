@@ -111,7 +111,7 @@ See [Library Manager](/KiCAD-Prism/use/library-manager/).
 **Done when** the first parts have been authored, checked by someone else and
 released.
 
-## Stage 5: placing parts from desktop KiCad
+## Stage 5: placing parts in desktop KiCad
 
 Start this only once the catalog's release flow is understood.
 
@@ -123,7 +123,7 @@ Start this only once the catalog's release flow is understood.
 5. Roll the connection out to the other workstations.
 6. Decide who supports engineers when placement fails.
 
-See [Place parts from desktop KiCad](/KiCAD-Prism/use/remote-symbols/).
+See [Place parts in desktop KiCad](/KiCAD-Prism/use/remote-symbols/).
 
 **Done when** placement works on every kind of workstation your team uses.
 

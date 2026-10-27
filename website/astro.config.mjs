@@ -12,7 +12,12 @@ export default defineConfig({
 		starlight({
 			title: 'KiCAD Prism',
 			description: 'Browser review, release and library management for KiCad projects in Git.',
-			logo: { src: './src/assets/logo.png', alt: 'KiCAD Prism' },
+			logo: { src: './src/assets/logo.svg', alt: 'KiCAD Prism' },
+			favicon: '/favicon.svg',
+			components: {
+				Hero: './src/components/Hero.astro',
+				ThemeSelect: './src/components/ThemeSelect.astro',
+			},
 			social: [
 				{ icon: 'github', label: 'GitHub', href: 'https://github.com/krishna-swaroop/KiCAD-Prism' },
 			],

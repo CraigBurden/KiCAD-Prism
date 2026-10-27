@@ -1,0 +1,112 @@
+---
+// The landing page's opening: an editorial headline over a large product shot,
+// in place of Starlight's centred hero. Only the splash page has a hero.
+import { Image } from 'astro:assets';
+
+const { data } = Astro.locals.starlightRoute.entry;
+const { title = data.title, tagline, image, actions = [] } = data.hero || {};
+const shot = image && 'file' in image ? image.file : undefined;
+---
+
+<section class="prism-hero">
+	<p class="eyebrow">Open source · Self-hosted · Built on KiCad</p>
+	<h1 id="_top" set:html={title} />
+	{tagline && <p class="lede" set:html={tagline} />}
+	{
+		actions.length > 0 && (
+			<div class="actions">
+				{actions.map(({ text, link, variant, attrs }) => (
+					<a class:list={['action', variant]} href={link} {...attrs}>
+						{text}
+						{variant !== 'primary' && <span aria-hidden="true">→</span>}
+					</a>
+				))}
+			</div>
+		)
+	}
+	{
+		shot && (
+			<figure class="shot">
+				<Image src={shot} alt={image?.alt || ''} widths={[800, 1280, 1920]} sizes="(min-width: 72rem) 68rem, 100vw" loading="eager" />
+			</figure>
+		)
+	}
+</section>
+
+<style>
+	.prism-hero {
+		padding-block: clamp(2.5rem, 7vw, 5.5rem) 1rem;
+	}
+	.eyebrow {
+		margin: 0 0 1.25rem;
+		font-size: var(--sl-text-sm);
+		letter-spacing: 0.02em;
+		color: var(--sl-color-gray-3);
+	}
+	h1 {
+		max-width: 18ch;
+		margin: 0;
+		font-family: var(--prism-font-serif);
+		font-weight: 400;
+		font-size: clamp(2.5rem, 6vw, 4.25rem);
+		line-height: 1.05;
+		letter-spacing: -0.02em;
+		color: var(--sl-color-white);
+	}
+	.lede {
+		max-width: 38rem;
+		margin: 1.5rem 0 0;
+		font-size: clamp(1.05rem, 1.6vw, 1.25rem);
+		line-height: 1.6;
+		color: var(--sl-color-gray-2);
+	}
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.75rem 1.75rem;
+		margin-top: 2rem;
+	}
+	.action {
+		font-weight: 500;
+		text-decoration: none;
+		color: var(--sl-color-white);
+	}
+	.action span {
+		display: inline-block;
+		margin-left: 0.35rem;
+		transition: transform 150ms ease;
+	}
+	.action:hover span {
+		transform: translateX(3px);
+	}
+	.action.primary {
+		padding: 0.7rem 1.35rem;
+		border-radius: 0.6rem;
+		background: var(--sl-color-white);
+		color: var(--sl-color-black);
+		transition: opacity 150ms ease;
+	}
+	.action.primary:hover {
+		opacity: 0.88;
+	}
+	.action.minimal {
+		color: var(--sl-color-gray-3);
+	}
+	.action:not(.primary):hover {
+		color: var(--sl-color-accent-high);
+	}
+	.shot {
+		margin: clamp(2.5rem, 6vw, 4rem) 0 0;
+		padding: 0.5rem;
+		border: 1px solid var(--sl-color-hairline);
+		border-radius: 1rem;
+		background: var(--sl-color-gray-6);
+	}
+	.shot :global(img) {
+		display: block;
+		width: 100%;
+		height: auto;
+		border-radius: 0.6rem;
+	}
+</style>

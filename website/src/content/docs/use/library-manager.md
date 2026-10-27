@@ -1,6 +1,6 @@
 ---
 title: Manage components in Library Manager
-description: Create, import, review and release reusable KiCad components so designers can place them from KiCad.
+description: Create, import, review and release reusable KiCad components so designers can place them in KiCad.
 sidebar:
   order: 8
 ---
@@ -45,7 +45,7 @@ Each component has a revision that moves through these stages:
 | In progress | Being authored. |
 | QA review | Waiting for a QA reviewer. |
 | Approved | QA approved this exact revision. |
-| Released | Available for placement from KiCad. |
+| Released | Available to place in KiCad. |
 | Archived | Withdrawn. |
 
 A QA reviewer who sends a component back moves it to **In progress** and must
