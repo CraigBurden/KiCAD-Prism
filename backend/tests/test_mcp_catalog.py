@@ -29,6 +29,8 @@ WRITE_TOOLS = [
     "attach_catalog_asset",
     "reuse_catalog_asset",
     "validate_catalog_component",
+    "update_catalog_representation",
+    "remove_catalog_representation",
     "move_catalog_component",
     "request_catalog_approval",
 ]
@@ -147,6 +149,60 @@ class GuardedWriteTests(unittest.TestCase):
         result = run(app, "move_catalog_component", {"component_id": "c1", "stage": "qa_review", "note": "Ready"})
         self.assertEqual(app.seen[1]["body"], {"workflow_stage": "qa_review", "review_note": "Ready"})
         self.assertIn("QA reviewer", result["content"][0]["text"])
+
+
+def _pair(rep_id: str, symbol: str, footprint: str, default: bool = False) -> dict:
+    return {"id": rep_id, "is_default": default, "symbol": {"id": symbol}, "footprint": {"id": footprint}}
+
+
+class RepresentationToolTests(unittest.TestCase):
+    def test_update_patches_the_representation_with_if_match(self) -> None:
+        app = SequenceApp((200, {"current_revision_id": "r3"}), (200, {"id": "c1"}))
+        result = run(
+            app,
+            "update_catalog_representation",
+            {"component_id": "c1", "representation_id": "rep1", "footprint_asset_id": "fp2", "is_default": True},
+        )
+        self.assertFalse(result["isError"], result)
+        write = app.seen[1]
+        self.assertEqual((write["method"], write["path"]), ("PATCH", "/api/v1/catalog/components/c1/representations/rep1"))
+        self.assertEqual(write["headers"][b"if-match"], b'"component:c1:r3"')
+        self.assertEqual(
+            write["body"],
+            {"footprint_asset_id": "fp2", "is_default": True, "change_summary": "Update component representation"},
+        )
+
+    def test_remove_detaches_only_assets_no_other_pair_uses(self) -> None:
+        before = {
+            "current_revision_id": "r5",
+            "representations": [_pair("keep", "sym2", "fp2", True), _pair("old", "sym2", "fp1")],
+        }
+        after = {"current_revision_id": "r6", "representations": [_pair("keep", "sym2", "fp2", True)]}
+        app = SequenceApp((200, before), (200, after), (200, {"component": {**after, "current_revision_id": "r7"}}))
+        result = run(app, "remove_catalog_representation", {"component_id": "c1", "representation_id": "old"})
+        self.assertFalse(result["isError"], result)
+        _, remove, detach = app.seen
+        self.assertEqual((remove["method"], remove["path"]), ("DELETE", "/api/v1/catalog/components/c1/representations/old"))
+        self.assertEqual(remove["headers"][b"if-match"], b'"component:c1:r5"')
+        self.assertIsNone(remove["body"])
+        self.assertEqual((detach["method"], detach["path"]), ("DELETE", "/api/v1/catalog/components/c1/assets/id/fp1"))
+        self.assertEqual(detach["headers"][b"if-match"], b'"component:c1:r6"')
+        self.assertEqual(result["structuredContent"]["detached_asset_ids"], ["fp1"])
+
+    def test_keep_assets_skips_the_detach(self) -> None:
+        before = {"current_revision_id": "r5", "representations": [_pair("keep", "s", "f", True), _pair("old", "s1", "f1")]}
+        app = SequenceApp((200, before), (200, {"current_revision_id": "r6", "representations": []}))
+        result = run(
+            app, "remove_catalog_representation", {"component_id": "c1", "representation_id": "old", "keep_assets": True}
+        )
+        self.assertEqual(len(app.seen), 2)
+        self.assertEqual(result["structuredContent"]["detached_asset_ids"], [])
+
+    def test_an_unknown_representation_calls_no_write(self) -> None:
+        app = SequenceApp((200, {"current_revision_id": "r5", "representations": []}))
+        result = run(app, "remove_catalog_representation", {"component_id": "c1", "representation_id": "nope"})
+        self.assertTrue(result["isError"])
+        self.assertEqual(len(app.seen), 1)
 
 
 class ValidationToolTests(unittest.TestCase):

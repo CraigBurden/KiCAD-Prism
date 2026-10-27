@@ -142,11 +142,13 @@ Write tools:
 | `attach_catalog_asset` | attaches a symbol, footprint, 3D model or SPICE model, inline or from an upload | `catalog:write` |
 | `reuse_catalog_asset` | gives a component an asset the catalog already stores, shared rather than copied | `catalog:write` |
 | `validate_catalog_component` | runs KLC validation and returns the findings | `catalog:write` |
+| `update_catalog_representation` | points a representation (symbol and footprint pair) at other assets, renames it or makes it the default | `catalog:write` |
+| `remove_catalog_representation` | removes a representation and detaches its assets when nothing else uses them | `catalog:write` |
 | `move_catalog_component` | moves a component to In progress or QA Review | `catalog:write` |
 
 Comments an assistant writes carry an **Agent** badge, with the client's name in its tooltip.
 
-With the catalog tools an assistant can take a new part from an empty record to QA Review: create it, fill its fields, check and attach a symbol and footprint (or reuse a stored footprint), attach a STEP model, validate, and move it to QA Review. Prism doesn't make the files; the assistant brings them, and Prism checks and stores them. Prism embeds an attached 3D model in the footprint it serves. Approving the part stays with a QA reviewer: `request_catalog_approval` hands back the component's page.
+With the catalog tools an assistant can take a new part from an empty record to QA Review: create it, fill its fields, check and attach a symbol and footprint (or reuse a stored footprint), attach a STEP model, validate, and move it to QA Review. A corrected file attached later adds a representation; the assistant replaces the old one with `update_catalog_representation` and `remove_catalog_representation`. Prism doesn't make the files; the assistant brings them, and Prism checks and stores them. Prism embeds an attached 3D model in the footprint it serves. Approving the part stays with a QA reviewer: `request_catalog_approval` hands back the component's page.
 
 Some steps are never a tool: approving or publishing a release, catalog QA, admin changes and resolving a comment. For those, `request_release_approval`, `request_catalog_approval` and `resolve_comment` change nothing. They hand the step back as a link (an MCP URL request), and the client opens it for you to act on in Prism.
 

@@ -380,6 +380,8 @@ Making a library part is the slowest routine job in a hardware team: read the da
 | `attach_catalog_asset` | write | `POST /catalog/components/{id}/assets/{type}/attach` |
 | `reuse_catalog_asset` | write | `POST /catalog/components/{id}/assets/{type}/reuse`: links an asset the catalog already stores, so a standard footprint is shared, not copied |
 | `validate_catalog_component` | write | `POST /catalog/components/{id}/validate`, waits for the job, then `GET .../validation` |
+| `update_catalog_representation` | write | `PATCH /catalog/components/{id}/representations/{rep}` |
+| `remove_catalog_representation` | write | `DELETE /catalog/components/{id}/representations/{rep}`, then `DELETE .../assets/id/{asset}` for each of its assets no other representation uses |
 | `move_catalog_component` | write | `POST /catalog/components/{id}/release`, to `in_progress` or `qa_review` only |
 | `request_catalog_approval` | handoff | none (D15, D32) |
 
