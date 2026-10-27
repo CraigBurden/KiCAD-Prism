@@ -8755,6 +8755,294 @@
         "title": "DocumentSheetList",
         "type": "object"
       },
+      "DraftAttachRequest": {
+        "properties": {
+          "content": {
+            "anyOf": [
+              {
+                "maxLength": 8388608,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "counterpart_asset_id": {
+            "default": "",
+            "description": "The symbol or footprint asset this one pairs with in a representation.",
+            "title": "Counterpart Asset Id",
+            "type": "string"
+          },
+          "file_name": {
+            "default": "",
+            "title": "File Name",
+            "type": "string"
+          },
+          "name": {
+            "default": "",
+            "description": "The symbol or footprint to attach when the file holds several.",
+            "title": "Name",
+            "type": "string"
+          },
+          "target_library": {
+            "default": "",
+            "title": "Target Library",
+            "type": "string"
+          },
+          "upload_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upload Id"
+          }
+        },
+        "title": "DraftAttachRequest",
+        "type": "object"
+      },
+      "DraftAttachResult": {
+        "properties": {
+          "component": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogComponent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "discovered": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discovered"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "selected": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "DraftAttachResult",
+        "type": "object"
+      },
+      "DraftCheckRequest": {
+        "properties": {
+          "asset_type": {
+            "enum": [
+              "symbol",
+              "footprint"
+            ],
+            "title": "Asset Type",
+            "type": "string"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "maxLength": 8388608,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "file_name": {
+            "default": "",
+            "title": "File Name",
+            "type": "string"
+          },
+          "name": {
+            "default": "",
+            "description": "The symbol or footprint to check when the file holds several.",
+            "title": "Name",
+            "type": "string"
+          },
+          "upload_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upload Id"
+          }
+        },
+        "required": [
+          "asset_type"
+        ],
+        "title": "DraftCheckRequest",
+        "type": "object"
+      },
+      "DraftCheckResult": {
+        "properties": {
+          "asset_type": {
+            "title": "Asset Type",
+            "type": "string"
+          },
+          "kicad_message": {
+            "title": "Kicad Message",
+            "type": "string"
+          },
+          "klc": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DraftKlcResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "name_count": {
+            "title": "Name Count",
+            "type": "integer"
+          },
+          "names": {
+            "description": "The first 20 symbol or footprint names the file holds.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Names",
+            "type": "array"
+          },
+          "previews": {
+            "items": {
+              "$ref": "#/components/schemas/DraftPreview"
+            },
+            "title": "Previews",
+            "type": "array"
+          },
+          "readable": {
+            "title": "Readable",
+            "type": "boolean"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_type",
+          "name",
+          "names",
+          "name_count",
+          "sha256",
+          "readable",
+          "kicad_message",
+          "klc",
+          "previews"
+        ],
+        "title": "DraftCheckResult",
+        "type": "object"
+      },
+      "DraftKlcResult": {
+        "properties": {
+          "error_count": {
+            "title": "Error Count",
+            "type": "integer"
+          },
+          "exit_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Code"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/KlcFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "findings_omitted": {
+            "default": 0,
+            "description": "Findings beyond the first 50, errors listed first.",
+            "title": "Findings Omitted",
+            "type": "integer"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "warning_count": {
+            "title": "Warning Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "exit_code",
+          "error_count",
+          "warning_count",
+          "findings",
+          "message"
+        ],
+        "title": "DraftKlcResult",
+        "type": "object"
+      },
+      "DraftPreview": {
+        "properties": {
+          "png_base64": {
+            "title": "Png Base64",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "unit",
+          "png_base64"
+        ],
+        "title": "DraftPreview",
+        "type": "object"
+      },
       "DraftSetupRequest": {
         "additionalProperties": false,
         "properties": {
@@ -12586,6 +12874,48 @@
           "count"
         ],
         "title": "KindStatusCount",
+        "type": "object"
+      },
+      "KlcFinding": {
+        "additionalProperties": true,
+        "properties": {
+          "details": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Details",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "object_name": {
+            "title": "Object Name",
+            "type": "string"
+          },
+          "rule_code": {
+            "title": "Rule Code",
+            "type": "string"
+          },
+          "rule_url": {
+            "title": "Rule Url",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "severity",
+          "rule_code",
+          "rule_url",
+          "message",
+          "details",
+          "object_name"
+        ],
+        "title": "KlcFinding",
         "type": "object"
       },
       "LabelsBody": {
@@ -18080,6 +18410,27 @@
         "title": "ResourceUsage",
         "type": "object"
       },
+      "ReuseAssetRequest": {
+        "properties": {
+          "asset_id": {
+            "description": "An asset id from the asset search.",
+            "minLength": 1,
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "counterpart_asset_id": {
+            "default": "",
+            "description": "The symbol or footprint asset this one pairs with in a representation.",
+            "title": "Counterpart Asset Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id"
+        ],
+        "title": "ReuseAssetRequest",
+        "type": "object"
+      },
       "ReviewDecision": {
         "additionalProperties": true,
         "properties": {
@@ -20760,6 +21111,92 @@
           }
         },
         "title": "UpdateRepresentationRequest",
+        "type": "object"
+      },
+      "UploadReceipt": {
+        "properties": {
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "upload_id": {
+            "title": "Upload Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_id",
+          "size_bytes",
+          "sha256"
+        ],
+        "title": "UploadReceipt",
+        "type": "object"
+      },
+      "UploadSlot": {
+        "properties": {
+          "expires_at": {
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "max_bytes": {
+            "title": "Max Bytes",
+            "type": "integer"
+          },
+          "method": {
+            "const": "PUT",
+            "default": "PUT",
+            "title": "Method",
+            "type": "string"
+          },
+          "upload_id": {
+            "title": "Upload Id",
+            "type": "string"
+          },
+          "upload_path": {
+            "description": "Where to PUT the bytes, relative to Prism's base URL.",
+            "title": "Upload Path",
+            "type": "string"
+          },
+          "upload_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The same, absolute, when Prism knows its public URL.",
+            "title": "Upload Url"
+          }
+        },
+        "required": [
+          "upload_id",
+          "upload_path",
+          "expires_at",
+          "max_bytes"
+        ],
+        "title": "UploadSlot",
+        "type": "object"
+      },
+      "UploadSlotRequest": {
+        "properties": {
+          "file_name": {
+            "description": "The file's name, with its extension.",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "File Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_name"
+        ],
+        "title": "UploadSlotRequest",
         "type": "object"
       },
       "UpsertRoleRequest": {
@@ -24812,6 +25249,73 @@
         ]
       }
     },
+    "/api/v1/catalog/components/{component_id}/assets/{asset_type}/attach": {
+      "post": {
+        "operationId": "attach_catalog_draft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "component_id",
+            "required": true,
+            "schema": {
+              "title": "Component Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "asset_type",
+            "required": true,
+            "schema": {
+              "enum": [
+                "symbol",
+                "footprint",
+                "3dmodel",
+                "spice"
+              ],
+              "title": "Asset Type",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftAttachRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftAttachResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Attach a staged or inline asset to a component",
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
     "/api/v1/catalog/components/{component_id}/assets/{asset_type}/link": {
       "post": {
         "operationId": "link_library_asset",
@@ -24868,6 +25372,74 @@
           }
         },
         "summary": "Link a stored library asset to a component",
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/api/v1/catalog/components/{component_id}/assets/{asset_type}/reuse": {
+      "post": {
+        "description": "Link a stored asset by id: the component shares the file, nothing is copied.",
+        "operationId": "reuse_catalog_asset",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "component_id",
+            "required": true,
+            "schema": {
+              "title": "Component Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "asset_type",
+            "required": true,
+            "schema": {
+              "enum": [
+                "symbol",
+                "footprint",
+                "3dmodel",
+                "spice"
+              ],
+              "title": "Asset Type",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReuseAssetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComponentMutation"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reuse an existing catalog asset on a component",
         "tags": [
           "catalog"
         ]
@@ -26137,6 +26709,47 @@
           }
         },
         "summary": "Read a component's validation",
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/api/v1/catalog/drafts/check": {
+      "post": {
+        "operationId": "check_catalog_draft",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftCheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftCheckResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check a draft symbol or footprint",
         "tags": [
           "catalog"
         ]
@@ -28045,6 +28658,107 @@
           }
         },
         "summary": "List the release queue",
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/api/v1/catalog/uploads": {
+      "post": {
+        "operationId": "open_catalog_upload",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadSlotRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadSlot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Open an upload slot",
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/api/v1/catalog/uploads/{upload_id}": {
+      "put": {
+        "operationId": "write_catalog_upload",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "title": "Upload Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "exp",
+            "required": true,
+            "schema": {
+              "title": "Exp",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sig",
+            "required": true,
+            "schema": {
+              "title": "Sig",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Write an upload slot's bytes",
         "tags": [
           "catalog"
         ]

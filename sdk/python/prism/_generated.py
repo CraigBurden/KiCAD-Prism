@@ -1562,6 +1562,57 @@ class DocumentSheetList(TypedDict, total=True):
     sheets: list[DocumentSheet]
 
 
+class DraftAttachRequest(TypedDict, total=False):
+    content: str | None
+    counterpart_asset_id: str
+    file_name: str
+    name: str
+    target_library: str
+    upload_id: str | None
+
+
+class DraftAttachResult(TypedDict, total=False):
+    component: CatalogComponent | None
+    discovered: list[str] | None
+    mode: str
+    selected: str | None
+
+
+class DraftCheckRequest(TypedDict, total=False):
+    asset_type: str
+    content: str | None
+    file_name: str
+    name: str
+    upload_id: str | None
+
+
+class DraftCheckResult(TypedDict, total=True):
+    asset_type: str
+    kicad_message: str
+    klc: DraftKlcResult | None
+    name: str
+    name_count: int
+    names: list[str]
+    previews: list[DraftPreview]
+    readable: bool
+    sha256: str
+
+
+class DraftKlcResult(TypedDict, total=False):
+    error_count: int
+    exit_code: int | None
+    findings: list[KlcFinding]
+    findings_omitted: int
+    message: str
+    status: str
+    warning_count: int
+
+
+class DraftPreview(TypedDict, total=True):
+    png_base64: str
+    unit: int
+
+
 class DraftSetupRequest(TypedDict, total=False):
     commit: str | None
     kind: str
@@ -2281,6 +2332,15 @@ class KindStatusCount(TypedDict, total=True):
     count: int
     kind: str
     status: str
+
+
+class KlcFinding(TypedDict, total=True):
+    details: list[str]
+    message: str
+    object_name: str
+    rule_code: str
+    rule_url: str
+    severity: str
 
 
 class LabelsBody(TypedDict, total=False):
@@ -3347,6 +3407,11 @@ class ResourceUsage(TypedDict, total=True):
     resource: str
 
 
+class ReuseAssetRequest(TypedDict, total=False):
+    asset_id: str
+    counterpart_asset_id: str
+
+
 class ReviewDecision(TypedDict, total=True):
     acknowledged_models: list[str]
     actor: str
@@ -3841,6 +3906,25 @@ class UpdateRepresentationRequest(TypedDict, total=False):
     symbol_asset_id: str | None
 
 
+class UploadReceipt(TypedDict, total=True):
+    sha256: str
+    size_bytes: int
+    upload_id: str
+
+
+class UploadSlot(TypedDict, total=False):
+    expires_at: int
+    max_bytes: int
+    method: str
+    upload_id: str
+    upload_path: str
+    upload_url: str | None
+
+
+class UploadSlotRequest(TypedDict, total=True):
+    file_name: str
+
+
 class UpsertRoleRequest(TypedDict, total=True):
     role: str
 
@@ -4276,6 +4360,15 @@ class GeneratedClient:
             path_params={"field_id": field_id},
         )
 
+    def attach_catalog_draft(self, component_id: str, asset_type: str, *, body: dict[str, Any] | None = None) -> DraftAttachResult:
+        """Attach a staged or inline asset to a component"""
+        return self._request(
+            "POST",
+            "/api/v1/catalog/components/{component_id}/assets/{asset_type}/attach",
+            path_params={"component_id": component_id, "asset_type": asset_type},
+            body=body,
+        )
+
     def begin_oauth(self, connector_id: str, *, returnTo: str = '/') -> OAuthBeginResponse:
         """Begin Oauth"""
         return self._request(
@@ -4347,6 +4440,14 @@ class GeneratedClient:
         return self._request(
             "POST",
             "/api/v1/auth/password/change",
+            body=body,
+        )
+
+    def check_catalog_draft(self, *, body: dict[str, Any] | None = None) -> DraftCheckResult:
+        """Check a draft symbol or footprint"""
+        return self._request(
+            "POST",
+            "/api/v1/catalog/drafts/check",
             body=body,
         )
 
@@ -6152,6 +6253,14 @@ class GeneratedClient:
             query={"code": code, "state": state},
         )
 
+    def open_catalog_upload(self, *, body: dict[str, Any] | None = None) -> UploadSlot:
+        """Open an upload slot"""
+        return self._request(
+            "POST",
+            "/api/v1/catalog/uploads",
+            body=body,
+        )
+
     def ops_cancel_job(self, job_id: str) -> JobCancelOut:
         """Ask an ops-selected job to cancel"""
         return self._request(
@@ -6518,6 +6627,15 @@ class GeneratedClient:
             "POST",
             "/api/v1/projects/{project_id}/import-follow-ups/retry",
             path_params={"project_id": project_id},
+        )
+
+    def reuse_catalog_asset(self, component_id: str, asset_type: str, *, body: dict[str, Any] | None = None) -> ComponentMutation:
+        """Reuse an existing catalog asset on a component"""
+        return self._request(
+            "POST",
+            "/api/v1/catalog/components/{component_id}/assets/{asset_type}/reuse",
+            path_params={"component_id": component_id, "asset_type": asset_type},
+            body=body,
         )
 
     def revoke_connector(self, connector_id: str) -> dict[str, Any]:
@@ -7026,6 +7144,15 @@ class GeneratedClient:
         return self._request(
             "GET",
             "/api/v1/catalog/workflow/summary",
+        )
+
+    def write_catalog_upload(self, upload_id: str, *, exp: int, sig: str) -> UploadReceipt:
+        """Write an upload slot's bytes"""
+        return self._request(
+            "PUT",
+            "/api/v1/catalog/uploads/{upload_id}",
+            path_params={"upload_id": upload_id},
+            query={"exp": exp, "sig": sig},
         )
 
     def write_layout(self, project_id: str, setup_id: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:

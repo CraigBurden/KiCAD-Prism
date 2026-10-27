@@ -23,7 +23,8 @@ Scripts and the CLI use a **personal access token** (PAT). To create one, open *
 | `api:read` | every read the token's owner can make (always included) |
 | `comments:write` | create, edit and reply to comments (not resolve) |
 | `design:write` | project and design changes that aren't sign-offs |
-| `catalog:write` | catalog edits |
+| `catalog:write` | catalog edits, and moving a component as far as QA Review |
+| `catalog:qa` | approving and releasing catalog components (the owner must also have a QA or admin role) |
 | `api:write` | all of the write scopes above |
 
 A token acts with its owner's **current** role. If the owner is demoted or removed, the token loses that access at once. Revoke tokens in the same Settings page.
@@ -120,6 +121,9 @@ Read tools:
 | `get_job` | a job's status |
 | `list_comments` | a project's comments |
 | `search_catalog`, `get_catalog_component` | the component catalog |
+| `list_catalog_fields` | the catalog's metadata fields, including custom ones |
+| `search_catalog_assets` | symbols, footprints and 3D models the catalog already stores |
+| `check_catalog_asset` | whether KiCad can read a draft symbol or footprint, its KLC findings and a PNG of each unit, without storing it (needs `catalog:write`) |
 | `get_release_status` | Release Studio candidates |
 | `render_view` | a PNG of a schematic sheet, the PCB, or a 3D view at a revision, with chosen components or nets highlighted (no highlights in 3D) |
 
@@ -133,10 +137,18 @@ Write tools:
 | `start_release_build` | queues a Release Studio candidate build for one commit; returns a job id | `design:write` |
 | `create_catalog_draft` | creates an unreviewed catalog component | `catalog:write` |
 | `update_import_proposal` | saves draft edits in a catalog import session | `catalog:write` |
+| `update_catalog_component` | fills in or corrects a component's metadata | `catalog:write` |
+| `create_asset_upload` | returns a one-time URL to `PUT` a file too large to send inline, such as a STEP model | `catalog:write` |
+| `attach_catalog_asset` | attaches a symbol, footprint, 3D model or SPICE model, inline or from an upload | `catalog:write` |
+| `reuse_catalog_asset` | gives a component an asset the catalog already stores, shared rather than copied | `catalog:write` |
+| `validate_catalog_component` | runs KLC validation and returns the findings | `catalog:write` |
+| `move_catalog_component` | moves a component to In progress or QA Review | `catalog:write` |
 
 Comments an assistant writes carry an **Agent** badge, with the client's name in its tooltip.
 
-Some steps are never a tool: approving or publishing a release, catalog QA, admin changes and resolving a comment. For those, `request_release_approval` and `resolve_comment` change nothing. They hand the step back as a link (an MCP URL request), and the client opens it for you to act on in Prism.
+With the catalog tools an assistant can take a new part from an empty record to QA Review: create it, fill its fields, check and attach a symbol and footprint (or reuse a stored footprint), attach a STEP model, validate, and move it to QA Review. Prism doesn't make the files; the assistant brings them, and Prism checks and stores them. Prism embeds an attached 3D model in the footprint it serves. Approving the part stays with a QA reviewer: `request_catalog_approval` hands back the component's page.
+
+Some steps are never a tool: approving or publishing a release, catalog QA, admin changes and resolving a comment. For those, `request_release_approval`, `request_catalog_approval` and `resolve_comment` change nothing. They hand the step back as a link (an MCP URL request), and the client opens it for you to act on in Prism.
 
 An assistant starts with read access only. The first time it tries a write, Prism asks your client for just that scope, and you approve it in the browser. A client using a personal access token gets an error naming the scope it lacks.
 

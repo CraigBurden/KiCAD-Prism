@@ -69,6 +69,11 @@
     "path": "/api/v1/catalog/metadata/fields/{field_id}/archive",
     "typed": true
   },
+  "attach_catalog_draft": {
+    "method": "POST",
+    "path": "/api/v1/catalog/components/{component_id}/assets/{asset_type}/attach",
+    "typed": true
+  },
   "begin_oauth": {
     "method": "POST",
     "path": "/api/v1/trackers/connectors/{connector_id}/oauth/begin",
@@ -112,6 +117,11 @@
   "change_own_password": {
     "method": "POST",
     "path": "/api/v1/auth/password/change",
+    "typed": true
+  },
+  "check_catalog_draft": {
+    "method": "POST",
+    "path": "/api/v1/catalog/drafts/check",
     "typed": true
   },
   "check_git_access": {
@@ -1219,6 +1229,11 @@
     "path": "/api/v1/trackers/oauth/callback",
     "typed": true
   },
+  "open_catalog_upload": {
+    "method": "POST",
+    "path": "/api/v1/catalog/uploads",
+    "typed": true
+  },
   "ops_cancel_job": {
     "method": "POST",
     "path": "/api/v1/ops/jobs/{job_id}/cancel",
@@ -1447,6 +1462,11 @@
   "retry_project_import_follow_ups": {
     "method": "POST",
     "path": "/api/v1/projects/{project_id}/import-follow-ups/retry",
+    "typed": true
+  },
+  "reuse_catalog_asset": {
+    "method": "POST",
+    "path": "/api/v1/catalog/components/{component_id}/assets/{asset_type}/reuse",
     "typed": true
   },
   "revoke_connector": {
@@ -1752,6 +1772,11 @@
   "workflow_summary": {
     "method": "GET",
     "path": "/api/v1/catalog/workflow/summary",
+    "typed": true
+  },
+  "write_catalog_upload": {
+    "method": "PUT",
+    "path": "/api/v1/catalog/uploads/{upload_id}",
     "typed": true
   },
   "write_layout": {
