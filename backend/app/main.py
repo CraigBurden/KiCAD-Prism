@@ -76,6 +76,7 @@ from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
 from app.core.config import settings
 from app.core import runtime_logging
+from app.services import checkout_line_endings
 from app.core.security_headers import apply_security_headers
 import asyncio
 import os
@@ -224,6 +225,9 @@ async def lifespan(app: FastAPI):
     announce_configuration_warnings()
     configure_git()
     ensure_ssh_dir()
+    if sys.platform == "win32":
+        # Git for Windows' autocrlf makes a checkout differ from its commit's bytes.
+        checkout_line_endings.convert_projects_in_background(Path(settings.KICAD_PROJECTS_ROOT))
     bring_every_schema_to_head()
     runtime_logging.start_poller()
     try:

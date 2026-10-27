@@ -16,6 +16,7 @@ from git import Repo, RemoteProgress
 from app.core.config import settings
 from app.services import derived_assets, event_log, git_remote_access, project_revision, project_service, path_config_service
 from app.services.design_bundle import jobs as design_bundle_jobs, repo_hydration
+from app.services.checkout_line_endings import GITPYTHON_CLONE_KWARGS
 from app.services.git_failures import GitAccessError, as_access_error
 from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
 from app.services.job_runtime import JobContext, JobResult, PermanentJobError, RetryableJobError
@@ -784,6 +785,7 @@ def _discover_remote_projects(
                 single_branch=True,
                 no_checkout=True,
                 filter="blob:none",
+                **GITPYTHON_CLONE_KWARGS,
                 progress=V3CloneProgress(context, stage=stage),
                 env=git_remote_access.git_env(),
                 **clone_options,
@@ -953,6 +955,7 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 Repo.clone_from(
                     repo_url,
                     str(target_path),
+                    **GITPYTHON_CLONE_KWARGS,
                     progress=V3CloneProgress(context, stage="clone-repository"),
                     env=git_remote_access.git_env(),
                     **clone_options,

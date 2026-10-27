@@ -198,7 +198,7 @@ retried.
 | `PRISM_DESIGN_BUNDLE_CACHE_MAX_BYTES`, `PRISM_DESIGN_BUNDLE_CACHE_PROJECT_MAX_BYTES` | unpacked-cache caps for the whole store and per project; least recently used versions go first; 0 disables a cap (defaults 4 GiB and 1 GiB). Archives are never evicted by these caps |
 | `PRISM_DESIGN_BUNDLE_GLB_TIMEOUT_SECONDS`, `PRISM_DESIGN_BUNDLE_UPGRADE_TIMEOUT_SECONDS` | the component GLB export and each source upgrade (defaults 600 and 900 s) |
 | `PRISM_DESIGN_BUNDLE_UPGRADE_WORKERS` | KiCad upgrades of one older source set run at once, each file in its own scratch directory (default 8) |
-| `PRISM_KICAD_PYTHON`, `PRISM_ZONE_REFILL_TIMEOUT_SECONDS` | KiCad's Python (imports `pcbnew`) for the zone refill and board upgrades, and the refill's timeout (default 900 s) |
+| `PRISM_KICAD_PYTHON`, `PRISM_ZONE_REFILL_TIMEOUT_SECONDS` | KiCad's Python (imports `pcbnew`) for the zone refill and board upgrades (unset: found next to `kicad-cli` on Windows and macOS, `/usr/bin/python3` on Linux), and the refill's timeout (default 900 s) |
 | `PRISM_DESIGN_BUNDLE_CLI_PATH`, `PRISM_DESIGN_BUNDLE_ROOT`, `PRISM_DESIGN_BUNDLE_SCHEMA_DIR` | host overrides for the binary (default `prism-kicad` on PATH), the store and the committed JSON Schema |
 | `GEOMETER_EXECUTABLE`, `PRISM_ARTWORK_CONFIG_DIR` | the pinned Geometer runtime the `models` stage runs for the parts' hidden-line views (the image sets it; empty leaves that member out), and the `prism-kicad artwork` configurations (default: from the checkout or the image) |
 

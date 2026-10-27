@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Mapping
@@ -26,6 +25,7 @@ from app.release_studio.canonical import (
     sha256_canonical,
 )
 from app.release_studio.closure import materialize_input_closure
+from app.services.tree_removal import remove_tree
 from app.release_studio.config import (
     load_configuration_at_commit,
     technical_config_digest,
@@ -212,7 +212,7 @@ def prepare_candidate(
     model_stage = workspace_root / "models"
     for stale in (closure_root, model_stage):
         if stale.exists():
-            shutil.rmtree(stale)
+            remove_tree(stale)
     closure = materialize_input_closure(
         repo_root,
         commit_sha,

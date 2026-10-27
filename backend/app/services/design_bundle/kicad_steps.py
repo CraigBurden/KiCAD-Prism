@@ -133,7 +133,7 @@ def _run_python(script: str, board: Path, *, timeout: float, cancel: Callable[[]
     """KiCad's Python, isolated like kicad-cli (its own temp and runtime directories)."""
 
     python = kicad_tools.LocalTool(
-        "kicad-python", lambda: settings.PRISM_KICAD_PYTHON.strip() or None, isolate=True, cancel=cancel
+        "kicad-python", lambda: kicad_tools.locate_kicad_python(settings), isolate=True, cancel=cancel
     )
     try:
         result = python.run(["-I", "-c", script, str(board)], timeout=timeout)
