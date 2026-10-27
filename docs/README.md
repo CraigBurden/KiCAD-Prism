@@ -5,7 +5,7 @@ testers of unreleased behavior work from `dev`.
 
 ## Release notes
 
-- [v5.0.3-alpha](releases/v5.0.3-alpha.md) is the latest alpha: the scripting
+- [v5.1.0-alpha](releases/v5.1.0-alpha.md) is the latest alpha: the scripting
   API, SDK and CLI, webhooks, and the MCP server.
 - Earlier: [v5.0.2-alpha](releases/v5.0.2-alpha.md),
   [v5.0.1-alpha](releases/v5.0.1-alpha.md),
