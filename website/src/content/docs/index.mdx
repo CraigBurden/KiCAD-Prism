@@ -6,8 +6,8 @@ hero:
   title: Design review, releases and libraries for KiCad teams
   tagline: Prism reads your KiCad projects from Git. Your team opens schematics, boards and the 3D model in the browser, compares revisions, signs off releases and shares one library of approved parts.
   image:
-    file: ../../assets/screenshots/3d.jpg
-    alt: "A board's 3D model in Prism, with every component model in place"
+    file: ../../assets/screenshots/ts-hero.jpg
+    alt: "ThunderScope's 3D model in Prism, with its heatsink, BNC inputs and every component model in place"
   actions:
     - text: Try it on your machine
       link: /KiCAD-Prism/get-started/try-it/
@@ -22,34 +22,11 @@ hero:
         rel: external
 ---
 
+import FeatureCards from '../../components/FeatureCards.astro';
+
 <h2 class="prism-section-title">What your team does with it</h2>
 
-<div class="prism-features">
-	<a href="/KiCAD-Prism/use/viewing-designs/">
-		<strong>View designs</strong>
-		<span>Read schematics, boards and the 3D model in the browser, and cross-probe between them.</span>
-	</a>
-	<a href="/KiCAD-Prism/use/design-comparison/">
-		<strong>Compare revisions</strong>
-		<span>Review what changed between two commits, one change at a time.</span>
-	</a>
-	<a href="/KiCAD-Prism/use/comments/">
-		<strong>Review with comments</strong>
-		<span>Comment on parts, nets and areas, discuss in threads and resolve them.</span>
-	</a>
-	<a href="/KiCAD-Prism/use/release-studio/">
-		<strong>Release a board</strong>
-		<span>Build manufacturing documents, get sign-off and publish the release.</span>
-	</a>
-	<a href="/KiCAD-Prism/use/library-manager/">
-		<strong>Share one component library</strong>
-		<span>Create, import, review and release KiCad components, then place them in KiCad.</span>
-	</a>
-	<a href="/KiCAD-Prism/automate/overview/">
-		<strong>Automate it</strong>
-		<span>Drive Prism from scripts, CI, AI assistants and other services.</span>
-	</a>
-</div>
+<FeatureCards />
 
 <div class="prism-credits">
 

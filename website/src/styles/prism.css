@@ -4,8 +4,12 @@
  * default :root; light overrides it.
  */
 :root {
-	--prism-font-serif: 'Iowan Old Style', 'Charter', 'Source Serif Pro', 'Source Serif 4', Georgia, 'Times New Roman', serif;
-	--sl-font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+	/* Prism's own type: Inter, as in the app and the generated ICDs, with JetBrains Mono for labels. */
+	--sl-font: 'Inter Variable', 'Inter', 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--sl-font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+	--prism-sheet-bg: #232220;
+	--prism-sheet-line: #3a3935;
+	--prism-card-hover: #2a2927;
 	--sl-color-accent-low: #1d2a45;
 	--sl-color-accent: #7ea6f5;
 	--sl-color-accent-high: #c9dafc;
@@ -35,32 +39,34 @@
 	--sl-color-gray-2: #3d3d3a;
 	--sl-color-gray-3: #5e5d59;
 	--sl-color-gray-4: #8a8981;
-	--sl-color-gray-5: #dcdad0;
-	--sl-color-gray-6: #f0eee6;
-	--sl-color-gray-7: #f5f4ee;
-	--sl-color-black: #faf9f5;
-	--sl-color-bg-nav: #faf9f5;
-	--sl-color-bg-sidebar: #faf9f5;
-	--sl-color-hairline: #e3e1d7;
-	--sl-color-hairline-light: #e3e1d7;
-	--sl-color-hairline-shade: #e3e1d7;
+	--sl-color-gray-5: #d5d0c1;
+	--sl-color-gray-6: #e8e4d7;
+	--sl-color-gray-7: #ece8dc;
+	--sl-color-black: #f1ede2;
+	--sl-color-bg-nav: #f1ede2;
+	--sl-color-bg-sidebar: #f1ede2;
+	--sl-color-hairline: #dcd6c6;
+	--sl-color-hairline-light: #dcd6c6;
+	--sl-color-hairline-shade: #dcd6c6;
+	--prism-sheet-bg: #f6f3ea;
+	--prism-sheet-line: #d6d0bf;
+	--prism-card-hover: #fbf9f3;
 	--prism-shot-border: rgb(20 20 19 / 0.1);
 	--prism-shot-shadow: 0 1px 2px rgb(20 20 19 / 0.06), 0 16px 40px -18px rgb(20 20 19 / 0.22);
 }
 
-/* Serif display type for titles and section headings; UI and body stay sans. */
+/* Tight, heavy Inter for titles and section headings. */
 .content-panel h1,
 .sl-markdown-content :is(h2, h3) {
-	font-family: var(--prism-font-serif);
-	font-weight: 400;
-	letter-spacing: -0.01em;
+	font-weight: 650;
+	letter-spacing: -0.025em;
 }
 .content-panel h1 {
-	font-size: clamp(2rem, 4vw, 2.75rem);
-	line-height: 1.15;
+	font-size: clamp(2rem, 4vw, 2.6rem);
+	line-height: 1.1;
 }
 .sl-markdown-content h2 {
-	font-size: 1.75rem;
+	font-size: 1.6rem;
 }
 .site-title {
 	font-weight: 600;
@@ -112,36 +118,7 @@ header.header {
 }
 
 
-/* Landing page: what Prism does, as a quiet two-column list rather than cards. */
-.prism-features {
-	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
-	gap: 0 3rem;
-	margin-top: 1.5rem;
-}
-.prism-features a {
-	display: block;
-	padding: 1.25rem 0;
-	border-top: 1px solid var(--sl-color-hairline);
-	text-decoration: none;
-	color: inherit;
-}
-.prism-features a strong {
-	display: block;
-	font-family: var(--prism-font-serif);
-	font-weight: 400;
-	font-size: 1.3rem;
-	color: var(--sl-color-white);
-}
-.prism-features a span {
-	display: block;
-	margin-top: 0.35rem;
-	color: var(--sl-color-gray-3);
-	line-height: 1.55;
-}
-.prism-features a:hover strong {
-	color: var(--sl-color-accent-high);
-}
+/* Landing page sections below the sheet. */
 .prism-section-title {
 	margin-top: 4rem !important;
 }
@@ -153,15 +130,17 @@ header.header {
 	color: var(--sl-color-gray-3);
 }
 .prism-credits :is(h2, h3) {
-	font-size: 1.25rem;
+	font-size: 1.1rem;
+}
+.prism-section-title {
+	font-size: 1.35rem !important;
 }
 
-/* The current page in the sidebar: a quiet tint with a thin accent rule, not a filled pill. */
+/* The current page in the sidebar: stronger text, nothing else. */
 .sidebar-content a[aria-current='page'],
 .sidebar-content a[aria-current='page']:hover,
 .sidebar-content a[aria-current='page']:focus {
-	background: var(--sl-color-gray-6);
+	background: transparent;
 	color: var(--sl-color-white);
-	font-weight: 600;
-	box-shadow: inset 2px 0 0 var(--sl-color-accent);
+	font-weight: 650;
 }

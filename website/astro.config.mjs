@@ -23,7 +23,7 @@ export default defineConfig({
 			],
 			editLink: { baseUrl: 'https://github.com/krishna-swaroop/KiCAD-Prism/edit/dev/website/' },
 			lastUpdated: true,
-			customCss: ['./src/styles/prism.css'],
+			customCss: ['@fontsource-variable/inter', '@fontsource-variable/jetbrains-mono', './src/styles/prism.css'],
 			plugins: [starlightLinksValidator({ errorOnRelativeLinks: false, errorOnLocalLinks: false })],
 			sidebar: [
 				{ label: 'Get started', items: [{ autogenerate: { directory: 'get-started' } }] },
