@@ -158,8 +158,13 @@ def has_scope(caller: Caller, *scopes: str) -> bool:
     return "*" in held or any(scope in held for scope in scopes)
 
 
-def refusal(caller: Caller, action: Action) -> str | None:
-    """Why ``caller`` may not do ``action``, or None when it may."""
+def refusal(caller: Caller, action: Action, *, check_role: bool = True) -> str | None:
+    """Why ``caller`` may not do ``action``, or None when it may.
+
+    ``check_role=False`` checks only the token side (provider, human-only,
+    scope) for a route whose role rule lives elsewhere, such as the catalog
+    workflow's ``workflow_policy.can_transition``.
+    """
     rule = RULES[action]
     if caller.auth_type == PROVIDER_AUTH_TYPE and rule.provider_refusal is not None:
         return rule.provider_refusal
@@ -167,7 +172,7 @@ def refusal(caller: Caller, action: Action) -> str | None:
         return _HUMAN_ONLY
     if rule.scopes and caller.auth_type != "session" and not has_scope(caller, *rule.scopes):
         return f"{' or '.join(rule.scopes)} scope required"
-    if caller.role not in rule.roles:
+    if check_role and caller.role not in rule.roles:
         return rule.role_detail
     return None
 
@@ -224,9 +229,9 @@ def role_allows(role: Role, action: Action) -> bool:
     return role in RULES[action].roles
 
 
-def authorize(caller: Caller, action: Action) -> Any:
+def authorize(caller: Caller, action: Action, *, check_role: bool = True) -> Any:
     """Return ``caller`` when it may do ``action``; raise 403 otherwise."""
-    detail = refusal(caller, action)
+    detail = refusal(caller, action, check_role=check_role)
     if detail is not None:
         missing = _mcp_missing_scope(caller, action)
         headers = (

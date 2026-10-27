@@ -224,17 +224,22 @@ async def _call_route(
     body: dict[str, Any] | None = None,
     *,
     idempotency_key: str | None = None,
+    if_match: str | None = None,
 ) -> tuple[int, bytes]:
     """One in-process ASGI request, carrying only the caller's bearer token.
 
-    A ``403`` carrying an ``insufficient_scope`` challenge raises
-    ``ScopeChallenge`` instead of returning, whichever tool made the call.
+    ``if_match`` is the guarded write's ETag (``app.core.preconditions``); a
+    tool that read the resource first passes it on. A ``403`` carrying an
+    ``insufficient_scope`` challenge raises ``ScopeChallenge`` instead of
+    returning, whichever tool made the call.
     """
 
     payload = _json(body).encode("utf-8") if body is not None else b""
     headers = [(b"authorization", authorization.encode("utf-8"))]
     if idempotency_key and method.upper() != "GET":
         headers.append((b"idempotency-key", idempotency_key.encode("utf-8")))
+    if if_match:
+        headers.append((b"if-match", if_match.encode("utf-8")))
     if body is not None:
         headers.extend(
             [

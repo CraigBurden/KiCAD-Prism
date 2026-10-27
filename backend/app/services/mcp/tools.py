@@ -552,6 +552,8 @@ __all__ = ["present"]
 # Imported last: the comparison tools register after the v5.1 read set, so
 # ``tools/list`` keeps that order.
 from app.services.mcp import tools_compare as _tools_compare  # noqa: E402, F401
+# The catalog authoring reads close the read set.
+from app.services.mcp import tools_catalog_reads as _tools_catalog_reads  # noqa: E402, F401
 
 # The write tools register after the read set too, so a client that lists tools
 # sees every read first and every write after.
@@ -559,6 +561,8 @@ from app.services.mcp import tools_writes as _write_tools  # noqa: E402, F401
 # The write tools follow the read set; they are declared in their own module
 # because they carry the policy action a write needs (ADR §10).
 from app.services.mcp import tools_comments as _tools_comments  # noqa: E402, F401
+# The catalog authoring writes follow the other writes (ADR §12).
+from app.services.mcp import tools_catalog_writes as _tools_catalog_writes  # noqa: E402, F401
 
 # Ops tools register last: they are listed only while ops is on, and then after
 # every design tool (ADR §11).

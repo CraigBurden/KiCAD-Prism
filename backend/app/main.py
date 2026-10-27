@@ -55,6 +55,7 @@ from app.api.tracker_identity import admin_router as tracker_identity_admin_rout
 from app.api.tracker_identity import router as tracker_identity_router
 from app.api.catalog_admin import router as catalog_admin_router
 from app.api.catalog_part_relations import router as catalog_part_relations_router
+from app.api.catalog_drafting import router as catalog_drafting_router
 from app.api.oauth import router as oauth_router
 from app.api.service_clients import router as service_clients_router
 from app.api.jobs import router as jobs_router
@@ -392,6 +393,7 @@ app.include_router(agent_router)
 app.include_router(health_router)
 app.include_router(catalog_admin_router)
 app.include_router(catalog_part_relations_router)
+app.include_router(catalog_drafting_router)
 app.include_router(oauth_router)
 app.include_router(service_clients_router)
 app.include_router(remote_provider_router, tags=["remote-provider"])

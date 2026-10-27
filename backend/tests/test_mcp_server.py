@@ -58,6 +58,9 @@ TOOL_ORDER = [
     "get_release_status",
     "compare_revisions",
     "get_changes",
+    "list_catalog_fields",
+    "search_catalog_assets",
+    "check_catalog_asset",
     "sync_project",
     "start_release_build",
     "request_release_approval",
@@ -66,6 +69,13 @@ TOOL_ORDER = [
     "add_comment",
     "reply_to_comment",
     "resolve_comment",
+    "update_catalog_component",
+    "create_asset_upload",
+    "attach_catalog_asset",
+    "reuse_catalog_asset",
+    "validate_catalog_component",
+    "move_catalog_component",
+    "request_catalog_approval",
 ]
 
 #: Tools that change Prism; every other listed tool is a read.
@@ -79,6 +89,13 @@ WRITE_TOOLS = frozenset(
         "add_comment",
         "reply_to_comment",
         "resolve_comment",
+        "update_catalog_component",
+        "create_asset_upload",
+        "attach_catalog_asset",
+        "reuse_catalog_asset",
+        "validate_catalog_component",
+        "move_catalog_component",
+        "request_catalog_approval",
     }
 )
 
