@@ -14,6 +14,11 @@ Open it from **Library Manager** in the left sidebar.
 
 ![Library Manager Catalog: a filtered component list with CAD, workflow and validation status, and a quick view of one part's metadata, symbol and footprint](../../../assets/screenshots/library-manager.jpg)
 
+<video autoplay loop muted playsinline poster="/KiCAD-Prism/media/component-database-poster.jpg">
+  <source src="/KiCAD-Prism/media/component-database.webm" type="video/webm" />
+  <source src="/KiCAD-Prism/media/component-database.mp4" type="video/mp4" />
+</video>
+
 ## Who can do what
 
 | Role | In Library Manager |
@@ -113,6 +118,11 @@ candidates and staged files go; components you already accepted stay.
   new metadata revision in QA review. Bulk Edit also checks that numbers, URLs,
   yes/no values and list options are valid. You can import and export the grid
   as CSV.
+
+<video autoplay loop muted playsinline poster="/KiCAD-Prism/media/library-bulk-edit-poster.jpg">
+  <source src="/KiCAD-Prism/media/library-bulk-edit.webm" type="video/webm" />
+  <source src="/KiCAD-Prism/media/library-bulk-edit.mp4" type="video/mp4" />
+</video>
 
 Provisional parts (no manufacturer part number yet) can be drafted, but cannot
 be approved, released or placed until you add a real part number.

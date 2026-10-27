@@ -53,6 +53,11 @@ Library Manager.
    revision selector next to it. It defaults to the latest release.
 5. Select **Place** to hand the part to KiCad for placement.
 
+<video autoplay loop muted playsinline poster="/KiCAD-Prism/media/remote-symbol-panel-poster.jpg">
+  <source src="/KiCAD-Prism/media/remote-symbol-panel.webm" type="video/webm" />
+  <source src="/KiCAD-Prism/media/remote-symbol-panel.mp4" type="video/mp4" />
+</video>
+
 KiCad writes the part's symbol and footprint into a project-local library.
 By default the library prefix is `remote` and the files go to
 `${KIPRJMOD}/RemoteLibrary`. If your KiCad uses different values, your
