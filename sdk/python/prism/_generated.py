@@ -1591,16 +1591,18 @@ class DraftCheckResult(TypedDict, total=True):
     kicad_message: str
     klc: DraftKlcResult | None
     name: str
+    name_count: int
     names: list[str]
     previews: list[DraftPreview]
     readable: bool
     sha256: str
 
 
-class DraftKlcResult(TypedDict, total=True):
+class DraftKlcResult(TypedDict, total=False):
     error_count: int
     exit_code: int | None
     findings: list[KlcFinding]
+    findings_omitted: int
     message: str
     status: str
     warning_count: int

@@ -43,6 +43,8 @@ PREVIEW_WIDTH = 900
 MAX_PREVIEW_UNITS = 8
 # Enough to fix a part; a whole-library mistake would otherwise flood the reply.
 MAX_FINDINGS = 50
+# A vendor library can hold hundreds of symbols; the check is about one.
+MAX_NAMES = 20
 
 
 def unbalanced(text: str) -> str:
@@ -114,7 +116,8 @@ def _unreadable(asset_type: str, name: str, names: list[str], message: str, sha2
     return {
         "asset_type": asset_type,
         "name": name,
-        "names": names,
+        "names": names[:MAX_NAMES],
+        "name_count": len(names),
         "sha256": sha256,
         "readable": False,
         "kicad_message": message.strip()[-4000:] or "KiCad could not read the file",
@@ -202,7 +205,8 @@ def check_draft(
     return {
         "asset_type": asset_type,
         "name": chosen,
-        "names": names,
+        "names": names[:MAX_NAMES],
+        "name_count": len(names),
         "sha256": sha256,
         "readable": True,
         "kicad_message": render_error[-4000:],

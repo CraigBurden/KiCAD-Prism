@@ -8929,7 +8929,12 @@
             "title": "Name",
             "type": "string"
           },
+          "name_count": {
+            "title": "Name Count",
+            "type": "integer"
+          },
           "names": {
+            "description": "The first 20 symbol or footprint names the file holds.",
             "items": {
               "type": "string"
             },
@@ -8956,6 +8961,7 @@
           "asset_type",
           "name",
           "names",
+          "name_count",
           "sha256",
           "readable",
           "kicad_message",
@@ -8988,6 +8994,12 @@
             },
             "title": "Findings",
             "type": "array"
+          },
+          "findings_omitted": {
+            "default": 0,
+            "description": "Findings beyond the first 50, errors listed first.",
+            "title": "Findings Omitted",
+            "type": "integer"
           },
           "message": {
             "title": "Message",

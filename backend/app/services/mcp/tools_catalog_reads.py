@@ -174,6 +174,7 @@ register(
                 "asset_type": {"type": "string"},
                 "name": {"type": "string"},
                 "names": {"type": "array", "items": {"type": "string"}},
+                "name_count": {"type": "integer"},
                 "sha256": {"type": "string"},
                 "readable": {"type": "boolean"},
                 "kicad_message": {"type": "string"},

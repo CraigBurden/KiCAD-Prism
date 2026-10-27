@@ -109,7 +109,8 @@ class DraftPreview(BaseModel):
 class DraftCheckResult(BaseModel):
     asset_type: str
     name: str
-    names: list[str]
+    names: list[str] = Field(description="The first 20 symbol or footprint names the file holds.")
+    name_count: int
     sha256: str
     readable: bool
     kicad_message: str

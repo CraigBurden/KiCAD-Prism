@@ -359,7 +359,7 @@ class DraftRouteTests(unittest.TestCase):
 
     def test_the_check_route_runs_the_draft_check(self) -> None:
         with patch.object(catalog_drafting, "check_draft", return_value={
-            "asset_type": "footprint", "name": "F", "names": ["F"], "sha256": "s", "readable": False,
+            "asset_type": "footprint", "name": "F", "names": ["F"], "name_count": 1, "sha256": "s", "readable": False,
             "kicad_message": "bad", "klc": None, "previews": [],
         }) as checked, patch.object(catalog_drafting, "kicad_cli"):
             response = self.client.post(
