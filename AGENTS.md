@@ -24,6 +24,7 @@ change:
 | Design comparison | `frontend/src/components/design-comparison/AGENTS.md` |
 | Library workspace | `frontend/src/components/workspace/AGENTS.md` |
 | Design bundles (backend: keys, store, jobs, reader) | `backend/app/services/design_bundle/AGENTS.md` |
+| MCP server (tools, registry, invocation) | `backend/app/services/mcp/AGENTS.md` |
 | Native KiCad parser and design bundle (Rust) | `native/AGENTS.md` |
 | Projection goldens and the parity runner | `native/parity/AGENTS.md` |
 
@@ -36,6 +37,7 @@ skills automatically should open the relevant linked playbook directly.
 | --- | --- |
 | Select and report verification checks | `.agents/skills/prism-quality-gate/SKILL.md` |
 | Add or change an API endpoint | `.agents/skills/prism-api-endpoint/SKILL.md` |
+| Add or change an MCP tool | `.agents/skills/prism-mcp-tool/SKILL.md` |
 | Change Prism catalog behavior or structure | `.agents/skills/prism-catalog-change/SKILL.md` |
 | Extend design-comparison semantics | `.agents/skills/prism-comparison-change-kind/SKILL.md` |
 | Rebuild the vendored ECAD viewer/parser | `.agents/skills/prism-viewer-rebuild/SKILL.md` |

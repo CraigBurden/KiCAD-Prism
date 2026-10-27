@@ -35,18 +35,6 @@ from app.services.mcp.tools_catalog_reads import (
     draft_source,
 )
 
-CATALOG_WRITE_TOOL_NAMES = frozenset(
-    {
-        "update_catalog_component",
-        "create_asset_upload",
-        "attach_catalog_asset",
-        "reuse_catalog_asset",
-        "validate_catalog_component",
-        "move_catalog_component",
-        "request_catalog_approval",
-    }
-)
-
 # Stages an agent may move a component to. Approval (done) and publishing
 # (released) are a reviewer's; the route refuses them to an MCP client too.
 AGENT_STAGES = ("in_progress", "qa_review")
@@ -147,10 +135,10 @@ async def _if_match(
     if not revision_id:
         status, raw = await request(app, "get", _component_path(component_id), "", authorization, None)
         if not 200 <= status < 300:
-            return None, invoke._execution_error(status, raw)
+            return None, invoke.route_error(status, raw)
         revision_id = (_decode(raw) or {}).get("current_revision_id")
     if not revision_id:
-        return None, invoke._failure("invalid-response", "The component has no current revision")
+        return None, invoke.error_result("invalid-response", "The component has no current revision")
     return f'"component:{component_id}:{revision_id}"', None
 
 
@@ -172,7 +160,7 @@ async def _guarded(
         app, method, _component_path(component_id, suffix), "", authorization, body, if_match=if_match
     )
     if not 200 <= status < 300:
-        return invoke._execution_error(status, raw)
+        return invoke.route_error(status, raw)
     return _success(_decode(raw), component_id, note)
 
 
@@ -219,17 +207,17 @@ async def _validate_component(
         app, "post", _component_path(component_id, "/validate"), "", authorization, {}
     )
     if not 200 <= status < 300:
-        return invoke._execution_error(status, raw)
+        return invoke.route_error(status, raw)
     job_id = str((_decode(raw) or {}).get("job_id") or "")
     if not job_id:
-        return invoke._failure("invalid-response", "Prism answered without a validation job id")
+        return invoke.error_result("invalid-response", "Prism answered without a validation job id")
     deadline = time.monotonic() + VALIDATION_TIMEOUT_SECONDS
     while True:
         status, raw = await request(
             app, "get", f"/api/v1/catalog/validation/jobs/{quote(job_id, safe='')}", "", authorization, None
         )
         if not 200 <= status < 300:
-            return invoke._execution_error(status, raw)
+            return invoke.route_error(status, raw)
         state = str((_decode(raw) or {}).get("status") or "")
         if state in {"completed", "failed", "cancelled"}:
             break
@@ -241,7 +229,7 @@ async def _validate_component(
             )
         await asyncio.sleep(VALIDATION_POLL_SECONDS)
     if state != "completed":
-        return invoke._execution_error(
+        return invoke.route_error(
             422,
             json.dumps({"detail": f"Validation ended {state}.", "code": "validation-failed", "job_id": job_id}).encode(),
         )
@@ -249,7 +237,7 @@ async def _validate_component(
         app, "get", _component_path(component_id, "/validation"), "", authorization, None
     )
     if not 200 <= status < 300:
-        return invoke._execution_error(status, raw)
+        return invoke.route_error(status, raw)
     return _success(_decode(raw), component_id)
 
 
@@ -466,4 +454,4 @@ register(
 )
 
 
-__all__ = ["AGENT_STAGES", "CATALOG_WRITE_TOOL_NAMES"]
+__all__ = ["AGENT_STAGES"]
