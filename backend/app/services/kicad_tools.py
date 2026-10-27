@@ -36,6 +36,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping, Protocol, Sequence
 
+from app.services.process_tree import group_popen_kwargs, kill_tree
+
 if TYPE_CHECKING:  # pragma: no cover
     from app.core.config import Settings
 
@@ -170,6 +172,29 @@ def kicad_cli_install_candidates() -> tuple[str, ...]:
         versions = sorted((d for d in root.iterdir() if d.is_dir()), reverse=True) if root.is_dir() else []
         return tuple(str(version / "bin" / "kicad-cli.exe") for version in versions)
     return ("/usr/bin/kicad-cli", "/usr/local/bin/kicad-cli")
+
+
+def locate_kicad_python(settings: "Settings | None" = None) -> str | None:
+    """``PRISM_KICAD_PYTHON``, else the Python that ships with KiCad; ``None`` if absent.
+
+    A configured value is used as given, like ``KICAD_CLI_PATH``.
+    """
+
+    configured = _settings(settings).PRISM_KICAD_PYTHON.strip()
+    if configured:
+        return configured
+    system = platform.system()
+    if system == "Linux":
+        return "/usr/bin/python3"
+    cli = locate_kicad_cli(settings)
+    if not cli:
+        return None
+    folder = Path(cli).parent
+    if system == "Windows":
+        candidate = folder / "python.exe"
+    else:
+        candidate = folder.parent / "Frameworks/Python.framework/Versions/Current/bin/python3"
+    return str(candidate) if candidate.is_file() else None
 
 
 def locate_kicad_cli(settings: "Settings | None" = None) -> str | None:
@@ -310,6 +335,7 @@ def _run_process(
             bufsize=1,
             env=dict(env),
             close_fds=True,
+            **group_popen_kwargs(),
         )
     except OSError as exc:
         raise ToolUnavailable(f"{Path(argv[0]).name} could not be executed: {exc}") from exc
@@ -340,15 +366,14 @@ def _run_process(
                     f"{' '.join(str(part) for part in argv[1:4])}",
                     timeout,
                 )
-            finished = _wait(process, min(remaining, _CANCEL_POLL_SECONDS))
+            finished = wait_process(process, min(remaining, _CANCEL_POLL_SECONDS))
             if finished is not None:
                 returncode, peak_rss_bytes = finished
                 break
             if cancel is not None:
                 cancel()
     except BaseException:
-        process.kill()
-        process.wait()
+        kill_tree(process)
         raise
     finally:
         for reader in readers:
@@ -369,7 +394,7 @@ def _run_process(
 _WAIT_POLL_SECONDS = 0.05
 
 
-def _wait(process: subprocess.Popen[str], seconds: float) -> tuple[int, int] | None:
+def wait_process(process: subprocess.Popen[Any], seconds: float) -> tuple[int, int] | None:
     """``(exit code, peak resident bytes)`` once ``process`` exits within ``seconds``, else ``None``.
 
     Where the platform has ``wait4`` the process is reaped with it, so its

@@ -634,8 +634,9 @@ jobs:
   native-platforms:
     name: Native workspace (${{ matrix.platform }})
     # The fork's per-platform materializer job: the producer, pack and bundle tests on the other
-    # platforms the worker and developers run (linux amd64 is native-workspace). Parse-stage
-    # members must be byte-identical across them (decisions.md, Conventions 3). Agents test on
+    # platforms the worker and developers run (linux amd64 is native-workspace; Windows is the
+    # MSVC build of the dev stack, so a Unix-only call cannot come back in a merge from dev).
+    # Parse-stage members must be byte-identical across them (decisions.md, Conventions 3). Agents test on
     # macOS arm64 locally, so PRs into feature and work-package branches skip it; it runs on PRs
     # into dev and main, on pushes (every merge into the feature branch) and nightly.
     needs: [changes, catalog-architecture, native-hygiene]
@@ -654,12 +655,22 @@ jobs:
             platform: linux-arm64
           - os: macos-15
             platform: macos-arm64
+          - os: windows-2025
+            platform: windows-x64
 
     defaults:
       run:
+        shell: bash
         working-directory: native
 
     steps:
+      - name: Keep line endings as committed
+        # Git for Windows checks out CRLF by default; the fixtures and revision keys are LF.
+        if: runner.os == 'Windows'
+        # Runs before checkout, so the job's default `native` directory does not exist yet.
+        working-directory: ${{ github.workspace }}
+        run: git config --global core.autocrlf false
+
       - name: Check out source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 

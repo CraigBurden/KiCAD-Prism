@@ -353,3 +353,36 @@ Every ops tool call is audited like any other MCP call, and the HTTP routes behi
 | OPS-05 | `capture_profile` (migration 142) | 01 |
 | OPS-06 | Actions: `cancel_job`, `requeue_job`, `rebuild_bundle`, `set_debug_logging` | 03 |
 | OPS-07 | Docs and a live check through a real client | all |
+
+## 12. Catalog authoring: taking a component to QA Review
+
+Making a library part is the slowest routine job in a hardware team: read the datasheet, fill in the fields, draw the symbol and footprint, find the 3D model, check it all against the library conventions, and send it for review. An agent on the engineer's machine can do most of it, but until now it could only create the empty record (`create_catalog_draft`). This section adds the rest, up to the point where a reviewer takes over.
+
+### 12.1 Decisions
+
+| # | Decision |
+| --- | --- |
+| D29 | **Prism accepts files; it does not make them.** How a symbol, footprint or 3D model is produced (by hand, a generator, a model, KiCad's own editors) is the client's business. Prism checks what it receives and stores it through the same imports the Library Manager's upload buttons use. Generators, intermediate representations and authoring skills are a separate offering, outside this repository. |
+| D30 | **Files reach Prism by upload slot or inline text.** A client that cannot post multipart forms asks for a slot (`POST /catalog/uploads`), `PUT`s the bytes to the signed URL it gets back, and names the file by `upload_id` afterwards. The signature is the `PUT`'s only credential; the slot belongs to the person who opened it, takes one write, holds at most 64 MiB (the largest model Prism embeds) and expires after 15 minutes. Symbols and footprints may instead travel inline as `content`. Bytes never travel inside a tool call's arguments as base64. |
+| D31 | **A draft can be checked without becoming a revision.** `POST /catalog/drafts/check` runs the same `kicad-cli` read, render and KLC checker a stored asset goes through and returns KiCad's own error text, the findings and a PNG of each unit, storing nothing. A truncated S-expression is refused before `kicad-cli` runs, because KiCad 10.0's `fp upgrade` loops until its timeout on one. |
+| D32 | **Agents stop at QA Review.** Moving a component's stage now needs `catalog:write` from a token, and a move to `done` or `released` needs `catalog:qa`, which is human-only (§3.5): an MCP client is refused it whatever it holds. Before this, the stage route checked only `api:read` and the role. The role rule stays in `workflow_policy.can_transition`; `workflow_policy.transition_action` names the scope. `request_catalog_approval` hands back the component's page and never calls a route (D15). |
+| D33 | **Edits are guarded.** Tools that change an existing component send its revision as `If-Match`: the one the agent read, or the latest when it gives none. A component someone changed meanwhile answers 412, as it does in the browser. |
+
+### 12.2 Tools
+
+| Tool | Kind | Route |
+| --- | --- | --- |
+| `list_catalog_fields` | read | `GET /catalog/metadata/fields` |
+| `search_catalog_assets` | read | `GET /catalog/assets/search` |
+| `check_catalog_asset` | read, `catalog:write` | `POST /catalog/drafts/check` (D31) |
+| `update_catalog_component` | write | `PATCH /catalog/components/{id}` |
+| `create_asset_upload` | write | `POST /catalog/uploads` (D30) |
+| `attach_catalog_asset` | write | `POST /catalog/components/{id}/assets/{type}/attach` |
+| `reuse_catalog_asset` | write | `POST /catalog/components/{id}/assets/{type}/reuse`: links an asset the catalog already stores, so a standard footprint is shared, not copied |
+| `validate_catalog_component` | write | `POST /catalog/components/{id}/validate`, waits for the job, then `GET .../validation` |
+| `update_catalog_representation` | write | `PATCH /catalog/components/{id}/representations/{rep}` |
+| `remove_catalog_representation` | write | `DELETE /catalog/components/{id}/representations/{rep}`, then `DELETE .../assets/id/{asset}` for each of its assets no other representation uses |
+| `move_catalog_component` | write | `POST /catalog/components/{id}/release`, to `in_progress` or `qa_review` only |
+| `request_catalog_approval` | handoff | none (D15, D32) |
+
+The new routes live in `backend/app/api/catalog_drafting.py`; uploads and draft checks in `backend/app/services/catalog/staged_uploads.py` and `draft_checks.py`. KiCad's IPC API gains symbol- and footprint-editor handlers after 10.0; when Prism's worker runs a KiCad with them, a client may drive the editors itself, and nothing here changes.

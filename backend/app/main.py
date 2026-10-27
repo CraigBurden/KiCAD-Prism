@@ -55,6 +55,7 @@ from app.api.tracker_identity import admin_router as tracker_identity_admin_rout
 from app.api.tracker_identity import router as tracker_identity_router
 from app.api.catalog_admin import router as catalog_admin_router
 from app.api.catalog_part_relations import router as catalog_part_relations_router
+from app.api.catalog_drafting import router as catalog_drafting_router
 from app.api.oauth import router as oauth_router
 from app.api.service_clients import router as service_clients_router
 from app.api.jobs import router as jobs_router
@@ -76,6 +77,7 @@ from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
 from app.core.config import settings
 from app.core import runtime_logging
+from app.services import checkout_line_endings
 from app.core.security_headers import apply_security_headers
 import asyncio
 import os
@@ -176,7 +178,7 @@ def verify_auth_configuration_or_exit() -> None:
         "",
         "      docker compose up -d backend",
         "",
-        "  Configuration guide:  docs/AUTHENTICATION_AND_ACCESS.md",
+        "  Configuration guide:  https://krishna-swaroop.github.io/KiCAD-Prism/admin/authentication/",
         "  Generate a secret:    openssl rand -base64 48",
         "",
         "  To run a local instance with no authentication at all, set",
@@ -224,6 +226,9 @@ async def lifespan(app: FastAPI):
     announce_configuration_warnings()
     configure_git()
     ensure_ssh_dir()
+    if sys.platform == "win32":
+        # Git for Windows' autocrlf makes a checkout differ from its commit's bytes.
+        checkout_line_endings.convert_projects_in_background(Path(settings.KICAD_PROJECTS_ROOT))
     bring_every_schema_to_head()
     runtime_logging.start_poller()
     try:
@@ -388,6 +393,7 @@ app.include_router(agent_router)
 app.include_router(health_router)
 app.include_router(catalog_admin_router)
 app.include_router(catalog_part_relations_router)
+app.include_router(catalog_drafting_router)
 app.include_router(oauth_router)
 app.include_router(service_clients_router)
 app.include_router(remote_provider_router, tags=["remote-provider"])
