@@ -24,7 +24,7 @@ BOM and stackup views, with cross-probing between them.
 
 | Schematic | PCB | 3D |
 | --- | --- | --- |
-| ![A schematic sheet open in the browser viewer](../../../assets/screenshots/schematic.jpg) | ![A board layout in the PCB viewer with layers listed on the side](../../../assets/screenshots/pcb.jpg) | ![The same board rendered in 3D with its parts placed](../../../assets/screenshots/3d.jpg) |
+| ![A schematic sheet open in the browser viewer](../../../assets/screenshots/ts-sch.jpg) | ![A board layout in the PCB viewer with layers listed on the side](../../../assets/screenshots/ts-pcb.jpg) | ![The same board rendered in 3D with its parts placed](../../../assets/screenshots/ts-3d.jpg) |
 
 - **Insets** open a live view of the other document from any pin or pad, and
   chain from there.

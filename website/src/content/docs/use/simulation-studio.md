@@ -46,6 +46,8 @@ run it.
 
 The **Setup** tab shows the power tree as a canvas.
 
+![The Setup tab of an OpenSwitch LAN969x setup: the power tree canvas from the 20 V input through its converters to the loads, and the Settings panel listing the rails to solve and the accuracy](../../../assets/screenshots/sim-setup.jpg)
+
 - **Add elements** adds a **Source**, **Converter**, **Rail** or **Load**.
   Pick the part or net it belongs to from the board.
 - Select an element to edit it in the inspector: for example a source's
@@ -90,6 +92,8 @@ message asking you to run again when it is ready.
 Open the **Results** tab. It shows a spinner while a run is queued or
 running. With more than one run, pick the one to show from the run list.
 
+![Results for the same board: the copper coloured by voltage on the +0V9 rail with its scale, a power-flow chart from the input through each rail to the loads and losses, and the Loads table with each load's drop, supply and return share against its budget](../../../assets/screenshots/sim-results.jpg)
+
 - The board view colours the copper by voltage drop, current density or power
   density, with optional current arrows. **Colours and arrows** adjusts how
   they look.
@@ -99,6 +103,14 @@ running. With more than one run, pick the one to show from the run list.
   loss), via currents, convergence, and a **Profile**: draw a line on the
   copper to plot the field along it.
 - **Back to setup** returns to the setup that produced the run.
+
+<div class="prism-pair">
+
+![Current density on the copper with current arrows, and the arrow scale](../../../assets/screenshots/sim-results-current.jpg)
+
+![The Rails tab: each rail's voltage, current, copper loss, peak density, worst load and worst drop against its budget](../../../assets/screenshots/sim-results-rails.jpg)
+
+</div>
 
 ## Script the studio from the browser
 

@@ -47,7 +47,7 @@ order.
 
 ## Change what the board shows
 
-![The PCB tab with the Board display panel open on Layers: a Layer preset menu above the list of copper, technical and user layers, each with a visibility toggle](../../../assets/screenshots/pcb.jpg)
+![The PCB tab with the Board display panel open on Layers: a Layer preset menu above the list of copper, technical and user layers, each with a visibility toggle](../../../assets/screenshots/ts-pcb.jpg)
 
 The **Board display** panel on the left of the **PCB** tab has two parts.
 
@@ -196,7 +196,7 @@ moment, because the board view loads the first time inset mode turns on.
 
 ## Explore the board in 3D
 
-![The 3D tab: the Board 3D panel on the left with the 3D and 2D modes, Net layers and Isolate, Stackup separation, Layer preset and the copper layer list, and the assembled board in the canvas with Show DNP and Regenerate above it](../../../assets/screenshots/3d.jpg)
+![The 3D tab: the Board 3D panel on the left with the 3D and 2D modes, Net layers and Isolate, Stackup separation, Layer preset and the copper layer list, and the assembled board in the canvas with Show DNP and Regenerate above it](../../../assets/screenshots/ts-3d.jpg)
 
 The **3D** tab shows the assembled board. The bare board can appear before
 the parts; a badge at the top shows the loading stage until everything is in.
