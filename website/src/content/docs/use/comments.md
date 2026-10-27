@@ -40,6 +40,11 @@ repository.
 
 `Esc` closes the form and leaves commenting mode.
 
+<video autoplay loop muted playsinline poster="/KiCAD-Prism/media/comments-demo-poster.jpg">
+  <source src="/KiCAD-Prism/media/comments-demo.webm" type="video/webm" />
+  <source src="/KiCAD-Prism/media/comments-demo.mp4" type="video/mp4" />
+</video>
+
 ### Format and attach
 
 The comment box is a rich-text editor. Its toolbar has bold, italic,

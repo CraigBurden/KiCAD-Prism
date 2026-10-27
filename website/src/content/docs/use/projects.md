@@ -41,6 +41,11 @@ workspace lets you add the projects you skipped the first time.
 Prism refuses local file paths, URLs with a username or password written into
 them, and unusual Git transport protocols.
 
+<video autoplay loop muted playsinline poster="/KiCAD-Prism/media/project-import-poster.jpg">
+  <source src="/KiCAD-Prism/media/project-import.webm" type="video/webm" />
+  <source src="/KiCAD-Prism/media/project-import.mp4" type="video/mp4" />
+</video>
+
 ### Import a private repository
 
 If the analysis cannot reach the repository, the dialog shows **Grant Prism
@@ -125,6 +130,11 @@ The project sidebar has these sections:
 | **Release Studio** | Builds and sign-off of a release; see [Release Studio](/KiCAD-Prism/use/release-studio/) |
 | **Assets Portal** | Files the workflow jobs produced |
 | **Documentation** | Markdown and other documents from the project's documentation folder |
+
+<video autoplay loop muted playsinline poster="/KiCAD-Prism/media/project-tour-poster.jpg">
+  <source src="/KiCAD-Prism/media/project-tour.webm" type="video/webm" />
+  <source src="/KiCAD-Prism/media/project-tour.mp4" type="video/mp4" />
+</video>
 
 ![The Overview page: the project name, its description, the README text and a rendered board image](../../../assets/screenshots/project-overview.jpg)
 

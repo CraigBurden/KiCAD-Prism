@@ -23,6 +23,11 @@ The first time anyone opens a revision, Prism may show **Preparing design
 data…** while it reads the files. See [Design data](/KiCAD-Prism/use/design-data/)
 for what that means and what to do if it fails.
 
+<video autoplay loop muted playsinline poster="/KiCAD-Prism/media/cross-probe-bom-poster.jpg">
+  <source src="/KiCAD-Prism/media/cross-probe-bom.webm" type="video/webm" />
+  <source src="/KiCAD-Prism/media/cross-probe-bom.mp4" type="video/mp4" />
+</video>
+
 ## Navigate the schematic
 
 ![The Schematic tab: the Schematic pages panel on the left lists the root sheet and its 19 sub-sheets, and the canvas shows the root sheet's hierarchical blocks](../../../assets/screenshots/schematic.jpg)
