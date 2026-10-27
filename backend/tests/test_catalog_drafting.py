@@ -62,6 +62,47 @@ FOOTPRINT = """(footprint "TEST_2PAD" (version 20241229) (generator "tests") (la
 """
 
 
+DERIVED_LIBRARY = SYMBOL.replace(
+    "\n)\n",
+    """
+  (symbol "BUF1X" (extends "BUF1")
+    (property "Reference" "U" (at 0 5.08 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "BUF1X" (at 0 -5.08 0) (effects (font (size 1.27 1.27))))
+    (property "Footprint" "" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
+  )
+)
+""",
+)
+
+
+class DerivedSymbolExtractionTests(unittest.TestCase):
+    def test_a_derived_symbol_is_stored_flattened(self) -> None:
+        from app.services.catalog.asset_files import CatalogAssetFiles
+        from app.services.kicad_library_reader import symbol_names
+
+        stored = CatalogAssetFiles.single_symbol_payload(DERIVED_LIBRARY, "BUF1X").decode()
+        self.assertNotIn("(extends", stored)
+        self.assertEqual(symbol_names(stored), ["BUF1X"])
+        self.assertIn('(symbol "BUF1X_1_1"', stored)
+        self.assertIn('(name "Y"', stored)
+        self.assertIn('"Value" "BUF1X"', stored)
+
+    def test_a_missing_parent_is_refused(self) -> None:
+        from app.services.catalog.asset_files import CatalogAssetFiles
+
+        orphan = DERIVED_LIBRARY.replace('(extends "BUF1")', '(extends "GONE")')
+        with self.assertRaises(ValueError):
+            CatalogAssetFiles.single_symbol_payload(orphan, "BUF1X")
+
+    def test_a_plain_symbol_is_unchanged(self) -> None:
+        from app.services.catalog.asset_files import CatalogAssetFiles
+
+        stored = CatalogAssetFiles.single_symbol_payload(DERIVED_LIBRARY, "BUF1").decode()
+        self.assertIn('(symbol "BUF1_1_1"', stored)
+        self.assertNotIn("BUF1X", stored)
+
+
 class StagedUploadTests(unittest.TestCase):
     def setUp(self) -> None:
         patcher = patch.object(settings, "SESSION_SECRET", SECRET)
@@ -205,6 +246,14 @@ class DraftCheckWithKicadTests(unittest.TestCase):
         )
         self.assertTrue(result["readable"], result["kicad_message"])
         self.assertEqual(result["name"], "TEST_2PAD")
+        self.assertEqual(len(result["previews"]), 1)
+
+    def test_a_derived_symbol_is_checked_as_it_would_be_stored(self) -> None:
+        result = draft_checks.check_draft(
+            self.kicad, asset_type="symbol", file_name="lib.kicad_sym", payload=DERIVED_LIBRARY.encode(), name="BUF1X"
+        )
+        self.assertTrue(result["readable"], result["kicad_message"])
+        self.assertEqual(result["names"], ["BUF1", "BUF1X"])
         self.assertEqual(len(result["previews"]), 1)
 
     def test_an_unknown_symbol_name_is_reported(self) -> None:

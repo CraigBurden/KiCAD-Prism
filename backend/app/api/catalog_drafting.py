@@ -97,6 +97,7 @@ class DraftKlcResult(BaseModel):
     error_count: int
     warning_count: int
     findings: list[KlcFinding]
+    findings_omitted: int = Field(default=0, description="Findings beyond the first 50, errors listed first.")
     message: str
 
 

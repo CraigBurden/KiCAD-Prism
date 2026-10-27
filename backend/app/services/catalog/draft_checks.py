@@ -23,6 +23,7 @@ import tempfile
 from typing import Any
 
 from app.services.catalog.asset_files import (
+    CatalogAssetFiles,
     discover_footprint_name_in_text,
     discover_symbol_names_in_text,
 )
@@ -40,6 +41,8 @@ DRAFT_ASSET_TYPES = frozenset({"symbol", "footprint"})
 PREVIEW_WIDTH = 900
 # A large part split into many units would otherwise return dozens of images.
 MAX_PREVIEW_UNITS = 8
+# Enough to fix a part; a whole-library mistake would otherwise flood the reply.
+MAX_FINDINGS = 50
 
 
 def unbalanced(text: str) -> str:
@@ -94,12 +97,15 @@ def _klc(asset_type: str, path: Path, scratch: Path, name: str) -> dict[str, Any
     status, exit_code, findings, _stdout, stderr = CatalogKlcValidation.run_checker(
         asset_type, path, scratch / "klc.junit.xml", object_name=name
     )
+    # Errors first, so a capped list still shows what blocks the part.
+    ordered = sorted(findings, key=lambda f: f["severity"] != VALIDATION_SEVERITY_ERROR)
     return {
         "status": status,
         "exit_code": exit_code,
         "error_count": sum(1 for f in findings if f["severity"] == VALIDATION_SEVERITY_ERROR),
         "warning_count": sum(1 for f in findings if f["severity"] == VALIDATION_SEVERITY_WARNING),
-        "findings": findings,
+        "findings": ordered[:MAX_FINDINGS],
+        "findings_omitted": max(0, len(findings) - MAX_FINDINGS),
         "message": stderr.strip()[-2000:] if not findings else "",
     }
 
@@ -152,14 +158,26 @@ def check_draft(
             if not chosen or chosen not in names:
                 message = f"No symbol named {chosen!r}" if chosen else "The library holds no symbol"
                 return _unreadable(asset_type, chosen, names, message, sha256)
+            # Check what attaching would store: the chosen symbol alone, flattened
+            # if it is derived, not the library it came in.
+            stored = scratch / f"{sanitize_name(chosen, 'symbol')}.kicad_sym"
+            try:
+                stored.write_bytes(
+                    CatalogAssetFiles.single_symbol_payload(upgraded.read_text(encoding="utf-8"), chosen)
+                )
+            except ValueError as exc:
+                return _unreadable(asset_type, chosen, names, str(exc), sha256)
+            ok, error = run(["sym", "upgrade", "--force", "--output", str(scratch / "stored.kicad_sym"), str(stored)])
+            if not ok:
+                return _unreadable(asset_type, chosen, names, f"{chosen} does not load on its own: {error}", sha256)
             status, units = CatalogPreviewRenderer.generate_symbol_preview_units(
-                {"canonical_path": str(upgraded), "target_name": chosen}, run
+                {"canonical_path": str(stored), "target_name": chosen}, run
             )
             if status == PREVIEW_STATUS_READY and isinstance(units, list):
                 previews, render_error = _previews(units)
             else:
                 previews, render_error = [], str(units)
-            klc = _klc(asset_type, upgraded, scratch, chosen)
+            klc = _klc(asset_type, stored, scratch, chosen)
         else:
             declared = discover_footprint_name_in_text(text)
             names = [declared] if declared else []

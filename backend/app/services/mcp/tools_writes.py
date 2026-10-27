@@ -236,7 +236,7 @@ register(
                 "extra_fields": {
                     "type": "object",
                     "additionalProperties": {"type": "string"},
-                    "description": "Custom metadata field values, keyed by field name.",
+                    "description": "Custom metadata field values, keyed by field key (see list_catalog_fields).",
                 },
             },
             (
