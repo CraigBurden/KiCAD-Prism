@@ -367,6 +367,7 @@ class BundleInvocationOut(TypedDict, total=False):
     executable: str
     exit: int | None
     peak_rss_bytes: int | None
+    stage: str | None
     subcommand: str
 
 

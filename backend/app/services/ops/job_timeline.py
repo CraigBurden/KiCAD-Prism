@@ -33,16 +33,18 @@ MAX_LOG_LINES = 200
 
 _CLAIM_EVENTS = frozenset({"claimed", "lease_reclaimed"})
 #: Events that close one claim attempt. A reclaim closes it too, because the
-#: next attempt is a new claim.
+#: next attempt is a new claim, and so does an ops requeue of a lease-expired
+#: job. A cancel request does not: the worker keeps the attempt until its next
+#: checkpoint, and the cancelled event that follows closes it.
 _ATTEMPT_END_EVENTS = _CLAIM_EVENTS | frozenset(
     {
         "completed",
         "failed",
         "cancelled",
-        "cancel_requested",
         "retry_scheduled",
         "cancelled_after_lease_expiry",
         "ended_without_lease",
+        "requeued",
     }
 )
 _EXIT_CODE = re.compile(r"exited with code (-?\d+)")
@@ -167,19 +169,31 @@ def _claim_attempts(job: dict[str, Any], events: list[dict[str, Any]]) -> list[d
 
 
 def _stage_runs(job: dict[str, Any], events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Consecutive progress events' stages, each closed by the next change."""
+    """Consecutive progress events' stages, each closed by the next change.
+
+    An event that ends the attempt also closes the open stage, so a stage
+    that failed is not stretched across the time the job then sat failed or
+    waited for its retry.
+    """
+
+    def close(at: Any) -> None:
+        if runs and runs[-1]["ended_at"] is None:
+            runs[-1]["ended_at"] = at
+            runs[-1]["seconds"] = _seconds(runs[-1]["started_at"], at)
 
     runs: list[dict[str, Any]] = []
     for event in events:
-        if event.get("event_type") != "progress":
+        event_type = event.get("event_type")
+        if event_type in _ATTEMPT_END_EVENTS:
+            close(event.get("created_at"))
+            continue
+        if event_type != "progress":
             continue
         stage = str(event.get("stage") or "")
         if not stage:
             continue
-        if not runs or runs[-1]["stage"] != stage:
-            if runs:
-                runs[-1]["ended_at"] = event.get("created_at")
-                runs[-1]["seconds"] = _seconds(runs[-1]["started_at"], runs[-1]["ended_at"])
+        if not runs or runs[-1]["ended_at"] is not None or runs[-1]["stage"] != stage:
+            close(event.get("created_at"))
             runs.append(
                 {
                     "stage": stage,
@@ -188,12 +202,11 @@ def _stage_runs(job: dict[str, Any], events: list[dict[str, Any]]) -> list[dict[
                     "seconds": None,
                 }
             )
-    if runs:
+    if runs and runs[-1]["ended_at"] is None:
         ended_at = job.get("completed_at")
         if ended_at is None and str(job.get("status") or "") in {"completed", "failed", "cancelled"}:
             ended_at = job.get("updated_at")
-        runs[-1]["ended_at"] = ended_at
-        runs[-1]["seconds"] = _seconds(runs[-1]["started_at"], ended_at)
+        close(ended_at)
     return runs
 
 

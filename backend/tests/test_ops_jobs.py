@@ -229,8 +229,12 @@ class TimelineTests(unittest.TestCase):
         self.assertEqual([claim["outcome"] for claim in claims], ["lease_reclaimed", "failed"])
 
         stages = result["phases"]["stages"]
-        self.assertEqual([stage["stage"] for stage in stages], ["bundle-key", "bundle-parse"])
-        self.assertEqual([stage["seconds"] for stage in stages], [1.0, 16.0])
+        # The reclaim ends worker-1's attempt, so its bundle-parse run stops
+        # there instead of absorbing the time before worker-2 took over.
+        self.assertEqual(
+            [stage["stage"] for stage in stages], ["bundle-key", "bundle-parse", "bundle-parse"]
+        )
+        self.assertEqual([stage["seconds"] for stage in stages], [1.0, 6.0, 9.0])
 
         failed = next(event for event in result["events"] if event["event_type"] == "failed")
         self.assertNotIn("s3cret", json.dumps(failed))
@@ -291,7 +295,7 @@ class BundleProfileTests(unittest.TestCase):
                     "elapsed_ms": 4200,
                     "peak_rss_bytes": 300000,
                 },
-                {"command": "bundle verify", "exit": 0, "elapsed_ms": 500, "peak_rss_bytes": 20000},
+                {"command": "bundle verify", "stage": "board", "exit": 0, "elapsed_ms": 500, "peak_rss_bytes": 20000},
             ],
             "kicad_steps": [
                 {"step": "upgrade", "runs": 2, "exit": 0, "elapsed_ms": 1000, "peak_rss_bytes": 100},
@@ -358,13 +362,15 @@ class BundleProfileTests(unittest.TestCase):
             profile["invocations"][0],
             {
                 "executable": "prism-kicad",
-                "subcommand": "bundle",
+                "subcommand": "bundle build",
+                "stage": None,
                 "exit": 0,
                 "elapsed_ms": 4200.0,
                 "peak_rss_bytes": 300000,
             },
         )
-        self.assertEqual(profile["invocations"][1]["subcommand"], "bundle")
+        self.assertEqual(profile["invocations"][1]["subcommand"], "bundle verify")
+        self.assertEqual(profile["invocations"][1]["stage"], "board")
         self.assertEqual(
             profile["cache"],
             {
@@ -532,6 +538,36 @@ class RouteTests(unittest.TestCase):
             no_scope = self.client.get(f"/api/v1/ops/jobs/{job}/timeline", headers=wrong_scope)
         self.assertEqual(not_admin.status_code, 403)
         self.assertEqual(no_scope.status_code, 403)
+
+
+class TimelineBoundaryTests(unittest.TestCase):
+    """The sequence the live check ran: fail, ops requeue, claim, cancel."""
+
+    def test_a_requeue_and_a_cancel_request_split_attempts_and_stages_correctly(self) -> None:
+        start = datetime(2026, 10, 26, 17, 45, tzinfo=timezone.utc)
+
+        def at(seconds: float) -> datetime:
+            return start + timedelta(seconds=seconds)
+
+        events = [
+            {"event_type": "claimed", "details": {"worker_id": "w1", "fence": 1}, "created_at": at(0)},
+            {"event_type": "progress", "stage": "bundle-materialize", "created_at": at(1)},
+            {"event_type": "failed", "created_at": at(4)},
+            {"event_type": "requeued", "created_at": at(6000)},
+            {"event_type": "claimed", "details": {"worker_id": "w2", "fence": 3}, "created_at": at(6001)},
+            {"event_type": "progress", "stage": "bundle-materialize", "created_at": at(6002)},
+            {"event_type": "cancel_requested", "created_at": at(6003)},
+            {"event_type": "cancelled", "created_at": at(6005)},
+        ]
+        job = {"status": "cancelled", "completed_at": at(6005), "updated_at": at(6005)}
+
+        stages = timeline_rules._stage_runs(job, events)
+        self.assertEqual([(run["stage"], run["seconds"]) for run in stages],
+                         [("bundle-materialize", 3.0), ("bundle-materialize", 3.0)])
+
+        attempts = timeline_rules._claim_attempts(job, events)
+        self.assertEqual([(a["worker_id"], a["outcome"], a["seconds"]) for a in attempts],
+                         [("w1", "failed", 4.0), ("w2", "cancelled", 4.0)])
 
 
 class LogTailInternalsTests(unittest.TestCase):

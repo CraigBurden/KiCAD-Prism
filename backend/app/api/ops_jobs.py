@@ -136,9 +136,11 @@ async def get_job_timeline(
 
 
 class BundleInvocationOut(BaseModel):
-    #: Never the full argv: the CLI's basename and one subcommand.
+    #: Never the full argv: the CLI's basename and its subcommand.
     executable: str
     subcommand: str
+    #: The bundle stage the run built or verified (parse, board, models...).
+    stage: Optional[str] = None
     exit: Optional[int] = None
     elapsed_ms: Optional[float] = None
     peak_rss_bytes: Optional[int] = None
