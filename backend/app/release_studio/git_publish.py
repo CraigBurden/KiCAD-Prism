@@ -10,8 +10,6 @@ the caller.
 
 from __future__ import annotations
 
-import os
-import signal
 import subprocess
 import time
 from collections.abc import Callable, Mapping

@@ -297,3 +297,16 @@ fn a_bundle_built_with_the_key_record_carries_its_entries() {
         (7, "revision-key-mismatch")
     );
 }
+
+/// The key of `repository()`, computed on Linux and macOS. The key covers the
+/// selected files' bytes and paths, not commit metadata, so a Windows checkout
+/// that holds the committed bytes (Prism clones with `core.autocrlf=false`)
+/// must give the same key from the commit and from the working tree.
+const REPOSITORY_KEY: &str = "a5c06e0458d9eff21b9990d12f6905d20c108bf74bd2b77c9d97848edaa6867e";
+
+#[test]
+fn the_key_is_the_same_on_every_os() {
+    let repo = repository();
+    assert_eq!(commit_key(&repo), REPOSITORY_KEY, "commit");
+    assert_eq!(worktree_key(&repo), REPOSITORY_KEY, "working tree");
+}
