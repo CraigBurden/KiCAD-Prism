@@ -112,7 +112,7 @@
         },
         {
           "code": "stale-saved-fills",
-          "message": "saved zone fills are stale: 24 zone-fill operations differ between the saved fills (13 operations) and a fresh refill (13 operations); the refilled board was materialized"
+          "message": "saved zone fills are stale: 12 of the 13 saved zone-fill operations do not match a fresh refill (13 operations); the refilled board was materialized"
         }
       ],
       "failed_members": []

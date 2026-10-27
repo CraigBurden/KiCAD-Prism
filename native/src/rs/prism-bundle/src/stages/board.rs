@@ -168,10 +168,9 @@ fn fill_check(
             reporter,
             "stale-saved-fills",
             format!(
-                "saved zone fills are stale: {} zone-fill operations differ between the saved \
-                 fills ({} operations) and a fresh refill ({} operations); the refilled board \
-                 was materialized",
-                fills.differing_operations, fills.saved_operations, fills.refilled_operations
+                "saved zone fills are stale: {} of the {} saved zone-fill operations do not \
+                 match a fresh refill ({} operations); the refilled board was materialized",
+                fills.stale_saved_operations, fills.saved_operations, fills.refilled_operations
             ),
         ));
     }

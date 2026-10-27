@@ -6,7 +6,9 @@ This module joins those reads into one answer without copying a payload or a
 result document: a payload can carry design data, and the brief for an ops
 result is identifiers, timings, counts and sizes (ADR §11, D22). Only the
 payload's and result metadata's top-level keys are reported, and every event
-detail, error message and log line is redacted.
+detail, error message and log line is redacted. The error message and log tail
+also lose server internals: a traceback keeps only its exception line, and an
+absolute path keeps only its file name.
 
 Blocking reads (the database and the log file) are called from a worker thread;
 the route does that. Nothing here is async.
@@ -44,6 +46,10 @@ _ATTEMPT_END_EVENTS = _CLAIM_EVENTS | frozenset(
     }
 )
 _EXIT_CODE = re.compile(r"exited with code (-?\d+)")
+#: An absolute filesystem path of two or more segments, not part of a URL.
+_ABSOLUTE_PATH = re.compile(r"(?<![\w:/.~-])(?:/[\w.@+-]+)+/([\w.@+-]+)")
+_TRACEBACK = "Traceback (most recent call last):"
+_FRAME = re.compile(r'^\s*File ".*", line \d+')
 
 
 def _text(value: Any) -> str | None:
@@ -100,7 +106,7 @@ def _summary(job: dict[str, Any]) -> dict[str, Any]:
         "completed_at": job.get("completed_at"),
         "cancel_requested_at": job.get("cancel_requested_at"),
         "error_code": str(job.get("error_code") or ""),
-        "error_message": redact_text(message),
+        "error_message": _without_paths(redact_text(message)),
         "exit_code": exit_code_from_message(message),
     }
 
@@ -230,6 +236,32 @@ def _claims_held(job_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]
     )
 
 
+def _without_paths(text: str) -> str:
+    return _ABSOLUTE_PATH.sub(r"\1", text)
+
+
+def _without_tracebacks(lines: list[str]) -> list[str]:
+    """Each traceback reduced to one marker line; its exception line is kept.
+
+    A tail can start inside a traceback, so a frame line also starts the
+    skipped run. Every indented line after it (source, carets) is a frame's.
+    """
+
+    kept: list[str] = []
+    in_traceback = False
+    for line in lines:
+        if line.startswith(_TRACEBACK) or _FRAME.match(line):
+            if not in_traceback:
+                kept.append("Traceback (frames omitted)")
+            in_traceback = True
+            continue
+        if in_traceback and line[:1].isspace():
+            continue
+        in_traceback = False
+        kept.append(line)
+    return kept
+
+
 def _log_tail(job: dict[str, Any], line_count: int) -> list[str]:
     log_path = str(job.get("log_path") or "")
     if not log_path:
@@ -240,7 +272,7 @@ def _log_tail(job: dict[str, Any], line_count: int) -> list[str]:
         # A missing, moved or out-of-root log is not an ops failure: the
         # timeline still answers from the database.
         return []
-    return [redact_text(line) for line in lines]
+    return [_without_paths(redact_text(line)) for line in _without_tracebacks(lines)]
 
 
 def job_timeline(job_id: str, *, log_lines: int = 50) -> dict[str, Any] | None:
