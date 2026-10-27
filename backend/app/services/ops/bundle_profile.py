@@ -15,6 +15,7 @@ content (ADR §11, D22).
 from __future__ import annotations
 
 import os
+import re
 import shlex
 from datetime import datetime
 from typing import Any
@@ -65,14 +66,19 @@ def _flag(value: Any) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
+#: A subcommand word: lower case, never an option or a path.
+_ACTION_WORD = re.compile(r"[a-z][a-z0-9-]*")
+
+
 def _command_parts(command: Any) -> tuple[str, str]:
-    """The executable's basename and the first subcommand, never the argv.
+    """The executable's basename and its subcommand, never the argv.
 
     A recorded command is already the two-token summary ``cli.CliRun.summary``
     writes (``bundle build``), while a failure entry spells ``bundle build
     <stage>``. Either way only a recognisable executable - a path, ``.exe``, a
-    ``-cli`` tool - contributes a basename; the first remaining token is the
-    subcommand and the rest is dropped.
+    ``-cli`` tool - contributes a basename. The subcommand is the first
+    remaining token plus a second plain word (``bundle build``,
+    ``bundle verify``); options, paths and everything after are dropped.
     """
 
     text = str(command or "").strip()
@@ -88,7 +94,10 @@ def _command_parts(command: Any) -> tuple[str, str]:
     ):
         executable = os.path.basename(tokens[0])
         tokens = tokens[1:]
-    return redact_text(executable), redact_text(tokens[0] if tokens else "")
+    words = tokens[:1]
+    if len(tokens) > 1 and _ACTION_WORD.fullmatch(tokens[1]):
+        words.append(tokens[1])
+    return redact_text(executable), redact_text(" ".join(words))
 
 
 def _find_bundle(
@@ -128,6 +137,7 @@ def _invocations(metadata: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "executable": executable,
                 "subcommand": subcommand,
+                "stage": redact_text(str(item.get("stage") or "")) or None,
                 "exit": _integer(item.get("exit")),
                 "elapsed_ms": _number(item.get("elapsed_ms")),
                 "peak_rss_bytes": _integer(item.get("peak_rss_bytes")),
@@ -162,7 +172,9 @@ def _slowest(invocations: list[dict[str, Any]], steps: list[dict[str, Any]]) -> 
             measured.append((step["elapsed_ms"], step["step"]))
     for invocation in invocations:
         name = " ".join(
-            part for part in (invocation["executable"], invocation["subcommand"]) if part
+            part
+            for part in (invocation["executable"], invocation["subcommand"], invocation["stage"])
+            if part
         )
         if invocation["elapsed_ms"] is not None and name:
             measured.append((invocation["elapsed_ms"], name))
