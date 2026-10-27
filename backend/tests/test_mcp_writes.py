@@ -26,7 +26,8 @@ from app.services.mcp import tools as _tools  # noqa: E402,F401 - registers the 
 from app.services.mcp import tools_writes  # noqa: E402
 
 #: The design and catalog-draft write tools this module checks one by one.
-WRITE_TOOL_ORDER = [
+#: Rules every write tool must follow are checked over the registry instead.
+DESIGN_WRITE_TOOLS = [
     "sync_project",
     "start_release_build",
     "request_release_approval",
@@ -155,11 +156,17 @@ class WriteToolDefinitionTests(unittest.TestCase):
     def definitions(self) -> dict[str, dict]:
         return {
             name: registry.tool_definition(registry.tool_named(name))
-            for name in WRITE_TOOL_ORDER
+            for name in DESIGN_WRITE_TOOLS
         }
 
     def test_every_write_tool_advertises_write_annotations_and_an_idempotency_key(self) -> None:
-        for name, definition in self.definitions().items():
+        writes = {
+            tool.name: registry.tool_definition(tool)
+            for tool in registry.tools()
+            if tool.group == "write"
+        }
+        self.assertTrue(set(DESIGN_WRITE_TOOLS) <= set(writes))
+        for name, definition in writes.items():
             with self.subTest(tool=name):
                 self.assertEqual(definition["annotations"]["readOnlyHint"], False)
                 self.assertEqual(definition["annotations"]["destructiveHint"], False)
