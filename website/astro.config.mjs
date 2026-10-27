@@ -1,0 +1,37 @@
+// @ts-check
+import { defineConfig } from 'astro/config';
+import starlight from '@astrojs/starlight';
+import starlightLinksValidator from 'starlight-links-validator';
+
+// Served from GitHub Pages under the repository name. A custom domain later
+// only changes `site` and `base` (and adds public/CNAME).
+export default defineConfig({
+	site: 'https://krishna-swaroop.github.io',
+	base: '/KiCAD-Prism',
+	integrations: [
+		starlight({
+			title: 'KiCAD Prism',
+			description: 'Browser review, release and library management for KiCad projects in Git.',
+			logo: { src: './src/assets/logo.png', alt: 'KiCAD Prism' },
+			social: [
+				{ icon: 'github', label: 'GitHub', href: 'https://github.com/krishna-swaroop/KiCAD-Prism' },
+			],
+			editLink: { baseUrl: 'https://github.com/krishna-swaroop/KiCAD-Prism/edit/dev/website/' },
+			lastUpdated: true,
+			customCss: ['./src/styles/prism.css'],
+			plugins: [starlightLinksValidator({ errorOnRelativeLinks: false })],
+			sidebar: [
+				{ label: 'Get started', autogenerate: { directory: 'get-started' } },
+				{ label: 'Use Prism', autogenerate: { directory: 'use' } },
+				{ label: 'Administer', autogenerate: { directory: 'admin' } },
+				{ label: 'Automate', autogenerate: { directory: 'automate' } },
+				{ label: 'Contribute', autogenerate: { directory: 'contribute' } },
+				{
+					label: 'Release notes',
+					link: 'https://github.com/krishna-swaroop/KiCAD-Prism/releases',
+					attrs: { target: '_blank' },
+				},
+			],
+		}),
+	],
+});
