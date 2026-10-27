@@ -6,26 +6,28 @@ import { Image } from 'astro:assets';
 import viewing from '../assets/screenshots/ts-pcb.jpg';
 import comparing from '../assets/screenshots/design-comparison.jpg';
 import commenting from '../assets/screenshots/comment-marker.jpg';
-import releasing from '../assets/screenshots/assembly-assistant.jpg';
+import releasing from '../assets/screenshots/release-studio-readme.jpg';
+import automating from '../assets/screenshots/mcp-claude-code.jpg';
 import library from '../assets/screenshots/library-manager.jpg';
 import simulating from '../assets/screenshots/sim-thumb.jpg';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 // zoom and focus frame each crop on the part of the screen that tells the story.
 const cards = [
-	{ ref: 'U1', path: 'use/viewing-designs', title: 'One window, one selection', text: 'Schematic, PCB, 3D and BOM side by side. Pick a part in one and it lights up in the rest.', image: viewing, focus: '62% 42%', zoom: 1.8 },
+	{ ref: 'U1', path: 'use/viewing-designs', title: 'Every revision, in the browser', text: 'Schematic, PCB, 3D and BOM at any commit, cross-probed, with nothing to install.', image: viewing, focus: '62% 42%', zoom: 1.8 },
 	{ ref: 'U2', path: 'use/design-comparison', title: 'What changed, and where', text: 'Commit against commit: parts, nets, BOM and stackup, each change classified and placed.', image: comparing, focus: '58% 42%', zoom: 1.8 },
 	{ ref: 'U3', path: 'use/comments', title: 'Comments that stay put', text: 'Pinned to a part, a net or an area at an exact commit, with class, severity and replies.', image: commenting, focus: '50% 45%', zoom: 1.35 },
-	{ ref: 'U4', path: 'use/release-studio', title: 'From commit to release', text: 'Jobset outputs, a release dossier and sign-off before anything reaches the fab.', image: releasing, focus: '62% 50%', zoom: 1.8 },
+	{ ref: 'U4', path: 'use/release-studio', title: 'From commit to release', text: 'Jobset outputs, a release dossier and sign-off before anything reaches the fab.', image: releasing, focus: '55% 50%', zoom: 1.45 },
 	{ ref: 'U5', path: 'use/library-manager', title: 'One library across repos', text: 'Reviewed, immutable part revisions your designers place straight into KiCad.', image: library, focus: '42% 35%', zoom: 1.8 },
-	{ ref: 'U6', path: 'use/simulation-studio', title: 'Power, before the build', text: 'DC IR drop on the real copper, rail by rail.', image: simulating, focus: '50% 50%', zoom: 1, tag: 'Experimental' },
+	{ ref: 'U6', path: 'use/simulation-studio', title: 'Simulation Studio', text: 'DC IR drop on the real copper, rail by rail.', image: simulating, focus: '50% 50%', zoom: 1, tag: 'Experimental' },
+	{ ref: 'U7', path: 'automate/overview', title: 'Built for AI agents and automation', text: 'An MCP server lets Claude Code and other agents search projects, compare revisions, leave review comments and take a new part to QA review, as you and within your permissions. The same work is open to scripts and CI through the API, SDK, CLI and webhooks.', image: automating, focus: '40% 45%', zoom: 1, wide: true },
 ];
 ---
 
 <div class="cards">
 	{
 		cards.map((card) => (
-			<a class="card" href={`${base}/${card.path}/`}>
+			<a class:list={['card', { wide: card.wide }]} href={`${base}/${card.path}/`}>
 				<div class="meta">
 					<span class="ref">{card.ref}{card.tag && <em class="tag">{card.tag}</em>}</span>
 					<span class="path">/{card.path}</span>
@@ -71,6 +73,34 @@ const cards = [
 	}
 	.card:hover {
 		background: var(--prism-card-hover);
+	}
+	/* The automation card spans the row: picture left, words right. */
+	.card.wide {
+		grid-column: 1 / -1;
+	}
+	@media (min-width: 64rem) {
+		.card.wide {
+			display: grid;
+			grid-template-columns: 2fr 1fr;
+			grid-template-rows: auto 1fr;
+		}
+		.card.wide .meta {
+			grid-column: 1 / -1;
+		}
+		.card.wide .crop {
+			margin-bottom: 1.1rem;
+			aspect-ratio: 2 / 1;
+		}
+		.card.wide .text {
+			align-content: center;
+			padding: 0 1.5rem 1.1rem 0.75rem;
+		}
+		.card.wide .text strong {
+			font-size: 1.35rem;
+		}
+		.card.wide .text span {
+			font-size: 0.98rem;
+		}
 	}
 	.meta {
 		display: flex;
