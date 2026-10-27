@@ -64,11 +64,9 @@ def run(app: SequenceApp, name: str, arguments: dict) -> dict:
 
 
 class CatalogToolDefinitionTests(unittest.TestCase):
-    def test_reads_close_the_read_set_and_writes_follow_the_writes(self) -> None:
-        names = [tool.name for tool in registry.tools()]
-        self.assertEqual(names[names.index("get_changes") + 1 : names.index("sync_project")], READ_TOOLS)
-        self.assertEqual(names[names.index("resolve_comment") + 1 :][: len(WRITE_TOOLS)], WRITE_TOOLS)
-        self.assertEqual(set(WRITE_TOOLS), tools_catalog_writes.CATALOG_WRITE_TOOL_NAMES)
+    def test_the_catalog_tools_are_grouped_as_reads_and_writes(self) -> None:
+        self.assertEqual({registry.tool_named(name).group for name in READ_TOOLS}, {"read"})
+        self.assertEqual({registry.tool_named(name).group for name in WRITE_TOOLS}, {"write"})
 
     def test_every_catalog_tool_needs_catalog_write_except_the_plain_reads(self) -> None:
         for name in READ_TOOLS + WRITE_TOOLS:

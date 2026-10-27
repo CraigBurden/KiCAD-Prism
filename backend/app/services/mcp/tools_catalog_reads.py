@@ -86,11 +86,11 @@ async def _check_asset(
     }
     status, raw = await request(app, "post", "/api/v1/catalog/drafts/check", "", authorization, body)
     if not 200 <= status < 300:
-        return invoke._execution_error(status, raw)
+        return invoke.route_error(status, raw)
     try:
         structured = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
-        return invoke._failure("invalid-response", "Prism answered without a check result")
+        return invoke.error_result("invalid-response", "Prism answered without a check result")
     return _check_result(structured)
 
 
