@@ -4,9 +4,9 @@
  * default :root; light overrides it.
  */
 :root {
-	/* Prism's own type: Inter, as in the app and the generated ICDs, with JetBrains Mono for labels. */
+	/* Prism's own type: Inter, as in the app, with Geist Mono for labels, as in the generated ICDs. */
 	--sl-font: 'Inter Variable', 'Inter', 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-	--sl-font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+	--sl-font-mono: 'Geist Mono Variable', 'Geist Mono', ui-monospace, 'SF Mono', monospace;
 	--prism-sheet-bg: #232220;
 	--prism-sheet-line: #3a3935;
 	--prism-card-hover: #2a2927;
@@ -148,4 +148,9 @@ header.header {
 	background: transparent;
 	color: var(--sl-color-white);
 	font-weight: 650;
+}
+
+/* The landing page runs wider than Starlight's splash default so the sheet has room. */
+html[data-has-hero]:not([data-has-sidebar]) {
+	--sl-content-width: 90rem;
 }

@@ -37,11 +37,7 @@ const rows = ['A', 'B', 'C', 'D'];
 		{
 			shot && (
 				<figure class="view">
-					<Image src={shot} alt={image?.alt || ''} widths={[960, 1440, 2160]} sizes="(min-width: 80rem) 46rem, 100vw" loading="eager" />
-					<figcaption>
-						<span class="mono">VIEW 3D</span>
-						<span>ThunderScope Rev 5.3, EEVengers</span>
-					</figcaption>
+					<Image src={shot} alt={image?.alt || ''} widths={[960, 1440, 2160]} sizes="(min-width: 90rem) 52rem, 100vw" loading="eager" />
 				</figure>
 			)
 		}
@@ -107,7 +103,7 @@ const rows = ['A', 'B', 'C', 'D'];
 	}
 	@media (min-width: 72rem) {
 		.body {
-			grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+			grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
 		}
 	}
 	.ref {
@@ -135,6 +131,7 @@ const rows = ['A', 'B', 'C', 'D'];
 	.actions {
 		display: flex;
 		flex-wrap: wrap;
+		align-items: center;
 		gap: 0.6rem;
 		margin-top: 2rem;
 	}
@@ -192,19 +189,6 @@ const rows = ['A', 'B', 'C', 'D'];
 		display: block;
 		width: 100%;
 		height: auto;
-	}
-	.view figcaption {
-		display: flex;
-		justify-content: space-between;
-		gap: 1rem;
-		padding: 0.5rem 0.75rem;
-		border-top: 1px solid var(--prism-sheet-line);
-		font-size: 0.72rem;
-		color: var(--sl-color-gray-3);
-	}
-	.mono {
-		font-family: var(--sl-font-mono);
-		letter-spacing: 0.06em;
 	}
 
 	.title-block {

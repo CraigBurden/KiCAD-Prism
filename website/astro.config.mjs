@@ -17,13 +17,14 @@ export default defineConfig({
 			components: {
 				Hero: './src/components/Hero.astro',
 				ThemeSelect: './src/components/ThemeSelect.astro',
+				Search: './src/components/Search.astro',
 			},
 			social: [
 				{ icon: 'github', label: 'GitHub', href: 'https://github.com/krishna-swaroop/KiCAD-Prism' },
 			],
 			editLink: { baseUrl: 'https://github.com/krishna-swaroop/KiCAD-Prism/edit/dev/website/' },
 			lastUpdated: true,
-			customCss: ['@fontsource-variable/inter', '@fontsource-variable/jetbrains-mono', './src/styles/prism.css'],
+			customCss: ['@fontsource-variable/inter', '@fontsource-variable/geist-mono', './src/styles/prism.css'],
 			plugins: [starlightLinksValidator({ errorOnRelativeLinks: false, errorOnLocalLinks: false })],
 			sidebar: [
 				{ label: 'Get started', items: [{ autogenerate: { directory: 'get-started' } }] },

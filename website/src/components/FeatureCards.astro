@@ -5,19 +5,20 @@
 import { Image } from 'astro:assets';
 import viewing from '../assets/screenshots/ts-pcb.jpg';
 import comparing from '../assets/screenshots/design-comparison.jpg';
-import commenting from '../assets/screenshots/commenting.jpg';
+import commenting from '../assets/screenshots/comment-marker.jpg';
 import releasing from '../assets/screenshots/assembly-assistant.jpg';
 import library from '../assets/screenshots/library-manager.jpg';
-import simulating from '../assets/screenshots/sim-results.jpg';
+import simulating from '../assets/screenshots/sim-thumb.jpg';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+// zoom and focus frame each crop on the part of the screen that tells the story.
 const cards = [
-	{ ref: 'U1', path: 'use/viewing-designs', title: 'View designs', text: 'Schematic, board and 3D in the browser, cross-probed.', image: viewing, focus: '62% 42%' },
-	{ ref: 'U2', path: 'use/design-comparison', title: 'Compare revisions', text: 'Every change between two commits, one at a time.', image: comparing, focus: '58% 42%' },
-	{ ref: 'U3', path: 'use/comments', title: 'Review with comments', text: 'Threads pinned to parts, nets and areas.', image: commenting, focus: '58% 45%' },
-	{ ref: 'U4', path: 'use/release-studio', title: 'Release a board', text: 'Manufacturing outputs, sign-off and publishing.', image: releasing, focus: '62% 50%' },
-	{ ref: 'U5', path: 'use/library-manager', title: 'Share one library', text: 'Review and release parts, then place them in KiCad.', image: library, focus: '42% 35%' },
-	{ ref: 'U6', path: 'use/simulation-studio', title: 'Check power delivery', text: 'DC IR drop on the real copper, rail by rail.', image: simulating, focus: '42% 40%' },
+	{ ref: 'U1', path: 'use/viewing-designs', title: 'One window, one selection', text: 'Schematic, PCB, 3D and BOM side by side. Pick a part in one and it lights up in the rest.', image: viewing, focus: '62% 42%', zoom: 1.8 },
+	{ ref: 'U2', path: 'use/design-comparison', title: 'What changed, and where', text: 'Commit against commit: parts, nets, BOM and stackup, each change classified and placed.', image: comparing, focus: '58% 42%', zoom: 1.8 },
+	{ ref: 'U3', path: 'use/comments', title: 'Comments that stay put', text: 'Pinned to a part, a net or an area at an exact commit, with class, severity and replies.', image: commenting, focus: '50% 45%', zoom: 1.35 },
+	{ ref: 'U4', path: 'use/release-studio', title: 'From commit to release', text: 'Jobset outputs, a release dossier and sign-off before anything reaches the fab.', image: releasing, focus: '62% 50%', zoom: 1.8 },
+	{ ref: 'U5', path: 'use/library-manager', title: 'One library across repos', text: 'Reviewed, immutable part revisions your designers place straight into KiCad.', image: library, focus: '42% 35%', zoom: 1.8 },
+	{ ref: 'U6', path: 'use/simulation-studio', title: 'Power, before the build', text: 'DC IR drop on the real copper, rail by rail.', image: simulating, focus: '50% 50%', zoom: 1, tag: 'Experimental' },
 ];
 ---
 
@@ -26,11 +27,11 @@ const cards = [
 		cards.map((card) => (
 			<a class="card" href={`${base}/${card.path}/`}>
 				<div class="meta">
-					<span class="ref">{card.ref}</span>
+					<span class="ref">{card.ref}{card.tag && <em class="tag">{card.tag}</em>}</span>
 					<span class="path">/{card.path}</span>
 				</div>
 				<div class="crop">
-					<Image src={card.image} alt="" widths={[640, 960]} sizes="(min-width: 72rem) 22rem, (min-width: 40rem) 45vw, 100vw" style={`object-position: ${card.focus}; --focus: ${card.focus}`} />
+					<Image src={card.image} alt="" widths={[640, 960]} sizes="(min-width: 72rem) 22rem, (min-width: 40rem) 45vw, 100vw" style={`object-position: ${card.focus}; --focus: ${card.focus}; --zoom: ${card.zoom}`} />
 				</div>
 				<div class="text">
 					<strong>{card.title}</strong>
@@ -44,11 +45,21 @@ const cards = [
 <style>
 	.cards {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(17.5rem, 1fr));
+		grid-template-columns: 1fr;
 		gap: 1px;
 		margin-top: 1.25rem;
 		border: 1px solid var(--prism-sheet-line);
 		background: var(--prism-sheet-line);
+	}
+	@media (min-width: 40rem) {
+		.cards {
+			grid-template-columns: repeat(2, 1fr);
+		}
+	}
+	@media (min-width: 64rem) {
+		.cards {
+			grid-template-columns: repeat(3, 1fr);
+		}
 	}
 	.card {
 		display: flex;
@@ -71,9 +82,27 @@ const cards = [
 		letter-spacing: 0.04em;
 		color: var(--sl-color-gray-4);
 	}
+	.path {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
 	.ref {
+		flex-shrink: 0;
 		color: var(--sl-color-accent-high);
 		font-weight: 600;
+	}
+	.tag {
+		margin-left: 0.6rem;
+		padding: 0.05rem 0.4rem;
+		border: 1px solid currentColor;
+		border-radius: 0.25rem;
+		font-style: normal;
+		font-weight: 500;
+		font-size: 0.6rem;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: #d4a017;
 	}
 	.card:hover .path {
 		color: var(--sl-color-gray-2);
@@ -91,12 +120,12 @@ const cards = [
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
-		transform: scale(1.8);
+		transform: scale(var(--zoom, 1.8));
 		transform-origin: var(--focus, 50% 50%);
 		transition: transform 400ms cubic-bezier(0.2, 0.7, 0.2, 1);
 	}
 	.card:hover .crop :global(img) {
-		transform: scale(1.9);
+		transform: scale(calc(var(--zoom, 1.8) * 1.05));
 	}
 	.text {
 		display: grid;
