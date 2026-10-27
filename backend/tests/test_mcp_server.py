@@ -74,6 +74,8 @@ TOOL_ORDER = [
     "attach_catalog_asset",
     "reuse_catalog_asset",
     "validate_catalog_component",
+    "update_catalog_representation",
+    "remove_catalog_representation",
     "move_catalog_component",
     "request_catalog_approval",
 ]

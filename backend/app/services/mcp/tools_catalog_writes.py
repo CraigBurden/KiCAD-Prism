@@ -10,6 +10,10 @@ sends it as ``If-Match``, and a component someone changed since the agent read
 it answers 412 instead of being overwritten. Without ``revision_id`` the tool
 reads the current revision first.
 
+Attaching a corrected symbol or footprint adds a representation beside the old
+one; ``update_catalog_representation`` and ``remove_catalog_representation``
+replace and clear the superseded pair, detaching assets nothing else uses.
+
 Approval stays a person's decision (D15): ``move_catalog_component`` stops at
 QA Review, the route refuses an MCP client a sign-off whatever it asks for, and
 ``request_catalog_approval`` only hands back the page where a reviewer acts.
@@ -149,7 +153,7 @@ async def _guarded(
     request: RouteRequest,
     method: str,
     suffix: str,
-    body: dict[str, Any],
+    body: dict[str, Any] | None,
     note: str = "",
 ) -> dict[str, Any]:
     component_id = str(arguments["component_id"])
@@ -241,6 +245,79 @@ async def _validate_component(
     return _success(_decode(raw), component_id)
 
 
+async def _update_representation(
+    app: Any, arguments: dict[str, Any], authorization: str, request: RouteRequest
+) -> dict[str, Any]:
+    body = {
+        key: arguments[key]
+        for key in ("symbol_asset_id", "footprint_asset_id", "is_default", "label")
+        if key in arguments
+    }
+    body["change_summary"] = arguments.get("change_summary") or "Update component representation"
+    suffix = f"/representations/{quote(str(arguments['representation_id']), safe='')}"
+    return await _guarded(app, arguments, authorization, request, "patch", suffix, body)
+
+
+def _representation_assets(representation: dict[str, Any]) -> set[str]:
+    return {
+        str(asset["id"])
+        for asset in (representation.get("symbol"), representation.get("footprint"))
+        if isinstance(asset, dict) and asset.get("id")
+    }
+
+
+async def _remove_representation(
+    app: Any, arguments: dict[str, Any], authorization: str, request: RouteRequest
+) -> dict[str, Any]:
+    """Delete the representation, then detach its assets no other representation uses."""
+
+    component_id = str(arguments["component_id"])
+    representation_id = str(arguments["representation_id"])
+    status, raw = await request(app, "get", _component_path(component_id), "", authorization, None)
+    if not 200 <= status < 300:
+        return invoke.route_error(status, raw)
+    component = _decode(raw) or {}
+    representations = component.get("representations") or []
+    removed = next((item for item in representations if str(item.get("id")) == representation_id), None)
+    if removed is None:
+        return invoke.error_result("not-found", "The component has no representation with that id")
+    revision_id = arguments.get("revision_id") or component.get("current_revision_id")
+    if_match = f'"component:{component_id}:{revision_id}"'
+    status, raw = await request(
+        app,
+        "delete",
+        _component_path(component_id, f"/representations/{quote(representation_id, safe='')}"),
+        "",
+        authorization,
+        None,
+        if_match=if_match,
+    )
+    if not 200 <= status < 300:
+        return invoke.route_error(status, raw)
+    component = _decode(raw) or {}
+    detached: list[str] = []
+    if not arguments.get("keep_assets"):
+        still_used = set().union(
+            *(_representation_assets(item) for item in component.get("representations") or [])
+        )
+        for asset_id in sorted(_representation_assets(removed) - still_used):
+            if_match = f'"component:{component_id}:{component.get("current_revision_id")}"'
+            status, raw = await request(
+                app,
+                "delete",
+                _component_path(component_id, f"/assets/id/{quote(asset_id, safe='')}"),
+                "",
+                authorization,
+                None,
+                if_match=if_match,
+            )
+            if not 200 <= status < 300:
+                return invoke.route_error(status, raw)
+            component = (_decode(raw) or {}).get("component") or component
+            detached.append(asset_id)
+    return _success({"component": component, "detached_asset_ids": detached}, component_id)
+
+
 async def _move_component(
     app: Any, arguments: dict[str, Any], authorization: str, request: RouteRequest
 ) -> dict[str, Any]:
@@ -328,7 +405,9 @@ register(
             "upload_id from create_asset_upload. Attach the symbol first, then the "
             "footprint with counterpart_asset_id set to the symbol's asset id. Prism embeds "
             "an attached 3D model in the footprint it serves. Check symbols and footprints "
-            "with check_catalog_asset first."
+            "with check_catalog_asset first. Attaching a corrected file adds a new "
+            "representation; replace the old one with update_catalog_representation and "
+            "remove_catalog_representation."
         ),
         input_schema=_object(
             {
@@ -403,6 +482,80 @@ register(
         # The component's validation when the job finishes, its job handle while it runs.
         output_schema={"type": "object"},
         annotations=write_annotations(idempotent=True),
+        action="catalog_write",
+    )
+)
+
+register(
+    Tool(
+        name="update_catalog_representation",
+        title="Update a component representation",
+        description=(
+            "Point one of a component's representations (a symbol and footprint pair) at "
+            "other assets, rename it or make it the default. Use it after attaching a "
+            "corrected symbol or footprint: set the default representation to the new "
+            "asset ids, then remove_catalog_representation the one the attach added."
+        ),
+        input_schema=_object(
+            {
+                "component_id": _COMPONENT_ID,
+                "representation_id": {"type": "string", "minLength": 1, "description": "From get_catalog_component."},
+                "symbol_asset_id": {"type": "string", "minLength": 1},
+                "footprint_asset_id": {"type": "string", "minLength": 1},
+                "is_default": {"type": "boolean", "description": "true makes this the default representation."},
+                "label": {"type": "string", "minLength": 1},
+                "change_summary": _CHANGE_SUMMARY,
+                "revision_id": _REVISION_ID,
+            },
+            ("component_id", "representation_id"),
+        ),
+        route=("patch", "/api/v1/catalog/components/{component_id}/representations/{representation_id}"),
+        args=lambda arguments: (
+            {"component_id": arguments["component_id"], "representation_id": arguments["representation_id"]},
+            {},
+        ),
+        execute=_update_representation,
+        annotations=write_annotations(idempotent=True),
+        action="catalog_write",
+    )
+)
+
+register(
+    Tool(
+        name="remove_catalog_representation",
+        title="Remove a component representation",
+        description=(
+            "Remove one representation from a component, and detach its symbol and "
+            "footprint when no other representation uses them, so superseded files stop "
+            "being validated. keep_assets leaves the assets attached. A component keeps "
+            "at least its default; the next one becomes default if you remove it."
+        ),
+        input_schema=_object(
+            {
+                "component_id": _COMPONENT_ID,
+                "representation_id": {"type": "string", "minLength": 1, "description": "From get_catalog_component."},
+                "keep_assets": {"type": "boolean", "description": "true keeps the removed pair's assets attached."},
+                "revision_id": _REVISION_ID,
+            },
+            ("component_id", "representation_id"),
+        ),
+        route=("delete", "/api/v1/catalog/components/{component_id}/representations/{representation_id}"),
+        args=lambda arguments: (
+            {"component_id": arguments["component_id"], "representation_id": arguments["representation_id"]},
+            {},
+        ),
+        execute=_remove_representation,
+        output_schema={
+            "type": "object",
+            "properties": {
+                "component": {"type": "object"},
+                "detached_asset_ids": {"type": "array", "items": {"type": "string"}},
+                "link": {"type": "string"},
+            },
+            "required": ["component", "detached_asset_ids"],
+        },
+        # Not destructive: the component gets a new revision; the old one keeps the pair.
+        annotations=write_annotations(),
         action="catalog_write",
     )
 )
