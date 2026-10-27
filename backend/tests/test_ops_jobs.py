@@ -570,5 +570,48 @@ class TimelineBoundaryTests(unittest.TestCase):
                          [("w1", "failed", 4.0), ("w2", "cancelled", 4.0)])
 
 
+class LogTailInternalsTests(unittest.TestCase):
+    """The shape the live check saw: a worker traceback and a scratch path."""
+
+    def test_a_traceback_keeps_only_its_exception_line(self) -> None:
+        lines = [
+            "starting bundle",
+            "Traceback (most recent call last):",
+            '  File "/app/app/services/design_bundle/jobs.py", line 612, in run',
+            "    archive = self.parse()",
+            "              ^^^^^^^^^^^^",
+            '  File "/app/app/services/design_bundle/kicad_steps.py", line 289, in upgrade',
+            "    raise KicadSourceUnreadable(message)",
+            "KicadSourceUnreadable: KiCad cannot read vme-wren.kicad_pcb",
+            "job failed",
+        ]
+        self.assertEqual(
+            timeline_rules._without_tracebacks(lines),
+            [
+                "starting bundle",
+                "Traceback (frames omitted)",
+                "KicadSourceUnreadable: KiCad cannot read vme-wren.kicad_pcb",
+                "job failed",
+            ],
+        )
+
+    def test_a_tail_that_starts_inside_a_traceback_is_reduced_too(self) -> None:
+        lines = ['  File "/app/app/x.py", line 3, in f', "    g()", "ValueError: bad"]
+        self.assertEqual(
+            timeline_rules._without_tracebacks(lines), ["Traceback (frames omitted)", "ValueError: bad"]
+        )
+
+    def test_absolute_paths_keep_their_file_name_and_urls_are_untouched(self) -> None:
+        message = (
+            "Got 'symbol' in '/tmp/kicad-upgrade-7s4hl_g_/vme-wren.kicad_pcb', line 1453222; "
+            "see https://gitlab.example/group/repo.git and /srv/prism-projects/a/b"
+        )
+        self.assertEqual(
+            timeline_rules._without_paths(message),
+            "Got 'symbol' in 'vme-wren.kicad_pcb', line 1453222; "
+            "see https://gitlab.example/group/repo.git and b",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
