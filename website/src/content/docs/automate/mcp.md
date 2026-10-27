@@ -5,7 +5,7 @@ sidebar:
   order: 4
 ---
 
-Prism runs an MCP server, so an AI assistant can search your projects, read components, nets and BOMs at a revision, compare revisions, render views and leave review comments. It acts as you, with your role and folder visibility, and it can't sign anything off.
+Prism runs an MCP server, so an AI assistant can search your projects, read components, nets and BOMs at a revision, compare revisions, render views, leave review comments and add parts to the component catalog. It acts as you, with your role and folder visibility, and it can't sign anything off.
 
 ## Turn on the MCP server
 
@@ -33,6 +33,13 @@ Whatever an assistant reads is sent to that assistant's model provider. Before y
 3. Sign in if asked, check the access the client asks for, and approve it.
 
 The client is now connected and appears under **Settings → Connected MCP clients**.
+
+Here Claude Code compares two releases of an open hardware board through Prism, and summarises what changed:
+
+<video autoplay loop muted playsinline poster="/KiCAD-Prism/media/mcp-claude-code-poster.jpg">
+  <source src="/KiCAD-Prism/media/mcp-claude-code.webm" type="video/webm" />
+  <source src="/KiCAD-Prism/media/mcp-claude-code.mp4" type="video/mp4" />
+</video>
 
 ## Connect other clients
 
@@ -72,6 +79,9 @@ These tools change nothing in Prism.
 | `list_comments` | a project's comment threads, optionally only open or resolved ones |
 | `search_catalog` | catalog components matching a part number, manufacturer or description |
 | `get_catalog_component` | one catalog component with its assets, workflow stage and release state |
+| `list_catalog_fields` | the catalog's metadata fields, including custom ones |
+| `search_catalog_assets` | symbols, footprints and 3D models the catalog already stores |
+| `check_catalog_asset` | whether KiCad can read a draft symbol or footprint, its KLC findings and a PNG of each unit, without storing anything. It needs `catalog:write`. |
 | `get_release_status` | a project's Release Studio candidates and their builds |
 | `compare_revisions` | starts a comparison of two commits, branches or tags and returns its job id; it changes no design |
 | `get_changes` | the review rows of a finished comparison, filtered by kind (`added`, `changed`, `removed`), impact or reference, one page at a time |
@@ -87,11 +97,26 @@ To review a change, an assistant calls `compare_revisions`, polls `get_job` unti
 | `request_release_approval` | changes nothing: returns the project's Release Studio page, where a person approves | `design:write` |
 | `create_catalog_draft` | creates an unreviewed catalog component in the open workflow stage | `catalog:write` |
 | `update_import_proposal` | saves draft edits to a catalog import session's proposals; it doesn't accept, reject or release anything | `catalog:write` |
+| `update_catalog_component` | fills in or corrects a component's metadata | `catalog:write` |
+| `create_asset_upload` | returns a one-time URL to `PUT` a file too large to send inline, such as a STEP model | `catalog:write` |
+| `attach_catalog_asset` | attaches a symbol, footprint, 3D model or SPICE model, inline or from an upload | `catalog:write` |
+| `reuse_catalog_asset` | gives a component an asset the catalog already stores, shared rather than copied | `catalog:write` |
+| `validate_catalog_component` | runs KLC validation and returns the findings | `catalog:write` |
+| `update_catalog_representation` | points a representation (a symbol and footprint pair) at other assets, renames it or makes it the default | `catalog:write` |
+| `remove_catalog_representation` | removes a representation and detaches its assets when nothing else uses them | `catalog:write` |
+| `move_catalog_component` | moves a component to In progress or QA Review, never further | `catalog:write` |
+| `request_catalog_approval` | changes nothing: returns the component's page, where a QA reviewer approves it | `catalog:write` |
 | `add_comment` | comments on a component, a net, a schematic sheet or one comparison change, with an optional class and severity. Prism places the comment from the design at that revision, not from coordinates. | `comments:write` |
 | `reply_to_comment` | replies in an existing thread | `comments:write` |
 | `resolve_comment` | changes nothing: returns the Prism page where you resolve the thread yourself | `comments:write` |
 
-`resolve_comment` and `request_release_approval` hand the step back to you as a link. Your client opens it, and you act in Prism.
+`resolve_comment`, `request_release_approval` and `request_catalog_approval` hand the step back to you as a link. Your client opens it, and you act in Prism.
+
+### Add a part to the catalog
+
+With the catalog tools an assistant can take a new part from an empty record to QA Review: create it, fill its fields, check and attach a symbol and footprint (or reuse a stored footprint), attach a STEP model, validate, and move it to QA Review. Prism doesn't make the files. The assistant brings them, and Prism checks and stores them. Prism embeds an attached 3D model in the footprint it serves.
+
+A corrected file attached later adds a representation. The assistant then replaces the old one with `update_catalog_representation` and `remove_catalog_representation`. Approving the part stays with a QA reviewer.
 
 Every write tool takes an optional `idempotencyKey`. A client that retries a write with the same key gets the first result back, not a second comment.
 
@@ -107,6 +132,8 @@ Comments and replies an assistant writes through OAuth carry an **Agent** badge 
 ## Control what assistants reach
 
 Administrators configure MCP under **Settings → MCP**:
+
+![Settings → MCP, with the project scope and a switch for each tool](../../../assets/screenshots/settings-mcp.jpg)
 
 - **Project scope:** **All projects** (each person still sees only what their role and folder visibility allow) or **Listed projects**. A project outside the list looks to an assistant exactly like one that doesn't exist.
 - **Tools:** switch any tool off. A disabled tool disappears from the assistant's tool list.
