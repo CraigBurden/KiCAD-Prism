@@ -123,7 +123,7 @@ def _unreadable_hint(board: Path, reason: str) -> str:
     if not count:
         return ""
     return (
-        f". The board has {count} rule-area placement(s) in the (placement (expr ...)) form a 2024 "
+        f"The board has {count} rule-area placement(s) in the (placement (expr ...)) form a 2024 "
         "KiCad nightly wrote, which no released KiCad reads; change each to "
         '(placement (enabled yes) (sheetname "<sheet path>")) and commit the board again'
     )
@@ -144,7 +144,10 @@ def _run_python(script: str, board: Path, *, timeout: float, cancel: Callable[[]
         if "PARSE_ERROR" in result.detail():
             what = next((line.removeprefix("what():").strip() for line in lines if line.startswith("what():")), "")
             reason = (what or lines[-1])[:400]
-            raise KicadSourceUnreadable(f"{UNREADABLE_PREFIX}{board.name}: {reason}{_unreadable_hint(board, reason)}")
+            hint = _unreadable_hint(board, reason)
+            if hint:
+                reason = f"{reason.rstrip('.')}. {hint}"
+            raise KicadSourceUnreadable(f"{UNREADABLE_PREFIX}{board.name}: {reason}")
         detail = lines[-1] if lines else "no output"
         if result.returncode < 0:
             detail = f"crashed with signal {-result.returncode} ({detail})"
