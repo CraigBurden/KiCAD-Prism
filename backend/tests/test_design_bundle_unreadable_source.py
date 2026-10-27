@@ -61,7 +61,7 @@ def test_a_nightly_placement_board_says_how_to_fix_it(monkeypatch: pytest.Monkey
         kicad_steps._run_python(kicad_steps.REFILL_SCRIPT, board, timeout=10, cancel=None)
     message = str(caught.value)
     assert "line 1453222" in message
-    assert "2 rule-area placement(s)" in message
+    assert "offset 5. The board has 2 rule-area placement(s)" in message
     assert "no released KiCad reads" in message
     assert '(placement (enabled yes) (sheetname "<sheet path>"))' in message
 
