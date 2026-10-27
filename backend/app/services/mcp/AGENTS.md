@@ -40,5 +40,6 @@ in `docs/architecture/adr-scripting-and-mcp.md`. To add or change a tool, follow
 - **Multi-step tools** set `execute=` and call routes through the
   `RouteRequest` they are given, never services directly. Bodies are JSON;
   files travel through upload slots (D30). Guarded writes pass `if_match=`.
-- **Documentation.** Every tool is named in `docs/AUTOMATING_PRISM.md` and in
-  the ADR; `test_every_tool_is_documented` fails otherwise.
+- **Documentation.** Every tool is named in a page under
+  `website/src/content/docs/automate/` and in the ADR;
+  `test_every_tool_is_documented` fails otherwise.

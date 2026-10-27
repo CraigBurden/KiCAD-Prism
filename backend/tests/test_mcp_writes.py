@@ -126,8 +126,17 @@ class RegistryContractTests(unittest.TestCase):
 
     def test_every_tool_is_documented(self) -> None:
         root = Path(__file__).resolve().parents[2]
-        for document in ("docs/AUTOMATING_PRISM.md", "docs/architecture/adr-scripting-and-mcp.md"):
-            text = (root / document).read_text(encoding="utf-8")
+        automate = root / "website/src/content/docs/automate"
+        pages = sorted(automate.glob("*.md"))
+        self.assertTrue(pages, f"{automate} has no pages")
+        automate_text = "\n".join(page.read_text(encoding="utf-8") for page in pages)
+        adr = (root / "docs/architecture/adr-scripting-and-mcp.md").read_text(
+            encoding="utf-8"
+        )
+        for document, text in (
+            ("website/src/content/docs/automate/*.md", automate_text),
+            ("docs/architecture/adr-scripting-and-mcp.md", adr),
+        ):
             missing = [tool.name for tool in self.listed() if f"`{tool.name}`" not in text]
             self.assertEqual(missing, [], f"{document} does not name these tools")
 
