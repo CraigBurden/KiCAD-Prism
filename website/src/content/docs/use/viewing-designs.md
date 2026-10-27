@@ -30,6 +30,11 @@ for what that means and what to do if it fails.
 The **Schematic pages** panel on the left lists every sheet in hierarchy
 order.
 
+<video autoplay loop muted playsinline poster="/KiCAD-Prism/media/schematic-pages-poster.jpg">
+  <source src="/KiCAD-Prism/media/schematic-pages.webm" type="video/webm" />
+  <source src="/KiCAD-Prism/media/schematic-pages.mp4" type="video/mp4" />
+</video>
+
 - Click a sheet to open it, or type in **Find page…** to filter the list.
 - `[` and `]` go to the previous and next sheet.
 - **Parent sheet**, or `Alt`+`Backspace`, goes up one level.
@@ -49,6 +54,11 @@ The **Board display** panel on the left of the **PCB** tab has two parts.
 - The eye icon next to each layer shows or hides it. Click a layer's name to
   bring it to the front.
 
+<video autoplay loop muted playsinline poster="/KiCAD-Prism/media/layers-poster.jpg">
+  <source src="/KiCAD-Prism/media/layers.webm" type="video/webm" />
+  <source src="/KiCAD-Prism/media/layers.mp4" type="video/mp4" />
+</video>
+
 **Objects & filters**
 
 - **Object opacity** sliders for **Tracks**, **Vias**, **Pads** and **Zones**.
@@ -64,6 +74,11 @@ Net names drawn inside filled zones are not shown.
 
 The search box in the project header searches the open design by reference,
 value, footprint or net name.
+
+<video autoplay loop muted playsinline poster="/KiCAD-Prism/media/net-search-poster.jpg">
+  <source src="/KiCAD-Prism/media/net-search.webm" type="video/webm" />
+  <source src="/KiCAD-Prism/media/net-search.mp4" type="video/mp4" />
+</video>
 
 1. Press `/` or `⌘F` (`Ctrl+F` on Windows and Linux), or click the box.
 2. Type part of a name. Results are grouped under **Components** and
@@ -199,6 +214,11 @@ Highlighted nets are emphasized in 3D as well. With a net selected:
 
 ![The 3D tab with the +3V3 net isolated: only its copper is drawn, in green](../../../assets/screenshots/net-isolate-3d.jpg)
 
+<video autoplay loop muted playsinline poster="/KiCAD-Prism/media/3d-isolate-poster.jpg">
+  <source src="/KiCAD-Prism/media/3d-isolate.webm" type="video/webm" />
+  <source src="/KiCAD-Prism/media/3d-isolate.mp4" type="video/mp4" />
+</video>
+
 If a revision's 3D model has not been built yet, the tab says so. A designer
 or admin can select **Generate 3D assets**, or **Regenerate** to rebuild it.
 
@@ -210,6 +230,10 @@ or admin can select **Generate 3D assets**, or **Regenerate** to rebuild it.
   design rules.
 - **Assembly Assistant** shows the interactive HTML BOM generated for the
   revision, if the project has one.
+
+![The Stackup tab: the board's cross-section profile beside total thickness, copper layer count, dielectric and via counts, copper finish, and a per-layer stackup table](../../../assets/screenshots/stackup.jpg)
+
+![The Assembly Assistant tab: the interactive BOM table with references, values, footprints and quantities, beside the board view with parts highlighted](../../../assets/screenshots/assembly-assistant.jpg)
 
 ## Share what you are looking at
 

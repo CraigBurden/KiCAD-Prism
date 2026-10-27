@@ -53,6 +53,8 @@ Some limits apply:
 The **BOM** tab lists the parts of the revision, grouped into rows of
 identical parts, with a column per field.
 
+![The BOM tab: the search box and the All components and Assembly filters with their counts, and rows grouped by value with references, DNP and In BOM flags, descriptions and manufacturer fields](../../../assets/screenshots/bom.jpg)
+
 - **Filter.** Type in **Search references and fields…** to filter by
   reference or any field. Prefixes match as you type; add a trailing space to
   match a reference exactly. You can narrow to one field with `ref:`,

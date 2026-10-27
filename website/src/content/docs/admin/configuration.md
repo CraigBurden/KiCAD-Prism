@@ -233,6 +233,8 @@ that looks empty.
 Prism never imports from `file://` URLs, local paths, URLs with embedded
 credentials or Git remote-helper transports, whatever these settings say.
 
+![Settings → Git & SSH: the workspace SSH key with its fingerprint and copy button, and Check access buttons for two projects](../../../assets/screenshots/settings-git-ssh.jpg)
+
 ## KiCad tools
 
 | Setting | Default | What it does |

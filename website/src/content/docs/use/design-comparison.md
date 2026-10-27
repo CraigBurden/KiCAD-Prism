@@ -12,6 +12,11 @@ code.
 
 ![The Design comparison window comparing two commits: the Schematic, PCB, BOM, Stackup and Fabrication tabs with change counts, the review queue grouped into Components and Nets on the left, the Composite, Side by side and Old / New buttons above the schematic, and the discussion panel on the right](../../../assets/screenshots/design-comparison.jpg)
 
+<video autoplay loop muted playsinline poster="/KiCAD-Prism/media/comparison-poster.jpg">
+  <source src="/KiCAD-Prism/media/comparison.webm" type="video/webm" />
+  <source src="/KiCAD-Prism/media/comparison.mp4" type="video/mp4" />
+</video>
+
 Design Comparison reports what changed. It does not tell you whether a change
 is electrically correct, manufacturable or approved.
 

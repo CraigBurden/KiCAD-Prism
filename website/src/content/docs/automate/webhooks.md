@@ -24,6 +24,8 @@ A webhook posts one signed JSON request to your service for each event you choos
 7. Copy the signing secret with **Copy secret**. It starts with `whsec_` and is shown only this once.
 8. Click **Test** on the webhook's row. Prism sends a `ping` event and shows the result.
 
+![Settings → Webhooks: the empty list with URL, Events, Projects, Status and Last delivery columns, and Add webhook above it](../../../assets/screenshots/settings-webhooks.jpg)
+
 ## Events
 
 | Event | Sent when |

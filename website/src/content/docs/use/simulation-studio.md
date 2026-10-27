@@ -10,6 +10,8 @@ Its first analysis is **DC IR Drop**: you describe the board's power tree
 (sources, converters, rails and loads), and Prism solves the voltage drop and
 current density in the copper and draws the result on the board.
 
+![Simulation Studio: DC IR Drop available, with PDN impedance, Decoupling and Thermal with DC marked Planned](../../../assets/screenshots/simulation-studio.jpg)
+
 :::note
 Simulation Studio is experimental and off by default. If you don't see
 **Simulation Studio** in a project's navigation, your administrator has not

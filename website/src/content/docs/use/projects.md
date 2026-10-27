@@ -105,6 +105,8 @@ While you view anything other than the current checkout, a banner names the
 branch or commit (for a commit, also how many commits it is behind) and
 offers **Return to Branch Head** or **Return to Current Checkout**.
 
+![The History page: Releases shown as cards with their tag, commit hash, message and date, and the Base and Compare buttons](../../../assets/screenshots/project-history.jpg)
+
 To share a view of one exact revision, copy the link while a commit is open:
 the URL carries the commit, so it keeps pointing at the same design after new
 pushes. See [Links to a view](/KiCAD-Prism/automate/view-links/) for what a
@@ -123,6 +125,14 @@ The project sidebar has these sections:
 | **Release Studio** | Builds and sign-off of a release; see [Release Studio](/KiCAD-Prism/use/release-studio/) |
 | **Assets Portal** | Files the workflow jobs produced |
 | **Documentation** | Markdown and other documents from the project's documentation folder |
+
+![The Overview page: the project name, its description, the README text and a rendered board image](../../../assets/screenshots/project-overview.jpg)
+
+![The Workflows page: the Design Outputs, Manufacturing Outputs and 3D Renders jobs, each with a short description](../../../assets/screenshots/workflows.jpg)
+
+![The Assets Portal: Design Outputs and Manufacturing Outputs listed with their files, sizes and download actions](../../../assets/screenshots/assets-portal.jpg)
+
+![The Documentation page: the Markdown documents found in the project's documentation folder, each with a size, preview and download action](../../../assets/screenshots/documentation.jpg)
 
 In **History**, expand a commit to see its changed files. Selecting a file
 does one of three things:

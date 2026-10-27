@@ -17,6 +17,8 @@ Create a personal access token, then call any Prism route under `/api/v1` from a
 6. Click **Create**.
 7. Copy the token with **Copy token**. It starts with `prism_pat_` and is shown only once.
 
+![Settings → Personal access tokens: the token name, the scope checkboxes, the expiry in days and the Create button](../../../assets/screenshots/settings-personal-access-tokens.jpg)
+
 :::caution
 Store the token like a password, for example as a CI secret. Anyone holding it acts as you, with the scopes it carries.
 :::
