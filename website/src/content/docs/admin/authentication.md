@@ -110,6 +110,8 @@ To give someone a role:
 1. Open **Settings → Access control**.
 2. Enter their email, pick the role and click **Add**.
 
+![The Access control settings: the email and role fields with Add, and the list of people with their role and whether it was assigned or comes from the deployment](../../../assets/screenshots/settings-access-control.jpg)
+
 Removing someone's role ends all their sessions.
 
 Three settings decide who may sign in before any role is checked:

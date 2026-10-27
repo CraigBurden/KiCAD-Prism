@@ -39,6 +39,12 @@
 	box-shadow: var(--prism-shot-shadow);
 }
 
+.sl-markdown-content video {
+	width: 100%;
+	height: auto;
+	border-radius: 0.5rem;
+}
+
 .sl-markdown-content figure {
 	margin-block: 1.75rem;
 }

@@ -210,6 +210,8 @@ it shows only this release.
 The JLCPCB pack keeps its own BOM in JLCPCB's format, separate from the
 release BOM.
 
+![A connector interface control sheet from the documentation prototypes: front, mating face, side and isometric views from the STEP model, the identification fields, the pinout with the nets each pin reaches, and a board locator. The prototypes are run by hand and are not part of the product yet](../../../assets/screenshots/connector-icd.jpg)
+
 ### Archives
 
 - The **dossier** holds the released files: Gerbers and drill files, BOM and

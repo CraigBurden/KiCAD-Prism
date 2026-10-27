@@ -77,6 +77,8 @@ Select **Comments** in the toolbar to open the comments panel.
   image to open its thread.
 - Click a thread to jump to its place in the design.
 
+![The Comments panel with a thread open: its class and severity, a formatted message, reactions, and the Reply, Delete and Resolve actions](../../../assets/screenshots/comments-panel.jpg)
+
 In a thread:
 
 - **Reply** opens the reply box.

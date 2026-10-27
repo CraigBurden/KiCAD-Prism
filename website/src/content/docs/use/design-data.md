@@ -63,6 +63,8 @@ commit, building, failed or incomplete. Below it, Prism lists the most recent
 revisions with a failed or partial stage, and the most recent failed builds,
 each with its commit and the reason. Hover a reason to read it in full.
 
+![The Design data block in Project Settings: the stored and reused revision counts, Rebuild for HEAD with the short hash, and Rebuild all](../../../assets/screenshots/design-data.jpg)
+
 Project Settings is available to designers and admins.
 
 ## Rebuild design data

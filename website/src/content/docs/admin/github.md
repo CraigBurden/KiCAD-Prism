@@ -109,6 +109,8 @@ repository under **Repository access** on this page.
    whole contents of the `.pem` file.
 4. Click **Create connection**, then **Test connection**.
 
+![Settings → Code hosts: a GitHub connection marked Credentials revoked and a GitLab connection marked Ready, with Add code host below them](../../../assets/screenshots/settings-code-hosts.jpg)
+
 A successful test shows that the connection publishes as `<app>[bot]`, and the
 code host shows **Ready**. Prism writes to GitHub only after a successful test.
 
