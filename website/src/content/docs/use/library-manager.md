@@ -7,7 +7,7 @@ sidebar:
 
 Library Manager is your team's shared component library. You create or import
 a component, attach its symbol, footprint and models, send it through QA
-review, and release it. Released components can then be placed from desktop
+review, and release it. Released components can then be placed in desktop
 KiCad through the [Remote Symbol Provider](/KiCAD-Prism/use/remote-symbols/).
 
 Open it from **Library Manager** in the left sidebar.
