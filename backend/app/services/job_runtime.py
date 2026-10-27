@@ -239,3 +239,30 @@ class JobContext:
 
 
 JobHandler = Callable[[JobContext], JobResult]
+
+
+class JobLogNotFound(LookupError):
+    """The job's log is missing or outside the job state root."""
+
+
+def tail_job_log(path: Path, line_count: int) -> list[str]:
+    """The last ``line_count`` lines of a job log under ``job_state_root()/jobs``.
+
+    Reads at most the final 256 KiB. A path outside that root, or a missing
+    file, raises ``JobLogNotFound``: a log path comes from the job row, so it is
+    checked rather than trusted.
+    """
+
+    root = (job_state_root() / "jobs").resolve()
+    resolved = Path(path).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as error:
+        raise JobLogNotFound(str(path)) from error
+    if not resolved.is_file():
+        raise JobLogNotFound(str(path))
+    with resolved.open("rb") as handle:
+        size = handle.seek(0, 2)
+        handle.seek(max(0, size - 256 * 1024))
+        text = handle.read(256 * 1024).decode("utf-8", errors="replace")
+    return text.splitlines()[-line_count:]

@@ -249,11 +249,17 @@ class LocalTool:
             cached = _versions.get(path)
         if cached is not None:
             return cached
+        # A discovery probe, not work: it runs once per process, so recording it
+        # would charge whichever step asked first (a refill cache hit then
+        # looked like a refill run).
+        token = _recorded.set(None)
         try:
             result = self.run(["--version"], timeout=VERSION_TIMEOUT_SECONDS)
             version = (result.stdout or result.stderr or "").strip() or "unknown"
         except ToolError:
             version = "unknown"
+        finally:
+            _recorded.reset(token)
         with _versions_lock:
             _versions[path] = version
         return version

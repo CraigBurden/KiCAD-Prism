@@ -60,6 +60,9 @@ testers of unreleased behavior work from `dev`.
   mean.
 - [Simulation Studio](SIMULATION_STUDIO.md) (experimental, off by default)
   covers DC IR-drop setups, runs and results.
+- [Automating Prism](AUTOMATING_PRISM.md) covers personal access tokens, the
+  `/api/v1` API, the Python SDK and `prism` CLI, and connecting AI assistants
+  over MCP.
 
 ## Contributor references
 
@@ -70,6 +73,11 @@ testers of unreleased behavior work from `dev`.
   amendments record why Prism parses KiCad in Rust, once per revision; the
   contracts are in `native/contracts/prism/` and the parity records in
   `native/parity/`.
+- [Scripting and MCP ADR](architecture/adr-scripting-and-mcp.md)
+  records how Prism becomes scriptable: the versioned API, tokens and scopes,
+  and the MCP server.
+- [Addressing](architecture/addressing.md) lists the `/project/:projectId`
+  query parameters and the `prism://` resource URI grammar.
 - [Dependency identity](DEPENDENCIES.md) covers Python, JavaScript, and native pins.
 - [Design comparison](design-comparison/README.md) maps comparison contracts.
 
