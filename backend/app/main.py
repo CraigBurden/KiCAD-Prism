@@ -178,7 +178,7 @@ def verify_auth_configuration_or_exit() -> None:
         "",
         "      docker compose up -d backend",
         "",
-        "  Configuration guide:  docs/AUTHENTICATION_AND_ACCESS.md",
+        "  Configuration guide:  https://krishna-swaroop.github.io/KiCAD-Prism/admin/authentication/",
         "  Generate a secret:    openssl rand -base64 48",
         "",
         "  To run a local instance with no authentication at all, set",

@@ -8,8 +8,8 @@ are repo-root relative and CI-verified by `scripts/check_agent_docs.py`.
 **Read these before acting, not after:**
 
 - Service topology, storage domains, PostgreSQL schemas, trust boundaries —
-  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Read before changing any service
-  boundary, job class, or persistence path.
+  [website/src/content/docs/contribute/architecture.md](website/src/content/docs/contribute/architecture.md).
+  Read before changing any service boundary, job class, or persistence path.
 - Setup, check suites, branch prefixes, dependency policy —
   [CONTRIBUTING.md](CONTRIBUTING.md). Read before your first command in a fresh
   checkout, and before adding any dependency.
@@ -168,7 +168,7 @@ in `backend/app/services/comment_anchor_bindings.py`. Read
 `backend/app/services/trackers/connector_runtime.py` →
 `backend/app/services/trackers/providers.py`. GitHub and GitLab issue
 publication are available; Gitea/Forgejo is account-linking only. See
-`docs/TRACKER_INTEGRATION.md` for credentials, destinations, and recovery.
+`website/src/content/docs/admin/issue-trackers.md` for credentials, destinations, and recovery.
 
 **Select a design variant**
 `backend/app/services/variant_catalog_service.py` (the bundle catalog) →
@@ -190,7 +190,7 @@ this tree implements it.
 · `backend/app/sim_studio/runs.py` (`sim_run` job, engines from
 `backend/sim-engines.lock.json`) →
 `frontend/src/components/sim-studio/SimStudioPanel.tsx`. See
-`docs/SIMULATION_STUDIO.md`.
+`website/src/content/docs/use/simulation-studio.md`.
 
 **Place a symbol from desktop KiCad**
 `backend/app/api/remote_provider.py` · `backend/app/api/provider_oauth.py` →
@@ -274,11 +274,11 @@ load the relevant ranges rather than reading them end to end.
 ## Release and experimental boundaries
 
 Release promotion requires reviewed `dev` to `main`, the main commit Quality
-gate, and checked-in `docs/releases/<tag>.md`; see `docs/RELEASES.md`.
+gate, and checked-in `docs/releases/<tag>.md`; see `website/src/content/docs/contribute/release-process.md`.
 The latest tag is `v4.0.0-alpha`; it superseded the unpublished v3.1 plan.
 
 Never replace the published Python toolchain with a sibling checkout; see
-`docs/DEPENDENCIES.md`.
+`website/src/content/docs/contribute/dependencies.md`.
 
 ## Generated and vendored boundaries
 
