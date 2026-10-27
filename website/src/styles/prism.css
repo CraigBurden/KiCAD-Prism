@@ -154,3 +154,8 @@ header.header {
 html[data-has-hero]:not([data-has-sidebar]) {
 	--sl-content-width: 90rem;
 }
+
+/* The sheet sits as far below the header as it does from the page sides. */
+html[data-has-hero] .content-panel:has(.sheet) {
+	padding-top: var(--sl-content-pad-x);
+}
