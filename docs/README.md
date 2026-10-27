@@ -5,8 +5,12 @@ testers of unreleased behavior work from `dev`.
 
 ## Release notes
 
-- [v4.0.0-alpha](releases/v4.0.0-alpha.md) is the latest alpha and its
-  catalog migration requirements; it superseded the unpublished v3.1 plan.
+- [v5.0.3-alpha](releases/v5.0.3-alpha.md) is the latest alpha: the scripting
+  API, SDK and CLI, webhooks, and the MCP server.
+- Earlier: [v5.0.2-alpha](releases/v5.0.2-alpha.md),
+  [v5.0.1-alpha](releases/v5.0.1-alpha.md),
+  [v5.0.0-alpha](releases/v5.0.0-alpha.md),
+  [v4.0.0-alpha](releases/v4.0.0-alpha.md).
 
 ## Evaluate Prism
 
