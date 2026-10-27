@@ -88,7 +88,8 @@ It runs after every call, errors included. Build links with
   place in its group. Every write tool is then checked for write annotations
   and an `idempotencyKey` (`backend/tests/test_mcp_writes.py`); there is no
   other list to update.
-- Name it in `docs/AUTOMATING_PRISM.md` and in the ADR's tool list.
+- Name it in the matching page under `website/src/content/docs/automate/` and in
+  the ADR's tool list.
 - If a route changed: regenerate `sdk/python/openapi.json` and
   `sdk/python/prism/_generated.py` (`sdk/python/README.md`) and
   `backend/openapi/operations.v1.json` (`python -m app.core.api_contract --write`).
