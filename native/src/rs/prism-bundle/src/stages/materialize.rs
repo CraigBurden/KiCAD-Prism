@@ -110,6 +110,9 @@ pub struct FillComparison {
     pub differing_operations: usize,
     /// Saved operations with no identical operation in the refill: the part
     /// of `differing_operations` a reader can relate to `saved_operations`.
+    /// The `stale-saved-fills` warning should report this instead, but its
+    /// text is part of the pinned bundle bytes, so the change waits for the
+    /// next generator id.
     pub stale_saved_operations: usize,
 }
 
