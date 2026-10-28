@@ -1,0 +1,168 @@
+{
+ "schema": "prism.placements.a1",
+ "footprints": [
+  {
+   "uuid": "728727d3-9906-542d-b89f-c0d27a8d505a",
+   "reference": "J1",
+   "libId": "PrismFixture:Conn_Custom_2x05",
+   "side": "front",
+   "positionNm": {
+    "xNm": 110000000,
+    "yNm": 106000000
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "pads": [
+    {
+     "number": "1",
+     "type": "thru_hole",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 110000000,
+      "yNm": 106000000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "2",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 112540000,
+      "yNm": 106000000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "3",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 110000000,
+      "yNm": 108540000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "4",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 112540000,
+      "yNm": 108540000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "5",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 110000000,
+      "yNm": 111080000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "6",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 112540000,
+      "yNm": 111080000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "7",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 110000000,
+      "yNm": 113620000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "8",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 112540000,
+      "yNm": 113620000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "9",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 110000000,
+      "yNm": 116160000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "10",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 112540000,
+      "yNm": 116160000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    }
+   ],
+   "models": [],
+   "sourceSpan": {
+    "offsetBytes": 2016,
+    "lengthBytes": 3349
+   }
+  }
+ ],
+ "designators": [
+  "J1"
+ ],
+ "outlineBounds": {
+  "minNm": {
+   "xNm": 100000000,
+   "yNm": 100000000
+  },
+  "maxNm": {
+   "xNm": 130000000,
+   "yNm": 125000000
+  }
+ }
+}

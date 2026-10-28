@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import os
 import re
 import shutil
 import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, Callable, ParamSpec, TypeVar, cast
+from types import SimpleNamespace
+from typing import Any, Callable, Iterator, ParamSpec, TypeVar, cast
 
 
 EXECUTOR_IMAGE_ENV = "PRISM_RELEASE_EXECUTOR_IMAGE"
@@ -23,6 +27,54 @@ _R = TypeVar("_R")
 RELEASE_STUDIO_ROOT = Path(__file__).resolve().parents[2] / "fixtures" / "release-studio"
 FIXTURE_NAMES = ("synthetic", "usb-pd", "cynthion")
 RECORDING_ROOT = RELEASE_STUDIO_ROOT / "cli-recordings"
+DOCUMENTS_STUB = Path(__file__).resolve().parent / "support" / "prism_kicad_documents_stub.py"
+
+
+@contextlib.contextmanager
+def documents_stub() -> Iterator[Path]:
+    """A fake ``prism-kicad`` for ``version``/``stroke-text``/``drawing-sheet``.
+
+    Yields the invocation log the stub appends to. The documents'renderer
+    caches are cleared on the way in and out, so a case can count the CLI calls
+    it actually made.
+    """
+
+    from unittest import mock
+
+    from app.core.config import settings
+    from app.release_studio.documents import fonts, worksheet
+
+    directory = Path(tempfile.mkdtemp(prefix="prism-kicad-documents-"))
+    executable = directory / "prism-kicad"
+    executable.write_text(
+        f'#!/bin/sh\nexec "{sys.executable}" "{DOCUMENTS_STUB}" "$@"\n',
+        encoding="utf-8",
+    )
+    executable.chmod(0o755)
+    log = directory / "invocations.jsonl"
+    fonts._reset_stroke_caches()
+    worksheet._reset_drawing_sheet_cache()
+    try:
+        with (
+            mock.patch.object(
+                settings, "PRISM_DESIGN_BUNDLE_CLI_PATH", str(executable)
+            ),
+            mock.patch.object(
+                settings, "KICAD_PROJECTS_ROOT", str(directory / "projects")
+            ),
+            mock.patch.dict(os.environ, {"PRISM_KICAD_STUB_LOG": str(log)}),
+        ):
+            yield log
+    finally:
+        fonts._reset_stroke_caches()
+        worksheet._reset_drawing_sheet_cache()
+
+
+def install_documents_stub(test: unittest.TestCase) -> Path:
+    """Install :func:`documents_stub` for the length of *test*; returns its log."""
+
+    return test.enterContext(documents_stub())
+
 
 
 def read_baked_kicad_base_image(
@@ -67,6 +119,63 @@ def fixture_recording(name: str) -> Path:
     if name not in FIXTURE_NAMES:
         raise ValueError(f"unknown Release Studio fixture: {name!r}")
     return RECORDING_ROOT / f"{name}.json"
+
+
+def synthetic_bundle_design(closure: Path):
+    """The synthetic fixture's committed bundle as a ready ``BundleDesign``.
+
+    The archive's members are extracted under ``closure/_bundle``, so a
+    recording made from this layout replays against the same placeholder
+    paths.
+    """
+
+    import json
+    import zipfile
+
+    from app.release_studio import bundle_design
+    from app.services.design_bundle.manifest import Readiness
+
+    archive = RELEASE_STUDIO_ROOT / "synthetic" / "models.prism"
+
+    class _ZipOpened:
+        def __init__(self) -> None:
+            self._zip = zipfile.ZipFile(archive)
+            self._root = closure / "_bundle"
+            self.absent = False
+            self.failure = None
+            self.archive = SimpleNamespace(
+                path=archive,
+                manifest=json.loads(self._zip.read("bundle.json")),
+            )
+
+        def read_json(self, path: str) -> dict:
+            return json.loads(self._zip.read(path))
+
+        def readiness(self, paths):
+            members = {member["path"] for member in self.archive.manifest["members"]}
+            return {
+                path: Readiness(
+                    path, "ready" if path in members else "not-applicable", "parse"
+                )
+                for path in paths
+            }
+
+        def extract(self, paths) -> Path:
+            for wanted in paths:
+                chosen = (
+                    [name for name in self._zip.namelist() if name.startswith(wanted)]
+                    if wanted.endswith("/")
+                    else [wanted]
+                )
+                for member in chosen:
+                    target = self._root / member
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(self._zip.read(member))
+            return self._root
+
+    return bundle_design.BundleDesign(
+        project_id="project-1", commit="a" * 40, opened=_ZipOpened()
+    )
 
 
 def fixture_entrypoint(name: str, kind: str) -> Path:

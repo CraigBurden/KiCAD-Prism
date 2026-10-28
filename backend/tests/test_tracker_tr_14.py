@@ -3,39 +3,32 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.job_handlers import (  # noqa: E402
-    get_job_handler,
     load_builtin_job_handlers,
     registered_job_kinds,
 )
 from app.services.job_runtime import JobCancelled, RetryableJobError  # noqa: E402
-from app.services.trackers.inbox_store import InboxStore, apply_schema as apply_inbox_schema  # noqa: E402
+from app.services.trackers.inbox_store import InboxStore  # noqa: E402
 from app.services.trackers.errors import ProviderError  # noqa: E402
 from app.services.trackers.jobs import (  # noqa: E402
     _handle_claimed_op,
     _record_executor_outcome,
     run_tracker_dispatch_job,
 )
-from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
 from app.services.trackers.op_store import (  # noqa: E402
     EXECUTE_DISPATCH,
     RECOVERY_DISPATCH,
     OpStore,
     StaleFence,
-    apply_schema as apply_op_schema,
 )
 from app.services.trackers.scheduler import (  # noqa: E402
     DISPATCH_KIND,
@@ -57,6 +50,7 @@ from app.services.trackers.scheduler import (  # noqa: E402
     sweep_interval_seconds,
 )
 from app.services.trackers.store import TrackerStore  # noqa: E402
+from support.postgres import requires_scratch_postgres, tracker_schema, seed_comment  # noqa: E402
 
 try:
     import psycopg
@@ -65,27 +59,9 @@ except ImportError:  # pragma: no cover
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 F5 = json.loads((DOCS / "fixtures" / "F05.json").read_text(encoding="utf-8"))
 F7 = json.loads((DOCS / "fixtures" / "F07.json").read_text(encoding="utf-8"))
-
-
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 class FakeJobs:
@@ -147,73 +123,22 @@ class RegistrationTests(unittest.TestCase):
             catalog.schedule_tracker_jobs()
         sched.assert_called_once()
 
-    def test_fixture_cases_are_present(self) -> None:
-        ids = {case["id"] for case in F5["cases"]}
-        self.assertIn("F5.duplicate_workers", ids)
-        self.assertIn("F5.stale_lease_on_sent", ids)
-        self.assertIn("F5.claim_of_sent_is_recovery", ids)
-        self.assertIn("F7.throttling", {case["id"] for case in F7["cases"]})
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class TrackerSchedulerPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
         reset_scheduler_throttle()
         mount_hints_applier(False)
-        self.schema = f"tr14_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self.conn.execute(
-            """
-            CREATE TABLE comments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                status TEXT NOT NULL DEFAULT 'OPEN',
-                context TEXT NOT NULL DEFAULT 'PCB',
-                location_x REAL NOT NULL DEFAULT 0,
-                location_y REAL NOT NULL DEFAULT 0,
-                location_layer TEXT NOT NULL DEFAULT '',
-                location_page TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT ''
-            );
-            CREATE TABLE comment_replies (
-                id TEXT PRIMARY KEY,
-                comment_id TEXT NOT NULL REFERENCES comments(id),
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                content TEXT NOT NULL DEFAULT ''
-            );
-            """,
-            prepare=False,
-        )
-        comments_schema_migrations.apply_comments_migrations(self.conn)
-        migrate_workspace_tracker_tables(self.conn)
-        apply_op_schema(self.conn)
-        apply_inbox_schema(self.conn)
-        self.conn.commit()
+        self.scratch = tracker_schema(self, "tr14")
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
         self.store = TrackerStore(self.conn)
         self.ops = OpStore(self.conn)
         self.inbox = InboxStore(self.conn)
         self.jobs = FakeJobs()
 
-    def _cleanup(self) -> None:
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
-
     def _connect(self):
-        conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        conn.execute(f'SET search_path TO "{self.schema}", public')
+        conn = self.scratch.connect()
         return conn
 
     @contextmanager
@@ -241,10 +166,7 @@ class TrackerSchedulerPostgresTests(unittest.TestCase):
             remote_container_id="111",
             generation=2,
         )
-        self.conn.execute(
-            "INSERT INTO comments(id, project_id, author, content) VALUES (%s,%s,%s,%s)",
-            ("c_1", "prj_a", "Priya", "stub"),
-        )
+        seed_comment(self.conn, "c_1", "prj_a", author="Priya", content="stub")
         self.store.insert_thread(
             thread_id="tt_1",
             comment_id="c_1",

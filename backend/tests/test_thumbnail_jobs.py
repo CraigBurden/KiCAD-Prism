@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from app.services import job_service
 from app.services import project_import_service
 
 
@@ -28,7 +29,7 @@ class ThumbnailJobEnqueue(unittest.TestCase):
                 return_value={"id": "prj_1", "repo_id": "repo_1"},
             ),
             mock.patch.object(
-                project_import_service.v3_jobs, "enqueue", return_value={"job_id": "job-1"}
+                job_service.jobs, "enqueue", return_value={"job_id": "job-1"}
             ) as enqueue,
         ):
             job_id = project_import_service.start_thumbnail_job("prj_1")
@@ -46,7 +47,7 @@ class ThumbnailJobEnqueue(unittest.TestCase):
             mock.patch.object(
                 project_import_service.workspace, "get_project_by_id", return_value=None
             ),
-            mock.patch.object(project_import_service.v3_jobs, "enqueue") as enqueue,
+            mock.patch.object(job_service.jobs, "enqueue") as enqueue,
         ):
             self.assertIsNone(project_import_service.start_thumbnail_job("missing"))
         enqueue.assert_not_called()

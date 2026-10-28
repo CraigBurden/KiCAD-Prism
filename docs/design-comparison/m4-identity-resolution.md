@@ -1,5 +1,7 @@
 # M4: viewer identity resolution
 
+> **Superseded (2026-10-23).** This milestone record describes the Node `ecad-parse`/`ecad-diff` and Python comparison pipeline. Design Comparison is now computed by `prism-kicad compare` ([ADR amendment C2r](../architecture/adr-native-design-bundle-amendment-c2r.md)), and the services named here were removed. Kept as a historical record.
+
 Milestone 4 of [the Design Comparison revamp](../DESIGN_COMPARISON_REVAMP.md).
 This milestone closes the viewer-side identity and bounds gate before Prism
 stops emitting compatibility bboxes in M5.

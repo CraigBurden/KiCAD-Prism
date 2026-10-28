@@ -21,8 +21,9 @@ import {
     terminalSummary,
     type PropertyDelta,
 } from "./comparison-property-model";
+import { unionLayers } from "./comparison-change-facts";
 import { humanize } from "./comparison-change-vocabulary";
-import type { BomChangeRow, BomDiff, PcbDiff } from "./types";
+import type { BomChangeRow, BomDiff, DesignCompareResult } from "./types";
 
 /**
  * The one place a reviewer reads what changed about the selected item.
@@ -38,7 +39,7 @@ import type { BomChangeRow, BomDiff, PcbDiff } from "./types";
 export type ComparisonPropertyPanelProps = {
     group: ChangeGroup | null;
     bom: BomDiff | null;
-    routeMetrics?: PcbDiff["route_metrics"];
+    routeMetrics?: DesignCompareResult["routeMetrics"];
     /** Board layers, for colouring the swatches beside a net's layer list. */
     pcbLayers?: readonly EcadPcbLayerState[];
     /** Unresolved native items reported by the viewer for this document. */
@@ -229,7 +230,7 @@ export function ComparisonPropertyPanel({
         (pcbLayers ?? []).map((layer) => [layer.name, layer.color]),
     );
     const netLayers = [...new Set(
-        group.changes.flatMap((change) => change.layers ?? []).filter(Boolean),
+        group.changes.flatMap(unionLayers).filter(Boolean),
     )];
 
     // Field names the property sheet already states, so the change list below
@@ -243,11 +244,11 @@ export function ComparisonPropertyPanel({
     );
 
     const dnpReferences = bomRows.flatMap(({ references, row }) => (
-        isTruthyFlag(row.new?.["kicad_dnp"]) ? references : []
+        isTruthyFlag(row.new?.["DNP"]) ? references : []
     ));
     const notInBomReferences = bomRows.flatMap(({ references, row }) => (
-        row.new?.["kicad_in_bom"] !== undefined
-        && !isTruthyFlag(row.new["kicad_in_bom"])
+        row.new?.["In BOM"] !== undefined
+        && !isTruthyFlag(row.new["In BOM"])
             ? references
             : []
     ));

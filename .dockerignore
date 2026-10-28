@@ -3,6 +3,14 @@
 
 # Runtime data and generated local state
 data/
+# Installer output and its backups hold live secrets (.env); operator Caddy
+# sites; backup archives and their staging directories.
+generated/
+generated.bak.*/
+sites/
+prism-backup-*
+.prism-backup-*
+.prism-restore-*
 **/.DS_Store
 **/__pycache__/
 **/*.pyc
@@ -19,8 +27,8 @@ backend/venv/
 frontend/node_modules/
 frontend/dist/
 kicad-prism-viewer/node_modules/
-kicad-prism-viewer/native/prism-clipper2/build/
-kicad-prism-viewer/native/prism-kicad-native/target/
+native/target/
+native/node_modules
 backend/app/static/remote_provider/
 
 # Local reports and logs

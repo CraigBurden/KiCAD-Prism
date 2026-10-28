@@ -1,0 +1,270 @@
+{
+ "schema": "prism.semantic_index.a1",
+ "sourceRevisionKey": "e04b75e9413045cd4e8216f024bb513e36b59fed75b06d8bb2b425afde5940d2",
+ "components": [
+  {
+   "componentUid": "cmp:efcb8b6889c8f28ceff3",
+   "reference": "R1",
+   "value": "10k",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "libraryRef": "Device:R",
+   "fields": {
+    "Value": "10k",
+    "DNP": "No",
+    "In BOM": "Yes",
+    "Description": "Resistor",
+    "Datasheet": "",
+    "Manufacturer": "",
+    "Manufacturer Part Number": "",
+    "Vendor": "",
+    "Vendor Part Number": "",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "Mass (g)": "",
+    "RQjC (C/W)": "",
+    "RQjC_top (C/W)": "",
+    "Temp_max (C)": "",
+    "Temp_min (C)": "",
+    "Power Dissipation (W)": "",
+    "Rate": "",
+    "Sheetfile": "k11.kicad_sch",
+    "Sheetname": "k11",
+    "_source_cad": "kicad",
+    "kicad_dnp": "false",
+    "kicad_in_bom": "true",
+    "kicad_instance_uuid": "4a00a14a-886b-58fc-a24d-cfe8977b2871",
+    "kicad_libsource_lib": "Device",
+    "kicad_libsource_part": "R",
+    "kicad_on_board": "true",
+    "kicad_sheet_path_names": "/",
+    "kicad_sheet_path_uuids": "/",
+    "Reference": "R1"
+   },
+   "schematicRefs": [
+    {
+     "sheetInstancePath": "/",
+     "page": "/",
+     "symbolUuid": "4a00a14a-886b-58fc-a24d-cfe8977b2871",
+     "occurrenceId": "/8b3d16ed-65fd-5f4a-87e6-0b85c2019a15/4a00a14a-886b-58fc-a24d-cfe8977b2871"
+    }
+   ],
+   "pcbRefs": [
+    {
+     "footprintUuid": "4f51eca6-3440-5334-a47a-8da5ed063624"
+    }
+   ],
+   "webgpuRefs": []
+  }
+ ],
+ "nets": [
+  {
+   "netUid": "net:549369d30ae0edb63cdd",
+   "name": "unconnected-(R1-~-Pad1)",
+   "netClass": "Default",
+   "aliases": [],
+   "sourceSheets": [
+    "/"
+   ],
+   "schematicRefs": [
+    {
+     "wireUuids": [],
+     "labelUuids": [],
+     "junctionUuids": [],
+     "pinUuids": [
+      "fab2d58b-ff7f-599c-82c1-492f3fa4d77a"
+     ],
+     "labelInstanceCount": 0
+    }
+   ],
+   "pcbRefs": [
+    {
+     "trackUuids": [],
+     "arcUuids": [],
+     "viaUuids": [],
+     "zoneUuids": [],
+     "padUuids": []
+    }
+   ],
+   "webgpuRefs": []
+  },
+  {
+   "netUid": "net:845188bfea70895e7e9c",
+   "name": "unconnected-(R1-~-Pad2)",
+   "netClass": "Default",
+   "aliases": [],
+   "sourceSheets": [
+    "/"
+   ],
+   "schematicRefs": [
+    {
+     "wireUuids": [],
+     "labelUuids": [],
+     "junctionUuids": [],
+     "pinUuids": [
+      "17ac189f-f1cb-5906-ad38-d1819ebf7a32"
+     ],
+     "labelInstanceCount": 0
+    }
+   ],
+   "pcbRefs": [
+    {
+     "trackUuids": [],
+     "arcUuids": [],
+     "viaUuids": [],
+     "zoneUuids": [],
+     "padUuids": []
+    }
+   ],
+   "webgpuRefs": []
+  }
+ ],
+ "terminals": [
+  {
+   "terminalUid": "term:4d5a485dae985153f80a",
+   "componentUid": "cmp:efcb8b6889c8f28ceff3",
+   "reference": "R1",
+   "pin": "1",
+   "pinName": "~",
+   "pinType": "PASSIVE",
+   "netUid": "net:549369d30ae0edb63cdd",
+   "netName": "unconnected-(R1-~-Pad1)",
+   "schematicNetName": "unconnected-(R1-~-Pad1)",
+   "schematicPinUuid": "fab2d58b-ff7f-599c-82c1-492f3fa4d77a",
+   "pcbPadUuid": "fc836089-7618-5d0d-a481-d95c00863ba9"
+  },
+  {
+   "terminalUid": "term:8ad42e823b2c7710edb6",
+   "componentUid": "cmp:efcb8b6889c8f28ceff3",
+   "reference": "R1",
+   "pin": "2",
+   "pinName": "~",
+   "pinType": "PASSIVE",
+   "netUid": "net:845188bfea70895e7e9c",
+   "netName": "unconnected-(R1-~-Pad2)",
+   "schematicNetName": "unconnected-(R1-~-Pad2)",
+   "schematicPinUuid": "17ac189f-f1cb-5906-ad38-d1819ebf7a32",
+   "pcbPadUuid": "6f136d2d-cdd6-5006-9491-0ea80cc155fc"
+  }
+ ],
+ "sheetInstances": [
+  {
+   "sheetInstanceUid": "sheet-instance:d02e0822b7b83b91c7fa",
+   "sheetInstancePath": "/8b3d16ed-65fd-5f4a-87e6-0b85c2019a15",
+   "sheetPath": "/",
+   "page": "k11.kicad_sch",
+   "parentSheetInstancePath": null,
+   "sheetSymbolUuid": null,
+   "sheetName": "k11",
+   "isTopLevel": true,
+   "parentPage": null
+  }
+ ],
+ "buses": [],
+ "indexes": {
+  "componentByReference": {
+   "R1": 0
+  },
+  "componentBySchematicUuid": {
+   "4a00a14a-886b-58fc-a24d-cfe8977b2871": 0
+  },
+  "componentByPcbFootprintUuid": {
+   "4f51eca6-3440-5334-a47a-8da5ed063624": 0
+  },
+  "terminalBySchematicPinUuid": {
+   "fab2d58b-ff7f-599c-82c1-492f3fa4d77a": 0,
+   "17ac189f-f1cb-5906-ad38-d1819ebf7a32": 1
+  },
+  "terminalByPcbPadUuid": {
+   "fc836089-7618-5d0d-a481-d95c00863ba9": 0,
+   "6f136d2d-cdd6-5006-9491-0ea80cc155fc": 1
+  },
+  "terminalByReferencePin": {
+   "R1:1": 0,
+   "R1:2": 1
+  },
+  "netByName": {
+   "unconnected-(R1-~-Pad1)": 0,
+   "unconnected-(R1-~-Pad2)": 1
+  },
+  "netByNetCode": {},
+  "netBySchematicUuid": {
+   "fab2d58b-ff7f-599c-82c1-492f3fa4d77a": 0,
+   "17ac189f-f1cb-5906-ad38-d1819ebf7a32": 1
+  },
+  "netByPcbUuid": {},
+  "sheetInstanceByPath": {
+   "/8b3d16ed-65fd-5f4a-87e6-0b85c2019a15": 0
+  },
+  "busByUid": {}
+ },
+ "assembly": {
+  "schema": "prism.assembly_state_a0",
+  "catalog": [
+   {
+    "name": "Lite",
+    "description": null,
+    "sources": [
+     "project",
+     "pcb",
+     "schematic",
+     "footprint"
+    ]
+   }
+  ],
+  "footprintInventory": [
+   {
+    "uuid": "4f51eca6-3440-5334-a47a-8da5ed063624",
+    "reference": "R1"
+   }
+  ],
+  "default": {
+   "occurrences": {},
+   "components": {},
+   "footprints": {}
+  },
+  "variants": [
+   {
+    "name": "Lite",
+    "occurrences": {
+     "/8b3d16ed-65fd-5f4a-87e6-0b85c2019a15/4a00a14a-886b-58fc-a24d-cfe8977b2871": {
+      "dnp": true
+     }
+    },
+    "components": {
+     "cmp:efcb8b6889c8f28ceff3": {
+      "dnp": true
+     }
+    },
+    "footprints": {
+     "4f51eca6-3440-5334-a47a-8da5ed063624": {
+      "dnp": true
+     }
+    }
+   }
+  ],
+  "diagnostics": [
+   {
+    "code": "unsupported-variant-token",
+    "severity": "info",
+    "path": "k11.kicad_sch",
+    "message": "KiCad 11 variant tokens were ignored.",
+    "detail": {
+     "tokens": [
+      "symbol_override",
+      "pin_map_override"
+     ]
+    }
+   },
+   {
+    "code": "unsupported-variant-token",
+    "severity": "info",
+    "path": "k11.kicad_pcb",
+    "message": "KiCad 11 variant tokens were ignored.",
+    "detail": {
+     "tokens": [
+      "exclude_from_sim"
+     ]
+    }
+   }
+  ]
+ }
+}

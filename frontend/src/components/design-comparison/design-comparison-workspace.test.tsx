@@ -17,20 +17,27 @@ vi.mock("@/lib/api", () => ({
 // real useState-backed hook does. A fresh object per render would re-fire
 // every result-keyed effect and hide what these tests are about.
 const { JOB } = vi.hoisted(() => {
-    const change = (id: string, domain: "schematic" | "pcb") => ({
-        id,
-        kind: "changed",
-        domain,
-        label: id,
-        reference: id.toUpperCase(),
-        object_kind: domain === "pcb" ? "footprint" : "symbol",
-        page: "root.kicad_sch",
-        layers: domain === "pcb" ? ["F.Cu"] : [],
-        fields: {},
-        reasons: [],
-        net: null,
-        semantic_id: `sem-${id}`,
-    });
+    const change = (id: string, domain: "schematic" | "pcb") => {
+        const layers = domain === "pcb" ? ["F.Cu"] : [];
+        return {
+            id,
+            kind: "changed",
+            domain,
+            category: "components",
+            classification: "primary",
+            label: id,
+            reference: id.toUpperCase(),
+            objectKind: domain === "pcb" ? "footprint" : "symbol",
+            page: "root.kicad_sch",
+            reasons: ["content-changed"],
+            fields: {},
+            details: {},
+            net: undefined as string | undefined,
+            semanticId: `sem-${id}` as string | undefined,
+            base: { sourceId: `base-${id}`, documentPath: "root.kicad_sch", layers },
+            head: { sourceId: `head-${id}`, documentPath: "root.kicad_sch", layers },
+        };
+    };
     const pcbChanges = [
         change("p1", "pcb"),
         {
@@ -38,40 +45,65 @@ const { JOB } = vi.hoisted(() => {
             kind: "added",
             category: "nets",
             label: "GND",
-            reference: null,
-            object_kind: "track",
+            reference: undefined,
+            objectKind: "track",
             net: "GND",
-            semantic_id: null,
+            semanticId: undefined,
+            reasons: ["object-added"],
         },
         {
             ...change("gnd-removed", "pcb"),
             kind: "removed",
             category: "nets",
             label: "GND",
-            reference: null,
-            object_kind: "track",
+            reference: undefined,
+            objectKind: "track",
             net: "GND",
-            semantic_id: null,
+            semanticId: undefined,
+            reasons: ["object-removed"],
         },
     ];
+    const emptySummary = { added: 0, removed: 0, changed: 0 };
     return {
         JOB: {
             result: {
-                document_diff: {
+                schema: "prism.design_compare.result.a1",
+                base: { revisionKey: "b", projectFile: "root.kicad_pro" },
+                head: { revisionKey: "c", projectFile: "root.kicad_pro" },
+                files: {
+                    base: [{ path: "root.kicad_sch", filename: "root.kicad_sch" }],
+                    head: [{ path: "root.kicad_sch", filename: "root.kicad_sch" }],
+                },
+                projectDiff: {
+                    schema: "prism.kicad_project_diff_v1",
+                    provider: "prism-semantic",
                     project: {
                         documents: [{
                             path: "root.kicad_sch",
-                            changes: [change("s1", "schematic")],
+                            docType: "kicad_sch",
+                            changes: [],
                         }],
                     },
                     navigation: {},
                     diagnostics: [],
                 },
-                files: [{ path: "root.kicad_sch", status: "modified" }],
                 schematic: { changes: [change("s1", "schematic")] },
-                pcb: { changes: pcbChanges, route_metrics: {} },
-                bom: { summary: {}, changes: [], fields: [] },
-                stackup: { layers: [] },
+                pcb: { changes: pcbChanges },
+                bom: { summary: emptySummary, changes: [], fields: [] },
+                stackup: {
+                    present: false,
+                    changed: false,
+                    base: [],
+                    head: [],
+                    baseSettings: {},
+                    headSettings: {},
+                },
+                routeMetrics: { base: {}, head: {} },
+                counts: {
+                    schematic: { ...emptySummary, changed: 1 },
+                    pcb: { ...emptySummary, changed: 1 },
+                    bom: emptySummary,
+                },
                 fabrication: {},
             },
             status: { state: "completed" },

@@ -1,0 +1,125 @@
+{
+ "schema": "prism.system_interface.v1",
+ "hasPcb": true,
+ "boardThicknessMm": 1.6,
+ "boardOutlineMm": {
+  "minMm": [
+   0.0,
+   -40.0
+  ],
+  "maxMm": [
+   60.0,
+   0.0
+  ],
+  "source": "edge_cuts"
+ },
+ "components": [
+  {
+   "portKey": "/68e59b49-11f7-5e1b-97a8-9b70a56c6a06/b66904c4-ce01-5338-8a05-f248bd2fefae",
+   "memberKeys": [
+    "/68e59b49-11f7-5e1b-97a8-9b70a56c6a06/b66904c4-ce01-5338-8a05-f248bd2fefae"
+   ],
+   "reference": "R1",
+   "libId": "Device:R",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "value": "10k",
+   "mpn": null,
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     5.0,
+     -5.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "R_0603_1608Metric",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       4.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       6.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.5,
+      1.0
+     ],
+     "maxMm": [
+      1.5,
+      1.0
+     ]
+    },
+    "model": {
+     "path": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  }
+ ],
+ "diagnostics": [],
+ "digest": "sha256:333e7336484c93ab6be4771496a0d58db77320c018969a8d8c030185fdc479a6"
+}

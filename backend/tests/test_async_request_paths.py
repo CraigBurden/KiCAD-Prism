@@ -9,13 +9,19 @@ from unittest.mock import MagicMock, patch
 from fastapi import HTTPException, Response
 from starlette.requests import Request
 
+from app.core.errors import DomainError  # noqa: E402
 from app.api import _helpers as api_helpers
+from app.api import agent as agent_api
 from app.api import auth as auth_api
 from app.api import catalog_admin as catalog_admin_api
 from app.api import comments as comments_api
 from app.core import security, session
 from app.core.config import settings
 from app.services import session_store_service
+
+# A route refuses with an HTTPException or a typed domain error (rendered by the app handler).
+ROUTE_ERRORS = (HTTPException, DomainError)
+
 
 TEST_SECRET = "unit-test-session-secret-with-enough-length"
 
@@ -59,6 +65,32 @@ class _BlockedStore:
         return self.result
 
 
+class _CountingStore:
+    """A store that counts how many callers are inside it at once."""
+
+    def __init__(self, expect: int = 4) -> None:
+        self._lock = threading.Lock()
+        self._release = threading.Event()
+        self._expect = expect
+        self.current = 0
+        self.peak = 0
+        self.borrowed = threading.Event()
+
+    def __call__(self, *args, **kwargs):
+        with self._lock:
+            self.current += 1
+            self.peak = max(self.peak, self.current)
+            if self.current >= self._expect:
+                self.borrowed.set()
+        self._release.wait(timeout=5)
+        with self._lock:
+            self.current -= 1
+        return None
+
+    def release(self) -> None:
+        self._release.set()
+
+
 async def _lightweight_probe_completes_while(pending: asyncio.Task) -> bool:
     """Run a trivial coroutine next to `pending` and report whether it finished promptly."""
     probe = asyncio.create_task(asyncio.sleep(0.01))
@@ -81,7 +113,7 @@ class AuthenticationDoesNotBlockTheLoopTests(unittest.TestCase):
             await asyncio.get_running_loop().run_in_executor(None, blocked.entered.wait, 2)
             probe_finished = await _lightweight_probe_completes_while(auth)
             blocked.gate.set()
-            with self.assertRaises(HTTPException) as ctx:
+            with self.assertRaises(ROUTE_ERRORS) as ctx:
                 await auth
             return probe_finished, ctx.exception
 
@@ -106,7 +138,7 @@ class AuthenticationDoesNotBlockTheLoopTests(unittest.TestCase):
             await asyncio.get_running_loop().run_in_executor(None, blocked.entered.wait, 2)
             probe_finished = await _lightweight_probe_completes_while(auth)
             blocked.gate.set()
-            with self.assertRaises(HTTPException):
+            with self.assertRaises(ROUTE_ERRORS):
                 await auth
             return probe_finished
 
@@ -119,12 +151,12 @@ class AuthenticationDoesNotBlockTheLoopTests(unittest.TestCase):
         token = session.create_session_token("session-a")
         with patch.object(settings, "AUTH_ENABLED_OVERRIDE", True):
             with patch.object(session_store_service, "load_session", return_value=None):
-                with self.assertRaises(HTTPException) as revoked:
+                with self.assertRaises(ROUTE_ERRORS) as revoked:
                     asyncio.run(security.get_current_user(_request(token)))
             with patch.object(
                 session_store_service, "load_session", return_value=_record("session-a", "nobody@example.com")
             ), patch.object(security, "_resolve_allowed_user_role", return_value=None):
-                with self.assertRaises(HTTPException) as unassigned:
+                with self.assertRaises(ROUTE_ERRORS) as unassigned:
                     asyncio.run(security.get_current_user(_request(token)))
             with patch.object(
                 session_store_service, "load_session", return_value=_record("session-a", "qa@example.com")
@@ -177,7 +209,7 @@ class LoginRateLimiterDoesNotBlockTheLoopTests(unittest.TestCase):
                     await asyncio.get_running_loop().run_in_executor(None, blocked.entered.wait, 2)
                     probe_finished = await _lightweight_probe_completes_while(login)
                     blocked.gate.set()
-                    with self.assertRaises(HTTPException) as ctx:
+                    with self.assertRaises(ROUTE_ERRORS) as ctx:
                         await login
                     self.assertEqual(ctx.exception.status_code, 429)
                     return probe_finished
@@ -200,7 +232,7 @@ class LoginRateLimiterDoesNotBlockTheLoopTests(unittest.TestCase):
                 with patch.object(auth_api, "oidc_enabled", return_value=True), patch.object(
                     auth_api.rate_limit_service, "enforce", limited
                 ), patch.multiple(auth_api, **provider_calls):
-                    with self.assertRaises(HTTPException) as ctx:
+                    with self.assertRaises(ROUTE_ERRORS) as ctx:
                         asyncio.run(entry())
                 self.assertEqual(ctx.exception.status_code, 429)
         for name, call in provider_calls.items():
@@ -218,7 +250,7 @@ class CommentReadsDoNotBlockTheLoopTests(unittest.TestCase):
             await asyncio.get_running_loop().run_in_executor(None, blocked.entered.wait, 2)
             probe_finished = await _lightweight_probe_completes_while(read)
             blocked.gate.set()
-            with self.assertRaises(HTTPException) as ctx:
+            with self.assertRaises(ROUTE_ERRORS) as ctx:
                 await read
             self.assertEqual(ctx.exception.status_code, 404)
             return probe_finished
@@ -229,7 +261,7 @@ class CommentReadsDoNotBlockTheLoopTests(unittest.TestCase):
     def test_project_role_filtering_is_preserved_on_reads(self) -> None:
         user = security.AuthenticatedUser(email="v@example.com", name="V", role="viewer")
         with patch.object(api_helpers.workspace, "get_project_for_role", return_value=None) as lookup:
-            with self.assertRaises(HTTPException) as ctx:
+            with self.assertRaises(ROUTE_ERRORS) as ctx:
                 asyncio.run(comments_api.get_comments("prj", user))
         self.assertEqual(ctx.exception.status_code, 404)
         lookup.assert_called_once_with("prj", "viewer")
@@ -253,7 +285,7 @@ class CatalogUploadsDoNotBlockTheLoopTests(unittest.TestCase):
 
         async def scenario() -> tuple[bool, dict]:
             upload = asyncio.create_task(
-                catalog_admin_api.import_symbol_library("cmp", _Upload(), "", "", "", "", user)
+                catalog_admin_api.import_symbol_library("cmp", _Upload(), "", "", "", request=Request({"type": "http", "headers": []}), user=user)
             )
             await asyncio.get_running_loop().run_in_executor(None, blocked.entered.wait, 2)
             probe_finished = await _lightweight_probe_completes_while(upload)
@@ -271,8 +303,8 @@ class CatalogUploadsDoNotBlockTheLoopTests(unittest.TestCase):
         with patch.object(
             catalog_admin_api.catalog_service, "import_symbol_library", side_effect=ValueError("Uploaded library has no symbols")
         ):
-            with self.assertRaises(HTTPException) as ctx:
-                asyncio.run(catalog_admin_api.import_symbol_library("cmp", _Upload(), "", "", "", "", user))
+            with self.assertRaises(ROUTE_ERRORS) as ctx:
+                asyncio.run(catalog_admin_api.import_symbol_library("cmp", _Upload(), "", "", "", request=Request({"type": "http", "headers": []}), user=user))
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertEqual(ctx.exception.detail, "Uploaded library has no symbols")
 
@@ -308,8 +340,16 @@ class VariantCatalogReadsDoNotBlockTheLoopTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             return probe_finished
 
+        from unittest.mock import MagicMock
+
+        from app.services.design_bundle import consumer as bundle_consumer
+
+        opened = MagicMock()
+        opened.working_tree_dirty = False
         with patch.object(
             variants_api, "get_project_for_role_or_404"
+        ), patch.object(
+            bundle_consumer, "bundle_read", return_value=bundle_consumer.BundleRead(opened, {})
         ), patch.object(
             variants_api.variant_catalog_service,
             "discover_variant_catalog",
@@ -318,6 +358,172 @@ class VariantCatalogReadsDoNotBlockTheLoopTests(unittest.TestCase):
             self.assertTrue(
                 asyncio.run(scenario()),
                 "the event loop was blocked by catalog discovery",
+            )
+
+
+class AgentTokenExchangeDoesNotBlockTheLoopTests(unittest.TestCase):
+    """The agent's PKCE exchange consumes a code and records a token in PostgreSQL.
+
+    The KiCad agent calls this while the user waits on a loopback redirect, so a
+    slow catalog must stall that one exchange, not every other request.
+    """
+
+    def test_blocked_code_exchange_does_not_stall_an_unrelated_request(self) -> None:
+        blocked = _BlockedStore(result={"access_token": "v1.token", "token_type": "Bearer"})
+
+        async def scenario() -> bool:
+            exchange = asyncio.create_task(
+                agent_api.token(
+                    code="one-time",
+                    redirect_uri="http://127.0.0.1:1234/callback",
+                    code_verifier="verifier",
+                )
+            )
+            await asyncio.get_running_loop().run_in_executor(None, blocked.entered.wait, 2)
+            probe_finished = await _lightweight_probe_completes_while(exchange)
+            blocked.gate.set()
+            response = await exchange
+            self.assertEqual(response.status_code, 200)
+            return probe_finished
+
+        with patch.object(
+            agent_api.agent_auth_service, "exchange_authorization_code", blocked
+        ):
+            self.assertTrue(
+                asyncio.run(scenario()),
+                "the event loop was blocked by the agent code exchange",
+            )
+
+
+class AgentTokenRevocationDoesNotBlockTheLoopTests(unittest.TestCase):
+    """Revocation reads the token row, checks ownership, then writes. All blocking."""
+
+    def test_blocked_token_lookup_does_not_stall_an_unrelated_request(self) -> None:
+        blocked = _BlockedStore(result={"email": "v@example.com"})
+        user = security.AuthenticatedUser(email="v@example.com", name="V", role="viewer")
+
+        async def scenario() -> bool:
+            revoke = asyncio.create_task(agent_api.revoke_token("jti-1", user))
+            await asyncio.get_running_loop().run_in_executor(None, blocked.entered.wait, 2)
+            probe_finished = await _lightweight_probe_completes_while(revoke)
+            blocked.gate.set()
+            self.assertEqual(await revoke, {"status": "revoked"})
+            return probe_finished
+
+        with patch.object(agent_api.agent_auth_service, "get_agent_token", blocked), patch.object(
+            agent_api.agent_auth_service, "revoke_agent_token_by_jti"
+        ):
+            self.assertTrue(
+                asyncio.run(scenario()),
+                "the event loop was blocked by agent token revocation",
+            )
+
+    def test_ownership_is_still_refused_when_the_check_runs_off_the_loop(self) -> None:
+        """Moving the sequence to a worker thread must not weaken the check."""
+        user = security.AuthenticatedUser(email="v@example.com", name="V", role="viewer")
+        revoked = MagicMock()
+
+        with patch.object(
+            agent_api.agent_auth_service, "get_agent_token", return_value={"email": "someone@else.com"}
+        ), patch.object(agent_api.agent_auth_service, "revoke_agent_token_by_jti", revoked):
+            with self.assertRaises(ROUTE_ERRORS) as ctx:
+                asyncio.run(agent_api.revoke_token("jti-1", user))
+
+        self.assertEqual(ctx.exception.status_code, 403)
+        revoked.assert_not_called()
+
+
+class ViewerSourceReadsDoNotBlockTheLoopTests(unittest.TestCase):
+    """Viewer sources inflate whole bundle members; that read must not hold the loop."""
+
+    def test_blocked_bundle_read_does_not_stall_an_unrelated_request(self) -> None:
+        from app.api import project_viewer_sources as viewer_api
+        from app.services import project_viewer_sources_bundle as mapping
+
+        blocked = _BlockedStore()
+        user = security.AuthenticatedUser(email="v@example.com", name="V", role="viewer")
+
+        async def scenario() -> bool:
+            read = asyncio.create_task(viewer_api.get_project_schematic("prj", request=None, commit=None, user=user))
+            await asyncio.get_running_loop().run_in_executor(None, blocked.entered.wait, 2)
+            probe_finished = await _lightweight_probe_completes_while(read)
+            blocked.gate.set()
+            with self.assertRaises(ROUTE_ERRORS) as ctx:
+                await read
+            self.assertEqual(ctx.exception.status_code, 404)
+            return probe_finished
+
+        with patch.object(viewer_api, "get_project_for_role_or_404"), patch.object(
+            viewer_api, "bundle_read", blocked
+        ), patch.object(mapping, "schematic", return_value=None):
+            self.assertTrue(
+                asyncio.run(scenario()),
+                "the event loop was blocked by the bundle read",
+            )
+
+    def test_large_reads_are_admitted_only_up_to_the_memory_bound(self) -> None:
+        from app.api import project_viewer_sources as viewer_api
+        from app.api._blocking import MAX_CONCURRENT_LARGE_READS
+        from app.services import project_viewer_sources_bundle as mapping
+
+        counter = _CountingStore(expect=MAX_CONCURRENT_LARGE_READS)
+        user = security.AuthenticatedUser(email="v@example.com", name="V", role="viewer")
+
+        async def scenario() -> list:
+            calls = [
+                asyncio.create_task(viewer_api.get_project_schematic("prj", request=None, commit=None, user=user))
+                for _ in range(MAX_CONCURRENT_LARGE_READS + 4)
+            ]
+            await asyncio.get_running_loop().run_in_executor(None, counter.borrowed.wait, 2)
+            await asyncio.sleep(0.1)
+            peak = counter.peak
+            counter.release()
+            return [peak, await asyncio.gather(*calls, return_exceptions=True)]
+
+        with patch.object(viewer_api, "get_project_for_role_or_404"), patch.object(
+            viewer_api, "bundle_read", counter
+        ), patch.object(mapping, "schematic", return_value=None):
+            peak, results = asyncio.run(scenario())
+
+        self.assertEqual(peak, MAX_CONCURRENT_LARGE_READS)
+        for result in results:
+            self.assertIsInstance(result, HTTPException)
+            self.assertEqual(result.status_code, 404)
+
+
+class CommitFileReadsDoNotBlockTheLoopTests(unittest.TestCase):
+    """A commit file read runs ``git cat-file``/``git show``; it must not hold the loop."""
+
+    def test_blocked_commit_file_read_does_not_stall_an_unrelated_request(self) -> None:
+        from types import SimpleNamespace
+
+        from app.api import projects as projects_api
+
+        blocked = _BlockedStore(
+            result=SimpleNamespace(name="notes.txt", size=5, content=b"hello")
+        )
+        user = security.AuthenticatedUser(email="v@example.com", name="V", role="viewer")
+        project = MagicMock()
+
+        async def scenario() -> bool:
+            read = asyncio.create_task(
+                projects_api.get_project_commit_file("prj", "a" * 40, "notes.txt", user)
+            )
+            await asyncio.get_running_loop().run_in_executor(None, blocked.entered.wait, 2)
+            probe_finished = await _lightweight_probe_completes_while(read)
+            blocked.gate.set()
+            response = await read
+            self.assertEqual(response.body, b"hello")
+            return probe_finished
+
+        with patch.object(
+            projects_api, "get_project_for_role_or_404", return_value=project
+        ), patch.object(projects_api.project_outputs, "repo_context", return_value=("/repo", None)), patch.object(
+            projects_api.file_service, "read_file_from_commit", blocked
+        ):
+            self.assertTrue(
+                asyncio.run(scenario()),
+                "the event loop was blocked by the commit file read",
             )
 
 

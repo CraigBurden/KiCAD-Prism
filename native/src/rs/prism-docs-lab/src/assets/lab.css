@@ -1,0 +1,421 @@
+/* prism-docs-lab — the shared look of the documentation prototypes.
+ *
+ * Ink #1d1d1f, muted #6b6b70, rules #c4c8cf, header tint #eef0f3, row stripe
+ * #f7f8fa on a white page. Prototypes add their own rules after these.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: #ffffff;
+  color: #1d1d1f;
+  font-family:
+    "Inter", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.lab {
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 44px 32px 104px;
+}
+
+/* ------------------------------------------------------------- masthead */
+
+.masthead {
+  border-bottom: 1px solid #c4c8cf;
+  padding-bottom: 30px;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #6b6b70;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.masthead h1 {
+  margin: 10px 0 8px;
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  line-height: 1.15;
+}
+
+.masthead h1 .light {
+  color: #6b6b70;
+  font-weight: 400;
+}
+
+.subtitle {
+  max-width: 660px;
+  margin: 0;
+  color: #6b6b70;
+  font-size: 14.5px;
+  line-height: 1.6;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 34px;
+  margin: 26px 0 0;
+}
+
+.meta div {
+  min-width: 0;
+}
+
+.meta dt {
+  margin: 0 0 3px;
+  color: #6b6b70;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.meta dd {
+  margin: 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 26px 0 0;
+  border: 1px solid #dfe2e7;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.stat {
+  flex: 1 1 0;
+  min-width: 128px;
+  padding: 14px 18px 15px;
+  border-left: 1px solid #e6e8ec;
+}
+
+.stat:first-child {
+  border-left: 0;
+}
+
+.stat .value {
+  display: block;
+  font-size: 23px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.stat .label {
+  display: block;
+  margin-top: 2px;
+  color: #6b6b70;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* --------------------------------------------------------------- legend */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 8px;
+  margin: 24px 0 0;
+}
+
+.controls .controls-label {
+  margin-right: 4px;
+  color: #6b6b70;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.layer-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px 5px 9px;
+  border: 1px solid #c4c8cf;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #1d1d1f;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  user-select: none;
+  transition: background 120ms ease;
+}
+
+.layer-toggle:hover {
+  background: #f7f8fa;
+}
+
+.layer-toggle:has(input:not(:checked)) {
+  color: #6b6b70;
+  border-color: #dfe2e7;
+}
+
+.layer-toggle input {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  accent-color: #1d1d1f;
+  cursor: pointer;
+}
+
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 10%);
+}
+
+.side-switch {
+  display: inline-flex;
+  margin-left: auto;
+  border: 1px solid #c4c8cf;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.side-switch button {
+  padding: 5px 14px;
+  border: 0;
+  background: transparent;
+  color: #6b6b70;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.side-switch button[aria-pressed="true"] {
+  background: #1d1d1f;
+  color: #ffffff;
+}
+
+/* --------------------------------------------------------------- section */
+
+.net-class {
+  margin-top: 58px;
+  padding-top: 34px;
+  border-top: 1px solid #c4c8cf;
+}
+
+.class-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 24px;
+}
+
+.class-head h2 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
+
+.class-meta {
+  margin: 0;
+  color: #6b6b70;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.figure {
+  max-width: 900px;
+  margin: 22px 0 0;
+}
+
+.figure svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: hidden;
+}
+
+.caption {
+  margin: 12px 0 0;
+  color: #6b6b70;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.drawings {
+  display: grid;
+  gap: 26px;
+}
+
+@media (min-width: 980px) {
+  .drawings.split {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+/* ----------------------------------------------------------------- table */
+
+.atlas-table-wrap {
+  margin-top: 30px;
+  border: 1px solid #dfe2e7;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.atlas-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.atlas-table caption {
+  padding: 12px 14px;
+  border-bottom: 1px solid #dfe2e7;
+  background: #eef0f3;
+  color: #6b6b70;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.atlas-table th {
+  padding: 9px 14px;
+  border-bottom: 1px solid #dfe2e7;
+  background: #eef0f3;
+  color: #6b6b70;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.atlas-table th.num,
+.atlas-table td.num {
+  text-align: right;
+}
+
+.atlas-table td {
+  padding: 9px 14px;
+  border-bottom: 1px solid #e8eaee;
+  vertical-align: top;
+}
+
+.atlas-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.atlas-table tbody tr:nth-child(even) td {
+  background: #f7f8fa;
+}
+
+.atlas-table tbody tr.net-row {
+  cursor: pointer;
+}
+
+.atlas-table tbody tr.net-row:hover td {
+  background: #eef0f3;
+}
+
+.atlas-table tbody tr.net-row.is-active td {
+  background: #eef0f3;
+}
+
+.atlas-table tbody tr.net-row.is-active td:first-child {
+  box-shadow: inset 3px 0 0 #1d1d1f;
+}
+
+.atlas-table .net-name {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.atlas-table .layers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #6b6b70;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.footnote {
+  margin: 34px 0 0;
+  color: #6b6b70;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.footnote code {
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", monospace;
+  font-size: 11.5px;
+}
+
+/* ------------------------------------------------------------ interactions */
+
+body[data-side="top"] .side-bottom,
+body[data-side="bottom"] .side-top {
+  display: none;
+}
+
+body[data-side="top"] .fp-bottom .body,
+body[data-side="bottom"] .fp-top .body {
+  stroke: #c4c8cf;
+  stroke-width: 0.08;
+}
+
+@media (max-width: 720px) {
+  .lab {
+    padding: 30px 18px 72px;
+  }
+
+  .masthead h1 {
+    font-size: 27px;
+  }
+
+  .stat {
+    min-width: 50%;
+  }
+
+  .side-switch {
+    margin-left: 0;
+  }
+}

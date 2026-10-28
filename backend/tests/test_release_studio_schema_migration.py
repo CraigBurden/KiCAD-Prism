@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import os
 import sys
 import unittest
 import uuid
+from dataclasses import replace
+from unittest import mock
 from pathlib import Path
-from urllib.parse import urlsplit
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -20,30 +20,10 @@ except ImportError:  # pragma: no cover - dependency guard for host-only checks
     dict_row = None  # type: ignore[assignment]
 
 from app.services.workspace_migrations.m008_release_studio import migrate as _release_studio  # noqa: E402
-from app.services.workspace_schema_migrations import (  # noqa: E402
-    MIGRATIONS,
-    apply_workspace_migrations,
-)
-
-
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
-
-
-def _database_identity(url: str) -> tuple[str, str, int | None, str]:
-    parsed = urlsplit(url)
-    return (
-        parsed.username or "",
-        (parsed.hostname or "").lower(),
-        parsed.port,
-        parsed.path.lstrip("/"),
-    )
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _database_identity(POSTGRES_URL) == _database_identity(APPLICATION_POSTGRES_URL)
+from app.services.schema_ledger import Step  # noqa: E402
+from app.services.workspace_schema_migrations import MIGRATIONS, WORKSPACE_LEDGER  # noqa: E402
+from support.postgres import (  # noqa: E402
+    requires_scratch_postgres, scratch_schema, seed_job, seed_project, seed_repository,
 )
 
 
@@ -84,6 +64,7 @@ EXPECTED_COLUMNS: dict[str, set[str]] = {
         "created_by",
         "created_at",
         "updated_at",
+        "self_contained",
     },
     "ws_release_closure_inputs": {
         "id",
@@ -314,6 +295,7 @@ EXPECTED_COLUMNS: dict[str, set[str]] = {
         "note",
         "dossier_digest",
         "created_at",
+        "acknowledged_models",
     },
     "ws_release_publish_records": {
         "id",
@@ -326,6 +308,17 @@ EXPECTED_COLUMNS: dict[str, set[str]] = {
         "forge_url",
         "asset_names",
         "created_at",
+        "acknowledged_models",
+    },
+    "ws_release_model_inputs": {
+        "id",
+        "candidate_id",
+        "source_path",
+        "reference",
+        "location",
+        "resolved_path",
+        "digest",
+        "advisory",
     },
 }
 
@@ -353,6 +346,7 @@ EXPECTED_PRIMARY_KEYS = {
     "ws_artifact_release_pins": ("artifact_id",),
     "ws_release_review_decisions": ("id",),
     "ws_release_publish_records": ("id",),
+    "ws_release_model_inputs": ("id",),
 }
 
 
@@ -360,6 +354,7 @@ EXPECTED_UNIQUES = {
     ("ws_release_configurations", ("project_id", "config_key")),
     ("ws_release_candidates", ("project_id", "config_key", "build_key")),
     ("ws_release_closure_inputs", ("candidate_id", "kind", "path")),
+    ("ws_release_model_inputs", ("candidate_id", "source_path", "reference")),
     ("ws_release_members", ("build_id", "path")),
     ("ws_release_members", ("id", "build_id")),
     ("ws_release_policies", ("policy_key",)),
@@ -401,6 +396,7 @@ EXPECTED_FKS = {
         "CASCADE",
     ),
     ("ws_release_builds", ("candidate_id",), "ws_release_candidates", ("id",), "CASCADE"),
+    ("ws_release_model_inputs", ("candidate_id",), "ws_release_candidates", ("id",), "CASCADE"),
     ("ws_release_builds", ("job_id",), "ws_jobs", ("id",), "SET NULL"),
     ("ws_release_builds", ("dossier_artifact_id",), "ws_artifacts", ("id",), "RESTRICT"),
     (
@@ -520,75 +516,19 @@ EXPECTED_FKS = {
 }
 
 
-@unittest.skipUnless(
-    POSTGRES_URL,
-    "TEST_POSTGRES_URL is required for Release Studio PostgreSQL schema tests",
-)
-@unittest.skipUnless(
-    psycopg is not None,
-    "psycopg is required for Release Studio PostgreSQL schema tests",
-)
-@unittest.skipIf(
-    SHARED_APPLICATION_DATABASE,
-    "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL",
-)
+@requires_scratch_postgres("Release Studio PostgreSQL schema tests")
 class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
     """Run Release Studio Migrations 8 through 9 against isolated PostgreSQL."""
 
     def setUp(self) -> None:
-        assert psycopg is not None
-        self.schema = f"release_r3_{uuid.uuid4().hex}"
-        dsn = POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
-        self.conn = psycopg.connect(dsn, row_factory=dict_row)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self._create_base_workspace_tables()
-        apply_workspace_migrations(self.conn)
-        self.conn.commit()
+        self.scratch = scratch_schema(self, "release_r3", ledgers=(WORKSPACE_LEDGER,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
 
         # The ledger makes the normal second application a no-op.  Calling the
         # hardening migration itself is covered separately to prove its DDL is
         # also replaceable when a deployment resumes after a partial attempt.
-        apply_workspace_migrations(self.conn)
+        WORKSPACE_LEDGER.apply(self.conn)
         self.conn.commit()
-
-    def tearDown(self) -> None:
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
-
-    def _create_base_workspace_tables(self) -> None:
-        self.conn.execute(
-            """
-            CREATE TABLE ws_repositories (
-                id TEXT PRIMARY KEY
-            );
-            CREATE TABLE ws_folders (
-                id TEXT PRIMARY KEY
-            );
-            CREATE TABLE ws_projects (
-                id TEXT PRIMARY KEY,
-                repo_id TEXT NOT NULL REFERENCES ws_repositories(id)
-            );
-            CREATE TABLE ws_project_portfolio (
-                project_id TEXT PRIMARY KEY REFERENCES ws_projects(id)
-            );
-            CREATE TABLE ws_jobs (
-                id TEXT PRIMARY KEY,
-                kind TEXT NOT NULL,
-                status TEXT NOT NULL,
-                message TEXT NOT NULL DEFAULT '',
-                percent REAL NOT NULL DEFAULT 0,
-                payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-            """,
-            prepare=False,
-        )
 
     def _assert_rejected(self, sql: str, params: tuple = ()) -> None:
         savepoint = f"release_probe_{uuid.uuid4().hex}"
@@ -961,18 +901,9 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
             "artifact_attestation": f"artifact-attestation-{suffix}",
             "key": f"key-{suffix}",
         }
-        self.conn.execute("INSERT INTO ws_repositories(id) VALUES (%s)", (ids["repository"],))
-        self.conn.execute(
-            "INSERT INTO ws_projects(id, repo_id) VALUES (%s, %s)",
-            (ids["project"], ids["repository"]),
-        )
-        self.conn.execute(
-            """
-            INSERT INTO ws_jobs(id, kind, status)
-            VALUES (%s, 'release-build', 'queued')
-            """,
-            (ids["job"],),
-        )
+        seed_repository(self.conn, ids["repository"])
+        seed_project(self.conn, ids["project"], ids["repository"])
+        seed_job(self.conn, ids["job"], "release-build", "queued")
         for artifact_id, kind in (
             (ids["artifact_dossier"], "release-dossier"),
             (ids["artifact_evidence"], "release-evidence"),
@@ -1254,6 +1185,20 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
             "DELETE FROM ws_release_audit_events WHERE id = %s",
             (ids["audit"],),
         )
+
+    def test_model_inputs_are_one_row_per_reference_of_a_candidate(self) -> None:
+        ids = self._seed_release_graph()
+        insert = """
+            INSERT INTO ws_release_model_inputs(id, candidate_id, source_path, reference, location)
+            VALUES (%s, %s, 'board.kicad_pcb', '$(MODELS)/part.step', 'unreadable')
+        """
+        self.conn.execute(insert, (f"model-{uuid.uuid4().hex}", ids["candidate"]))
+        self._assert_rejected(insert, (f"model-{uuid.uuid4().hex}", ids["candidate"]))
+        candidate = self.conn.execute(
+            "SELECT self_contained FROM ws_release_candidates WHERE id = %s", (ids["candidate"],)
+        ).fetchone()
+        # Unknown, not false, on a candidate made before it was recorded.
+        self.assertIsNone(candidate["self_contained"])
 
     def test_a_captured_candidate_policy_snapshot_cannot_be_rewritten(self) -> None:
         """The snapshot is what every evaluation of this candidate is about.
@@ -1766,6 +1711,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
         self.assertEqual(
             [(version, name) for version, name, _ in MIGRATIONS],
             [
+                (0, "base_tables"),
                 (1, "v3_job_foundation"),
                 (2, "workspace_read_versions"),
                 (3, "git_read_cache"),
@@ -1787,8 +1733,89 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (23, "tracker_connectors_identities_policy"),
                 (24, "tracker_connector_delete_cascade"),
                 (25, "tracker_webhook_oauth_tables"),
+                (41, "repository_origin"),
+                (55, "project_path_settings"),
+                (56, "release_studio_model_inputs"),
+                (57, "job_retention_indexes"),
+                (100, "design_bundle_commit_index"),
+                (101, "design_bundles"),
+                (102, "design_bundle_outcomes"),
+                (103, "design_bundle_aliases"),
+                (118, "design_bundle_design_keys"),
+                (120, "sim_studio_setups"),
+                (121, "sim_studio_runs"),
+                (122, "sim_studio_layouts"),
+                (123, "drop_system_builder_v1"),
+                (124, "drop_mesh_viewer_readiness"),
+                (129, "drop_system_builder_v2"),
+                (130, "sim_run_solved_commit"),
+                (131, "idempotency_keys"),
+                (132, "workspace_events"),
+                (133, "personal_access_tokens"),
+                (134, "mcp_grants"),
+                (135, "mcp_governance"),
+                (136, "mcp_audit"),
+                (137, "webhooks"),
+                (138, "token_audit"),
+                (139, "ops_instrumentation"),
+                (140, "ops_workers_settings"),
+                (141, "pg_stat_statements"),
+                (142, "ops_profiles"),
             ],
         )
+
+
+class _LedgerOnlyConnection:
+    """Just the ws_schema_migrations ledger; migration bodies are stubbed out."""
+
+    def __init__(self, ledger: dict[int, str]) -> None:
+        self.ledger = dict(ledger)
+
+    def execute(self, sql: str, params: tuple = ()):
+        statement = " ".join(sql.split())
+        rows: list[dict] = []
+        if statement.startswith("UPDATE ws_schema_migrations SET version"):
+            new_version, old_version, name = params
+            if self.ledger.get(old_version) == name:
+                self.ledger[new_version] = self.ledger.pop(old_version)
+        elif statement.startswith("SELECT version FROM ws_schema_migrations"):
+            rows = [{"version": version} for version in self.ledger]
+        elif statement.startswith("INSERT INTO ws_schema_migrations"):
+            version, name = params
+            if version in self.ledger or name in self.ledger.values():
+                raise AssertionError(f"migration {version} ({name}) recorded twice")
+            self.ledger[version] = name
+        return mock.Mock(fetchall=mock.Mock(return_value=rows))
+
+
+class WorkspaceMigrationRenumberTests(unittest.TestCase):
+    def test_branch_database_keeps_repository_origin_under_its_new_number(self) -> None:
+        """repository_origin was 26 on the agent branch; 26-40 belong to System Builder."""
+        stubbed = tuple((version, name, lambda conn: None) for version, name, _ in MIGRATIONS)
+        ledger = {version: name for version, name, _ in MIGRATIONS if version <= 25}
+        ledger[26] = "repository_origin"
+        conn = _LedgerOnlyConnection(ledger)
+
+        replace(WORKSPACE_LEDGER, steps=tuple(Step(version, name, body) for version, name, body in stubbed)).apply(conn)
+
+        self.assertEqual(conn.ledger[41], "repository_origin")
+        self.assertEqual(list(conn.ledger.values()).count("repository_origin"), 1)
+        # 26 is free again for the migration that owns it.
+        self.assertNotEqual(conn.ledger.get(26), "repository_origin")
+        self.assertEqual(sorted(conn.ledger), [version for version, _, _ in MIGRATIONS])
+
+    def test_early_sim_studio_database_keeps_its_migrations_under_their_new_numbers(self) -> None:
+        """Simulation Studio's first deployment recorded 120-122 as 9056-9058."""
+        stubbed = tuple((version, name, lambda conn: None) for version, name, _ in MIGRATIONS)
+        ledger = {version: name for version, name, _ in MIGRATIONS if version <= 57}
+        ledger.update({9056: "sim_studio_setups", 9057: "sim_studio_runs", 9058: "sim_studio_layouts"})
+        conn = _LedgerOnlyConnection(ledger)
+
+        replace(WORKSPACE_LEDGER, steps=tuple(Step(version, name, body) for version, name, body in stubbed)).apply(conn)
+
+        for version, name in ((120, "sim_studio_setups"), (121, "sim_studio_runs"), (122, "sim_studio_layouts")):
+            self.assertEqual(conn.ledger[version], name)
+        self.assertEqual(sorted(conn.ledger), [version for version, _, _ in MIGRATIONS])
 
 
 if __name__ == "__main__":

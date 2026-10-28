@@ -41,8 +41,8 @@ from .schemes import (
     validate_resolver,
 )
 
-DOCS_DEPLOYMENT = "https://github.com/krishna-swaroop/KiCAD-Prism/blob/main/docs/DEPLOYMENT.md"
-DOCS_AUTH = "https://github.com/krishna-swaroop/KiCAD-Prism/blob/main/docs/AUTHENTICATION_AND_ACCESS.md"
+DOCS_DEPLOYMENT = "https://krishna-swaroop.github.io/KiCAD-Prism/admin/deployment/"
+DOCS_AUTH = "https://krishna-swaroop.github.io/KiCAD-Prism/admin/authentication/"
 DOCS_CHALLENGES = "https://letsencrypt.org/docs/challenge-types/"
 DOCS_RATE_LIMITS = "https://letsencrypt.org/docs/rate-limits/"
 DOCS_CADDY_DNS = "https://github.com/caddy-dns"
@@ -63,7 +63,7 @@ SCHEME_DETAIL = {
 def run(root: Path, *, fresh: bool = False) -> dict:
     tui.banner("KiCAD Prism deployment", "Generates .env, proxy config, and a Compose overlay")
 
-    existing, source = ({}, None) if fresh else _previous_settings(root)
+    existing, source = ({}, None) if fresh else previous_settings(root)
     if existing:
         tui.note(f"Reusing settings from {source}")
         tui.hint("Secrets carry over, including the database password. That matters:")
@@ -374,7 +374,7 @@ def run(root: Path, *, fresh: bool = False) -> dict:
     return answers
 
 
-def _previous_settings(root: Path) -> tuple[dict[str, str], str | None]:
+def previous_settings(root: Path) -> tuple[dict[str, str], str | None]:
     """Find settings from an earlier deployment, generated or hand-written.
 
     A hand-written .env at the repository root is the common case for someone

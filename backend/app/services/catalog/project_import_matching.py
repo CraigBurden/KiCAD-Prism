@@ -1,4 +1,8 @@
-"""Connection-level project-import identity matching and usage indexing."""
+"""Connection-level project-import usage indexing.
+
+Identity lookups go through ``component_identity.py``, the same module the
+writer uses to enforce uniqueness.
+"""
 
 from __future__ import annotations
 
@@ -6,48 +10,11 @@ import json
 import uuid
 from typing import Any
 
+from app.services.catalog.component_identity import ComponentIdentity, find_identity_holder
+
 
 class CatalogProjectImportMatching:
-    """Match project identities and index where-used observations on a supplied connection."""
-
-    @staticmethod
-    def normalize_identity_requests(
-        identities: list[dict[str, str]],
-    ) -> set[tuple[str, str]]:
-        return {
-            (str(item.get("manufacturer") or "").strip().casefold(), str(item.get("mpn") or "").strip().casefold())
-            for item in identities
-            if str(item.get("manufacturer") or "").strip() and str(item.get("mpn") or "").strip()
-        }
-
-    def match_component_identities(
-        self,
-        conn: Any,
-        requested: set[tuple[str, str]],
-    ) -> dict[str, dict[str, Any]]:
-        rows = conn.execute(
-            """
-            SELECT component.id, revision.name, revision.manufacturer, revision.mpn,
-                   revision.id AS revision_id, revision.version
-            FROM components component
-            JOIN component_revisions revision ON revision.id = component.current_revision_id
-            WHERE component.is_active = 1
-            """
-        ).fetchall()
-        matches: dict[str, dict[str, Any]] = {}
-        for row in rows:
-            key = (str(row["manufacturer"] or "").strip().casefold(), str(row["mpn"] or "").strip().casefold())
-            if key not in requested:
-                continue
-            matches["\0".join(key)] = {
-                "component_id": str(row["id"]),
-                "revision_id": str(row["revision_id"]),
-                "version": int(row["version"] or 0),
-                "name": str(row["name"] or row["mpn"] or ""),
-                "manufacturer": str(row["manufacturer"] or ""),
-                "manufacturer_part_number": str(row["mpn"] or ""),
-            }
-        return matches
+    """Index where-used observations on a supplied connection."""
 
     def record_component_usage(
         self,
@@ -125,24 +92,13 @@ class CatalogProjectImportMatching:
         observations = 0
         for proposal in proposals:
             metadata = dict(proposal.get("metadata") or {})
-            manufacturer = str(metadata.get("manufacturer") or "").strip()
-            mpn = str(metadata.get("manufacturer_part_number") or metadata.get("mpn") or "").strip()
-            if not manufacturer or not mpn:
-                continue
-            component = conn.execute(
-                """
-                SELECT component.id
-                FROM components component
-                JOIN component_revisions revision ON revision.id = component.current_revision_id
-                WHERE component.is_active = 1
-                  AND lower(revision.manufacturer) = lower(%s)
-                  AND lower(revision.mpn) = lower(%s)
-                ORDER BY component.created_at
-                LIMIT 1
-                """,
-                (manufacturer, mpn),
-            ).fetchone()
-            if not component:
+            identity = ComponentIdentity.for_part(
+                metadata.get("manufacturer"),
+                metadata.get("manufacturer_part_number") or metadata.get("mpn"),
+            )
+            component = find_identity_holder(conn, identity) if identity else None
+            # Retired components keep their identity but no longer collect usage.
+            if not component or not component["is_active"]:
                 continue
             component_id = str(component["id"])
             matched_components.add(component_id)

@@ -1,0 +1,367 @@
+{
+ "schema": "prism.semantic_index.a1",
+ "sourceRevisionKey": "d9a3bf23cbed835a6396b039f05b4254f93af47fa72e3e162c12ddc49a69b8c3",
+ "components": [
+  {
+   "componentUid": "cmp:a70c0a5db86deb8eee8a",
+   "reference": "R11",
+   "value": "10k",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "libraryRef": "Device:R",
+   "fields": {
+    "Value": "10k",
+    "DNP": "No",
+    "In BOM": "Yes",
+    "Description": "Resistor",
+    "Datasheet": "",
+    "Manufacturer": "",
+    "Manufacturer Part Number": "",
+    "Vendor": "",
+    "Vendor Part Number": "",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "Mass (g)": "",
+    "RQjC (C/W)": "",
+    "RQjC_top (C/W)": "",
+    "Temp_max (C)": "",
+    "Temp_min (C)": "",
+    "Power Dissipation (W)": "",
+    "Rate": "",
+    "Sheetfile": "rule_area.kicad_sch",
+    "Sheetname": "rule_area",
+    "_source_cad": "kicad",
+    "kicad_dnp": "false",
+    "kicad_in_bom": "true",
+    "kicad_instance_uuid": "0c5b067b-fa0e-5b53-bdef-a8313254278f",
+    "kicad_libsource_lib": "Device",
+    "kicad_libsource_part": "R",
+    "kicad_on_board": "true",
+    "kicad_sheet_path_names": "/",
+    "kicad_sheet_path_uuids": "/",
+    "Reference": "R11"
+   },
+   "schematicRefs": [
+    {
+     "sheetInstancePath": "/",
+     "page": "/",
+     "symbolUuid": "0c5b067b-fa0e-5b53-bdef-a8313254278f",
+     "occurrenceId": "/8b3ed35c-c23c-5fbf-9d71-a2f5f98022d0/0c5b067b-fa0e-5b53-bdef-a8313254278f"
+    }
+   ],
+   "pcbRefs": [],
+   "webgpuRefs": []
+  },
+  {
+   "componentUid": "cmp:65c09a3d7e9de23c8693",
+   "reference": "R13",
+   "value": "22k",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "libraryRef": "Device:R",
+   "fields": {
+    "Value": "22k",
+    "DNP": "No",
+    "In BOM": "Yes",
+    "Description": "Resistor",
+    "Datasheet": "",
+    "Manufacturer": "",
+    "Manufacturer Part Number": "",
+    "Vendor": "",
+    "Vendor Part Number": "",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "Mass (g)": "",
+    "RQjC (C/W)": "",
+    "RQjC_top (C/W)": "",
+    "Temp_max (C)": "",
+    "Temp_min (C)": "",
+    "Power Dissipation (W)": "",
+    "Rate": "",
+    "Sheetfile": "rule_area.kicad_sch",
+    "Sheetname": "rule_area",
+    "_source_cad": "kicad",
+    "kicad_dnp": "false",
+    "kicad_in_bom": "true",
+    "kicad_instance_uuid": "d35d922d-5289-5038-b957-d08d95fa48ac",
+    "kicad_libsource_lib": "Device",
+    "kicad_libsource_part": "R",
+    "kicad_on_board": "true",
+    "kicad_sheet_path_names": "/",
+    "kicad_sheet_path_uuids": "/",
+    "Reference": "R13"
+   },
+   "schematicRefs": [
+    {
+     "sheetInstancePath": "/",
+     "page": "/",
+     "symbolUuid": "d35d922d-5289-5038-b957-d08d95fa48ac",
+     "occurrenceId": "/8b3ed35c-c23c-5fbf-9d71-a2f5f98022d0/d35d922d-5289-5038-b957-d08d95fa48ac"
+    }
+   ],
+   "pcbRefs": [],
+   "webgpuRefs": []
+  }
+ ],
+ "nets": [
+  {
+   "netUid": "net:f1194d47288a18476cc8",
+   "name": "unconnected-(R11-~-Pad1)",
+   "netClass": "Default",
+   "aliases": [],
+   "sourceSheets": [
+    "/"
+   ],
+   "schematicRefs": [
+    {
+     "wireUuids": [],
+     "labelUuids": [],
+     "junctionUuids": [],
+     "pinUuids": [
+      "fd32c44a-939b-5777-b1fe-cda51a6bb54f"
+     ],
+     "labelInstanceCount": 0
+    }
+   ],
+   "pcbRefs": [
+    {
+     "trackUuids": [],
+     "arcUuids": [],
+     "viaUuids": [],
+     "zoneUuids": [],
+     "padUuids": []
+    }
+   ],
+   "webgpuRefs": []
+  },
+  {
+   "netUid": "net:76a627fbac0712f654bb",
+   "name": "unconnected-(R11-~-Pad2)",
+   "netClass": "Default",
+   "aliases": [],
+   "sourceSheets": [
+    "/"
+   ],
+   "schematicRefs": [
+    {
+     "wireUuids": [],
+     "labelUuids": [],
+     "junctionUuids": [],
+     "pinUuids": [
+      "be7b7a1c-d051-53b3-a4ee-dbbb5889a5bd"
+     ],
+     "labelInstanceCount": 0
+    }
+   ],
+   "pcbRefs": [
+    {
+     "trackUuids": [],
+     "arcUuids": [],
+     "viaUuids": [],
+     "zoneUuids": [],
+     "padUuids": []
+    }
+   ],
+   "webgpuRefs": []
+  },
+  {
+   "netUid": "net:1ac86c23e506f3ba2697",
+   "name": "unconnected-(R13-~-Pad1)",
+   "netClass": "Default",
+   "aliases": [],
+   "sourceSheets": [
+    "/"
+   ],
+   "schematicRefs": [
+    {
+     "wireUuids": [],
+     "labelUuids": [],
+     "junctionUuids": [],
+     "pinUuids": [
+      "ea036fad-21a4-500c-81dc-cb8f3cb4f78a"
+     ],
+     "labelInstanceCount": 0
+    }
+   ],
+   "pcbRefs": [
+    {
+     "trackUuids": [],
+     "arcUuids": [],
+     "viaUuids": [],
+     "zoneUuids": [],
+     "padUuids": []
+    }
+   ],
+   "webgpuRefs": []
+  },
+  {
+   "netUid": "net:c00b13f1c81bb257d23b",
+   "name": "unconnected-(R13-~-Pad2)",
+   "netClass": "Default",
+   "aliases": [],
+   "sourceSheets": [
+    "/"
+   ],
+   "schematicRefs": [
+    {
+     "wireUuids": [],
+     "labelUuids": [],
+     "junctionUuids": [],
+     "pinUuids": [
+      "89e567b3-d3e4-5910-aaf6-b368b668d2bb"
+     ],
+     "labelInstanceCount": 0
+    }
+   ],
+   "pcbRefs": [
+    {
+     "trackUuids": [],
+     "arcUuids": [],
+     "viaUuids": [],
+     "zoneUuids": [],
+     "padUuids": []
+    }
+   ],
+   "webgpuRefs": []
+  }
+ ],
+ "terminals": [
+  {
+   "terminalUid": "term:ab02a9ea3be5463792b6",
+   "componentUid": "cmp:a70c0a5db86deb8eee8a",
+   "reference": "R11",
+   "pin": "1",
+   "pinName": "~",
+   "pinType": "PASSIVE",
+   "netUid": "net:f1194d47288a18476cc8",
+   "netName": "unconnected-(R11-~-Pad1)",
+   "schematicNetName": "unconnected-(R11-~-Pad1)",
+   "schematicPinUuid": "fd32c44a-939b-5777-b1fe-cda51a6bb54f"
+  },
+  {
+   "terminalUid": "term:5a2069e42de6706c6011",
+   "componentUid": "cmp:a70c0a5db86deb8eee8a",
+   "reference": "R11",
+   "pin": "2",
+   "pinName": "~",
+   "pinType": "PASSIVE",
+   "netUid": "net:76a627fbac0712f654bb",
+   "netName": "unconnected-(R11-~-Pad2)",
+   "schematicNetName": "unconnected-(R11-~-Pad2)",
+   "schematicPinUuid": "be7b7a1c-d051-53b3-a4ee-dbbb5889a5bd"
+  },
+  {
+   "terminalUid": "term:51a920ccf67043fd12cd",
+   "componentUid": "cmp:65c09a3d7e9de23c8693",
+   "reference": "R13",
+   "pin": "1",
+   "pinName": "~",
+   "pinType": "PASSIVE",
+   "netUid": "net:1ac86c23e506f3ba2697",
+   "netName": "unconnected-(R13-~-Pad1)",
+   "schematicNetName": "unconnected-(R13-~-Pad1)",
+   "schematicPinUuid": "ea036fad-21a4-500c-81dc-cb8f3cb4f78a"
+  },
+  {
+   "terminalUid": "term:0e31bee9efeb3e45a3ae",
+   "componentUid": "cmp:65c09a3d7e9de23c8693",
+   "reference": "R13",
+   "pin": "2",
+   "pinName": "~",
+   "pinType": "PASSIVE",
+   "netUid": "net:c00b13f1c81bb257d23b",
+   "netName": "unconnected-(R13-~-Pad2)",
+   "schematicNetName": "unconnected-(R13-~-Pad2)",
+   "schematicPinUuid": "89e567b3-d3e4-5910-aaf6-b368b668d2bb"
+  }
+ ],
+ "sheetInstances": [
+  {
+   "sheetInstanceUid": "sheet-instance:d84ea9c7af8feab05fb7",
+   "sheetInstancePath": "/8b3ed35c-c23c-5fbf-9d71-a2f5f98022d0",
+   "sheetPath": "/",
+   "page": "rule_area.kicad_sch",
+   "parentSheetInstancePath": null,
+   "sheetSymbolUuid": null,
+   "sheetName": "rule_area",
+   "isTopLevel": true,
+   "parentPage": null
+  }
+ ],
+ "buses": [],
+ "indexes": {
+  "componentByReference": {
+   "R11": 0,
+   "R13": 1
+  },
+  "componentBySchematicUuid": {
+   "0c5b067b-fa0e-5b53-bdef-a8313254278f": 0,
+   "d35d922d-5289-5038-b957-d08d95fa48ac": 1
+  },
+  "componentByPcbFootprintUuid": {},
+  "terminalBySchematicPinUuid": {
+   "fd32c44a-939b-5777-b1fe-cda51a6bb54f": 0,
+   "be7b7a1c-d051-53b3-a4ee-dbbb5889a5bd": 1,
+   "ea036fad-21a4-500c-81dc-cb8f3cb4f78a": 2,
+   "89e567b3-d3e4-5910-aaf6-b368b668d2bb": 3
+  },
+  "terminalByPcbPadUuid": {},
+  "terminalByReferencePin": {
+   "R11:1": 0,
+   "R11:2": 1,
+   "R13:1": 2,
+   "R13:2": 3
+  },
+  "netByName": {
+   "unconnected-(R11-~-Pad1)": 0,
+   "unconnected-(R11-~-Pad2)": 1,
+   "unconnected-(R13-~-Pad1)": 2,
+   "unconnected-(R13-~-Pad2)": 3
+  },
+  "netByNetCode": {},
+  "netBySchematicUuid": {
+   "fd32c44a-939b-5777-b1fe-cda51a6bb54f": 0,
+   "be7b7a1c-d051-53b3-a4ee-dbbb5889a5bd": 1,
+   "ea036fad-21a4-500c-81dc-cb8f3cb4f78a": 2,
+   "89e567b3-d3e4-5910-aaf6-b368b668d2bb": 3
+  },
+  "netByPcbUuid": {},
+  "sheetInstanceByPath": {
+   "/8b3ed35c-c23c-5fbf-9d71-a2f5f98022d0": 0
+  },
+  "busByUid": {}
+ },
+ "assembly": {
+  "schema": "prism.assembly_state_a0",
+  "catalog": [
+   {
+    "name": "Lite",
+    "description": null,
+    "sources": [
+     "project"
+    ]
+   }
+  ],
+  "footprintInventory": [],
+  "default": {
+   "occurrences": {},
+   "components": {},
+   "footprints": {}
+  },
+  "variants": [
+   {
+    "name": "Lite",
+    "occurrences": {},
+    "components": {},
+    "footprints": {}
+   }
+  ],
+  "diagnostics": [
+   {
+    "code": "rule-area-flags-unsupported",
+    "severity": "warning",
+    "path": "rule_area.kicad_sch",
+    "message": "Rule-area-driven exclusion is not resolved this release.",
+    "detail": {
+     "dnp": true
+    }
+   }
+  ]
+ }
+}

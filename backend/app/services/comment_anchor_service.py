@@ -10,18 +10,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from git import Repo
 from git.exc import GitCommandError
 
+from app.core import errors
 from app.services import (
     comment_anchor_bindings,
     path_config_service,
+    project_revision,
     project_source_snapshot,
     semantic_index_service,
-    semantic_visualizer_service,
 )
+from app.services.design_bundle import design_keys
 
 ANCHOR_PINNED = "pinned"
 ANCHOR_UNPINNED = "unpinned"
@@ -30,13 +32,11 @@ SOURCE_MANUAL = "manual"
 NOT_PROMOTABLE_UNPINNED = "unpinned_anchor"
 
 
-class AnchorValidationError(Exception):
+class AnchorValidationError(errors.Invalid):
     """A displayed revision the server will not store (HTTP 422)."""
 
     def __init__(self, detail: str, *, code: str = "unknown_revision"):
-        super().__init__(detail)
-        self.detail = detail
-        self.code = code
+        super().__init__(detail, code=code)
 
 
 @dataclass(frozen=True)
@@ -51,6 +51,8 @@ class ResolvedAnchor:
     file_path: Optional[str] = None
     project_relative_path: Optional[str] = None
     not_promotable_reason: Optional[str] = None
+    #: The displayed commit's design key (ADR amendment K2 §3.6), when a bundle serves it.
+    design_key: Optional[str] = None
 
 
 def _full_sha(value: Optional[str], field: str) -> Optional[str]:
@@ -84,31 +86,32 @@ def _identity(project: Any, commit: str) -> tuple[str, str]:
     return key, resolved_sha
 
 
+def _design_key(project: Any, commit: Optional[str]) -> Optional[str]:
+    """The commit's design key, or ``None`` while no bundle serves it (never builds one)."""
+    if not commit:
+        return None
+    return design_keys.of_commit(str(project.id), commit)
+
+
 def _project_relative_path(project: Any) -> Optional[str]:
     project_path = Path(getattr(project, "path", "") or "")
     if not project_path:
         return None
     try:
-        repo_root = semantic_visualizer_service._repo_root(project_path)
-        rel = semantic_visualizer_service._project_relative_path(
-            repo_root, project_path, getattr(project, "project_file", None),
-        )
-        return rel
+        return project_revision.project_file_rel(project_revision.locate(project))
     except (ValueError, OSError):
         anchor = getattr(project, "project_file", None)
         return str(anchor).replace("\\", "/") if anchor else None
 
 
 def _project_dir_in_repo(project: Any) -> tuple[Path, str]:
-    repo_root = semantic_visualizer_service._repo_root(Path(project.path))
-    anchor = path_config_service.anchor_for_project(project)
+    location = project_revision.locate(project)
+    repo_root = location.repo_root
     anchor_source = project_source_snapshot._anchor_source(project, require_file=True)
     if anchor_source is not None:
         project_rel = anchor_source.relative_to(repo_root).as_posix()
     else:
-        project_rel = semantic_visualizer_service._project_relative_path(
-            repo_root, Path(project.path), anchor
-        )
+        project_rel = project_revision.project_file_rel(location)
     project_dir = PurePosixPath(project_rel).parent.as_posix()
     if project_dir == ".":
         project_dir = ""
@@ -202,6 +205,7 @@ def resolve_canvas_anchor(
         source_revision_key=key or source_key,
         file_path=stored_file,
         project_relative_path=project_rel,
+        design_key=_design_key(project, resolved),
     )
 
 
@@ -238,6 +242,7 @@ def resolve_comparison_anchor(
         selected_side=side,
         file_path=stored_file,
         project_relative_path=_project_relative_path(project),
+        design_key=_design_key(project, displayed),
     )
 
 
@@ -254,6 +259,7 @@ def resolve_manual_pin(project: Any, *, commit: str, context: str = "PCB") -> Re
         source_revision_key=key,
         file_path=_source_file(project, resolved, context),
         project_relative_path=_project_relative_path(project),
+        design_key=_design_key(project, resolved),
     )
 
 
@@ -262,11 +268,17 @@ def resolve_displayed_bindings(
     comments: list[dict],
     displayed_commit: str,
     manual_bindings: dict[str, list[dict]],
+    record_design_keys: Optional[Callable[[dict[str, str]], None]] = None,
 ) -> list[dict]:
     """Add ancestry selection to rail comments without hiding any thread.
 
     ``candidate`` is deliberately not ``resolved``: only the loaded viewer can
     prove that a source UUID and schematic instance still exist at this commit.
+
+    A freehand area follows to a commit with the same design key. The
+    comment's stored ``designKey`` wins; an anchor without one is looked up
+    through the bundles once and handed to ``record_design_keys`` (comment id
+    to key) to be stored, so it survives its bundle's retention (K2 §3.6).
     """
     sha = _full_sha(displayed_commit, "revision")
     if not sha:
@@ -285,6 +297,22 @@ def resolve_displayed_bindings(
                 ancestry[key] = False
         return ancestry[key]
 
+    stored = {
+        (comment.get("anchor") or {}).get("commit"): (comment.get("anchor") or {}).get("designKey")
+        for comment in comments
+        if (comment.get("anchor") or {}).get("designKey")
+    }
+    keys: dict[str, Optional[str]] = {}
+
+    def design_key(commit: str) -> Optional[str]:
+        if commit not in keys:
+            keys[commit] = stored.get(commit) or _design_key(project, commit)
+        return keys[commit]
+
+    def same_design(older: str, newer: str) -> bool:
+        older_key = design_key(older)
+        return older_key is not None and older_key == design_key(newer)
+
     result: list[dict] = []
     for comment in comments:
         resolved = dict(comment)
@@ -302,7 +330,15 @@ def resolve_displayed_bindings(
             resolved["anchorResolution"] = {"state": "unresolved", "reason": "unpinned"}
         else:
             resolved["anchorResolution"] = comment_anchor_bindings.select_binding(
-                bindings, sha, is_ancestor,
+                bindings, sha, is_ancestor, same_design,
             )
         result.append(resolved)
+    found = {
+        comment["id"]: key
+        for comment in comments
+        if (origin := comment.get("anchor") or {}).get("commit") and not origin.get("designKey")
+        and (key := design_key(origin["commit"]))
+    }
+    if found and record_design_keys is not None:
+        record_design_keys(found)
     return result

@@ -2,26 +2,23 @@
   "name": "kicad-prism-semantic-viewer",
   "private": true,
   "type": "module",
-  "packageManager": "npm@10.9.8",
+  "packageManager": "npm@11.19.1",
   "engines": {
-    "node": "22.23.x",
-    "npm": "10.9.x"
+    "node": "24.22.x",
+    "npm": "11.19.x"
   },
   "scripts": {
-    "build:viewer": "esbuild viewer/src/main.js --bundle --minify --format=iife --platform=browser --external:node:fs --external:node:path --outfile=viewer/app.js",
-    "build:element": "esbuild viewer/src/element-entry.js --bundle --minify --format=esm --platform=browser --loader:.css=text --external:node:fs --external:node:path --outfile=dist/prism-semantic-viewer.js && node scripts/sync-served-element.mjs",
-    "build": "npm run build:viewer && npm run build:element",
-    "test:gltf": "node --test tools/semantic-gltf/*.test.mjs",
+    "build:element": "esbuild viewer/src/element-entry.js --bundle --minify --format=esm --platform=browser --loader:.css=text --external:node:fs --external:node:path --outfile=dist/prism-semantic-viewer.js && esbuild viewer/src/analytic-lower-worker.js --bundle --minify --format=esm --platform=browser --log-override:empty-import-meta=silent --outfile=dist/prism-semantic-viewer-lower.js && node scripts/sync-served-element.mjs",
+    "build:analytic-wasm": "node scripts/build-analytic-wasm.mjs",
+    "build": "npm run build:element",
     "test:viewer": "node --test viewer/src/*.test.mjs",
+    "test:harness": "node --test tests/browser/pixel-diff/*.test.mjs",
     "bench:schematic-dom": "node tools/schematic-dom-benchmark.mjs"
   },
   "dependencies": {
     "@gltf-transform/core": "^4.4.2",
     "@gltf-transform/extensions": "^4.4.2",
-    "@gltf-transform/functions": "^4.4.2",
-    "earcut": "^3.2.3",
     "esbuild": "^0.25.5",
-    "meshoptimizer": "^0.24.0",
-    "polygon-clipping": "^0.15.7"
+    "meshoptimizer": "^0.24.0"
   }
 }

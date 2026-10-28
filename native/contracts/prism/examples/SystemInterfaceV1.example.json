@@ -1,0 +1,290 @@
+{
+  "schema": "prism.system_interface.v1",
+  "projectId": "prj_3f9a1c0b2d4e",
+  "commit": "0e2346c771d4cf8312c2d5725f991544517502fa",
+  "extractor": {
+    "version": "8",
+    "kicadMonkeyVersion": "2026.9.7"
+  },
+  "hasPcb": true,
+  "boardThicknessMm": 1.6,
+  "boardOutlineMm": {
+    "minMm": [
+      108.6,
+      -125.5
+    ],
+    "maxMm": [
+      146.6,
+      -95.6
+    ],
+    "source": "edge_cuts"
+  },
+  "components": [
+    {
+      "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/f5ea4711-90c5-43d7-976b-58c72edb2cca",
+      "memberKeys": [
+        "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/f5ea4711-90c5-43d7-976b-58c72edb2cca"
+      ],
+      "reference": "J1",
+      "libId": "Pixxel_Connectors:USB4056-03-A",
+      "footprint": "Pixxel_Connectors:USB4056-03-A",
+      "value": "USB4056-03-A_REVA2",
+      "mpn": "USB4056-03-A",
+      "dnp": false,
+      "candidate": true,
+      "candidateReason": "refdes",
+      "pins": [
+        {
+          "pad": "A4",
+          "nets": [
+            "Net-(J1-CC1)",
+            "VCC_USB_PD_IN"
+          ],
+          "pcbNets": [
+            "VCC_USB_PD_IN"
+          ],
+          "pinNames": [
+            "CC1",
+            "VBUS_A"
+          ],
+          "pinTypes": [
+            "passive"
+          ],
+          "powerNet": true
+        },
+        {
+          "pad": "B8",
+          "nets": [],
+          "pcbNets": [],
+          "pinNames": [
+            "SBU2"
+          ],
+          "pinTypes": [
+            "passive"
+          ],
+          "powerNet": false
+        }
+      ],
+      "geometry": {
+        "side": "top",
+        "positionMm": [
+          110.1025,
+          -114.81
+        ],
+        "rotationDeg": -90,
+        "footprintName": "USB4056-03-A",
+        "pads": [
+          {
+            "pad": "",
+            "positionMm": [
+              115.7425,
+              -111.21
+            ],
+            "sizeMm": [
+              0.65,
+              0.65
+            ],
+            "shape": "circle",
+            "tht": true
+          }
+        ],
+        "courtyard": {
+          "minMm": [
+            -5.175,
+            -2.78
+          ],
+          "maxMm": [
+            5.175,
+            7.59
+          ]
+        },
+        "model": {
+          "path": "${KIPRJMOD}/packages3D/USB4056-03-A_REVA2.step",
+          "offsetMm": [
+            0,
+            0,
+            0
+          ],
+          "rotationDeg": [
+            -90,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5eb27ce9-6d8e-40a9-9f6d-8f14c5f68638/b15171d3-0df1-46fc-8e4c-94f37f448240",
+      "memberKeys": [
+        "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5eb27ce9-6d8e-40a9-9f6d-8f14c5f68638/b15171d3-0df1-46fc-8e4c-94f37f448240"
+      ],
+      "reference": "J?",
+      "libId": "Pixxel_Connectors:796638-2",
+      "footprint": "Pixxel_Connectors:796638-2",
+      "value": "796638-2",
+      "mpn": null,
+      "dnp": false,
+      "candidate": true,
+      "candidateReason": "refdes",
+      "pins": [
+        {
+          "pad": "1",
+          "nets": [
+            "VCC_USB_PD_OUT"
+          ],
+          "pcbNets": null,
+          "pinNames": [
+            "1"
+          ],
+          "pinTypes": [
+            "passive"
+          ],
+          "powerNet": true
+        }
+      ],
+      "geometry": null
+    },
+    {
+      "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/e0bf6507-9d4b-4254-ac7a-4a57bf425153",
+      "memberKeys": [
+        "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/4efeecca-612f-4509-8f45-9e4161e1b425",
+        "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/e0bf6507-9d4b-4254-ac7a-4a57bf425153"
+      ],
+      "reference": "Q1",
+      "libId": "Pixxel_MOSFETs:IRF9358TRPBF",
+      "footprint": "Pixxel_MOSFETs:IRF9358TRPBFSOIC127P600X175-8N",
+      "value": "IRF9358TRPBF",
+      "mpn": "IRF9358TRPBF",
+      "dnp": false,
+      "candidate": false,
+      "candidateReason": "none",
+      "pins": [
+        {
+          "pad": "1",
+          "nets": [
+            "Net-(D1-K)"
+          ],
+          "pcbNets": [
+            "Net-(D1-K)"
+          ],
+          "pinNames": [
+            "S2"
+          ],
+          "pinTypes": [
+            "passive"
+          ],
+          "powerNet": false
+        }
+      ],
+      "geometry": {
+        "side": "top",
+        "positionMm": [
+          130.7,
+          -111.3
+        ],
+        "rotationDeg": -90,
+        "footprintName": "IRF9358TRPBFSOIC127P600X175-8N",
+        "pads": [
+          {
+            "pad": "1",
+            "positionMm": [
+              132.605,
+              -108.588
+            ],
+            "sizeMm": [
+              0.7,
+              1.525
+            ],
+            "shape": "rect",
+            "tht": false
+          }
+        ],
+        "courtyard": {
+          "minMm": [
+            -3.725,
+            -2.75
+          ],
+          "maxMm": [
+            3.725,
+            2.75
+          ]
+        },
+        "model": {
+          "path": "kicad-embed://IRF9358TRPBF.stp",
+          "offsetMm": [
+            0,
+            0,
+            0
+          ],
+          "rotationDeg": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/dc6aebde-96a0-4a44-8cf4-0ad17b59b68d",
+      "memberKeys": [
+        "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/dc6aebde-96a0-4a44-8cf4-0ad17b59b68d"
+      ],
+      "reference": "R?",
+      "libId": "Device:R_Small_US",
+      "footprint": "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder",
+      "value": "5.1k_0.1W_0603",
+      "mpn": "RC0603FR-075K1L",
+      "dnp": false,
+      "candidate": false,
+      "candidateReason": "none",
+      "pins": [
+        {
+          "pad": "1",
+          "nets": [
+            "GND"
+          ],
+          "pcbNets": null,
+          "pinNames": [
+            "~"
+          ],
+          "pinTypes": [
+            "passive"
+          ],
+          "powerNet": true
+        }
+      ],
+      "geometry": null
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "pin_net_ambiguous",
+      "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/f5ea4711-90c5-43d7-976b-58c72edb2cca",
+      "pad": "A4",
+      "detail": "J1.A4 carries 2 schematic nets"
+    },
+    {
+      "code": "unannotated_component",
+      "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/dc6aebde-96a0-4a44-8cf4-0ad17b59b68d",
+      "pad": null,
+      "detail": "R? is not annotated"
+    },
+    {
+      "code": "unannotated_connector",
+      "portKey": "/6c5f5d69-1c0b-4294-8a58-8db0ec7d5cdf/5eb27ce9-6d8e-40a9-9f6d-8f14c5f68638/b15171d3-0df1-46fc-8e4c-94f37f448240",
+      "pad": null,
+      "detail": "J? is not annotated"
+    }
+  ],
+  "digest": "sha256:3b411eff27b093ee2cd850daef99c275ae7ab65e5c652aa6165051078705fcb7"
+}

@@ -6,8 +6,8 @@ into a private directory, gitlinks are expanded from their recorded commits,
 and the only bytes allowed to differ from Git objects are hydrated Git LFS
 objects already present in the source worktree.
 
-This module is intentionally independent of the database and of the legacy
-``design_compare_service._snapshot_commit`` helper.  It can therefore be used
+This module is intentionally independent of the database and of the narrower
+``project_revision`` checkouts.  It can therefore be used
 by a worker before a candidate or build row exists, and it is safe to exercise
 against small local Git repositories in tests.
 """
@@ -15,7 +15,6 @@ against small local Git repositories in tests.
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
 import stat
@@ -25,45 +24,36 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from app.release_studio.canonical import sha256_canonical
+from app.release_studio.closure_models import (
+    is_model_reference,
+    project_text_variables,
+    resolve_model,
+    rewrite_model_references,
+)
+from app.release_studio.closure_references import (
+    VARIABLE_RE as _VARIABLE_RE,
+    ProjectReferences,
+    is_path_reference,
+)
+from app.services import project_revision
 
 
 _LFS_POINTER_VERSION = "version https://git-lfs.github.com/spec/v1"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _RESOURCE_DIGEST_RE = _SHA256_RE
-_VARIABLE_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
-# Variables the executor binds at run time rather than the project supplying.
-# `JOBSET_OUTPUT_WORK_PATH` is KiCad's temporary output directory for a
-# `special_execute` job (pinned source `common/jobs/job_special_execute.h:26`);
-# it names an output, never an input, so it cannot resolve into the closure.
-_TOOL_PROVIDED_VARIABLES = frozenset({"JOBSET_OUTPUT_WORK_PATH"})
-
-# `.kicad_jobset` is deliberately absent.  A jobset's variables name *outputs*
-# and a `special_execute` job carries an arbitrary command line whose paths are
-# that command's own concern, not project inputs -- the reference jobset invokes
-# a plugin via `${KICAD9_3RD_PARTY}`, which is neither a project library nor
-# something the closure could contain.  Scraping it here would fail a build that
-# is hermetic: jobset hermeticity is judged by R1 over each output's *selected*
-# closure, which is where an executed command is correctly classified.
-_PATH_INPUT_SUFFIXES = {
-    ".kicad_pcb",
-    ".kicad_pro",
-    ".kicad_sch",
-    ".kicad_wks",
-    ".yaml",
-    ".yml",
-}
 
 # Classifies which unresolved references are worth refusing a release for.
 _UNRESOLVED_WORDING = {
     "external": "resolves outside the release closure and the pinned toolchain",
     "missing": "is not present in the release closure",
-}
-
-# Suffixes of assets no Stage 1 step opens.  A footprint's `(model ...)` node
-# names one of these, and boards routinely carry stale ones whose case or
-# extension no longer matches anything on disk.
-_ADVISORY_SUFFIXES = {
-    ".step", ".stp", ".stpz", ".wrl", ".vrml", ".x3d", ".igs", ".iges", ".wings",
+    "unreadable": (
+        "is a 3D model outside the release closure that the build cannot read, "
+        "so its bytes are not pinned"
+    ),
+    "substitutable": (
+        "is a VRML model missing from the release closure, which KiCad may replace "
+        "with a same-name STEP model from outside it"
+    ),
 }
 
 # `(property "Sheetfile" "Subsheets/Power.kicad_sch")` -- how a hierarchical
@@ -184,11 +174,11 @@ class EnvBinding:
 class ResolvedLibraryPath:
     """A project path reference and its closure/toolchain destination.
 
-    ``advisory`` marks a reference no build step reads.  A 3D model named by a
-    footprint is the case that matters: nothing in the Stage 1 catalogue opens
-    one, so an unresolvable model is worth recording and not worth refusing a
-    release for.  It is still reported, just never as a reason the build is
-    non-hermetic.
+    ``advisory`` marks a reference worth recording and not worth refusing a
+    release for: a 3D model whose path stays inside the closure but names no
+    file.  Every worker sees the same absence, so it is still reported, just
+    never as a reason the build is non-hermetic.  ``digest`` pins a model
+    outside the closure (``location="host"``); see ``closure_models.py``.
     """
 
     source_path: str
@@ -196,15 +186,20 @@ class ResolvedLibraryPath:
     resolved_path: str
     location: str
     advisory: bool = False
+    digest: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        record: dict[str, Any] = {
             "source_path": self.source_path,
             "reference": self.reference,
             "resolved_path": self.resolved_path,
             "location": self.location,
             "advisory": self.advisory,
         }
+        # Emitted only when set, so closures without host models keep their digest.
+        if self.digest:
+            record["digest"] = self.digest
+        return record
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,7 +252,8 @@ class InputClosure:
         return tuple(
             reference
             for reference in self.library_references
-            if reference.location in {"external", "missing"} and not reference.advisory
+            if reference.location in {"external", "missing", "unreadable", "substitutable"}
+            and not reference.advisory
         )
 
     @property
@@ -333,6 +329,9 @@ def materialize_input_closure(
         | Sequence[PinnedToolchainResource]
         | None
     ) = None,
+    model_env: Mapping[str, str] | None = None,
+    model_stage: str | Path | None = None,
+    bundle_project: ProjectReferences,
 ) -> InputClosure:
     """Materialize the full repository tree for ``commit``.
 
@@ -340,11 +339,23 @@ def materialize_input_closure(
     repository is always walked.  ``source_checkout`` is normally unnecessary
     because ``repo_path`` is the repository worktree, but is accepted to make
     the project/subproject distinction explicit for callers using
-    ``design_compare_service._repo_paths``.
+    ``project_revision.locate``.
 
     The function never checks out, updates, stages, or writes to ``repo_path``.
     It reads Git objects and (only for detected LFS pointers) reads the
     corresponding worktree file to verify already-hydrated bytes.
+
+    ``model_env`` is the environment the build tools run with.  A 3D model a
+    board names outside the closure is resolved through it and hashed, because
+    the cover render and the assembly views read it from there.  Given
+    ``model_stage`` (a directory outside ``destination``), each hashed host
+    model is copied there as it is hashed and the materialized board names the
+    copy, so the tools read exactly the hashed bytes.
+
+    ``bundle_project`` is the design bundle's ``prism.project.a0`` answer: the
+    documents name the design's files and the references name every path-bearing
+    node, so no Python KiCad parser runs (ADR amendment C3, C3d; WP-R2 makes it
+    mandatory for every caller, System Builder's board export included).
     """
 
     repo = Path(repo_path)
@@ -375,10 +386,12 @@ def materialize_input_closure(
     specs = _coerce_toolchain_resources(toolchain_resources)
     references, bindings = _resolve_project_paths(
         output,
-        result.repository_inputs,
         project_rel,
         env or {},
         specs,
+        model_env or {},
+        bundle_project,
+        Path(model_stage) if model_stage is not None else None,
     )
     return InputClosure(
         commit_sha=commit_sha,
@@ -404,23 +417,25 @@ def materialize_project_input_closure(
         | Sequence[PinnedToolchainResource]
         | None
     ) = None,
+    model_env: Mapping[str, str] | None = None,
+    model_stage: str | Path | None = None,
+    bundle_project: ProjectReferences,
 ) -> InputClosure:
     """Resolve a Prism project/subproject and materialize its full repo tree."""
 
-    # Keep this import local: the closure module is also used in isolated Git
-    # fixture tests and must not import the stateful workspace service at module
-    # import time.
-    from app.services.design_compare_service import _repo_paths
-
-    repo, relative_path, checkout = _repo_paths(project_id)
+    # locate_id imports the stateful workspace service only when called.
+    location = project_revision.locate_id(project_id)
     return materialize_input_closure(
-        repo,
+        location.repo_root,
         commit,
         destination,
-        relative_path=relative_path,
-        source_checkout=checkout,
+        relative_path=location.relative_path or ".",
+        source_checkout=location.checkout,
         env=env,
         toolchain_resources=toolchain_resources,
+        model_env=model_env,
+        model_stage=model_stage,
+        bundle_project=bundle_project,
     )
 
 
@@ -430,9 +445,10 @@ build_input_closure = materialize_input_closure
 
 
 def _resolve_commit(repo: Path, commit: str) -> str:
-    if not commit or not isinstance(commit, str):
-        raise GitTreeError("a non-empty commit is required")
-    resolved = _git(repo, "rev-parse", "--verify", f"{commit}^{{commit}}").strip()
+    try:
+        resolved = project_revision.resolve_commit(repo, commit)
+    except project_revision.RevisionNotFound as exc:
+        raise GitTreeError(str(exc)) from exc
     if not re.fullmatch(r"[0-9a-fA-F]{40,64}", resolved):
         raise GitTreeError(f"Git returned an invalid commit id for {commit!r}")
     return resolved.lower()
@@ -690,6 +706,12 @@ def _write_symlink(path: Path, content: bytes, relative_path: str) -> None:
         os.symlink(os.fsdecode(content), path)
     except FileExistsError as exc:
         raise ClosureError(f"duplicate materialized path: {relative_path}") from exc
+    except OSError as exc:
+        if os.name == "nt":
+            raise ClosureError(
+                f"{relative_path} is a symbolic link and Windows refused to create it: enable Developer Mode"
+            ) from exc
+        raise
 
 
 def _parse_lfs_pointer(content: bytes) -> _LfsPointer | None:
@@ -846,207 +868,108 @@ def _verify_resource_digest(name: str, root: Path, supplied: object) -> str:
     return digest
 
 
-def _design_inputs(
-    destination: Path,
-    repository_inputs: Sequence[RepositoryInput],
-    project_rel: str,
-) -> set[str]:
-    """The files whose path references belong to *this* design.
 
-    A repository holds more KiCad files than a release is made of.  Scanning all
-    of them made an archived revision's stale library paths look like defects in
-    the release under construction -- most of the hermeticity findings on a real
-    project came from boards that are not in it.
+def _bundle_references(
+    project: ProjectReferences, project_rel: str
+) -> list[tuple[str, str, str]]:
+    """The closure's path references from a bundle's ``prism.project.a0``.
 
-    The design is therefore delimited structurally:
-
-    * the board and project files **in the project directory itself**;
-    * the root schematics beside them;
-    * every schematic reachable from those roots through ``Sheetfile``, at any
-      depth -- which is what "part of this design" actually means;
-    * every schematic sitting in a directory a root sheet points into, so a
-      sheet detached from the hierarchy but still filed with its siblings is
-      not quietly dropped;
-    * library tables, wherever they sit, because KiCad loads them by location;
-    * this project's own ``.prism`` configuration.
+    A ``model-3d`` reference is resolved the way a ``(model …)`` node is; a
+    library reference is a library-table URI; a drawing sheet is a project path
+    only when it is written as a ``${VAR}`` path, which is the filter today's
+    project-file scan applies.  Embedded files live inside a document whose
+    bytes the closure already pins, and sheet files are documents rather than
+    path references, so neither is listed here.
     """
 
     prefix = "" if project_rel in ("", ".") else f"{project_rel.rstrip('/')}/"
-    by_path = {item.path: item for item in repository_inputs if item.type == "regular_file"}
-
-    def in_project(path: str) -> bool:
-        return path.startswith(prefix)
-
-    def local(path: str) -> str:
-        return path[len(prefix):]
-
-    def at_root(path: str) -> bool:
-        return in_project(path) and "/" not in local(path)
-
-    selected: set[str] = set()
-    roots: list[str] = []
-    for path in by_path:
-        name = path.rsplit("/", 1)[-1].casefold()
-        suffix = Path(path).suffix.casefold()
-        if name in {"fp-lib-table", "sym-lib-table"}:
-            selected.add(path)
-        elif suffix in {".yaml", ".yml"} and in_project(path) and local(path).startswith(".prism/"):
-            selected.add(path)
-        elif at_root(path) and suffix in {".kicad_pcb", ".kicad_pro", ".kicad_wks"}:
-            selected.add(path)
-        elif at_root(path) and suffix == ".kicad_sch":
-            selected.add(path)
-            roots.append(path)
-
-    # Walk the hierarchy. `pending` holds sheets still to be read; `sibling_dirs`
-    # accumulates the directories the roots point into.
-    sibling_dirs: set[str] = set()
-    pending = list(roots)
-    seen = set(roots)
-    while pending:
-        current = pending.pop()
-        for child in _sheet_references(destination, current):
-            if child in by_path and child not in seen:
-                seen.add(child)
-                selected.add(child)
-                pending.append(child)
-            if current in roots:
-                sibling_dirs.add(child.rsplit("/", 1)[0] if "/" in child else "")
-
-    for path in by_path:
-        if Path(path).suffix.casefold() != ".kicad_sch":
+    rows: list[tuple[str, str, str]] = []
+    for reference in project.references:
+        raw = str(reference.get("raw") or "")
+        if not raw:
             continue
-        directory = path.rsplit("/", 1)[0] if "/" in path else ""
-        if directory in sibling_dirs:
-            selected.add(path)
-
-    return selected
-
-
-def _sheet_references(destination: Path, schematic: str) -> list[str]:
-    """Repository-relative paths of the sheets *schematic* instantiates."""
-
-    try:
-        text = _read_materialized_text(destination, schematic)
-    except OSError:
-        return []
-    try:
-        from kicad_monkey import find_all_elements, parse_sexp, unquote_string
-
-        root = parse_sexp(text)
-    except Exception as exc:
-        raise ClosureError(
-            f"cannot parse schematic hierarchy with kicad-monkey: {schematic}: {exc}"
-        ) from exc
-    base = schematic.rsplit("/", 1)[0] if "/" in schematic else ""
-    children: list[str] = []
-    for sheet in find_all_elements(root, "sheet"):
-        for prop in find_all_elements(sheet, "property"):
-            if len(prop) < 3 or str(unquote_string(prop[1])).casefold() not in {
-                "sheetfile",
-                "sheet file",
-            }:
-                continue
-            reference = str(unquote_string(prop[2]) or "").strip()
-            if not reference or reference.startswith("${") or "://" in reference:
-                continue
-            resolved = _join_relative(base, reference)
-            if resolved is not None:
-                children.append(resolved)
-    return children
-
-
-def _is_advisory_reference(reference: str) -> bool:
-    """Whether *reference* names an asset no build step opens.
-
-    Judged by suffix, which is what a ``(model ...)`` node carries.  The
-    alternative -- deciding from the s-expression node the path sits in --
-    would need a board parser here for no extra accuracy: nothing else in a
-    board file points at a ``.step`` or a ``.wrl``.
-    """
-
-    return Path(reference.replace("\\", "/")).suffix.casefold() in _ADVISORY_SUFFIXES
-
-
-def _join_relative(base: str, reference: str) -> str | None:
-    """Resolve *reference* against *base*, or ``None`` if it leaves the tree.
-
-    A monorepo sheet may legitimately be reached as ``../common/Power.kicad_sch``,
-    so ``..`` is collapsed rather than rejected -- but a reference that climbs
-    past the repository root names nothing in the closure and is dropped.
-    """
-
-    reference = reference.replace("\\", "/")
-    if reference.startswith("/"):
-        return None
-    parts = (base.split("/") if base else []) + reference.split("/")
-    stack: list[str] = []
-    for part in parts:
-        if part in {"", "."}:
+        kind = str(reference.get("kind") or "")
+        target = reference.get("target") or {}
+        if target.get("kind") == "embedded":
             continue
-        if part == "..":
-            if not stack:
-                return None
-            stack.pop()
+        if kind == "model-3d":
+            row_kind = "project_path"
+        elif kind in {"footprint-library", "symbol-library"}:
+            row_kind = "library_table"
+        elif kind == "drawing-sheet" and is_path_reference(raw):
+            row_kind = "project_path"
+        else:
             continue
-        stack.append(part)
-    return "/".join(stack) or None
+        document = str(reference.get("documentPath") or "")
+        if not document:
+            continue
+        source = f"{prefix}{document}" if document else prefix.rstrip("/")
+        rows.append((source, raw, row_kind))
+    return rows
 
 
 def _resolve_project_paths(
     destination: Path,
-    repository_inputs: Sequence[RepositoryInput],
     project_rel: str,
     env: Mapping[str, str],
     toolchain_specs: Sequence[_ToolchainSpec],
+    model_env: Mapping[str, str],
+    bundle_project: ProjectReferences,
+    model_stage: Path | None = None,
 ) -> tuple[list[ResolvedLibraryPath], list[EnvBinding]]:
     resolver = _PathResolver(destination, project_rel, env, toolchain_specs)
-    scanned = _design_inputs(destination, repository_inputs, project_rel)
-    references: list[tuple[str, str, str]] = []
-    for item in repository_inputs:
-        if item.type != "regular_file":
-            continue
-        if item.path not in scanned:
-            continue
-        if item.path.rsplit("/", 1)[-1].casefold() in {"fp-lib-table", "sym-lib-table"}:
-            text = _read_materialized_text(destination, item.path)
-            table_references, variable_references = _structured_path_references(
-                item.path, text, library_table=True
-            )
-            for reference in table_references:
-                references.append((item.path, reference, "library_table"))
-            for reference in variable_references:
-                references.append((item.path, reference, "library_table"))
-        elif _is_path_input(item.path):
-            text = _read_materialized_text(destination, item.path)
-            _, variable_references = _structured_path_references(item.path, text)
-            for reference in variable_references:
-                references.append((item.path, reference, "project_path"))
+    # The bundle answered the closure's design-file question already:
+    # ``documents`` is the hierarchy and ``references`` are the path-bearing
+    # nodes, so the checkout is not parsed here at all (Release Studio, C3d).
+    references = _bundle_references(bundle_project, project_rel)
 
     deduped = sorted(set(references), key=lambda item: item)
     resolved: list[ResolvedLibraryPath] = []
+    text_variables: dict[str, dict[str, str]] = {}  # per board, parsed once
+    targets: dict[str, dict[str, str]] = {}  # per board: reference -> file to open
     for source, reference, kind in deduped:
+        if is_model_reference(reference):
+            # The cover render and the assembly views open every model, so a
+            # model is resolved the way KiCad resolves it, not as a library path.
+            if source not in text_variables:
+                project_file = Path(source).with_suffix(".kicad_pro").as_posix()
+                text_variables[source] = project_text_variables(
+                    _materialized_path(destination, project_file), resolver.destination_root
+                )
+            placement = resolve_model(
+                reference,
+                project_variables=text_variables[source],
+                lookup=resolver.binding,
+                model_env=model_env,
+                destination=destination,
+                destination_root=resolver.destination_root,
+                toolchain_roots={spec.name: spec.root for spec in toolchain_specs},
+                project_root=resolver.project_root,
+                stage=model_stage,
+            )
+            resolved.append(ResolvedLibraryPath(source, reference, **placement.record()))
+            if placement.target:
+                targets.setdefault(source, {})[reference] = placement.target
+            continue
         try:
             resolved.append(resolver.resolve(source, reference, kind))
         except ClosureError as exc:
             # Footprints and symbols are already copied into the board/schematic,
             # so a host-absolute fp-lib-table URI or a missing .pretty must not
             # refuse a documentation build -- neither of these is fatal, and
-            # both are recorded so they stay visible.
-            #
-            # They are not equivalent, though. A `.step`/`.wrl` no build step
-            # opens is advisory; anything else is a real input that resolved
-            # outside the closure, and marking those advisory too let a build
-            # whose symbols came off the host record itself as fully hermetic.
+            # both are recorded so they stay visible.  They are still real
+            # inputs that resolved outside the closure, so not advisory.
             resolved.append(
                 ResolvedLibraryPath(
                     source_path=source,
                     reference=reference,
                     resolved_path="",
                     location="external" if isinstance(exc, ExternalPathError) else "missing",
-                    advisory=_is_advisory_reference(reference),
                 )
             )
+    # Last, so every reference was resolved against the committed bytes.
+    for source, board_targets in sorted(targets.items()):
+        rewrite_model_references(_materialized_path(destination, source), board_targets)
     return resolved, sorted(resolver.bindings.values(), key=lambda binding: binding.name)
 
 
@@ -1128,6 +1051,13 @@ class _PathResolver:
             expanded = expanded[: match.start()] + replacement + expanded[match.end() :]
         raise ClosureError(f"environment variable expansion is recursive: {reference!r}")
 
+    def binding(self, name: str) -> str | None:
+        """``_value``, or None where it refuses; a model then asks the environment."""
+        try:
+            return self._value(name)
+        except ExternalPathError:
+            return None
+
     def _value(self, name: str) -> str:
         if name == "KIPRJMOD":
             value = self.project_rel
@@ -1170,123 +1100,6 @@ class _PathResolver:
         stable = f"project:{self.project_rel}/{value}" if self.project_rel != "." else f"project:{value}"
         self.bindings[name] = EnvBinding(name, stable)
         return os.fspath(self.project_root / candidate)
-
-
-def _is_path_input(path: str) -> bool:
-    suffix = Path(path).suffix.casefold()
-    return suffix in _PATH_INPUT_SUFFIXES or Path(path).name.casefold() in {
-        "fp-lib-table",
-        "sym-lib-table",
-    }
-
-
-def _is_path_reference(value: str) -> bool:
-    """Does this substituted value name a filesystem path?
-
-    A bare ``${VAR}`` is not enough.  KiCad substitutes built-in *text*
-    variables into ordinary field and drawing-sheet content -- ``${DNP}``,
-    ``${REFERENCE}``, ``${VALUE}``, ``${ISSUE_DATE}`` and friends -- and
-    treating those as library paths fails a build closed on a board that is
-    perfectly hermetic.  A real path either carries a separator
-    (``${KIPRJMOD}/../common``) or names a path variable outright.
-
-    Library-table ``(uri ...)`` values do not come through here; they are
-    already known to be paths and are resolved unconditionally.
-    """
-
-    if not _VARIABLE_RE.search(value):
-        return False
-    if any(
-        match.group(1).upper() in _TOOL_PROVIDED_VARIABLES
-        for match in _VARIABLE_RE.finditer(value)
-    ):
-        # KiCad binds these itself at run time and they name *outputs*, so they
-        # are not closure inputs and must not fail resolution.
-        return False
-    if "/" in value or "\\" in value:
-        return True
-    match = _VARIABLE_RE.fullmatch(value.strip())
-    return match is not None and _is_path_variable(match.group(1))
-
-
-def _is_path_variable(name: str) -> bool:
-    """KiCad's path variables are ``KIPRJMOD`` and the ``*_DIR`` family."""
-
-    upper = name.upper()
-    return upper == "KIPRJMOD" or upper.endswith("_DIR") or upper.endswith("_PATH")
-
-
-def _read_materialized_text(destination: Path, relative_path: str) -> str:
-    path = _materialized_path(destination, relative_path)
-    try:
-        return path.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        # Binary inputs cannot contain a meaningful KiCad path reference.
-        return ""
-
-
-def _structured_path_references(
-    path: str,
-    text: str,
-    *,
-    library_table: bool = False,
-) -> tuple[list[str], list[str]]:
-    """Read path-bearing values through format owners, never delimiters."""
-
-    suffix = Path(path).suffix.casefold()
-    name = Path(path).name.casefold()
-    uri_values: list[str] = []
-    scalar_values: list[str] = []
-    try:
-        if name in {"fp-lib-table", "sym-lib-table"} or suffix in {
-            ".kicad_pcb",
-            ".kicad_sch",
-            ".kicad_wks",
-        }:
-            from kicad_monkey import parse_sexp
-
-            tree = parse_sexp(text)
-            for form in _walk_structured_values(tree):
-                if isinstance(form, list) and form:
-                    if (
-                        library_table
-                        and str(form[0]).casefold() == "uri"
-                        and len(form) > 1
-                    ):
-                        uri_values.append(str(form[1]))
-                elif isinstance(form, str):
-                    scalar_values.append(str(form))
-        elif suffix == ".kicad_pro":
-            payload = json.loads(text)
-            scalar_values.extend(
-                str(value)
-                for value in _walk_structured_values(payload)
-                if isinstance(value, str)
-            )
-        elif suffix in {".yaml", ".yml"}:
-            import yaml
-
-            payload = yaml.safe_load(text)
-            scalar_values.extend(
-                str(value)
-                for value in _walk_structured_values(payload)
-                if isinstance(value, str)
-            )
-    except Exception as exc:
-        raise ClosureError(f"cannot parse closure input {path}: {exc}") from exc
-
-    variable_values = [value for value in scalar_values if _is_path_reference(value)]
-    return uri_values, variable_values
-
-
-def _walk_structured_values(value: Any) -> Iterable[Any]:
-    yield value
-    if isinstance(value, Mapping):
-        for child in value.values():
-            yield from _walk_structured_values(child)
-    elif isinstance(value, (list, tuple)):
-        for child in value:
-            yield from _walk_structured_values(child)
 
 
 def _sorted_records(records: Iterable[Any]) -> list[dict[str, Any]]:

@@ -28,16 +28,12 @@ install -m 0644 "${APP_DIR}/build/ecad-viewer.js" "${PUBLIC_DIR}/ecad-viewer.js"
 install -m 0644 "${APP_DIR}/build/parser.worker.js" "${PUBLIC_DIR}/parser.worker.js"
 install -m 0644 "${APP_DIR}/build/ecad-renderer.js" "${PUBLIC_DIR}/ecad-renderer.js"
 
-# esbuild preserves third-party license comment indentation, including spaces
-# on otherwise empty lines. Normalize trailing horizontal whitespace before
-# hashing so generated artifacts satisfy the repository's diff checks without
-# altering the bundled license text.
-node -e '
-const fs = require("fs");
-const file = process.argv[1];
-const source = fs.readFileSync(file, "utf8");
-fs.writeFileSync(file, source.replace(/[\t ]+$/gm, ""));
-' "${PUBLIC_DIR}/ecad-renderer.js"
+# The bundles go out exactly as esbuild wrote them. They inline the earcut
+# wasm as a template literal of raw bytes, so even "harmless" whitespace
+# normalisation corrupts it (an earlier trailing-space strip cost the renderer
+# its wasm triangulation). The check fails the build if that ever recurs.
+node "${PRISM_ROOT}/scripts/check-embedded-wasm.mjs" \
+  "${PUBLIC_DIR}/ecad-viewer.js" "${PUBLIC_DIR}/ecad-renderer.js"
 
 ADAPTER_COMMIT="$(git -C "${ECAD_VIEWER_DIR}" rev-parse HEAD)"
 ECAD_SHA="$(shasum -a 256 "${PUBLIC_DIR}/ecad-viewer.js" | awk '{print $1}')"

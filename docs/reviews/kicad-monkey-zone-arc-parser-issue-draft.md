@@ -1,5 +1,7 @@
 # Bug: `PcbView::zones()` rejects valid zone polygons containing arc elements
 
+> **Superseded (2026-10-23).** This review concerns the Python `kicad_monkey` / `prism-kicad-native` path that the native design bundle replaced ([ADR](../architecture/adr-native-design-bundle.md)). Kept as a historical record.
+
 ## Summary
 
 The Rust typed PCB reader rejects a valid KiCad zone when its `(polygon (pts ...))`

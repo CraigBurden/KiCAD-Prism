@@ -13,6 +13,10 @@ import {
     normalizeNetIds,
     packNetEmphasis,
     resolveNetIds,
+    EMPHASIS_PALETTE,
+    OCCURRENCE_EMPHASIS_WGSL,
+    packEmphasisColor,
+    packOccurrenceEmphasis,
 } from "./net-emphasis.js";
 
 describe("normalizeNetIds", () => {
@@ -107,5 +111,31 @@ describe("NET_MASK_WGSL", () => {
     it("guards id 0 and the array bounds", () => {
         assert.match(NET_MASK_WGSL, /id != 0u/);
         assert.match(NET_MASK_WGSL, /arrayLength\(&netMask\)/);
+    });
+});
+
+describe("per-occurrence emphasis (SB2-31)", () => {
+    it("packs colours as 0x01RRGGBB, and anything else as the default colour", () => {
+        assert.equal(packEmphasisColor("#ff8000"), 0x01ff8000);
+        assert.equal(packEmphasisColor([0, 1, 0.5]), 0x0100ff80);
+        assert.equal(packEmphasisColor([2, -1, 0]), 0x01ff0000);
+        assert.equal(packEmphasisColor("red"), 1);
+        assert.equal(packEmphasisColor(undefined), 1);
+        assert.equal(EMPHASIS_PALETTE.length >= 6, true);
+    });
+    it("lays out one row per occurrence, stride = largest net id + 1", () => {
+        const table = packOccurrenceEmphasis([new Map([[3, 0x01ff0000]]), null, new Map([[5, 1], [1, 0x0100ff00]])]);
+        assert.equal(table.stride, 6);
+        assert.equal(table.data.length >= 18, true);
+        assert.equal(table.data[3], 0x01ff0000);
+        assert.equal(table.data[6 + 3], 0); // the same net on another copy stays off
+        assert.equal(table.data[12 + 5], 1);
+        assert.equal(table.data[12 + 1], 0x0100ff00);
+        assert.equal(packOccurrenceEmphasis([]).stride, 1);
+    });
+    it("reads the table by the occurrence's local row in the shaders", () => {
+        assert.match(OCCURRENCE_EMPHASIS_WGSL, /\(occurrence - 1u - globals\.occurrenceBase\) \* globals\.emphasisStride \+ id/);
+        assert.match(OCCURRENCE_EMPHASIS_WGSL, /globals\.emphasisStride == 0u\) \{ return select\(0u, 1u, netEmphasized\(id\)\)/);
+        assert.match(OCCURRENCE_EMPHASIS_WGSL, /slot >= arrayLength\(&netMask\)/);
     });
 });

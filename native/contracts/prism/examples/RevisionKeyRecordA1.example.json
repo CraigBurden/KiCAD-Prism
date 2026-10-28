@@ -1,0 +1,93 @@
+{
+  "schema": "prism.revision_key.record.a1",
+  "revision_key": "faea5ace66f591553c21fdcb2555e5a67e6e2fe73b7d17663375ac6f809206f5",
+  "object_format": "sha1",
+  "source": {
+    "kind": "commit",
+    "commit": "0642b07770533173e731613a031d706c6163395e"
+  },
+  "config": {
+    "schema": "prism.revision_key.effective_config.a1",
+    "project_file": "USB-PD-Trigger-Board.kicad_pro",
+    "root_schematic": "USB-PD-Trigger-Board.kicad_sch",
+    "board": "USB-PD-Trigger-Board.kicad_pcb",
+    "excluded_dirs": [
+      "Design-Outputs",
+      "Manufacturing-Outputs"
+    ]
+  },
+  "config_digest": "dfcc6375fd65aa0462b05604e82cc54bb65077f78f5abfcb09899762bf17d187",
+  "entries": [
+    {
+      "path": "Outputs.kicad_jobset",
+      "kind": "regular",
+      "object_id": "91b0ee4723cd66f53f279fad9b2a45d396cf0fad",
+      "category": "kicad-jobset"
+    },
+    {
+      "path": "Subsheets/Output-Connector.kicad_sch",
+      "kind": "regular",
+      "object_id": "bf8f40e6f7dd99f80e451cedf5a00167ed8f230d",
+      "category": "kicad-schematic"
+    },
+    {
+      "path": "USB-PD-Trigger-Board.kicad_pcb",
+      "kind": "regular",
+      "object_id": "ea46fd3d3b4fbbd841460287151d95062224bc29",
+      "category": "kicad-board"
+    },
+    {
+      "path": "USB-PD-Trigger-Board.kicad_pro",
+      "kind": "regular",
+      "object_id": "c28d96a6aade5a49de42472186377dc6cf1feb54",
+      "category": "kicad-project"
+    },
+    {
+      "path": "USB-PD-Trigger-Board.kicad_sch",
+      "kind": "regular",
+      "object_id": "2bbe68bcc29c032be4957b1bab82ded652c439be",
+      "category": "kicad-schematic"
+    },
+    {
+      "path": "assets/Schematic-Page-Template.kicad_wks",
+      "kind": "regular",
+      "object_id": "23eb25366ba16d9562fc5239ddfb19f7c11873d2",
+      "category": "kicad-worksheet"
+    },
+    {
+      "path": "packages3D/796638-2.step",
+      "kind": "regular",
+      "object_id": "c36353a3b446b1491c562382f60fb0aecf79daac",
+      "category": "model-3d"
+    },
+    {
+      "path": "packages3D/CYPD3177-24LQXQT.stp",
+      "kind": "regular",
+      "object_id": "08654cb7b76bb5c9e688f2e9687973670baff6c6",
+      "category": "model-3d"
+    },
+    {
+      "path": "packages3D/USB4056-03-A_REVA2.step",
+      "kind": "regular",
+      "object_id": "95772eeb8c0d7e241e62580868572efadce85d24",
+      "category": "model-3d"
+    }
+  ],
+  "counts": {
+    "kicad_project": 1,
+    "kicad_schematic": 2,
+    "kicad_board": 1,
+    "kicad_design_rules": 0,
+    "kicad_worksheet": 1,
+    "kicad_jobset": 1,
+    "library_table": 0,
+    "symbol_library": 0,
+    "footprint": 0,
+    "model_3d": 3,
+    "prism_settings": 0,
+    "symlink": 0,
+    "gitlink": 0,
+    "total": 9
+  },
+  "warnings": []
+}

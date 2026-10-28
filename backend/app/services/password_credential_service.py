@@ -11,16 +11,15 @@ from datetime import datetime, timezone
 
 import bcrypt
 
-from app.core.config import settings
+from app.core import errors
+from app.core.config import MAX_PASSWORD_BYTES, settings
 from app.services import access_service
+from app.services.auth_schema_migrations import AUTH_LEDGER
 from app.services.postgres_database import database
 
 
 _init_lock = threading.Lock()
 _initialized = False
-
-_MAX_PASSWORD_BYTES = 72
-
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -34,37 +33,22 @@ def initialize_credential_store() -> None:
         if _initialized:
             return
         access_service.initialize_role_store()
-        with database.connection() as connection:
-            connection.execute("CREATE SCHEMA IF NOT EXISTS workspace")
-            connection.execute("SET search_path TO workspace, public")
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS user_credentials (
-                    user_id TEXT PRIMARY KEY REFERENCES workspace.users (user_id) ON DELETE CASCADE,
-                    password_hash TEXT NOT NULL,
-                    must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    updated_by TEXT NOT NULL
-                )
-                """
-            )
-            connection.commit()
+        AUTH_LEDGER.migrate(database.connection)
         _initialized = True
 
 
-class PasswordPolicyError(ValueError):
-    """Raised when a proposed password does not meet the configured policy."""
+class PasswordPolicyError(errors.Invalid, ValueError):
+    """Raised when a proposed password does not meet the configured policy (422)."""
 
 
-class NoSuchUserError(ValueError):
-    """Raised when an admin tries to set a password on an email with no account."""
+class NoSuchUserError(errors.BadRequest, ValueError):
+    """Raised when an admin tries to set a password on an email with no account (400)."""
 
 
 def validate_password_policy(password: str) -> None:
-    if len(password.encode("utf-8")) > _MAX_PASSWORD_BYTES:
+    if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
         raise PasswordPolicyError(
-            f"Password must be at most {_MAX_PASSWORD_BYTES} bytes long."
+            f"Password must be at most {MAX_PASSWORD_BYTES} bytes long."
         )
     minimum = int(settings.PASSWORD_MIN_LENGTH)
     if len(password) < minimum:

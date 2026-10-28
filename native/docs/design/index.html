@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en" data-doc-status="accepted">
+<head>
+  <meta charset="utf-8">
+  <title>KiCad Monkey Design Documentation</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <h1>KiCad Monkey Design Documentation</h1>
+  <p>
+    This is the release-signoff entry point for durable public API, contract,
+    and quality-gate design notes.
+  </p>
+
+  <section>
+    <h2>Release Gates</h2>
+    <ul>
+      <li><a href="quality-signoff-status.md">quality-signoff-status.md</a></li>
+      <li><a href="kicad-plotter-ir.html">kicad-plotter-ir.html</a></li>
+      <li><a href="../requirements/2026-07-17-performance-optimization-requirements.html">2026-07-17 performance optimization requirements</a></li>
+      <li><a href="../requirements/2026-07-16-public-issue-requirements.html">2026-07-16 public issue requirements</a></li>
+      <li><a href="library-megamaid-extraction.html">library-megamaid-extraction.html</a></li>
+      <li><a href="sexpr-projection-parser.html">sexpr-projection-parser.html</a></li>
+      <li><a href="../contracts/README.md">contracts README</a></li>
+      <li><a href="api/index.html">public API design docs</a></li>
+      <li><a href="../guides/project-workflows.html">project workflow guide</a></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Design Proposals</h2>
+    <ul>
+      <li>
+        <a href="rust-standard.html">Rust workspace and hygiene baseline</a>
+      </li>
+      <li>
+        <a href="rust-sexpr-l0-review.html">Rust S-expression L0 architecture review</a>
+      </li>
+      <li>
+        <a href="rust-sexpr-l1-review.html">Rust S-expression L1 corpus review</a>
+      </li>
+      <li>
+        <a href="rust-sexpr-phase1-measurement.html">Rust S-expression Phase 1 corpus measurement</a>
+      </li>
+      <li>
+        <a href="rust-sexpr-phase1-promotion.html">Rust S-expression Phase 1 promotion review</a>
+      </li>
+      <li>
+        <a href="rust-footprint-phase2-slice.html">Rust Phase 2 typed footprint slice</a>
+      </li>
+      <li>
+        <a href="rust-footprint-plotter-phase2-slice.html">Rust Phase 2 footprint plotter-IR slice</a>
+      </li>
+      <li>
+        <a href="rust-symbol-plotter-phase2-slice.html">Rust Phase 2 symbol plotter-IR slice</a>
+      </li>
+      <li>
+        <a href="rust-symbol-library-phase2-slice.html">Rust Phase 2 typed symbol-library slice</a>
+      </li>
+      <li>
+        <a href="rust-phase2-boundary-review.html">Rust Phase 2 native-core boundary and WASM feasibility review</a>
+      </li>
+      <li>
+        <a href="rust-compiled-schematic-graph-phase4-contract.html">Rust Phase 4 compiled schematic graph contract</a>
+      </li>
+      <li>
+        <a href="rust-compiled-schematic-graph-phase4-native.html">Rust Phase 4 native compiled graph semantics</a>
+      </li>
+      <li>
+        <a href="rust-source-bundle-phase4-slice.html">Rust Phase 4 source bundle and hierarchy slice</a>
+      </li>
+      <li>
+        <a href="rust-schematic-connectivity-phase4-slice.html">Rust Phase 4 schematic connectivity carrier slice</a>
+      </li>
+      <li>
+        <a href="rust-schematic-writer-phase4-slice.html">Rust Phase 4 native schematic writer slice</a>
+      </li>
+      <li>
+        <a href="rust-worksheet-phase4-slice.html">Rust Phase 4 native worksheet reader/writer slice</a>
+      </li>
+      <li>
+        <a href="rust-project-phase4-slice.html">Rust Phase 4 native project reader/writer slice</a>
+      </li>
+      <li>
+        <a href="rust-netlist-phase4-slice.html">Rust Phase 4 native KiCad netlist slice</a>
+      </li>
+      <li>
+        <a href="rust-phase4-exit-audit.html">Rust Phase 4 schematic compiler exit audit</a>
+      </li>
+      <li>
+        <a href="rust-kicad-version-compatibility.html">Rust KiCad version compatibility policy</a>
+      </li>
+      <li>
+        <a href="rust-font-text-contracts.html">Rust font, shaping, and outline contracts</a>
+      </li>
+      <li>
+        <a href="rust-native-source-read-newstroke.html">Rust issue #84 source reads and Newstroke geometry</a>
+      </li>
+      <li>
+        <a href="rust-pcb-footprint-authoring.html">Rust issue #84 typed PCB and footprint authoring</a>
+      </li>
+      <li>
+        <a href="rust-board-plotter-phase5-slice.html">Rust Phase 5 board Plotter-IR slices</a>
+      </li>
+      <li>
+        <a href="rust-schematic-plotter-phase5-slice.html">Rust Phase 5 schematic Plotter-IR foundation</a>
+      </li>
+      <li>
+        <a href="rust-schematic-annotations-phase5-slice.html">Rust Phase 5 schematic annotations</a>
+      </li>
+      <li>
+        <a href="rust-schematic-graphics-phase5-slice.html">Rust Phase 5 schematic graphics</a>
+      </li>
+      <li>
+        <a href="rust-schematic-symbols-phase5-slice.html">Rust Phase 5 placed schematic symbols</a>
+      </li>
+      <li>
+        <a href="rust-schematic-sheets-phase5-slice.html">Rust Phase 5 hierarchical schematic sheets</a>
+      </li>
+      <li>
+        <a href="rust-phase5-exit-audit.html">Rust Phase 5 Plotter-IR exit audit</a>
+      </li>
+      <li>
+        <a href="rust-phase6-native-cruncher-audit.html">Rust Phase 6 native Cruncher delivery audit</a>
+      </li>
+      <li>
+        <a href="rust-native-svg-phase6-slice.html">Rust native base SVG Phase 6 slice</a>
+      </li>
+      <li>
+        <a href="rust-direct-svg-preview.html">Direct native Rust SVG previews</a>
+      </li>
+      <li>
+        <a href="rust-native-physical-provider-phase6-slice.html">Rust native PCB physical provider Phase 6 slice</a>
+      </li>
+      <li>
+        <a href="rust-native-design-facts-phase6-slice.html">Rust native design facts Phase 6 slice</a>
+      </li>
+      <li>
+        <a href="rust-native-full-cli-phase6-slice.html">Rust-backed Cruncher CLI compatibility Phase 6 slice</a>
+      </li>
+      <li>
+        <a href="rust-phase6-exit.html">Rust Phase 6 Windows release exit</a>
+      </li>
+      <li>
+        <a href="rust-native-performance-instrumentation.html">Rust native performance instrumentation</a>
+      </li>
+      <li>
+        <a href="rust-pcb-analytic-materializer.html">Rust PCB analytic materializer</a>
+      </li>
+      <li>
+        <a href="kicad-stroke-webfont.html">KiCad Newstroke webfont bundle</a>
+      </li>
+    </ul>
+  </section>
+</body>
+</html>

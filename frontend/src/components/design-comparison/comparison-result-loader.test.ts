@@ -1,10 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchApi } from "@/lib/api";
 import { hydrateDesignComparePayload } from "./comparison-result-loader";
-import type {
-    DesignCompareBundle,
-    DesignCompareResult,
-} from "./types";
+import type { LegacyResult } from "./legacy-v3-result";
+import type { DesignCompareBundle } from "./types";
 
 vi.mock("@/lib/api", () => ({
     fetchApi: vi.fn(),
@@ -31,8 +29,8 @@ describe("comparison result sidecars", () => {
                 compare: "head",
                 files: { base: [], head: [] },
             },
-            schematic: { pages: [], changes: [], groups: [], summary: {} },
-            pcb: { changes: [], groups: [], summary: {}, route_metrics: {} },
+            schematic: { pages: [], changes: [], summary: {} },
+            pcb: { changes: [], summary: {}, route_metrics: {} },
             bom: null,
             stackup: { base: [], head: [], changed: false, present: false },
             document_diff: {
@@ -70,15 +68,35 @@ describe("comparison result sidecars", () => {
         const result = await hydrateDesignComparePayload(bundle);
 
         expect(fetchApi).toHaveBeenCalledTimes(6);
-        expect(result.schema).toBe("prism.semantic_comparison_v3");
-        expect(result.document_diff.navigation).toEqual({});
+        expect(result.schema).toBe("prism.design_compare.result.a1");
+        expect(result.projectDiff.navigation).toEqual({});
         expect(result.stackup.present).toBe(false);
     });
 
     it("loads a bundle that has no fabrication sidecar", async () => {
         // Comparisons cached before the fabrication domain existed are still
         // valid results; requiring the sidecar would strand every one of them.
-        vi.mocked(fetchApi).mockImplementation(async () => response({}));
+        const values: Record<string, unknown> = {
+            core: {
+                schema: "prism.semantic_comparison_v3",
+                base: "base",
+                head: "head",
+                files: { base: [], head: [] },
+            },
+            schematic: { changes: [] },
+            pcb: { changes: [] },
+            bom: null,
+            stackup: { base: [], head: [], changed: false, present: false },
+            document_diff: {
+                schema: "prism.kicad_project_diff_v1",
+                provider: "prism-semantic",
+                project: { documents: [] },
+                navigation: {},
+                diagnostics: [],
+            },
+        };
+        vi.mocked(fetchApi).mockImplementation(async (url) =>
+            response(values[String(url).split("/").pop() ?? ""]));
         const names = [
             "core",
             "schematic",
@@ -110,11 +128,23 @@ describe("comparison result sidecars", () => {
     });
 
     it("returns an inlined partial result without additional requests", async () => {
-        const partial = {
+        const partial: LegacyResult = {
             schema: "prism.semantic_comparison_v3",
-        } as DesignCompareResult;
+            schematic: { changes: [] },
+            pcb: { changes: [] },
+            document_diff: {
+                schema: "prism.kicad_project_diff_v1",
+                provider: "prism-semantic",
+                project: { documents: [] },
+                navigation: {},
+                diagnostics: [],
+            },
+        };
 
-        await expect(hydrateDesignComparePayload(partial)).resolves.toBe(partial);
+        const result = await hydrateDesignComparePayload(partial);
+
         expect(fetchApi).not.toHaveBeenCalled();
+        expect(result.schema).toBe("prism.design_compare.result.a1");
+        expect(result.projectDiff.navigation).toEqual({});
     });
 });

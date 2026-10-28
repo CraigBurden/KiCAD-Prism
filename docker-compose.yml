@@ -4,6 +4,9 @@ services:
     container_name: kicad-prism-postgres
     restart: unless-stopped
     shm_size: 256mb
+    # Loaded so the ops get_slow_queries diagnostic can read query timings
+    # (ADR §11, D25). Removing it only makes that tool report available=false.
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=top"]
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-kicad_prism}
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
@@ -26,6 +29,12 @@ services:
         # which builds a mixed-architecture image that fails in confusing ways.
         KICAD_BASE_IMAGE: ${KICAD_BASE_IMAGE:-kicad/kicad:10.0.4@sha256:ee71e88396f8563168eb1ef282cda9ff2670fe86a677c63dd78b35e3d464454c}
         KICAD_BASE_PLATFORM: ${KICAD_BASE_PLATFORM:-linux/amd64}
+        PRISM_RELEASE: ${PRISM_RELEASE:-development}
+        PRISM_REVISION: ${PRISM_REVISION:-unknown}
+        PRISM_BUILD_DATE: ${PRISM_BUILD_DATE:-unknown}
+      # The pinned Simulation Studio engines are a private release (backend/Dockerfile).
+      secrets:
+        - prism_sim_release_token
     platform: ${DOCKER_PLATFORM:-linux/amd64}
     container_name: kicad-prism-backend
     # CPU/memory ceilings protect interactive API capacity from unbounded worker
@@ -46,6 +55,13 @@ services:
       # Release Studio signing key. Read-only, and mounted only into the API:
       # the private key must never reach the worker or the database.
       - ./data/secrets:/run/secrets/prism:ro
+    # Every variable in the deployment env file reaches the container, as in
+    # deploy/release/compose.yml. --env-file alone only fills the ${...}
+    # placeholders below; set PRISM_ENV_FILE when that file is not ./.env.
+    # Entries under environment: take precedence over the file.
+    env_file:
+      - path: ${PRISM_ENV_FILE:-.env}
+        required: false
     environment:
       - PYTHONUNBUFFERED=1
       # Root directory for storing projects
@@ -104,15 +120,20 @@ services:
       # GitHub Token for private repository access and Release publishing (optional)
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       - GITLAB_TOKEN=${GITLAB_TOKEN:-}
-      # Custom token_name variables in PRISM_FORGE_HOSTS need a local env_file
-      # override; see docs/FORGE_HOSTS.md.
+      # Custom token_name variables in PRISM_FORGE_HOSTS arrive through env_file.
       - PRISM_FORGE_HOSTS=${PRISM_FORGE_HOSTS:-}
       - PRISM_DATABASE_URL=${PRISM_DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-kicad-prism-local}@postgres:5432/${POSTGRES_DB:-kicad_prism}}
       - PRISM_DATABASE_POOL_MIN_SIZE=${PRISM_DATABASE_POOL_MIN_SIZE:-1}
       - PRISM_DATABASE_POOL_MAX_SIZE=${PRISM_DATABASE_POOL_MAX_SIZE:-10}
       - CATALOG_ARTIFACT_ROOT=${CATALOG_ARTIFACT_ROOT:-/app/projects/.kicad-prism/artifacts}
+      - COMMENT_ATTACHMENT_ROOT=${COMMENT_ATTACHMENT_ROOT:-/app/projects/.kicad-prism/comment-attachments}
+      - COMMENT_ATTACHMENT_MAX_BYTES=${COMMENT_ATTACHMENT_MAX_BYTES:-10485760}
+      - COMMENT_ATTACHMENT_PROJECT_QUOTA_BYTES=${COMMENT_ATTACHMENT_PROJECT_QUOTA_BYTES:-2147483648}
+      - COMMENT_ATTACHMENT_LINK_SECRET=${COMMENT_ATTACHMENT_LINK_SECRET:-}
+      - COMMENT_ATTACHMENT_LINK_TTL_DAYS=${COMMENT_ATTACHMENT_LINK_TTL_DAYS:-365}
       - CATALOG_IMPORT_ROOTS=${CATALOG_IMPORT_ROOTS:-}
       - CATALOG_RETENTION_ENABLED=${CATALOG_RETENTION_ENABLED:-true}
+      - CATALOG_DRAFT_MODEL_QUARANTINE_DAYS=${CATALOG_DRAFT_MODEL_QUARANTINE_DAYS:-30}
       - CATALOG_IMPORT_MAX_FILES=${CATALOG_IMPORT_MAX_FILES:-100000}
       - CATALOG_IMPORT_MAX_FILE_BYTES=${CATALOG_IMPORT_MAX_FILE_BYTES:-2147483648}
       - CATALOG_IMPORT_MAX_SNAPSHOT_BYTES=${CATALOG_IMPORT_MAX_SNAPSHOT_BYTES:-214748364800}
@@ -128,6 +149,8 @@ services:
       - CATALOG_KLC_FOOTPRINT_LIB_DIR=${CATALOG_KLC_FOOTPRINT_LIB_DIR:-}
       - REMOTE_PROVIDER_LIBRARY_PREFIX=${REMOTE_PROVIDER_LIBRARY_PREFIX:-remote}
       - REMOTE_PROVIDER_DESTINATION_DIR=${REMOTE_PROVIDER_DESTINATION_DIR:-$${KIPRJMOD}/RemoteLibrary}
+      - REMOTE_PROVIDER_EMBED_3D_MODELS=${REMOTE_PROVIDER_EMBED_3D_MODELS:-true}
+      - REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES=${REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES:-16777216}
       - REMOTE_PROVIDER_OAUTH_CLIENT_ID=${REMOTE_PROVIDER_OAUTH_CLIENT_ID:-kicad-prism-kicad}
       - REMOTE_PROVIDER_ACCESS_TOKEN_TTL_SECONDS=${REMOTE_PROVIDER_ACCESS_TOKEN_TTL_SECONDS:-3600}
       - REMOTE_PROVIDER_REFRESH_TOKEN_TTL_SECONDS=${REMOTE_PROVIDER_REFRESH_TOKEN_TTL_SECONDS:-604800}
@@ -137,8 +160,6 @@ services:
       - PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS=${PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS:-2}
       - PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS=${PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS:-2}
       - PRISM_DESIGN_COMPARE_CACHE=${PRISM_DESIGN_COMPARE_CACHE:-/app/projects/.kicad-prism/design-compare/revision-cache}
-      - PRISM_SEMANTIC_VIEWER_CACHE=${PRISM_SEMANTIC_VIEWER_CACHE:-/app/projects/.kicad-prism/semantic-cache}
-      - PRISM_PCB_GEOMETRY_BACKEND=${PRISM_PCB_GEOMETRY_BACKEND:-legacy}
     command: >
       sh -c '/app/venv/bin/python -m uvicorn app.main:app
       --host 0.0.0.0
@@ -153,6 +174,12 @@ services:
       args:
         KICAD_BASE_IMAGE: ${KICAD_BASE_IMAGE:-kicad/kicad:10.0.4@sha256:ee71e88396f8563168eb1ef282cda9ff2670fe86a677c63dd78b35e3d464454c}
         KICAD_BASE_PLATFORM: ${KICAD_BASE_PLATFORM:-linux/amd64}
+        PRISM_RELEASE: ${PRISM_RELEASE:-development}
+        PRISM_REVISION: ${PRISM_REVISION:-unknown}
+        PRISM_BUILD_DATE: ${PRISM_BUILD_DATE:-unknown}
+      # The pinned Simulation Studio engines are a private release (backend/Dockerfile).
+      secrets:
+        - prism_sim_release_token
     platform: ${DOCKER_PLATFORM:-linux/amd64}
     container_name: kicad-prism-catalog-worker
     restart: unless-stopped
@@ -171,6 +198,13 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 10
+    # Every variable in the deployment env file reaches the container, as in
+    # deploy/release/compose.yml. --env-file alone only fills the ${...}
+    # placeholders below; set PRISM_ENV_FILE when that file is not ./.env.
+    # Entries under environment: take precedence over the file.
+    env_file:
+      - path: ${PRISM_ENV_FILE:-.env}
+        required: false
     environment:
       - PYTHONUNBUFFERED=1
       - KICAD_PROJECTS_ROOT=/app/projects
@@ -190,6 +224,7 @@ services:
       - CATALOG_ARTIFACT_ROOT=${CATALOG_ARTIFACT_ROOT:-/app/projects/.kicad-prism/artifacts}
       - CATALOG_IMPORT_ROOTS=${CATALOG_IMPORT_ROOTS:-}
       - CATALOG_RETENTION_ENABLED=${CATALOG_RETENTION_ENABLED:-true}
+      - CATALOG_DRAFT_MODEL_QUARANTINE_DAYS=${CATALOG_DRAFT_MODEL_QUARANTINE_DAYS:-30}
       - CATALOG_IMPORT_MAX_FILES=${CATALOG_IMPORT_MAX_FILES:-100000}
       - CATALOG_IMPORT_MAX_FILE_BYTES=${CATALOG_IMPORT_MAX_FILE_BYTES:-2147483648}
       - CATALOG_IMPORT_MAX_SNAPSHOT_BYTES=${CATALOG_IMPORT_MAX_SNAPSHOT_BYTES:-214748364800}
@@ -216,6 +251,12 @@ services:
       args:
         KICAD_BASE_IMAGE: ${KICAD_BASE_IMAGE:-kicad/kicad:10.0.4@sha256:ee71e88396f8563168eb1ef282cda9ff2670fe86a677c63dd78b35e3d464454c}
         KICAD_BASE_PLATFORM: ${KICAD_BASE_PLATFORM:-linux/amd64}
+        PRISM_RELEASE: ${PRISM_RELEASE:-development}
+        PRISM_REVISION: ${PRISM_REVISION:-unknown}
+        PRISM_BUILD_DATE: ${PRISM_BUILD_DATE:-unknown}
+      # The pinned Simulation Studio engines are a private release (backend/Dockerfile).
+      secrets:
+        - prism_sim_release_token
     platform: ${DOCKER_PLATFORM:-linux/amd64}
     container_name: kicad-prism-worker
     # Worker ceilings; pair with PRISM_*_CONCURRENCY slot caps in PostgreSQL.
@@ -236,6 +277,13 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 10
+    # Every variable in the deployment env file reaches the container, as in
+    # deploy/release/compose.yml. --env-file alone only fills the ${...}
+    # placeholders below; set PRISM_ENV_FILE when that file is not ./.env.
+    # Entries under environment: take precedence over the file.
+    env_file:
+      - path: ${PRISM_ENV_FILE:-.env}
+        required: false
     environment:
       - PYTHONUNBUFFERED=1
       - KICAD_PROJECTS_ROOT=/app/projects
@@ -245,11 +293,15 @@ services:
       - PRISM_WORKER_CONCURRENCY=${PRISM_WORKER_CONCURRENCY:-4}
       - PRISM_WORKER_POLL_SECONDS=${PRISM_WORKER_POLL_SECONDS:-0.5}
       - PRISM_AUTO_SYNC_INTERVAL_SECONDS=${PRISM_AUTO_SYNC_INTERVAL_SECONDS:-300}
+      - PRISM_GIT_FETCH_TIMEOUT_SECONDS=${PRISM_GIT_FETCH_TIMEOUT_SECONDS:-300}
       - PRISM_JOB_LEASE_SECONDS=${PRISM_JOB_LEASE_SECONDS:-30}
       - PRISM_JOB_HEARTBEAT_SECONDS=${PRISM_JOB_HEARTBEAT_SECONDS:-10}
       - PRISM_JOB_CANCEL_GRACE_SECONDS=${PRISM_JOB_CANCEL_GRACE_SECONDS:-10}
       - PRISM_JOB_ARTIFACT_ROOT=${PRISM_JOB_ARTIFACT_ROOT:-/app/projects/.kicad-prism}
-      - PRISM_WEBGPU_CONCURRENCY=${PRISM_WEBGPU_CONCURRENCY:-1}
+      # Tracker ops upload comment attachments (GitLab) or sign image links (GitHub).
+      - COMMENT_ATTACHMENT_ROOT=${COMMENT_ATTACHMENT_ROOT:-/app/projects/.kicad-prism/comment-attachments}
+      - COMMENT_ATTACHMENT_LINK_SECRET=${COMMENT_ATTACHMENT_LINK_SECRET:-}
+      - COMMENT_ATTACHMENT_LINK_TTL_DAYS=${COMMENT_ATTACHMENT_LINK_TTL_DAYS:-365}
       - PRISM_DESIGN_COMPARE_CONCURRENCY=${PRISM_DESIGN_COMPARE_CONCURRENCY:-1}
       - PRISM_WORKFLOW_CONCURRENCY=${PRISM_WORKFLOW_CONCURRENCY:-1}
       - PRISM_IMPORT_CONCURRENCY=${PRISM_IMPORT_CONCURRENCY:-1}
@@ -260,20 +312,25 @@ services:
       - PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS=${PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS:-2}
       - PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS=${PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS:-2}
       - PRISM_DESIGN_COMPARE_CACHE=${PRISM_DESIGN_COMPARE_CACHE:-/app/projects/.kicad-prism/design-compare/revision-cache}
-      - PRISM_SEMANTIC_VIEWER_CACHE=${PRISM_SEMANTIC_VIEWER_CACHE:-/app/projects/.kicad-prism/semantic-cache}
       - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
       - TRACKER_CREDENTIAL_ROOT_KEY=${TRACKER_CREDENTIAL_ROOT_KEY:-}
       - TRACKER_CREDENTIAL_ROOT_KEY_ID=${TRACKER_CREDENTIAL_ROOT_KEY_ID:-v1}
       - TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY=${TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY:-}
       - TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY_ID=${TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY_ID:-}
-      - PRISM_PCB_GEOMETRY_BACKEND=${PRISM_PCB_GEOMETRY_BACKEND:-legacy}
     command:
       - /app/venv/bin/python
       - -m
       - app.prism_worker
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      # Identity shown in the About dialog and bug reports. deploy.sh sets these
+      # from the checkout; published release images get them from CI.
+      args:
+        PRISM_RELEASE: ${PRISM_RELEASE:-development}
+        PRISM_REVISION: ${PRISM_REVISION:-unknown}
+        PRISM_BUILD_DATE: ${PRISM_BUILD_DATE:-unknown}
     container_name: kicad-prism-frontend
     restart: unless-stopped
     ports:
@@ -285,3 +342,10 @@ services:
 
 volumes:
   prism-postgres-data:
+
+secrets:
+  # A GitHub token that can read krishna-swaroop/prism-sim-studio's releases,
+  # used only while building the image (scripts/fetch_sim_engines.py). Unset,
+  # the image builds without Simulation Studio engines.
+  prism_sim_release_token:
+    environment: PRISM_SIM_RELEASE_TOKEN

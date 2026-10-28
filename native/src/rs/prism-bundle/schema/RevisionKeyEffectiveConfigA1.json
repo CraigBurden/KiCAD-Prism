@@ -1,0 +1,60 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.revision_key.effective_config:a1",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.revision_key.effective_config.a1",
+            "description": "Document schema id."
+        },
+        "project_file": {
+            "$ref": "#/$defs/RepoPath",
+            "description": "The project anchor: the resolved `.kicad_pro` (its last segment ends in\n`.kicad_pro`, ASCII case-insensitive). Its directory is KiCad's\n`KIPRJMOD`. Must be a blob entry of the listing."
+        },
+        "root_schematic": {
+            "$ref": "#/$defs/RepoPath",
+            "description": "The root schematic the build parses (ends in `.kicad_sch`). Absent when\nthe project has none or Prism resolved none. Must be a blob entry of the\nlisting when present."
+        },
+        "board": {
+            "$ref": "#/$defs/RepoPath",
+            "description": "The board the build parses (ends in `.kicad_pcb`). Absent when the\nproject has none or Prism resolved none. Must be a blob entry of the\nlisting when present."
+        },
+        "excluded_dirs": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/RepoPath"
+            },
+            "description": "Directories whose entries are never selected: Prism's resolved\ndesign-output and manufacturing-output directories, whether or not they\nexist at this revision. Sorted by UTF-8 bytes, strictly increasing; no\nelement lies under another; none contains `project_file`,\n`root_schematic` or `board`. Empty when nothing is excluded."
+        },
+        "zone_fills": {
+            "$ref": "#/$defs/RevisionKeyZoneFills",
+            "description": "Zone-fill handling of the board stage, from Prism's stored project\nsetting `zoneFills`. Absent means `refill`; the only value ever written\nis `saved`, and an explicit `refill` is `config-invalid`, so each config\nhas one spelling. Last in the canonical key order, so a config without it\nkeeps its canonical bytes."
+        }
+    },
+    "required": [
+        "schema",
+        "project_file",
+        "excluded_dirs"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "The effective project configuration: everything outside the source files\nthat changes which files are the project or how they are read. Prism\nresolves it (stored settings over the committed `.prism.json` over\ndetection), by the same function for a commit and for a working tree; the\nCLI only validates and hashes it. Its canonical bytes, hashed into the key,\nare the compact JSON of exactly these fields in this order with absent\noptional fields omitted (revision-key.md, \"Canonical config bytes\"). All\npaths are repository-relative.",
+    "title": "Revision key effective config a1",
+    "$defs": {
+        "RepoPath": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*$",
+            "description": "Repository-relative POSIX path, exactly as `git ls-tree` names the entry:\n`/`-separated, case preserved, no leading `/`, no empty, `.` or `..`\nsegment, no backslash and no `:`. The same character rule as ArchivePath.\nIt is the only path type in bundle documents: a file has one spelling\nwhichever project in the repository refers to it, and a file outside the\nproject directory needs no `..`."
+        },
+        "RevisionKeyZoneFills": {
+            "type": "string",
+            "enum": [
+                "refill",
+                "saved"
+            ],
+            "description": "How the board stage obtains zone fills (revision-key.md §4; cli-spec.md\n§5.2.3). The config writes only `saved`: the default is spelled by\nomitting the field, and an explicit `refill` is `config-invalid`."
+        }
+    }
+}

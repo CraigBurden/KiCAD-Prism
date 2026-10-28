@@ -3,6 +3,7 @@ import { Download } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import * as api from "./api";
 import { DOCUMENT_ORDER, shortDigest } from "./flow";
@@ -151,7 +152,7 @@ export function MemberViewer({
     return (
         <div className="space-y-2 rounded-md border p-3">
             <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-sm">{member.path}</span>
+                <span className="min-w-0 truncate font-mono text-sm" title={member.path}>{member.path}</span>
                 <Badge variant="outline">{member.media_type || "unknown"}</Badge>
                 <span className="font-mono text-xs text-muted-foreground">
                     {shortDigest(member.released_digest)}
@@ -181,7 +182,7 @@ export function MemberViewer({
             </div>
             {failure && <p className="text-sm text-destructive">{failure}</p>}
             {!failure && kind === "none" && (
-                <p className="text-sm text-muted-foreground">No preview. Download to inspect.</p>
+                <p className="text-sm text-muted-foreground">No preview</p>
             )}
             {!failure && kind === "pdf" && objectUrl && (
                 // react-doctor-disable-next-line react-doctor/iframe-missing-sandbox - unsandboxed by design: Chromium never loads its PDF viewer in a sandboxed frame, and src is a digest-checked same-origin blob on the pdf-only branch
@@ -226,24 +227,24 @@ export function VendorPackCard({
     return (
         <div className="space-y-2 border p-3">
             <div className="flex flex-wrap items-end gap-2">
-                <label className="min-w-0 flex-1 space-y-1 text-xs">
-                    <span className="text-muted-foreground">Manufacturer</span>
-                    <select
-                        aria-label="Manufacturer"
-                        className="flex h-8 w-full border border-input bg-background px-2 py-1 text-xs leading-none"
-                        value={selected.id}
-                        onChange={(event) => {
-                            setUncontrolledVendorId(event.target.value);
-                            onVendorChange?.(event.target.value);
-                        }}
-                    >
+                <Select
+                    value={selected.id}
+                    onValueChange={(value) => {
+                        setUncontrolledVendorId(value);
+                        onVendorChange?.(value);
+                    }}
+                >
+                    <SelectTrigger aria-label="Manufacturer" size="sm" className="min-w-0 flex-1 text-xs">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
                         {profiles.map((profile) => (
-                            <option key={profile.id} value={profile.id}>
+                            <SelectItem key={profile.id} value={profile.id}>
                                 {profile.title}
-                            </option>
+                            </SelectItem>
                         ))}
-                    </select>
-                </label>
+                    </SelectContent>
+                </Select>
                 <Button
                     size="xs"
                     variant="outline"
@@ -261,8 +262,11 @@ export function VendorPackCard({
             </div>
             {children}
             {!ready && (
-                <p className="text-xs text-destructive">
-                    Incomplete: {(readinessForSelected?.missing_requirements ?? []).join(", ") || "manufacturer pack is not ready"}
+                <p
+                    className="truncate text-xs text-destructive"
+                    title={(readinessForSelected?.missing_requirements ?? []).join(", ") || "The manufacturer pack is not ready"}
+                >
+                    Missing: {(readinessForSelected?.missing_requirements ?? []).join(", ") || "pack not ready"}
                 </p>
             )}
         </div>

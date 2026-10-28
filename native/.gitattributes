@@ -1,0 +1,4 @@
+* text=auto eol=lf
+
+# Vendor goldens are compared byte for byte, CRLF included (amendment C3 §4).
+parity/goldens/*/vendor-jlcpcb/** -text

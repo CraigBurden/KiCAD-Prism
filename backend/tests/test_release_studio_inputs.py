@@ -10,10 +10,16 @@ from unittest.mock import patch
 from fastapi import HTTPException
 
 from app.release_studio.impedance import TEMPLATE_CSV, parse_impedance_csv
+from app.services.job_service import jobs as job_queue
 from app.release_studio.inputs import synthesize_configuration
 from app.release_studio.ipc import OTHER, public_ipc_payload
 from app.release_studio.source import apply_source_defaults, discover_source
-from app.release_studio.steps import isolated_cli_env
+from app.services.design_bundle import consumer
+from app.services.design_bundle.errors import DesignDataPending
+from app.services.design_bundle.manifest import Readiness
+from app.services.kicad_tools import isolated_env
+from support.repo import init_repo
+from tests.kicad_tool_fakes import FakeTool
 
 
 class IpcOptionTests(unittest.TestCase):
@@ -40,7 +46,7 @@ class IpcOptionTests(unittest.TestCase):
 
 class IsolatedCliEnvTests(unittest.TestCase):
     def test_points_temp_and_runtime_at_the_scratch_dir(self) -> None:
-        env = isolated_cli_env(
+        env = isolated_env(
             Path("/tmp/kicad-cli-test"),
             base={"PATH": "/usr/bin", "TMPDIR": "/tmp"},
         )
@@ -53,7 +59,7 @@ class IsolatedCliEnvTests(unittest.TestCase):
     def test_default_variant_is_omitted_from_bom_and_positions(self) -> None:
         captured: list[list[str]] = []
 
-        def run(argv, cwd, timeout_seconds):  # noqa: ARG001
+        def run(argv, **_kwargs):
             captured.append([str(part) for part in argv])
             out = Path(argv[argv.index("--output") + 1])
             out.parent.mkdir(parents=True, exist_ok=True)
@@ -71,11 +77,10 @@ class IsolatedCliEnvTests(unittest.TestCase):
                 board_rel="board.kicad_pcb",
                 schematic_rel="board.kicad_sch",
                 output_root=root / "out",
-                cli_path="/usr/bin/kicad-cli",
+                tool=FakeTool(run),
                 variant="default",
                 bom_preset="Grouped By Value",
                 only=("bom", "positions"),
-                runner=run,
             )
         self.assertEqual(len(captured), 2)
         for argv in captured:
@@ -91,7 +96,7 @@ class IsolatedCliEnvTests(unittest.TestCase):
     def test_custom_bom_preset_still_uses_the_named_preset_flag(self) -> None:
         captured: list[list[str]] = []
 
-        def run(argv, cwd, timeout_seconds):  # noqa: ARG001
+        def run(argv, **_kwargs):
             captured.append([str(part) for part in argv])
             out = Path(argv[argv.index("--output") + 1])
             out.parent.mkdir(parents=True, exist_ok=True)
@@ -108,10 +113,9 @@ class IsolatedCliEnvTests(unittest.TestCase):
                 board_rel="",
                 schematic_rel="board.kicad_sch",
                 output_root=root / "out",
-                cli_path="/usr/bin/kicad-cli",
+                tool=FakeTool(run),
                 bom_preset="My House BOM",
                 only=("bom",),
-                runner=run,
             )
         bom = captured[0]
         self.assertIn("--preset", bom)
@@ -215,12 +219,31 @@ class SourceDiscoveryTests(unittest.TestCase):
                     "b" * 40,
                     "hardware/board",
                     "hardware/board/board.kicad_pro",
+                    "prj_board",
                 )
         self.assertEqual(names, ["Lite", "Pro"])
         project, commit = discover.call_args.args
         self.assertEqual(commit, "b" * 40)
         self.assertEqual(project.path, str(scoped.resolve()))
         self.assertEqual(project.project_file, "board.kicad_pro")
+        self.assertEqual(project.id, "prj_board")
+
+    def test_source_discovery_hands_the_project_id_to_the_catalog(self) -> None:
+        # The catalog reads the design bundle by project id; an empty id made
+        # every Release Studio lookup miss the bundle with a traceback.
+        files = ["board.kicad_pcb", "board.kicad_sch", "board.kicad_pro"]
+        with (
+            patch("app.release_studio.source._ls_tree", return_value=files),
+            patch("app.release_studio.source._bom_presets", return_value=[]),
+            patch(
+                "app.services.variant_catalog_service.discover_variant_catalog",
+                return_value={"variants": [{"name": "Lite"}]},
+            ) as discover,
+        ):
+            source = discover_source(Path("/unused"), "a" * 40, project_id="prj_1")
+        self.assertEqual(source["variants"], ["default", "Lite"])
+        project, _commit = discover.call_args.args
+        self.assertEqual(project.id, "prj_1")
 
     def test_variant_discovery_failure_offers_only_the_default(self) -> None:
         from app.release_studio import source as source_module
@@ -234,7 +257,9 @@ class SourceDiscoveryTests(unittest.TestCase):
                 side_effect=ValueError("no project file in this commit"),
             ),
         ):
-            source = discover_source(Path("/unused"), "a" * 40, "hardware/board")
+            source = discover_source(
+                Path("/unused"), "a" * 40, "hardware/board", project_id="prj_1"
+            )
         self.assertEqual(source["variants"], ["default"])
         self.assertEqual(source["variant"], "default")
 
@@ -247,6 +272,79 @@ class SourceDiscoveryTests(unittest.TestCase):
             names = source_module._variants(Path("/repo"), "b" * 40, None, None)
         self.assertEqual(names, [])
         discover.assert_not_called()
+
+    def test_without_a_project_id_the_catalog_is_not_read(self) -> None:
+        # The bundle is keyed by project id; a checkout path alone cannot name one.
+        from app.release_studio import source as source_module
+
+        with patch(
+            "app.services.variant_catalog_service.discover_variant_catalog"
+        ) as discover:
+            names = source_module._variants(
+                Path("/repo"), "b" * 40, "hardware/board", "hardware/board/board.kicad_pro"
+            )
+        self.assertEqual(names, [])
+        discover.assert_not_called()
+
+    def test_a_pending_bundle_is_logged_distinctly_and_offers_the_default(self) -> None:
+        from app.release_studio import source as source_module
+
+        with patch(
+            "app.services.variant_catalog_service.discover_variant_catalog",
+            side_effect=DesignDataPending(["projections/semantic-index.json"]),
+        ):
+            with self.assertLogs("app.release_studio.source", level="INFO") as logs:
+                names = source_module._variants(
+                    Path("/repo"), "b" * 40, None, "board.kicad_pro", "prj_1"
+                )
+        self.assertEqual(names, [])
+        self.assertIn("still building", "\n".join(logs.output))
+        self.assertNotIn("Traceback", "\n".join(logs.output))
+
+    def test_the_release_catalog_project_reads_the_bundle_by_id(self) -> None:
+        # Release Studio's _CatalogProject has no workspace row: the bundle
+        # read keys on its id and resolves the commit from its checkout.
+        from app.release_studio import source as source_module
+
+        class _Opened:
+            absent = False
+            working_tree_dirty = False
+
+            def readiness(self, paths):
+                return {path: Readiness(path, "ready", "parse", None) for path in paths}
+
+            def read_json(self, path):
+                return {
+                    "assembly": {
+                        "catalog": [
+                            {"name": "Lite", "description": None, "sources": ["project"]}
+                        ],
+                        "diagnostics": [],
+                    }
+                }
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            sha = init_repo(
+                root,
+                {
+                    "hardware/board/board.kicad_pro": "{}\n",
+                    "hardware/board/board.kicad_pcb": "(kicad_pcb)\n",
+                },
+            )
+            with patch.object(
+                consumer.reader, "open_revision", return_value=_Opened()
+            ) as open_revision:
+                names = source_module._variants(
+                    root,
+                    sha,
+                    "hardware/board",
+                    "hardware/board/board.kicad_pro",
+                    "prj_board",
+                )
+        self.assertEqual(names, ["Lite"])
+        self.assertEqual(open_revision.call_args.args[0], "prj_board")
+        self.assertEqual(open_revision.call_args.args[1], sha)
 
 
 class ApplySourceDefaultsTests(unittest.TestCase):
@@ -359,15 +457,14 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
             patch.object(
-                self.api.workspace,
-                "get_project_by_id",
+                self.api,
+                "authorized_project",
                 return_value={"path": "/tmp/project", "repo_url": "https://github.com/org/repo.git"},
             ),
             patch("app.release_studio.source.discover_source", return_value={"board": "board.kicad_pcb"}),
             patch.object(self.api.store, "get_source_defaults", return_value={}),
-            patch.object(
-                self.api.forge_publish,
-                "describe_forge",
+            patch(
+                "app.services.forge_publish_service.describe_forge",
                 return_value=type("Forge", (), {"to_dict": lambda self: {"kind": "github", "name": "GitHub", "host": "github.com", "owner_repo": "org/repo", "token_configured": True, "token_hint": ""}})(),
             ),
         ):
@@ -383,6 +480,7 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
             "schematics": ["a.kicad_sch"],
             "board": "a.kicad_pcb",
             "schematic": "a.kicad_sch",
+            "project": "a.kicad_pro",
             "variants": ["default", "assembly"],
             "bom_presets": ["Current project settings", "Grouped By Value"],
             "default_bom_preset": "Current project settings",
@@ -391,8 +489,8 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
             patch.object(
-                self.api.workspace,
-                "get_project_by_id",
+                self.api,
+                "authorized_project",
                 return_value={"path": "/tmp/project", "repo_url": "https://github.com/org/repo.git"},
             ),
             patch("app.release_studio.source.discover_source", return_value=discovered),
@@ -406,16 +504,23 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
                     "bom_preset": "Grouped By Value",
                 },
             ),
-            patch.object(
-                self.api.forge_publish,
-                "describe_forge",
-                return_value=type("Forge", (), {"to_dict": lambda self: {"kind": "github"}})(),
+            patch(
+                "app.services.forge_publish_service.describe_forge",
+                return_value=type("Forge", (), {"to_dict": lambda self: {"kind": "github", "name": "GitHub", "host": "github.com", "owner_repo": "org/repo", "token_configured": True, "token_hint": ""}})(),
             ),
         ):
             payload = asyncio.run(self.api.get_source("proj", commit_sha="a" * 40, user=self.user))
         self.assertEqual(payload["source"]["board"], "b.kicad_pcb")
         self.assertEqual(payload["source"]["variant"], "assembly")
         self.assertEqual(payload["source"]["default_bom_preset"], "Grouped By Value")
+        from fastapi.encoders import jsonable_encoder
+
+        from app.api import release_studio_models as models
+
+        self.assertEqual(
+            models.SourceResponse.model_validate(payload).model_dump(mode="json"),
+            jsonable_encoder(payload),
+        )
 
     def test_put_source_defaults_persists(self) -> None:
         import asyncio
@@ -435,6 +540,14 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
         persist.assert_called_once()
         self.assertEqual(persist.call_args.args[0], "proj")
         self.assertEqual(payload["defaults"]["board"], "b.kicad_pcb")
+        from fastapi.encoders import jsonable_encoder
+
+        from app.api import release_studio_models as models
+
+        self.assertEqual(
+            models.SourceDefaultsResponse.model_validate(payload).model_dump(mode="json"),
+            jsonable_encoder(payload),
+        )
 
     def test_create_candidate_remembers_source_picks(self) -> None:
         import asyncio
@@ -449,10 +562,10 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
         )
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
-            patch.object(self.api.jobs, "enqueue", return_value={"job_id": "job-1"}),
+            patch.object(job_queue, "enqueue", return_value={"job_id": "job-1"}),
             patch.object(self.api.store, "save_source_defaults") as persist,
-            patch.object(self.api.workspace, "get_project_by_id", return_value={"repo_url": ""}),
-            patch.object(self.api.forge_publish, "tag_exists", return_value=False),
+            patch.object(self.api, "authorized_project", return_value={"repo_url": ""}),
+            patch.object(self.api.PUBLISHER, "tag_taken", return_value=False),
         ):
             payload = asyncio.run(self.api.create_candidate("proj", request, user=self.user))
         persist.assert_called_once()
@@ -471,10 +584,10 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
         )
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
-            patch.object(self.api.jobs, "enqueue", return_value={"job_id": "job-1"}),
+            patch.object(job_queue, "enqueue", return_value={"job_id": "job-1"}),
             patch.object(self.api.store, "save_source_defaults", side_effect=RuntimeError("db down")),
-            patch.object(self.api.workspace, "get_project_by_id", return_value={"repo_url": ""}),
-            patch.object(self.api.forge_publish, "tag_exists", return_value=False),
+            patch.object(self.api, "authorized_project", return_value={"repo_url": ""}),
+            patch.object(self.api.PUBLISHER, "tag_taken", return_value=False),
         ):
             payload = asyncio.run(self.api.create_candidate("proj", request, user=self.user))
         self.assertEqual(payload["job"]["job_id"], "job-1")
@@ -482,18 +595,32 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
     def test_tag_check_uses_the_forge(self) -> None:
         import asyncio
 
+        from tests.release_publish_fakes import FakeForge
+
+        forge = FakeForge()
+        forge.tags.add("v1.0.0")
+
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
             patch.object(
-                self.api.workspace,
-                "get_project_by_id",
+                self.api,
+                "authorized_project",
                 return_value={"repo_url": "https://github.com/org/repo.git"},
             ),
-            patch.object(self.api.forge_publish, "tag_exists", return_value=True) as exists,
+            patch("app.services.forge_publish_service.forge_for", return_value=forge) as forge_for,
         ):
             payload = asyncio.run(self.api.check_release_tag("proj", "v1.0.0", user=self.user))
-        exists.assert_called_once_with("https://github.com/org/repo.git", "v1.0.0")
+        forge_for.assert_called_once_with("https://github.com/org/repo.git")
+        self.assertEqual(forge.calls, ["tag_exists"])
         self.assertTrue(payload["exists"])
+        from fastapi.encoders import jsonable_encoder
+
+        from app.api import release_studio_models as models
+
+        self.assertEqual(
+            models.ReleaseTagCheck.model_validate(payload).model_dump(mode="json"),
+            jsonable_encoder(payload),
+        )
 
     def test_impedance_template_is_csv(self) -> None:
         import asyncio
@@ -506,7 +633,7 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
     def test_source_rejects_short_commit(self) -> None:
         import asyncio
 
-        with patch.object(self.api, "get_project_for_role_or_404"):
+        with patch.object(self.api, "authorized_project", return_value={}):
             with self.assertRaises(HTTPException) as caught:
                 asyncio.run(self.api.get_source("proj", commit_sha="abc", user=self.user))
         self.assertEqual(caught.exception.status_code, 400)

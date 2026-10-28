@@ -113,7 +113,49 @@ after the layer plots.
 At build time, `synthesize_configuration` assembles a normalized mapping from
 identity, manufacturing, and the selected KiCad paths. That mapping is
 validated, snapshotted, and digest-bound to the build. It includes document
-metadata, IPC fields, variant, vendors, and `bom_preset`.
+metadata, IPC fields, variant, vendors, `bom_preset`, typography, sheet
+style, and artwork line weights.
+
+## Sheet style and typography
+
+Two committed configuration keys choose how the composed drawing sheets look.
+Both are technical inputs: they are part of `technical_config_digest` and the
+build identity.
+
+| Key | Values | Default | Effect |
+| --- | --- | --- | --- |
+| `sheet_style` | `prism`, `kicad` | `prism` | `prism` uses the harness palette: an ink-black frame and title block, grey rules and tints, and colour only where it carries meaning (do-not-populate red). `kicad` reproduces KiCad's red worksheet and plain tables unchanged. |
+| `typography` | `geist-pixel-square`, `geist-pixel-grid`, `geist-pixel-circle`, `geist-pixel-triangle`, `geist-pixel-line`, `kicad-newstroke` | `geist-pixel-square` | The bundled face used for sheet text. `kicad-newstroke` draws KiCad's stroke vectors and covers symbols such as ⌀ and ✓ that the Geist faces lack. |
+| `artwork_line_weights` | `paper`, `drawing` | `paper` | How assembly and testpoint artwork strokes and designator limits are measured. `paper` prints them at their configured size: the artwork is drawn at the sheet's ratio, so a 0.35 mm outline prints 0.35 mm at any scale. `drawing` keeps the same numbers in board millimetres, so they grow with the drawing (a 0.35 mm outline prints 1.75 mm at 5:1); it is kept for compatibility. |
+
+`prism` keeps KiCad's worksheet geometry exactly — outer and inner frame, the
+A–F / 1–8 zone grid and its labels — and changes only how it is painted. The
+title block keeps its fields and layout; its title row is tinted `#eef0f3`,
+alternate field rows are striped `#f7f8fa`, labels are muted `#6b6b70` and
+values are ink `#1d1d1f`. Every schedule is drawn as a boxed table with thin
+`#c4c8cf` rules, a tinted header band and alternate row stripes, and continues
+to use the standard scale series.
+
+`kicad` is retained so a project can match the rest of its KiCad drawing set.
+It is byte-for-byte the output the engine produced before `prism` became the
+default.
+
+`artwork_line_weights` applies to the assembly and testpoint views. In `paper`
+mode the build chooses the document set's sheet size and ratio before drawing,
+then passes that ratio to `prism-kicad artwork --paper-scale`; the sheet is
+placed at the same ratio, so the drawing's stated scale is the one its strokes
+were sized for. The committed artwork configs are tuned for paper: ISO 128-20
+line widths (0.35 mm for the board outline and cutouts, 0.25 mm for component
+bodies and pad envelopes, 0.18 mm for DNP hatching and other fine detail) and
+the ISO 3098 minimum text height of 1.8 mm, with designators
+capped at 2.5 mm. Designators still fit inside each body, and may still shrink
+below the configured minimum when the body is too small. The bundle path of
+these views needs the design bundle's `parse`, `board` and `models` stages.
+
+`drawing` is kept for compatibility: the numbers in the same config files are
+then read as board millimetres and are not divided, so the ink grows with the
+drawing scale. Geometry, the canvas margin, and the DNP hatch spacing are never
+divided in either mode because they describe the board rather than the ink.
 
 ## Cover and title block
 
@@ -145,8 +187,18 @@ the pinned catalogue, not `kicad-cli jobset run`. A jobset key in committed
 YAML is optional leftover and is ignored by the pipeline.
 
 The required schema remains `prism.release-studio.configuration/1`. File
-references are POSIX, repository-root-relative paths that resolve to regular
-files inside the selected commit.
+references are POSIX paths that resolve to regular files inside the selected
+commit.
+
+**Where a configuration lives.** A project's configurations are under
+`<project folder>/.prism/release-studio/configurations/`, and their file
+references are relative to the project folder. For a project at the repository
+root that is the repository root. For a monorepo subproject it is the
+subproject's folder: Settings saves there, and reads at a commit (candidates,
+builds) read there, turning the references into repository paths for the
+closure. A subproject never reads the repository root's configurations, so
+Settings and the at-commit listing show the same set (see `docs/UPGRADES.md`
+to move older root-level files into the subproject).
 
 ## Semantics
 

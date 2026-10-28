@@ -1,0 +1,34 @@
+{
+  "meta": {
+    "filename": "demo.kicad_pro",
+    "version": 3
+  },
+  "sheets": [
+    [
+      "00000000-0000-4000-8000-0000000000a1",
+      "Main"
+    ],
+    [
+      "00000000-0000-4000-8000-0000000000c1",
+      "Power"
+    ],
+    [
+      "00000000-0000-4000-8000-0000000000b1",
+      "Second"
+    ]
+  ],
+  "schematic": {
+    "top_level_sheets": [
+      {
+        "filename": "demo.kicad_sch",
+        "name": "Main",
+        "uuid": "00000000-0000-4000-8000-0000000000a1"
+      },
+      {
+        "filename": "second.kicad_sch",
+        "name": "Second",
+        "uuid": "00000000-0000-4000-8000-0000000000b1"
+      }
+    ]
+  }
+}

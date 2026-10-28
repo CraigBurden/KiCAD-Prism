@@ -4,7 +4,7 @@ import argparse
 import logging
 import sys
 
-from app.services.job_handlers import get_job_handler, load_builtin_job_handlers
+from app.services.job_handlers import get_job_handler, load_builtin_job_handlers, settle_job_end
 from app.services.job_runtime import (
     JobCancelled,
     JobContext,
@@ -23,6 +23,14 @@ logger = logging.getLogger("prism-job-runner")
 
 
 def execute(job_id: str, fence: int, worker_id: str) -> int:
+    try:
+        return _execute(job_id, fence, worker_id)
+    finally:
+        # Whatever ended the attempt, let the kind settle its own rows.
+        settle_job_end(job_id, jobs)
+
+
+def _execute(job_id: str, fence: int, worker_id: str) -> int:
     load_builtin_job_handlers()
     from app.services.trackers.composition import initialize_tracker_composition
 
@@ -63,6 +71,7 @@ def execute(job_id: str, fence: int, worker_id: str) -> int:
                 ],
                 message=result.message,
                 details=result.details,
+                settle=result.settle,
             )
         else:
             completed = jobs.complete(
@@ -73,6 +82,7 @@ def execute(job_id: str, fence: int, worker_id: str) -> int:
                 result_digest=result.result_digest,
                 message=result.message,
                 details=result.details,
+                settle=result.settle,
             )
         if not completed:
             raise LostJobLease("Fenced completion was rejected")
@@ -139,6 +149,10 @@ def main() -> None:
     parser.add_argument("--fence", required=True, type=int)
     parser.add_argument("--worker-id", required=True)
     args = parser.parse_args()
+    # A job process is short-lived: its counters (cache hits) flush at exit.
+    from app.services.ops import stats as ops_stats
+
+    ops_stats.start("job")
     raise SystemExit(execute(args.job_id, args.fence, args.worker_id))
 
 

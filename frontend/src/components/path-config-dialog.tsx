@@ -21,6 +21,8 @@ import {
     TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Settings, RefreshCw, Check, AlertCircle, FileSearch } from "lucide-react";
+import { fetchApi, fetchJson } from "@/lib/api";
+import { DesignDataSection } from "@/components/design-data-section";
 
 interface PathConfig {
     schematic?: string;
@@ -107,18 +109,14 @@ export function PathConfigDialog({ projectId, open, onOpenChange }: PathConfigDi
 
     const fetchConfig = useCallback(async (signal?: AbortSignal) => {
         try {
-            const response = await fetch(`/api/projects/${projectId}/config`, { signal });
-
-            if (response.ok) {
-                const data = (await response.json()) as PathConfigResponse;
-                const nextConfig = data.config || {};
-                setConfig(nextConfig);
-                setOriginalConfig(nextConfig);
-                setResolvedPaths(data.resolved || {});
-                setSource(data.source || "auto-detected");
-                setWorkflowsText(formatWorkflows(nextConfig.workflows));
-                setWorkflowsError(null);
-            }
+            const data = await fetchJson<PathConfigResponse>(`/api/projects/${projectId}/config`, { signal });
+            const nextConfig = data.config || {};
+            setConfig(nextConfig);
+            setOriginalConfig(nextConfig);
+            setResolvedPaths(data.resolved || {});
+            setSource(data.source || "auto-detected");
+            setWorkflowsText(formatWorkflows(nextConfig.workflows));
+            setWorkflowsError(null);
         } catch (err) {
             if (err instanceof DOMException && err.name === "AbortError") {
                 return;
@@ -130,14 +128,11 @@ export function PathConfigDialog({ projectId, open, onOpenChange }: PathConfigDi
     const detectPaths = async () => {
         setDetecting(true);
         try {
-            const response = await fetch(`/api/projects/${projectId}/detect-paths`, {
+            const data = await fetchJson<{ detected?: Partial<PathConfig> }>(`/api/projects/${projectId}/detect-paths`, {
                 method: "POST",
             });
-            if (response.ok) {
-                const data = await response.json();
-                setConfig((prev) => ({ ...prev, ...(data.detected || {}) }));
-                setSource("auto-detected (preview)");
-            }
+            setConfig((prev) => ({ ...prev, ...(data.detected || {}) }));
+            setSource("auto-detected (preview)");
         } catch (err) {
             console.error("Failed to detect paths:", err);
         } finally {
@@ -176,15 +171,13 @@ export function PathConfigDialog({ projectId, open, onOpenChange }: PathConfigDi
             delete configPayload.project_name;
 
             const [configResponse, nameResponse] = await Promise.all([
-                fetch(`/api/projects/${projectId}/config`, {
+                fetchApi(`/api/projects/${projectId}/config`, {
                     method: "PUT",
-                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(configPayload),
                 }),
                 shouldSaveName
-                    ? fetch(`/api/projects/${projectId}/name`, {
+                    ? fetchApi(`/api/projects/${projectId}/name`, {
                         method: "PUT",
-                        headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ display_name: config.project_name?.trim() }),
                     })
                     : Promise.resolve({ ok: true })
@@ -399,6 +392,13 @@ export function PathConfigDialog({ projectId, open, onOpenChange }: PathConfigDi
                                 )}
                             </div>
                         ))}
+
+                        <Separator />
+
+                        {/* The settings button only mounts this dialog for users who
+                            may manage the project (ProjectDetailPage gates it on
+                            canManageProjects), so editing is always allowed here. */}
+                        <DesignDataSection projectId={projectId} canEdit={true} />
                     </div>
                 </ScrollArea>
 

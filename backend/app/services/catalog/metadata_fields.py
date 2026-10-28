@@ -3,43 +3,21 @@
 from __future__ import annotations
 
 import json
-import re
 import uuid
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlparse
 
+from app.services.catalog.field_rules import CONTEXT_BULK, field_error
 from app.services.catalog.metadata_schema import (
     BUILTIN_METADATA_FIELDS,
     CatalogMetadataSchema,
     METADATA_FIELD_TYPES,
 )
-from app.services.catalog.metadata_normalization import dedupe
+from app.services.catalog.metadata_normalization import custom_field_key, dedupe, is_reserved_stamp_key
 from app.services.catalog.normalization import (
     json_loads as _json_loads,
     utc_now_iso as _utc_now_iso,
 )
-
-
-def validate_metadata_value(field: dict[str, Any], value: str) -> str:
-    value = str(value or "").strip()
-    if not value:
-        return "Value is required" if field.get("required") else ""
-    field_type = str(field.get("type") or "text")
-    if field_type == "number":
-        try:
-            float(value)
-        except ValueError:
-            return "Enter a valid number"
-    elif field_type == "url":
-        parsed = urlparse(value)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            return "Enter a valid HTTP(S) URL"
-    elif field_type == "boolean" and value.casefold() not in {"true", "false", "1", "0", "yes", "no"}:
-        return "Enter true or false"
-    elif field_type == "enum" and value not in field.get("enum_values", []):
-        return "Choose a configured enum value"
-    return ""
 
 
 @dataclass(frozen=True)
@@ -59,17 +37,13 @@ class CatalogMetadataFields:
         self._metadata_schema = metadata_schema
 
     def list_fields(self, conn: Any, include_archived: bool = False) -> list[dict[str, Any]]:
-        rows = conn.execute(
-            "SELECT * FROM catalog_field_definitions "
-            + ("" if include_archived else "WHERE archived = 0 ")
-            + "ORDER BY display_order, field_key"
-        ).fetchall()
-        return [self._metadata_schema.field_payload(dict(row)) for row in rows]
+        return self._metadata_schema.list_fields(conn, include_archived=include_archived)
 
     @staticmethod
     def prepare_create_field(payload: dict[str, Any]) -> PreparedMetadataField:
-        field_key = re.sub(r"[^a-z0-9_]+", "_", str(payload.get("key") or payload.get("label") or "").strip().casefold()).strip("_")
-        if not field_key or field_key in {str(field["key"]) for field in BUILTIN_METADATA_FIELDS}:
+        field_key = custom_field_key(payload.get("key") or payload.get("label") or "")
+        reserved = {str(field["key"]) for field in BUILTIN_METADATA_FIELDS}
+        if not field_key or field_key in reserved or is_reserved_stamp_key(field_key):
             raise ValueError("Custom field key is empty or reserved")
         field_type = str(payload.get("type") or "text")
         if field_type not in METADATA_FIELD_TYPES:
@@ -82,6 +56,15 @@ class CatalogMetadataFields:
         return PreparedMetadataField(payload, field_key, field_type, enum_values, now, field_id)
 
     def create_field(self, conn: Any, payload: PreparedMetadataField, actor: str) -> dict[str, Any]:
+        created = self.create_field_unless_defined(conn, payload, actor)
+        if created is None:
+            raise ValueError(f"Metadata field '{payload.field_key}' already exists")
+        return created
+
+    def create_field_unless_defined(
+        self, conn: Any, payload: PreparedMetadataField, actor: str
+    ) -> dict[str, Any] | None:
+        """Create the field, or return ``None`` when its key is already defined (archived or not)."""
         field_key = payload.field_key
         field_type = payload.field_type
         enum_values = payload.enum_values
@@ -90,7 +73,7 @@ class CatalogMetadataFields:
         source = payload.payload
         exists = conn.execute("SELECT 1 FROM catalog_field_definitions WHERE field_key = %s", (field_key,)).fetchone()
         if exists:
-            raise ValueError(f"Metadata field '{field_key}' already exists")
+            return None
         order_row = conn.execute("SELECT COALESCE(MAX(display_order), -1) AS value FROM catalog_field_definitions").fetchone()
         conn.execute(
             """
@@ -139,7 +122,7 @@ class CatalogMetadataFields:
             candidate = {**before, "type": field_type, "enum_values": enum_values, "required": next_required}
             for row in rows:
                 value = str(_json_loads(row["extra_fields"], {}).get(before["key"], ""))
-                if validate_metadata_value(candidate, value):
+                if field_error(candidate, value, context=CONTEXT_BULK):
                     invalid += 1
             if invalid:
                 raise ValueError(f"Field schema change would invalidate {invalid} current component value(s)")
@@ -178,4 +161,4 @@ class CatalogMetadataFields:
         self._metadata_schema.append_field_event(conn, field_id, "archived" if archived else "restored", actor, before, after)
         return after
 
-__all__ = ["CatalogMetadataFields", "PreparedMetadataField", "validate_metadata_value"]
+__all__ = ["CatalogMetadataFields", "PreparedMetadataField"]

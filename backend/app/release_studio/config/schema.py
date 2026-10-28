@@ -25,6 +25,10 @@ from app.release_studio.documents.fonts import (  # noqa: E402
     DEFAULT_TYPOGRAPHY,
     TYPOGRAPHY_PRESETS as _RENDERER_PRESETS,
 )
+from app.release_studio.documents.style import (  # noqa: E402
+    DEFAULT_SHEET_STYLE,
+    SHEET_STYLES,
+)
 
 TYPOGRAPHY_PRESETS = frozenset(_RENDERER_PRESETS)
 
@@ -45,12 +49,21 @@ CONFIGURATION_KEYS = frozenset(
         "template",
         "sheets",
         "typography",
+        "sheet_style",
+        "artwork_line_weights",
         "vendors",
         "release_date",
         "release_notes",
         "bom_preset",
     }
 )
+
+#: How artwork stroke widths and designator limits are interpreted:
+#: ``paper`` (the default) prints them at their configured size (the CLI divides
+#: by the sheet's ratio), ``drawing`` keeps them in board millimetres, so they
+#: grow with the drawn scale. ``drawing`` is kept for compatibility.
+ARTWORK_LINE_WEIGHTS = frozenset({"drawing", "paper"})
+DEFAULT_ARTWORK_LINE_WEIGHTS = "paper"
 
 POLICY_KEYS = frozenset(
     {
@@ -174,6 +187,29 @@ def validate_configuration_mapping(
             f"{source}.typography: unknown preset {typography!r}; choose one of: {supported}"
         )
 
+    sheet_style = data.get("sheet_style", DEFAULT_SHEET_STYLE)
+    sheet_style = _require_nonblank_string(
+        sheet_style, source=f"{source}.sheet_style"
+    ).lower()
+    if sheet_style not in SHEET_STYLES:
+        supported = ", ".join(sorted(SHEET_STYLES))
+        raise ConfigSchemaError(
+            f"{source}.sheet_style: unknown style {sheet_style!r}; choose one of: {supported}"
+        )
+
+    artwork_line_weights = data.get(
+        "artwork_line_weights", DEFAULT_ARTWORK_LINE_WEIGHTS
+    )
+    artwork_line_weights = _require_nonblank_string(
+        artwork_line_weights, source=f"{source}.artwork_line_weights"
+    ).lower()
+    if artwork_line_weights not in ARTWORK_LINE_WEIGHTS:
+        supported = ", ".join(sorted(ARTWORK_LINE_WEIGHTS))
+        raise ConfigSchemaError(
+            f"{source}.artwork_line_weights: unknown mode "
+            f"{artwork_line_weights!r}; choose one of: {supported}"
+        )
+
     sheets = data.get("sheets")
     if sheets is not None:
         if not isinstance(sheets, list):
@@ -200,6 +236,8 @@ def validate_configuration_mapping(
         "notes": {key: list(value) for key, value in notes.items()},
         "variants": variants,
         "typography": typography,
+        "sheet_style": sheet_style,
+        "artwork_line_weights": artwork_line_weights,
     }
     if jobset:
         normalized["jobset"] = jobset

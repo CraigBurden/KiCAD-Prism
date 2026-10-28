@@ -12,8 +12,6 @@ services:
         kicad_toolchain: ${KICAD_TOOLCHAIN_CONTEXT:-../kicad_monkey}
       args:
         KICAD_MONKEY_VARIANT: kicad-monkey-local
-    environment:
-      - PRISM_PCB_GEOMETRY_BACKEND=rust
 
   catalog-worker:
     build:
@@ -28,5 +26,3 @@ services:
         kicad_toolchain: ${KICAD_TOOLCHAIN_CONTEXT:-../kicad_monkey}
       args:
         KICAD_MONKEY_VARIANT: kicad-monkey-local
-    environment:
-      - PRISM_PCB_GEOMETRY_BACKEND=rust

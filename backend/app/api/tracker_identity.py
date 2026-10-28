@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict
 
+from app.core import errors
 from app.core.security import AuthenticatedUser, get_current_user, require_admin
 from app.services.public_url_service import resolve_public_base_url
 from app.services.trackers.errors import ProviderError
@@ -72,37 +73,26 @@ def _oauth_callback_error_code(exc: Exception) -> str | None:
     return None
 
 
-def _http_error(exc: Exception) -> HTTPException:
+def _http_error(exc: Exception) -> errors.DomainError:
     if isinstance(exc, IdentityNotFound):
-        return HTTPException(status_code=404, detail="Identity not found")
+        return errors.NotFound("Identity not found", code="identity_not_found")
     if isinstance(exc, OAuthStateError):
         code = str(exc)
         if code == "session_expired":
-            return HTTPException(
-                status_code=409,
-                detail={
-                    "detail": "Your session changed during account linking. Sign in again and retry.",
-                    "code": "session_expired",
-                },
+            return errors.Conflict(
+                "Your session changed during account linking. Sign in again and retry.", code=code,
             )
         if code == "oauth_client_not_configured":
-            return HTTPException(
-                status_code=409,
-                detail={"detail": "This code host has no OAuth application registered.", "code": code},
-            )
+            return errors.Conflict("This code host has no OAuth application registered.", code=code)
         if code == "connector_not_found":
-            return HTTPException(status_code=404, detail={"detail": "Code host not found.", "code": code})
+            return errors.NotFound("Code host not found.", code=code)
         if code in {"cross_user_callback", "user_mismatch"}:
-            return HTTPException(status_code=403, detail="OAuth callback does not match the signed-in user")
-        return HTTPException(status_code=400, detail="Invalid or expired OAuth state")
+            return errors.Forbidden("OAuth callback does not match the signed-in user", code=code)
+        return errors.BadRequest("Invalid or expired OAuth state", code="invalid_state")
     if isinstance(exc, SecretStoreLocked):
-        return HTTPException(status_code=503, detail="Tracker credential encryption is locked")
+        return errors.Unavailable("Tracker credential encryption is locked", code="secret_store_locked")
     if isinstance(exc, ProviderError):
-        status = 409 if exc.class_ == "auth_lost" else 400
-        return HTTPException(
-            status_code=status,
-            detail={"class": exc.class_, "message": exc.message, "retryable": exc.retryable},
-        )
+        return exc.refusal(409 if exc.class_ == "auth_lost" else 400)
     raise exc
 
 
@@ -144,7 +134,12 @@ async def begin_oauth(
     return OAuthBeginResponse(authorizeUrl=payload["authorizeUrl"])
 
 
-@router.get("/oauth/callback")
+@router.get(
+    "/oauth/callback",
+    response_class=Response,
+    summary="Complete account linking and return the browser to the app",
+    responses={302: {"description": "Redirect back to the app with the link result."}},
+)
 async def oauth_callback(
     request: Request,
     code: str = Query(default=""),

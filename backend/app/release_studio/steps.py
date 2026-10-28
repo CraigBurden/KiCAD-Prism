@@ -14,18 +14,18 @@ genuine tool failure fails the step.
 from __future__ import annotations
 
 import json
-import os
 import shlex
 import shutil
-import subprocess
-import tempfile
-import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
+
+from app.services.kicad_tools import KicadTool, ToolError
+from app.services.tree_removal import remove_tree
 
 
 DEFAULT_CLI_TIMEOUT_SECONDS = 900
@@ -249,14 +249,60 @@ def _catalogue_title(spec: StepSpec) -> str:
     return _CATALOGUE_TITLES.get(spec.step_id, spec.step_id.replace("_", " "))
 
 #: Checks finish before any assembly `kicad-cli` or Cruncher load.
-CATALOGUE_WAVE_CHECKS: tuple[str, ...] = ("drc", "erc", "board_stats")
-#: Pick-and-place after Checks. BOM is a later wave so the two never overlap.
-CATALOGUE_WAVE_POSITIONS: tuple[str, ...] = ("positions",)
+#: The settings each board step's job needs so a jobset writes what today's
+#: ``kicad-cli`` command writes. A job's defaults are not the CLI's (KiCad
+#: 10.0.7, common/jobs and kicad/cli): gerbers default to precision 5 and to
+#: sketched, crossed-out DNP footprints and a drawing sheet; drill to inches;
+#: positions to the drill-file origin and per-side files; and a wrongly
+#: spelled value makes KiCad drop the whole jobset silently. Checked against
+#: the CLI on EDA-04903: every output identical (DRC up to item order).
+#: ``severity`` is a bitmask (ERROR 0x20 | WARNING 0x10 | EXCLUSION 0x04, the
+#: CLI's ``--severity-all``); stats' ``output_format`` is an unnamed enum (1 = JSON).
+JOBSET_SETTINGS: Mapping[str, Mapping[str, Any]] = {
+    "drc": {
+        "format": "json", "units": "mm", "severity": 52, "fail_on_error": False,
+        "report_all_track_errors": False, "refill_zones": False, "save_board": False,
+    },
+    "board_stats": {
+        "output_format": 1, "units": "mm", "exclude_footprints_without_pads": False,
+        "subtract_holes_from_board": False, "subtract_holes_from_copper": False,
+    },
+    "positions": {
+        "format": "csv", "units": "mm", "side": "both", "single_file": True,
+        "use_drill_place_file_origin": False, "smd_only": False, "exclude_footprints_with_th": False,
+        "exclude_dnp": False, "exclude_bom": False, "negate_bottom_x": False, "gerber_board_edge": False,
+    },
+    "gerbers": {
+        "precision": 6, "use_x2_format": True, "include_netlist_attributes": True,
+        "disable_aperture_macros": False, "use_protel_file_extension": True, "create_gerber_job_file": True,
+        "plot_footprint_values": True, "plot_ref_des": True, "plot_drawing_sheet": False,
+        "sketch_pads_on_fab_layers": False, "plot_pad_numbers": False,
+        "hide_dnp_footprints_on_fab_layers": False, "sketch_dnp_footprints_on_fab_layers": False,
+        "crossout_dnp_footprints_on_fab_layers": False, "subtract_solder_mask_from_silk": False,
+        "use_drill_origin": False, "check_zones": False, "layers": [], "layers_to_include_on_all_layers": [],
+    },
+    "drill": {
+        "format": "excellon", "units": "mm", "zero_format": "decimal", "drill_origin": "abs",
+        "excellon.mirror_y": False, "excellon.minimal_header": False, "excellon.combine_pth_npth": True,
+        "excellon.oval_drill_route": False, "generate_map": False, "generate_tenting": False,
+        "generate_report": False, "map_format": "pdf", "gerber_precision": 6,
+    },
+}
+_JOBSET_NAMESPACE = uuid.UUID("6d2b6f4e-2f0b-4b43-9c3b-7b8f1f0d5a11")
+#: Where a board jobset writes, inside the project directory it runs in.
+JOBSET_DIR = ".prism-jobset"
+
+#: Every board output, from one ``kicad-cli jobset run`` (one board load) when
+#: the run can use a jobset (:func:`run_board_jobset`); DRC first so a board
+#: that cannot be opened fails before anything is exported.
+CATALOGUE_WAVE_BOARD: tuple[str, ...] = ("drc", "board_stats", "positions", "gerbers", "drill")
+#: Schematic checks.
+CATALOGUE_WAVE_CHECKS: tuple[str, ...] = ("erc",)
 #: Schematic BOM, alone. Parallel `kicad-cli` loads have been dying with
 #: ``std::bad_alloc`` on the worker, including BOM overlapping positions.
 CATALOGUE_WAVE_BOM: tuple[str, ...] = ("bom",)
 #: Artwork the document engine does not itself plot.
-CATALOGUE_WAVE_ARTWORK: tuple[str, ...] = ("gerbers", "drill", "schematic_pdf")
+CATALOGUE_WAVE_ARTWORK: tuple[str, ...] = ("schematic_pdf",)
 
 # The Documentation Engine's sheets, deliberately *outside* `STEP_CATALOGUE`:
 # they are composed in-process rather than by a `kicad-cli` invocation, so they
@@ -288,39 +334,6 @@ class StepExecutionError(RuntimeError):
     """A catalogue step failed for a reason that is not a design violation."""
 
 
-def resolve_cli_path(explicit: str | None = None) -> str:
-    """Return the kicad-cli executable, preferring an explicit override."""
-
-    if explicit:
-        return explicit
-    configured = os.environ.get("KICAD_CLI_PATH", "").strip()
-    if configured:
-        return configured
-    found = shutil.which("kicad-cli")
-    if found:
-        return found
-    raise StepExecutionError("kicad-cli is not available on PATH")
-
-
-def resolve_cruncher_path(explicit: str | None = None) -> str:
-    """Return the kicad-cruncher executable that renders the assembly views.
-
-    Resolved the same way as ``kicad-cli`` and pinned by the same image, so the
-    tool that draws the assembly sheets is identified by ``toolchain_digest``
-    like every other part of the toolchain.
-    """
-
-    if explicit:
-        return explicit
-    configured = os.environ.get("KICAD_CRUNCHER_PATH", "").strip()
-    if configured:
-        return configured
-    found = shutil.which("kicad-cruncher")
-    if found:
-        return found
-    raise StepExecutionError("kicad-cruncher is not available on PATH")
-
-
 def selected_steps(
     *,
     board: Path | None,
@@ -348,55 +361,110 @@ def run_step_catalogue(
     schematic_rel: str | None,
     output_root: Path,
     variant: str = "",
-    cli_path: str | None = None,
+    tool: KicadTool | None,
     only: Sequence[str] | None = None,
     timeout_seconds: int = DEFAULT_CLI_TIMEOUT_SECONDS,
     progress: Any = None,
     on_step: Any = None,
-    runner: Any = None,
     bom_preset: str = "",
+    board_path: Path | None = None,
+    schematic_path: Path | None = None,
+    board_label: str | None = None,
+    schematic_label: str | None = None,
+    project_dir: Path | None = None,
 ) -> tuple[StepOutput, ...]:
-    """Run the catalogue against a materialized closure.
+    """Run the catalogue against the design files with ``tool`` (kicad-cli).
 
-    ``runner`` is injected by tests; it defaults to :func:`subprocess.run`.
+    ``project_dir`` is a scratch project directory holding the board (named
+    after its project file), the project file and the schematics. With it the
+    board steps run there: together as one jobset when :func:`run_board_jobset`
+    can, and DRC with schematic parity whenever a schematic is configured.
+
+    ``board_path``/``schematic_path`` name the files the tool opens when they
+    are not inside the materialized closure (the bundle's ``refilled/`` board
+    and ``sources/`` tree, C3c).  ``board_label``/``schematic_label`` are the
+    stable closure-independent names recorded in the argv; they default to the
+    configured repository paths.
     """
 
-    cli = resolve_cli_path(cli_path)
-    execute = runner or _default_runner
-    board = (closure_root / board_rel) if board_rel else None
-    schematic = (closure_root / schematic_rel) if schematic_rel else None
+    if tool is None:
+        raise StepExecutionError("kicad-cli is not available on PATH")
+    if board_path is not None:
+        board = Path(board_path)
+    else:
+        board = (closure_root / board_rel) if board_rel else None
+    if schematic_path is not None:
+        schematic = Path(schematic_path)
+    else:
+        schematic = (closure_root / schematic_rel) if schematic_rel else None
     if board is not None and not board.is_file():
         raise StepExecutionError(f"board not found in closure: {board_rel}")
     if schematic is not None and not schematic.is_file():
+        # A configured schematic that is not there is a broken input, not a
+        # board-only project: dropping ERC and BOM silently shipped a release
+        # without either (EDA-04903, 2026-10-23).
+        if selected_steps(board=None, schematic=schematic, only=only):
+            raise StepExecutionError(f"schematic not found in closure: {schematic_rel or schematic}")
         schematic = None
 
     specs = selected_steps(board=board, schematic=schematic, only=only)
     if not specs:
         return ()
 
+    board_label = board_label or board_rel
+    schematic_label = schematic_label or (schematic_rel or "")
+    parity = schematic is not None and project_dir is not None
+    if project_dir is not None and board is not None:
+        board = project_dir / board.name
+    results: dict[str, StepOutput] = {}
+    batched = [spec for spec in specs if spec.step_id in JOBSET_SETTINGS]
+    if project_dir is not None and board is not None and len(batched) > 1 and not (
+        variant and variant.casefold() != "default"
+    ):
+        for spec in batched:
+            print(f"[{spec.step_id}] Running {_catalogue_title(spec)} (board jobset)", flush=True)
+            if on_step is not None:
+                on_step(spec.step_id, "in_progress", message=f"Running {_catalogue_title(spec)}")
+        for output in run_board_jobset(
+            batched,
+            tool=tool,
+            project_dir=project_dir,
+            board=board,
+            output_root=output_root,
+            board_label=board_label,
+            parity=parity,
+            timeout_seconds=timeout_seconds * len(batched),
+        ):
+            results[output.step_id] = output
+            if on_step is not None:
+                print(f"[{output.step_id}] Finished {_catalogue_title(output.spec)}", flush=True)
+                on_step(output.step_id, "success", elapsed_ms=output.elapsed_ms, log=output.stdout, message=f"Finished {_catalogue_title(output.spec)}")
+        # A step the jobset did not write runs on its own below.
+        specs_to_run = [spec for spec in specs if spec.step_id not in results]
+    else:
+        specs_to_run = list(specs)
     # Every step is an independent `kicad-cli` process. They used to overlap;
     # `sch export bom` then died with std::bad_alloc / basic_string::_M_create
     # while DRC/ERC still held the design. One process at a time.
     run = partial(
         _run_one,
-        cli=cli,
+        tool=tool,
         closure_root=closure_root,
         board=board,
         schematic=schematic,
-        board_rel=board_rel,
-        schematic_rel=schematic_rel or "",
+        board_rel=board_label,
+        schematic_rel=schematic_label,
         output_root=output_root,
         variant=variant,
         timeout_seconds=timeout_seconds,
-        execute=execute,
         bom_preset=bom_preset,
+        parity=parity,
     )
-    results: dict[str, StepOutput] = {}
-    completed = 0
+    completed = len(results)
 
-    with ThreadPoolExecutor(max_workers=min(len(specs), _MAX_PARALLEL_STEPS)) as pool:
+    with ThreadPoolExecutor(max_workers=max(1, min(len(specs_to_run), _MAX_PARALLEL_STEPS))) as pool:
         futures = {}
-        for spec in specs:
+        for spec in specs_to_run:
             title = _catalogue_title(spec)
             print(f"[{spec.step_id}] Running {title}", flush=True)
             if on_step is not None:
@@ -444,7 +512,7 @@ def run_step_catalogue(
 def _run_one(
     spec: StepSpec,
     *,
-    cli: str,
+    tool: KicadTool,
     closure_root: Path,
     board: Path | None,
     schematic: Path | None,
@@ -453,8 +521,8 @@ def _run_one(
     output_root: Path,
     variant: str,
     timeout_seconds: int,
-    execute: Any,
     bom_preset: str = "",
+    parity: bool = False,
 ) -> StepOutput:
     destination = output_root / spec.output_name
     if spec.output_kind == "dir":
@@ -477,7 +545,7 @@ def _run_one(
         "out": spec.output_name,
         "variant": variant,
     }
-    argv = [cli, *(part.format(**substitutions) for part in spec.argv)]
+    argv = [part.format(**substitutions) for part in spec.argv]
     normalized = ["kicad-cli", *(part.format(**normalized_substitutions) for part in spec.argv)]
     if spec.variant_flag and variant and variant.casefold() != "default":
         argv.extend(("--variant", variant))
@@ -486,10 +554,19 @@ def _run_one(
         extra = _bom_extra_argv(bom_preset)
         argv.extend(extra)
         normalized.extend(extra)
+    if spec.step_id == "drc" and parity:
+        # The board runs beside its project and schematics, so DRC also checks
+        # schematic parity, as the jobset does.
+        argv.insert(-1, "--schematic-parity")
+        normalized.insert(-1, "--schematic-parity")
 
     started = time.perf_counter()
-    print(f"[{spec.step_id}] $ {shlex.join(str(part) for part in argv)}", flush=True)
-    result = execute(argv, closure_root, timeout_seconds)
+    print(f"[{spec.step_id}] $ {shlex.join([tool.executable(), *argv])}", flush=True)
+    try:
+        # Tee'd to the worker stdout: that is the build's live log.
+        result = tool.run(argv, cwd=closure_root, timeout=timeout_seconds, tee=True)
+    except ToolError as exc:
+        raise StepExecutionError(str(exc)) from exc
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     files = _collect_outputs(destination, spec)
     # A directory export writes one file per layer, so "some output exists" says
@@ -530,6 +607,100 @@ def _run_one(
         stderr=result.stderr,
         elapsed_ms=elapsed_ms,
     )
+
+
+def run_board_jobset(
+    specs: Sequence[StepSpec],
+    *,
+    tool: KicadTool,
+    project_dir: Path,
+    board: Path,
+    output_root: Path,
+    board_label: str,
+    parity: bool,
+    timeout_seconds: int,
+) -> tuple[StepOutput, ...]:
+    """The board steps from one ``kicad-cli jobset run``: one board load, not one per step.
+
+    Each job gets its own output folder under :data:`JOBSET_DIR`, and its files
+    move to the step's usual destination afterwards (positions come out as
+    ``<name>-all-pos.csv``; the CLI's "naked filename" has no jobset setting).
+    Returns the steps whose output appeared. KiCad drops a jobset it cannot
+    read without failing, so a missing step is the caller's to run on its own.
+    The recorded argv names the job type and its exact settings, host-independent.
+    """
+
+    project = project_dir / f"{board.stem}.kicad_pro"
+    if not project.is_file():
+        return ()
+    work = project_dir / JOBSET_DIR
+    remove_tree(work, ignore_errors=True)
+    jobs, outputs, settings_of = [], [], {}
+    for spec in specs:
+        settings = dict(JOBSET_SETTINGS[spec.step_id])
+        if spec.step_id == "drc":
+            settings["parity"] = parity
+        settings_of[spec.step_id] = settings
+        job_id = str(uuid.uuid5(_JOBSET_NAMESPACE, f"job:{spec.step_id}"))
+        output_key = {"output_dir": ""} if spec.output_kind == "dir" else {"output_filename": Path(spec.output_name).name}
+        jobs.append({"description": spec.step_id, "id": job_id, "type": spec.step_type,
+                     "settings": {"description": spec.step_id, **settings, **output_key}})
+        outputs.append({"description": spec.step_id, "id": str(uuid.uuid5(_JOBSET_NAMESPACE, f"output:{spec.step_id}")),
+                        "only": [job_id], "settings": {"output_path": f"./{JOBSET_DIR}/{spec.step_id}"}, "type": "folder"})
+    work.mkdir(parents=True)
+    jobset = work / "release.kicad_jobset"
+    jobset.write_text(json.dumps({"jobs": jobs, "meta": {"version": 1}, "outputs": outputs}, indent=2, sort_keys=True), encoding="utf-8")
+
+    # The runner stages each output in a folder under the system temp
+    # directory and never removes it, so it gets a temp directory of its own.
+    temp = work / "tmp"
+    temp.mkdir()
+    argv = ["jobset", "run", "-f", str(jobset), str(project)]
+    started = time.perf_counter()
+    print(f"[board-jobset] $ {shlex.join([tool.executable(), *argv])}", flush=True)
+    try:
+        result = tool.run(argv, cwd=project_dir, env={"TMPDIR": str(temp)}, timeout=timeout_seconds, tee=True)
+    except ToolError as exc:
+        print(f"[board-jobset] {exc}; running the steps one by one", flush=True)
+        return ()
+    finally:
+        remove_tree(temp, ignore_errors=True)
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+
+    done: list[StepOutput] = []
+    for spec in specs:
+        produced = sorted((path for path in (work / spec.step_id).rglob("*") if path.is_file()), key=lambda path: path.as_posix())
+        destination = output_root / spec.output_name
+        if spec.output_kind == "dir":
+            if not produced:
+                continue
+            destination.mkdir(parents=True, exist_ok=True)
+            for path in produced:
+                target = destination / path.relative_to(work / spec.step_id)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(path), target)
+        else:
+            if len(produced) != 1:
+                continue
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(produced[0]), destination)
+        settings = json.dumps(settings_of[spec.step_id], sort_keys=True, separators=(",", ":"))
+        done.append(
+            StepOutput(
+                step_id=spec.step_id,
+                step_type=spec.step_type,
+                normalized_argv=("kicad-cli", "jobset", "run", spec.step_type, settings, board_label),
+                returncode=result.returncode,
+                files=_collect_outputs(destination, spec),
+                root=output_root,
+                spec=spec,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                elapsed_ms=elapsed_ms,
+            )
+        )
+    remove_tree(work, ignore_errors=True)
+    return tuple(done)
 
 
 def gerber_manifest_gaps(files: Sequence[Path]) -> tuple[bool, tuple[str, ...]]:
@@ -579,89 +750,6 @@ def _collect_outputs(destination: Path, spec: StepSpec) -> tuple[Path, ...]:
     )
 
 
-@dataclass(frozen=True, slots=True)
-class _RunResult:
-    returncode: int
-    stdout: str
-    stderr: str
-
-
-def isolated_cli_env(scratch: Path, base: Mapping[str, str] | None = None) -> dict[str, str]:
-    """Give each kicad-cli its own temp/runtime dir for the instance lock."""
-
-    env = dict(base if base is not None else os.environ)
-    temp = str(scratch)
-    env["TMPDIR"] = temp
-    env["TMP"] = temp
-    env["TEMP"] = temp
-    env["XDG_RUNTIME_DIR"] = temp
-    return env
-
-
-def _run_cli_process(
-    argv: Sequence[str],
-    cwd: Path,
-    timeout_seconds: int,
-    *,
-    env: Mapping[str, str],
-    start_new_session: bool = False,
-) -> _RunResult:
-    try:
-        process = subprocess.Popen(
-            list(argv),
-            cwd=str(cwd),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-            env=dict(env),
-            start_new_session=start_new_session,
-            close_fds=True,
-        )
-    except OSError as exc:
-        raise StepExecutionError(f"kicad-cli could not be executed: {exc}") from exc
-
-    stdout_chunks: list[str] = []
-    stderr_chunks: list[str] = []
-
-    def _pump(stream: Any, bucket: list[str]) -> None:
-        if stream is None:
-            return
-        for line in iter(stream.readline, ""):
-            bucket.append(line)
-            print(line, end="", flush=True)
-
-    readers = (
-        threading.Thread(target=_pump, args=(process.stdout, stdout_chunks), daemon=True),
-        threading.Thread(target=_pump, args=(process.stderr, stderr_chunks), daemon=True),
-    )
-    for thread in readers:
-        thread.start()
-    try:
-        returncode = process.wait(timeout=timeout_seconds)
-    except subprocess.TimeoutExpired as exc:  # pragma: no cover - timing dependent
-        process.kill()
-        process.wait()
-        raise StepExecutionError(
-            f"kicad-cli timed out after {timeout_seconds}s: {' '.join(argv[:4])}"
-        ) from exc
-    for thread in readers:
-        thread.join(timeout=5)
-    return _RunResult(returncode, "".join(stdout_chunks), "".join(stderr_chunks))
-
-
-def _default_runner(argv: Sequence[str], cwd: Path, timeout_seconds: int) -> _RunResult:
-    """Run kicad-cli and tee its output to the worker stdout for the live log."""
-
-    with tempfile.TemporaryDirectory(prefix="kicad-cli-") as scratch:
-        return _run_cli_process(
-            argv,
-            cwd,
-            timeout_seconds,
-            env=isolated_cli_env(Path(scratch)),
-        )
-
-
 def evidence_counts(report: Mapping[str, Any]) -> dict[str, int]:
     """Count violations by severity in a canonicalized DRC/ERC report.
 
@@ -702,8 +790,7 @@ __all__ = [
     "StepSpec",
     "evidence_counts",
     "gerber_manifest_gaps",
-    "isolated_cli_env",
-    "resolve_cli_path",
     "run_step_catalogue",
+    "run_board_jobset",
     "selected_steps",
 ]

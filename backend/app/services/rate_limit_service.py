@@ -13,6 +13,7 @@ from typing import Any
 
 from fastapi import HTTPException, Request
 
+from app.services.auth_schema_migrations import AUTH_LEDGER
 from app.services.postgres_database import database
 
 logger = logging.getLogger(__name__)
@@ -28,23 +29,7 @@ def initialize_rate_limit_store() -> None:
     with _init_lock:
         if _initialized:
             return
-        with database.connection() as connection:
-            connection.execute("CREATE SCHEMA IF NOT EXISTS workspace")
-            connection.execute("SET search_path TO workspace, public")
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS auth_rate_limit (
-                    id BIGSERIAL PRIMARY KEY,
-                    bucket TEXT NOT NULL,
-                    occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                )
-                """
-            )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS auth_rate_limit_bucket_idx "
-                "ON auth_rate_limit (bucket, occurred_at)"
-            )
-            connection.commit()
+        AUTH_LEDGER.migrate(database.connection)
         _initialized = True
 
 

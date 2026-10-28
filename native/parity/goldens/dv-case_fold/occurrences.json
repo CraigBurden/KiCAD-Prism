@@ -1,0 +1,143 @@
+{
+ "schema": "prism.occurrences.a0",
+ "sheets": [
+  {
+   "sheetPath": "/24228da7-a8aa-5834-8a10-410868a0cbe9",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": []
+  }
+ ],
+ "symbols": [
+  {
+   "kiidPath": "/24228da7-a8aa-5834-8a10-410868a0cbe9/d66c2670-2683-5191-8990-241af92e2ac8",
+   "sheetPath": "/24228da7-a8aa-5834-8a10-410868a0cbe9",
+   "symbolUuid": "d66c2670-2683-5191-8990-241af92e2ac8",
+   "documentPath": "casefold.kicad_sch",
+   "libId": "Device:R",
+   "reference": "R1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "Reference": "R1",
+    "Value": "10k"
+   },
+   "bomFields": {
+    "value": "10k",
+    "footprint": "Resistor_SMD:R_0603_1608Metric"
+   },
+   "variants": [
+    {
+     "name": "Lite",
+     "dnp": true,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "kiidPath": "/24228da7-a8aa-5834-8a10-410868a0cbe9/fe94f0c8-d13f-551b-b291-9841938acf71",
+   "sheetPath": "/24228da7-a8aa-5834-8a10-410868a0cbe9",
+   "symbolUuid": "fe94f0c8-d13f-551b-b291-9841938acf71",
+   "documentPath": "casefold.kicad_sch",
+   "libId": "Device:R",
+   "reference": "R2",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "Reference": "R2",
+    "Value": "22k"
+   },
+   "bomFields": {
+    "value": "22k",
+    "footprint": "Resistor_SMD:R_0603_1608Metric"
+   },
+   "variants": [
+    {
+     "name": "lite",
+     "dnp": true,
+     "fields": {}
+    }
+   ]
+  }
+ ],
+ "footprints": [
+  {
+   "uuid": "138d6a8e-0bd6-522a-bad6-1999b8c03a4f",
+   "documentPath": "casefold.kicad_pcb",
+   "reference": "R1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": [
+    {
+     "name": "LITE",
+     "dnp": true,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "uuid": "adb2b1ad-35fa-5da0-bd73-f45de42b8164",
+   "documentPath": "casefold.kicad_pcb",
+   "reference": "R2",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": [
+    {
+     "name": "lite",
+     "dnp": true,
+     "fields": {}
+    }
+   ]
+  }
+ ],
+ "references": [
+  {
+   "reference": "R1",
+   "symbols": [
+    "/24228da7-a8aa-5834-8a10-410868a0cbe9/d66c2670-2683-5191-8990-241af92e2ac8"
+   ],
+   "footprints": [
+    "138d6a8e-0bd6-522a-bad6-1999b8c03a4f"
+   ]
+  },
+  {
+   "reference": "R2",
+   "symbols": [
+    "/24228da7-a8aa-5834-8a10-410868a0cbe9/fe94f0c8-d13f-551b-b291-9841938acf71"
+   ],
+   "footprints": [
+    "adb2b1ad-35fa-5da0-bd73-f45de42b8164"
+   ]
+  }
+ ],
+ "variantDeclarations": [
+  {
+   "source": "project",
+   "name": "Lite"
+  },
+  {
+   "source": "pcb",
+   "name": "lite"
+  }
+ ]
+}

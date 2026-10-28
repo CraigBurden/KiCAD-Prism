@@ -167,7 +167,10 @@ async function startRun() {
 }
 
 async function selectHistoryRun() {
-    fireEvent.click(await screen.findByRole("button", { name: /^history$/i }));
+    fireEvent.click(await screen.findByRole("tab", { name: /^history$/i }));
+    // Narrow windows start with Run history collapsed.
+    const show = screen.queryByRole("button", { name: "Show run history" });
+    if (show) fireEvent.click(show);
     fireEvent.click(await screen.findByRole("button", { name: /abcdef12/i }));
 }
 
@@ -187,6 +190,10 @@ describe("ReleaseStudioPanel", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         window.history.replaceState({}, "", "/");
+        // A desktop window: below 1280 px the release checks rail starts collapsed.
+        vi.stubGlobal("innerWidth", 1600);
+        window.localStorage.removeItem("prism.releaseStudio.checksRailCollapsed");
+        window.localStorage.removeItem("prism.releaseStudio.runHistoryCollapsed");
         vi.mocked(api.getSource).mockResolvedValue({
             source,
             ipc: {
@@ -199,6 +206,29 @@ describe("ReleaseStudioPanel", () => {
         vi.mocked(api.getBuild).mockResolvedValue(detail);
         vi.mocked(api.listDocumentSheets).mockResolvedValue([]);
         vi.mocked(api.tagExists).mockResolvedValue(false);
+    });
+
+    it("keeps a viewer out of the New release wizard", async () => {
+        render(<ReleaseStudioPanel projectId="p1" canMutate={false} userRole="viewer" />);
+        const current = await screen.findByRole("tab", { name: /^Current$/i });
+        await waitFor(() => expect(current).toHaveAttribute("aria-selected", "true"));
+        expect(screen.queryByRole("tab", { name: /New release/i })).toBeNull();
+        expect(screen.queryByRole("heading", { name: /^Source$/i })).toBeNull();
+    });
+
+    it("starts a viewer with no current release on History", async () => {
+        vi.mocked(api.listCandidates).mockResolvedValue([]);
+        render(<ReleaseStudioPanel projectId="p1" canMutate={false} userRole="viewer" />);
+        const history = await screen.findByRole("tab", { name: /^History$/i });
+        await waitFor(() => expect(history).toHaveAttribute("aria-selected", "true"));
+        expect(screen.queryByRole("tab", { name: /New release/i })).toBeNull();
+        expect(screen.getByText("Run history")).toBeInTheDocument();
+    });
+
+    it("opens a designer on the New release wizard", async () => {
+        render(<ReleaseStudioPanel projectId="p1" canMutate userRole="designer" />);
+        expect(await screen.findByRole("heading", { name: /^Source$/i })).toBeTruthy();
+        expect(screen.getByRole("tab", { name: /New release/i })).toHaveAttribute("aria-selected", "true");
     });
 
     it("opens a new release on Source and keeps the build action behind identity", async () => {
@@ -382,8 +412,24 @@ describe("ReleaseStudioPanel", () => {
         await waitFor(() =>
             expect(screen.getByRole("tab", { name: /Documents \(1\)/ })).toBeTruthy(),
         );
-        expect(screen.getByRole("tab", { name: "Fabrication" })).toBeTruthy();
+        expect(screen.getByRole("button", { name: "Fabrication" })).toHaveAttribute("aria-current", "true");
         expect(screen.getByRole("button", { name: /^PDF$/i })).toBeTruthy();
+    });
+
+    it("says when the documents could not be read, and retries", async () => {
+        vi.mocked(api.listDocumentSheets).mockRejectedValueOnce(new Error("sheets unavailable"));
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+        await openOutputs();
+        expect(await screen.findByText("Documents not loaded")).toHaveAttribute("title", "sheets unavailable");
+        expect(screen.queryByText("No documents")).toBeNull();
+        vi.mocked(api.listDocumentSheets).mockResolvedValueOnce([
+            {
+                key: "fabrication",
+                pdf: { path: "documentation/fabrication.pdf", released_digest: "b".repeat(64), media_type: "application/pdf" },
+            },
+        ]);
+        fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+        expect(await screen.findByRole("button", { name: "Fabrication" })).toBeTruthy();
     });
 
     it("renders the GitHub Actions-style jobs rail from pipeline metadata", async () => {
@@ -505,9 +551,9 @@ describe("ReleaseStudioPanel", () => {
             buildId === "build-1" ? Promise.resolve(detail) : new Promise<BuildDetail>(() => {}),
         );
         render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        fireEvent.click(await screen.findByRole("button", { name: /^history$/i }));
+        fireEvent.click(await screen.findByRole("tab", { name: /^history$/i }));
         fireEvent.click(await screen.findByRole("button", { name: /succeeded.*attempt 1/i }));
-        await waitFor(() => expect(screen.getByText("succeeded")).toBeTruthy());
+        await waitFor(() => expect(within(screen.getByLabelText("Release identity")).getByText("succeeded")).toBeTruthy());
 
         fireEvent.click(screen.getByRole("button", { name: /failed.*attempt 2/i }));
 
@@ -548,7 +594,7 @@ describe("ReleaseStudioPanel", () => {
         const rail = await screen.findByRole("navigation", { name: /run stages/i });
         await waitFor(() => expect(within(rail).getByRole("button", { name: /Build/i })).toHaveAttribute("data-state", "failed"));
         expect(within(rail).getByRole("button", { name: /Outputs/i })).toBeDisabled();
-        fireEvent.click(screen.getByRole("button", { name: /^history$/i }));
+        fireEvent.click(screen.getByRole("tab", { name: /^history$/i }));
         expect(await screen.findByRole("button", { name: /failed.*attempt 2/i })).toBeTruthy();
     });
 
@@ -665,9 +711,64 @@ describe("ReleaseStudioPanel", () => {
         await waitFor(() => expect(vi.mocked(api.publishBuild)).toHaveBeenCalledWith(
             "p1",
             "build-1",
-            { tag: "v1.0.0", title: "v1.0.0", notes: "" },
+            { tag: "v1.0.0", title: "v1.0.0", notes: "", acknowledged_models: [] },
         ));
         expect(await screen.findByRole("link", { name: /github.com\/org\/repo\/releases\/tag\/v1/i })).toBeTruthy();
+    });
+
+    it("needs the unpinned 3D models acknowledged before publishing", async () => {
+        const key = "board.kicad_pcb::$(MODELS)/part.step";
+        const approvedDetail = {
+            ...detail,
+            vendor_readiness: [{ vendor_id: "jlcpcb", ready: true, missing_requirements: [] }],
+            approvals: {
+                ...detail.approvals!,
+                both_approved: true,
+                can_publish: true,
+                blocked_reason: "",
+                unpinned_models: [{
+                    key,
+                    source_path: "board.kicad_pcb",
+                    reference: "$(MODELS)/part.step",
+                    location: "unreadable" as const,
+                }],
+            },
+        };
+        vi.mocked(api.getBuild).mockResolvedValue(approvedDetail);
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+        await openOutputs();
+        fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+        const publish = screen.getByRole("button", { name: /Hold to publish to GitHub/i });
+        expect(publish).toBeDisabled();
+        fireEvent.click(screen.getByRole("checkbox", { name: /Acknowledge 1 unpinned 3D model/i }));
+        expect(publish).not.toBeDisabled();
+        let now = 0;
+        let frames: FrameRequestCallback[] = [];
+        vi.spyOn(performance, "now").mockImplementation(() => now);
+        vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+            frames.push(callback);
+            return frames.length;
+        });
+        vi.stubGlobal("cancelAnimationFrame", () => {
+            frames = [];
+        });
+        act(() => {
+            publish.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+        });
+        now = 1000;
+        act(() => {
+            const pending = frames;
+            frames = [];
+            pending.forEach((callback) => callback(now));
+        });
+        await waitFor(() => expect(vi.mocked(api.publishBuild)).toHaveBeenCalledWith(
+            "p1",
+            "build-1",
+            { tag: "v1.0.0", title: "v1.0.0", notes: "", acknowledged_models: [key] },
+        ));
+        // Once published, the acknowledgement is history, not a live control.
+        expect(await screen.findByRole("link", { name: /github.com\/org\/repo\/releases\/tag\/v1/i })).toBeTruthy();
+        expect(screen.queryByRole("checkbox", { name: /Acknowledge/i })).toBeNull();
     });
 
     it("lists DRC, ERC, and closure warnings as stacked expandable lists", async () => {
@@ -728,10 +829,35 @@ describe("ReleaseStudioPanel", () => {
             builds: [publishedBuild],
         }]);
         render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        fireEvent.click(await screen.findByRole("button", { name: /^history$/i }));
+        fireEvent.click(await screen.findByRole("tab", { name: /^history$/i }));
         const run = await screen.findByRole("button", { name: /succeeded.*attempt 1/i });
-        expect(within(run).getByText("succeeded")).toBeTruthy();
+        // The status is the row's dot; its name and title carry the word.
+        expect(run).toHaveAccessibleName(/succeeded/);
         expect(within(run).getByText("published")).toBeTruthy();
+    });
+
+    it("collapses the run history and remembers it", async () => {
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+        fireEvent.click(await screen.findByRole("tab", { name: /^history$/i }));
+        expect(await screen.findByText("Run history")).toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", { name: "Hide run history" }));
+        expect(screen.queryByText("Run history")).toBeNull();
+        expect(window.localStorage.getItem("prism.releaseStudio.runHistoryCollapsed")).toBe("true");
+        fireEvent.click(screen.getByRole("button", { name: "Show run history" }));
+        expect(await screen.findByText("Run history")).toBeInTheDocument();
+    });
+
+    it("starts the release checks rail collapsed in a narrow window", async () => {
+        vi.stubGlobal("innerWidth", 1100);
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+        await openOutputs();
+        expect(screen.queryByRole("button", { name: "Approve Designer" })).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: "Show release checks" }));
+        expect(await screen.findByRole("button", { name: "Approve Designer" })).toBeTruthy();
+        // The reviewer's choice is remembered for wider windows.
+        expect(window.localStorage.getItem("prism.releaseStudio.checksRailCollapsed")).toBe("false");
+        fireEvent.click(screen.getByRole("button", { name: "Hide release checks" }));
+        expect(screen.queryByRole("button", { name: "Approve Designer" })).toBeNull();
     });
 
     it("renders designer and QA sign-off as separate pending cards", async () => {
@@ -791,7 +917,39 @@ describe("ReleaseStudioPanel", () => {
         await waitFor(() => expect(vi.mocked(api.approveBuild)).toHaveBeenCalledWith(
             "p1",
             "build-1",
-            { slot: "designer", note: "Waive DRC for proto" },
+            { slot: "designer", note: "Waive DRC for proto", acknowledged_models: [] },
+        ));
+    });
+
+    it("needs the unpinned 3D models acknowledged before approving", async () => {
+        const key = "board.kicad_pcb::${KICAD10_3DMODEL_DIR}/R_0603.step";
+        vi.mocked(api.getBuild).mockResolvedValue({
+            ...detail,
+            approvals: {
+                ...detail.approvals!,
+                unpinned_models: [{
+                    key,
+                    source_path: "board.kicad_pcb",
+                    reference: "${KICAD10_3DMODEL_DIR}/R_0603.step",
+                    location: "unreadable",
+                }],
+            },
+        });
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+        await openOutputs();
+        // The list folds behind its count; the tick stays in view.
+        expect(screen.queryByText("${KICAD10_3DMODEL_DIR}/R_0603.step")).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: "Show unpinned models" }));
+        expect(await screen.findByText("${KICAD10_3DMODEL_DIR}/R_0603.step")).toBeTruthy();
+        const approve = screen.getByRole("button", { name: "Approve Designer" });
+        expect(approve).toBeDisabled();
+        fireEvent.click(screen.getByRole("checkbox", { name: /Acknowledge 1 unpinned 3D model/i }));
+        expect(approve).not.toBeDisabled();
+        fireEvent.click(approve);
+        await waitFor(() => expect(vi.mocked(api.approveBuild)).toHaveBeenCalledWith(
+            "p1",
+            "build-1",
+            { slot: "designer", note: "", acknowledged_models: [key] },
         ));
     });
 });

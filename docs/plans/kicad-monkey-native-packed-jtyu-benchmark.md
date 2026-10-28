@@ -1,5 +1,7 @@
 # JTYU-OBC native analytic packed-pipeline benchmark
 
+> **Superseded (2026-10-23).** This plan describes the Python `kicad_monkey` pipeline that the native design bundle replaced ([ADR](../architecture/adr-native-design-bundle.md)). Kept as a historical record; the paths, settings and jobs it names may no longer exist.
+
 Date: 2026-09-21
 
 This is the first three-backend benchmark after switching Prism's `rust`

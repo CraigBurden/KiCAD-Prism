@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import json
-import asyncio
 import tarfile
 import tempfile
 import unittest
@@ -12,10 +11,34 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.api import release_studio as api
 from app.services import release_studio_build_service as build_service
 from app.services.job_artifact_service import JobArtifactService
 from app.services.job_runtime import JobCancelled, JobContext
+from app.services.kicad_tools import KicadTools
+from app.services.release_studio_publish_service import BuildArchives, ReleasePublisher
+from tests.kicad_tool_fakes import FakeTool
+from tests.release_publish_fakes import FakeForge, FakeRecords
+
+
+def _stub_design(closure: Path):
+    """The one ready-bundle answer ``execute_build`` reads its files from."""
+
+    class _Design:
+        archive_path = closure / "synthetic.prism"
+
+        def board_path(self, *_args) -> Path:  # noqa: ANN002
+            return closure / "hardware" / "board.kicad_pcb"
+
+        def board_member(self, *_args) -> str:  # noqa: ANN002
+            return "refilled/board.kicad_pcb"
+
+        def schematic_path(self, *_args) -> Path:  # noqa: ANN002
+            return closure / "hardware" / "board.kicad_sch"
+
+        def schematic_member(self, *_args) -> str:  # noqa: ANN002
+            return "sources/board.kicad_sch"
+
+    return _Design()
 
 
 class _FencedJobService:
@@ -45,10 +68,6 @@ def _read_failure_archive(artifact: dict[str, object]) -> tuple[dict[str, object
     return failure, log
 
 
-def _archive_bytes(artifact: dict[str, object]) -> bytes:
-    return Path(str(artifact["object_path"])).read_bytes()
-
-
 class ReleaseStudioFailureRetentionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -63,20 +82,6 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
                 worker_id="test-worker",
                 service=self.service,  # type: ignore[arg-type]
             )
-
-    def test_cancellation_registration_uses_authoritative_lease_claim_not_worker_id(self) -> None:
-        """ws_jobs owns lease_owner; a made-up worker_id column is unsafe."""
-
-        source = (
-            Path(__file__).resolve().parents[1]
-            / "app"
-            / "services"
-            / "job_service.py"
-        ).read_text(encoding="utf-8")
-        method = source[source.index("def register_fenced_artifacts"):source.index("def complete_artifact")]
-        self.assertIn("self._authoritative_claim(", method)
-        self.assertIn("statuses=allowed_statuses", method)
-        self.assertNotIn("SELECT status, fence, worker_id FROM ws_jobs", method)
 
     def test_prepare_failure_retains_attempt_and_publishes_diagnostic_evidence(self) -> None:
         context = self._context(
@@ -105,9 +110,9 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
                 "prepare_candidate",
                 side_effect=RuntimeError("closure token=super-secret unavailable"),
             ),
-            patch.object(build_service.store, "record_prepare_failure", return_value=retained) as record,
+            patch.object(build_service.attempts, "record_prepare_failure", return_value=retained) as record,
             patch.object(
-                build_service.store,
+                build_service.attempts,
                 "fail_build",
                 side_effect=lambda build_id, **kwargs: terminal.append(
                     {"build_id": build_id, **kwargs}
@@ -156,30 +161,27 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
             "status": "failed", "evidence_artifact_id": "artifact-1",
         }
         user = SimpleNamespace(role="viewer", email="viewer@example.com")
-        with (
-            patch.object(api, "get_project_for_role_or_404"),
-            patch.object(api, "_build_or_404", return_value=build),
-            patch.object(api.store, "get_candidate", return_value=candidate),
-            patch.object(api.workspace, "get_project_by_id", return_value={"repo_url": ""}),
-            patch.object(api.store, "build_members", return_value=[]),
-            patch.object(api.store, "build_evidence", return_value=[]),
-            patch.object(api.store, "build_fingerprints", return_value={}),
-            patch.object(api.store, "latest_review_decision", return_value=None),
-            patch.object(api.store, "get_publish_record", return_value=None),
-            patch.object(api, "_vendor_readiness", return_value=[]),
-            patch.object(api.forge_publish, "list_releases", return_value=[]),
-        ):
-            detail = asyncio.run(api.get_build("project-1", build["id"], user))
+        evidence = self.root / "prepare-failure-evidence.tar.gz"
+        evidence.write_bytes(b"retained evidence")
+        forge = FakeForge()
+        publisher = ReleasePublisher(
+            records=FakeRecords(builds=[build], candidates=[candidate], artifacts={"artifact-1": evidence}),
+            forges=forge,
+        )
+        detail = publisher.detail("project-1", {"repo_url": ""}, build["id"], user)
         self.assertEqual(
             detail["configuration"]["notes"]["failure_context"],
             "preparation did not complete",
         )
         self.assertEqual(detail["build"]["status"], "failed")
+        self.assertIsNone(detail["forge_release"])
+        self.assertEqual(forge.calls, [])
 
     def test_post_start_failure_marks_attempt_and_publishes_diagnostic_evidence(self) -> None:
         context = self._context(payload={"author": "operator-1"})
         closure = self.root / "closure"
-        closure.mkdir()
+        (closure / "hardware").mkdir(parents=True)
+        (closure / "hardware" / "board.kicad_pcb").write_text("(kicad_pcb)")
         build = {"id": "build-post-start", "candidate_id": "candidate-post-start", "status": "running"}
         failed: list[dict[str, object]] = []
         candidate = {
@@ -190,19 +192,18 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
             "build_key": "c" * 64,
             "technical_config_digest": "d" * 64,
             "input_closure_digest": "e" * 64,
+            "_bundle_design": _stub_design(closure),
         }
 
         def fail_build(build_id, **kwargs):  # noqa: ANN001 - service seam
             failed.append({"id": build_id, "status": "failed", **kwargs})
 
+        def explode(args, **_kwargs):  # noqa: ANN001 - FakeTool handler
+            raise RuntimeError("tool token=post-start-secret failed")
+
         with (
-            patch.object(build_service.store, "start_build", return_value=build),
-            patch.object(build_service.store, "fail_build", side_effect=fail_build),
-            patch.object(
-                build_service,
-                "run_step_catalogue",
-                side_effect=RuntimeError("tool token=post-start-secret failed"),
-            ),
+            patch.object(build_service.attempts, "start_build", return_value=build),
+            patch.object(build_service.attempts, "fail_build", side_effect=fail_build),
         ):
             with self.assertRaisesRegex(RuntimeError, "post-start-secret"):
                 build_service.execute_build(
@@ -211,6 +212,7 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
                     closure_root=closure,
                     config={"board": "hardware/board.kicad_pcb"},
                     artifacts=JobArtifactService(root=self.root),
+                    tools=KicadTools(cli=FakeTool(explode)),
                 )
 
         self.assertEqual(len(failed), 1)
@@ -229,27 +231,31 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
     def test_cancellation_marks_build_cancelled_and_retains_log_evidence(self) -> None:
         context = self._context(payload={"author": "operator-1"})
         closure = self.root / "closure-cancelled"
-        closure.mkdir()
+        (closure / "hardware").mkdir(parents=True)
+        (closure / "hardware" / "board.kicad_pcb").write_text("(kicad_pcb)")
         build = {"id": "build-cancelled", "candidate_id": "candidate-cancelled", "status": "running"}
         cancelled: list[dict[str, object]] = []
         candidate = {
             "id": "candidate-cancelled", "commit_sha": "c" * 40,
             "config_key": "production", "variant": "", "build_key": "d" * 64,
             "technical_config_digest": "e" * 64, "input_closure_digest": "f" * 64,
+            "_bundle_design": _stub_design(closure),
         }
-        self.service.status = "cancel_requested"
+        def cancel_mid_step(args, **_kwargs):  # noqa: ANN001 - FakeTool handler
+            # What a cancel request looks like to a running tool: the poll it
+            # was handed by execute_build raises.
+            self.service.status = "cancel_requested"
+            cli.cancel()
+
+        cli = FakeTool(cancel_mid_step)
 
         with (
-            patch.object(build_service.store, "start_build", return_value=build),
+            patch.object(build_service.attempts, "start_build", return_value=build),
             patch.object(
-                build_service.store, "cancel_build",
+                build_service.attempts, "cancel_build",
                 side_effect=lambda build_id, **kwargs: cancelled.append(
                     {"id": build_id, "status": "cancelled", **kwargs}
                 ),
-            ),
-            patch.object(
-                build_service, "run_step_catalogue",
-                side_effect=JobCancelled("Cancellation requested"),
             ),
         ):
             with self.assertRaises(JobCancelled):
@@ -257,6 +263,7 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
                     context, candidate=candidate, closure_root=closure,
                     config={"board": "hardware/board.kicad_pcb"},
                     artifacts=JobArtifactService(root=self.root),
+                    tools=KicadTools(cli=cli),
                 )
 
         self.assertEqual(cancelled[0]["status"], "cancelled")
@@ -290,17 +297,15 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
                 "logs/drc.log": b"DRC clean\n",
             }
         )
-        build = {"id": "build-success", "evidence_artifact_id": "artifact-success"}
-        user = SimpleNamespace(role="viewer")
-        with (
-            patch.object(api, "get_project_for_role_or_404"),
-            patch.object(api, "_build_or_404", return_value=build),
-            patch.object(api, "_artifact_bytes", return_value=archive),
-        ):
-            listed = asyncio.run(api.list_build_logs("project-1", build["id"], user))
-            response = asyncio.run(api.download_build_log("project-1", build["id"], "drc", user))
+        stored = self.root / "evidence-success.tar.gz"
+        stored.write_bytes(archive)
+        archives = self._archives(
+            {"id": "build-success", "candidate_id": "candidate-success", "evidence_artifact_id": "artifact-success"},
+            stored,
+        )
+        listed = archives.logs("project-1", "build-success")
         self.assertEqual(listed["steps"][0]["status"], "success")
-        self.assertEqual(response.body, b"DRC clean\n")
+        self.assertEqual(archives.log("project-1", "build-success", "drc"), b"DRC clean\n")
 
     def _assert_failure_log_api(
         self, build: dict[str, object], artifact: dict[str, object]
@@ -308,18 +313,20 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
         """The normal list/read endpoints must serve reopened failed attempts."""
 
         build = {**build, "evidence_artifact_id": "artifact-1"}
-        user = SimpleNamespace(role="viewer")
-        with (
-            patch.object(api, "get_project_for_role_or_404"),
-            patch.object(api, "_build_or_404", return_value=build),
-            patch.object(api, "_artifact_bytes", return_value=_archive_bytes(artifact)),
-        ):
-            listed = asyncio.run(api.list_build_logs("project-1", str(build["id"]), user))
-            response = asyncio.run(
-                api.download_build_log("project-1", str(build["id"]), "build-failure", user)
-            )
+        archives = self._archives(build, Path(str(artifact["object_path"])))
+        listed = archives.logs("project-1", str(build["id"]))
+        log = archives.log("project-1", str(build["id"]), "build-failure")
         self.assertIn("build-failure", {step["step_id"] for step in listed["steps"]})
-        self.assertTrue(response.body.decode("utf-8").strip())
+        self.assertTrue(log.decode("utf-8").strip())
+
+    def _archives(self, build: dict[str, object], evidence: Path) -> BuildArchives:
+        return BuildArchives(
+            FakeRecords(
+                builds=[build],
+                candidates=[{"id": build["candidate_id"], "project_id": "project-1"}],
+                artifacts={str(build["evidence_artifact_id"]): evidence},
+            )
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover

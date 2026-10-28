@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  ArrowRight,
   CircleAlert,
   ClipboardCheck,
-  FileCheck2,
   Loader2,
   PackageCheck,
   RefreshCw,
@@ -13,11 +11,14 @@ import {
   X,
 } from "lucide-react";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { fetchJson } from "@/lib/api";
+import { StudioTabsList, StudioTabsTrigger } from "@/components/ui/studio-tabs";
+import { Tabs } from "@/components/ui/tabs";
+import { getReleaseQueue } from "./catalog-client";
+import { LibraryPager } from "./library-pager";
 import {
   VALIDATION_BADGE_TITLE,
   VALIDATION_BADGE_VARIANT,
@@ -64,53 +65,24 @@ const formatDate = (value?: string) => {
   return Number.isNaN(date.getTime()) ? value : DATE_TIME_FORMAT.format(date);
 };
 
-function QueueMetric({ label, value, detail }: { label: string; value: number; detail: string }) {
-  return (
-    <div className="border bg-card px-4 py-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
-    </div>
-  );
-}
+// One line per revision. Every column has a floor; below them the list scrolls
+// sideways rather than squeezing a column to nothing.
+const QUEUE_GRID_TEMPLATE = "minmax(200px,2.2fr) 128px minmax(140px,1fr) 128px 112px minmax(140px,1fr)";
 
-function ReadinessCell({ component }: { component: CatalogComponent }) {
+function ReadinessBadge({ component }: { component: CatalogComponent }) {
   if (component.missing_assets.length) {
-    return (
-      <div className="min-w-0">
-        <Badge variant="destructive" className="min-w-0 max-w-full shrink"><CircleAlert className="h-3 w-3 shrink-0" /> Blocked</Badge>
-        <p className="truncate text-xs text-muted-foreground" title={component.missing_assets.join(", ")}>Missing {component.missing_assets.join(", ")}</p>
-      </div>
-    );
+    return <Badge variant="destructive" className="max-w-full" title={`Missing ${component.missing_assets.join(", ")}`}><CircleAlert className="h-3 w-3 shrink-0" /><span className="truncate">Blocked</span></Badge>;
   }
-  return (
-    <div className="min-w-0">
-      <Badge variant="success" className="min-w-0 max-w-full shrink"><PackageCheck className="h-3 w-3 shrink-0" /> CAD complete</Badge>
-      <p className="truncate text-xs text-muted-foreground">Symbol and footprint attached</p>
-    </div>
-  );
+  return <Badge variant="success" className="max-w-full" title="Symbol and footprint attached"><PackageCheck className="h-3 w-3 shrink-0" /><span className="truncate">CAD complete</span></Badge>;
 }
 
-function ValidationCell({ component }: { component: CatalogComponent }) {
-  const status = component.validation.status;
+function ValidationBadge({ component }: { component: CatalogComponent }) {
+  const { status, error_count: errors, warning_count: warnings } = component.validation;
   return (
-    <div className="min-w-0">
-      <Badge variant={VALIDATION_BADGE_VARIANT[status]} className="min-w-0 max-w-full shrink" title={VALIDATION_BADGE_TITLE[status]}>
-        {status === "failed" ? <CircleAlert className="h-3 w-3 shrink-0" /> : <ShieldCheck className="h-3 w-3 shrink-0" />}
-        <span className="truncate">{VALIDATION_LABELS[status]}</span>
-      </Badge>
-      <p className="text-xs text-muted-foreground">{component.validation.error_count} errors · {component.validation.warning_count} warnings</p>
-    </div>
-  );
-}
-
-function QueueEmpty({ filtered }: { filtered: boolean }) {
-  return (
-    <div className="flex min-h-64 flex-col items-center justify-center gap-2 border border-dashed p-6 text-center">
-      <ClipboardCheck className="h-7 w-7 text-muted-foreground" />
-      <p className="text-sm font-medium">{filtered ? "No matching release work" : "Release queue is clear"}</p>
-      {filtered ? <p className="max-w-xl text-xs text-muted-foreground">Try a different search or stage filter.</p> : null}
-    </div>
+    <Badge variant={VALIDATION_BADGE_VARIANT[status]} className="max-w-full" title={`${VALIDATION_BADGE_TITLE[status]} · ${errors} errors · ${warnings} warnings`}>
+      {status === "failed" ? <CircleAlert className="h-3 w-3 shrink-0" /> : <ShieldCheck className="h-3 w-3 shrink-0" />}
+      <span className="truncate">{VALIDATION_LABELS[status]}</span>
+    </Badge>
   );
 }
 
@@ -164,7 +136,7 @@ export function LibraryReleaseQueue({ onOpenComponent }: { onOpenComponent: (com
       page: String(page),
       page_size: String(PAGE_SIZE),
     });
-    void fetchJson<CatalogReleaseQueueResponse>(`/api/catalog/release-queue?${params.toString()}`, { signal: controller.signal })
+    void getReleaseQueue(params, controller.signal)
       .then((response) => {
         if (controller.signal.aborted) return;
         setItems(response.items);
@@ -187,105 +159,99 @@ export function LibraryReleaseQueue({ onOpenComponent }: { onOpenComponent: (com
   const filtered = Boolean(urlQuery || filter !== "all");
   const allCount = summary.qa_review + summary.done;
 
+  const refresh = () => setRefreshKey((value) => value + 1);
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="shrink-0 space-y-3 border-b px-4 py-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2"><FileCheck2 className="h-5 w-5 text-primary" /><h2 className="text-lg font-semibold">Release Queue</h2></div>
-          </div>
-          <Button size="sm" variant="outline" aria-label="Refresh release queue" disabled={loading} onClick={() => setRefreshKey((value) => value + 1)}>
-            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh
-          </Button>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <QueueMetric label="Awaiting QA" value={summary.qa_review} detail="Needs an independent review decision" />
-          <QueueMetric label="Ready to release" value={summary.done} detail="Approved revisions awaiting publication" />
-          <QueueMetric label="Evidence blockers" value={summary.blocked} detail="Missing CAD files or failed validation" />
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-1 border bg-muted/20 p-1" role="group" aria-label="Release queue stage filter">
+      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b bg-card px-3 py-2">
+        <Tabs value={filter} activationMode="manual" className="shrink-0">
+          <StudioTabsList aria-label="Release queue stage filter">
             {QUEUE_FILTERS.map((stage) => (
-              <Button
+              <StudioTabsTrigger
                 key={stage}
-                size="sm"
-                variant={filter === stage ? "secondary" : "ghost"}
-                className="h-7"
-                aria-pressed={filter === stage}
+                value={stage}
+                className="gap-1.5"
                 onClick={() => updateQueueParams({ releaseQueueStage: stage === "all" ? null : stage, releaseQueuePage: null })}
               >
-                {stage === "all" ? `All (${allCount})` : `${STAGE_LABELS[stage]} (${summary[stage]})`}
-              </Button>
+                {stage === "all" ? "All" : STAGE_LABELS[stage]}
+                <span className="tabular-nums opacity-70">{stage === "all" ? allCount : summary[stage]}</span>
+              </StudioTabsTrigger>
             ))}
-          </div>
-          <div className="relative w-full sm:w-72">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input data-shortcut-search aria-label="Search release queue" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search part, MPN, package, author…" className="h-8 pl-8 pr-8 text-xs" />
-            {query ? <button type="button" aria-label="Clear release queue search" className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => setQuery("")}><X className="h-3.5 w-3.5" /></button> : null}
-          </div>
+          </StudioTabsList>
+        </Tabs>
+        <div className="relative min-w-48 flex-1 sm:max-w-xs">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input data-shortcut-search aria-label="Search release queue" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" className="h-8 pl-8 pr-8 text-xs" />
+          {query ? <Button size="icon-sm" variant="ghost" aria-label="Clear release queue search" title="Clear" className="absolute right-0.5 top-1/2 -translate-y-1/2" onClick={() => setQuery("")}><X className="h-3.5 w-3.5" /></Button> : null}
         </div>
-      </div>
+        {summary.blocked ? (
+          <Badge variant="destructive" title="Missing CAD files or failed validation"><CircleAlert className="h-3 w-3" />{summary.blocked} blocked</Badge>
+        ) : null}
+        <Button size="icon-sm" variant="outline" className="ml-auto" aria-label="Refresh release queue" title="Refresh" disabled={loading} onClick={refresh}>
+          <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+        </Button>
+      </header>
 
-      <div className="min-h-0 flex-1 p-4">
+      <div className="flex min-h-0 flex-1 flex-col p-3">
         {error ? (
-          <div className="flex h-full min-h-64 items-center justify-center">
-            <div className="max-w-xl border border-destructive bg-destructive/10 p-5 text-center">
-              <CircleAlert className="mx-auto h-6 w-6 text-destructive" />
-              <p className="mt-2 text-sm font-medium">Could not load release work</p>
-              <p className="mt-1 text-xs text-muted-foreground">{error}</p>
-              <Button className="mt-4" size="sm" variant="outline" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw className="h-3.5 w-3.5" /> Retry</Button>
-            </div>
-          </div>
+          <Alert variant="destructive" className="max-w-xl self-center">
+            <CircleAlert />
+            <AlertTitle>Release queue not loaded</AlertTitle>
+            <AlertDescription className="flex items-center justify-between gap-3"><span className="truncate" title={error}>{error}</span><Button size="sm" variant="outline" onClick={refresh}><RefreshCw className="h-3.5 w-3.5" /> Retry</Button></AlertDescription>
+          </Alert>
         ) : loading && items.length === 0 ? (
-          <div className="flex h-full min-h-64 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading release queue page…</div>
-        ) : items.length === 0 ? <QueueEmpty filtered={filtered} /> : (
-          <div className={cn("flex h-full min-h-0 flex-col border transition-opacity", loading && "pointer-events-none opacity-60")} aria-busy={loading}>
-            <div className="hidden shrink-0 grid-cols-12 gap-3 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground lg:grid">
-              <span className="col-span-3">Component</span>
-              <span className="col-span-2">Stage</span>
-              <span className="col-span-2">Revision / author</span>
-              <span className="col-span-2">CAD readiness</span>
-              <span className="col-span-2">Validation</span>
-              <span className="col-span-1 text-right">Review</span>
+          <div className="flex min-h-64 flex-1 items-center justify-center text-muted-foreground" aria-label="Loading"><Loader2 className="h-4 w-4 animate-spin" /></div>
+        ) : items.length === 0 ? (
+          <div className="flex min-h-64 flex-1 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+            <ClipboardCheck className="size-6" aria-hidden />
+            {filtered ? "No matches" : "Queue is clear"}
+          </div>
+        ) : (
+          <div className={cn("flex min-h-0 flex-1 flex-col border transition-opacity", loading && "pointer-events-none opacity-60")} aria-busy={loading}>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <div className="min-w-[880px]">
+                <div className="sticky top-0 z-10 grid gap-3 border-b bg-muted px-3 py-2 text-xs font-medium text-muted-foreground" style={{ gridTemplateColumns: QUEUE_GRID_TEMPLATE }}>
+                  <span>Component</span>
+                  <span>Stage</span>
+                  <span>Revision</span>
+                  <span>CAD</span>
+                  <span>Validation</span>
+                  <span>Updated</span>
+                </div>
+                {items.map((component) => {
+                  const stage = component.workflow_stage as Extract<WorkflowStage, "qa_review" | "done">;
+                  return (
+                    <button
+                      key={component.id}
+                      type="button"
+                      className="grid h-10 w-full items-center gap-3 border-b px-3 text-left text-xs transition-colors last:border-b-0 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                      style={{ gridTemplateColumns: QUEUE_GRID_TEMPLATE }}
+                      onClick={() => onOpenComponent(component.id, "review")}
+                    >
+                      <span className="flex min-w-0 items-baseline gap-2">
+                        <span className="truncate text-sm font-medium">{component.name}</span>
+                        <span className="truncate text-muted-foreground" title={component.manufacturer || undefined}>{component.mpn || component.value}</span>
+                      </span>
+                      <span className="flex min-w-0"><Badge variant={WORKFLOW_BADGE_VARIANT[stage]} className="max-w-full" title={WORKFLOW_BADGE_TITLE[stage]}><span className="truncate">{STAGE_LABELS[stage]}</span></Badge></span>
+                      <span className="truncate" title={component.created_by}>v{component.revision}<span className="text-muted-foreground"> · {component.created_by || "—"}</span></span>
+                      <span className="flex min-w-0"><ReadinessBadge component={component} /></span>
+                      <span className="flex min-w-0"><ValidationBadge component={component} /></span>
+                      <span className="truncate text-muted-foreground">{formatDate(component.revision_updated_at)}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <ScrollArea className="min-h-0 flex-1">
-              {items.map((component) => {
-                const stage = component.workflow_stage as Extract<WorkflowStage, "qa_review" | "done">;
-                return (
-                  <button
-                    key={component.id}
-                    type="button"
-                    className="grid w-full gap-3 border-b px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:grid-cols-12 lg:items-center"
-                    onClick={() => onOpenComponent(component.id, "review")}
-                  >
-                    <div className="min-w-0 lg:col-span-3">
-                      <p className="truncate text-sm font-medium">{component.name}</p>
-                      <p className="truncate text-xs text-muted-foreground">{component.manufacturer || "Unspecified manufacturer"} · {component.mpn || component.value || "No MPN"}</p>
-                    </div>
-                    <div className="min-w-0 lg:col-span-2">
-                      <Badge variant={WORKFLOW_BADGE_VARIANT[stage]} className="max-w-full truncate" title={WORKFLOW_BADGE_TITLE[stage]}>{STAGE_LABELS[stage]}</Badge>
-                      <p className="mt-1 truncate text-xs text-muted-foreground">Updated {formatDate(component.revision_updated_at)}</p>
-                    </div>
-                    <div className="min-w-0 lg:col-span-2">
-                      <p className="text-xs font-medium">v{component.revision}</p>
-                      <p className="truncate text-xs text-muted-foreground" title={component.created_by}>{component.created_by || "Unknown author"}</p>
-                    </div>
-                    <div className="min-w-0 lg:col-span-2"><ReadinessCell component={component} /></div>
-                    <div className="min-w-0 lg:col-span-2"><ValidationCell component={component} /></div>
-                    <div className="flex items-center justify-end gap-2 text-xs font-medium text-primary lg:col-span-1">Open <ArrowRight className="h-3.5 w-3.5" /></div>
-                  </button>
-                );
-              })}
-            </ScrollArea>
-            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t bg-muted/20 px-3 py-2">
-              <span className="text-xs text-muted-foreground" aria-live="polite">{firstItem.toLocaleString()}–{lastItem.toLocaleString()} of {total.toLocaleString()} queued revisions · Page {page.toLocaleString()} of {pages.toLocaleString()}</span>
-              <nav className="flex items-center gap-1" aria-label="Release queue pagination">
-                <Button size="sm" variant="outline" className="h-7" disabled={loading || page <= 1} onClick={() => updateQueueParams({ releaseQueuePage: null })}>First</Button>
-                <Button size="sm" variant="outline" className="h-7" disabled={loading || page <= 1} onClick={() => updateQueueParams({ releaseQueuePage: page - 1 > 1 ? String(page - 1) : null })}>Previous</Button>
-                <Button size="sm" variant="outline" className="h-7" disabled={loading || page >= pages} onClick={() => updateQueueParams({ releaseQueuePage: String(Math.min(pages, page + 1)) })}>Next</Button>
-                <Button size="sm" variant="outline" className="h-7" disabled={loading || page >= pages} onClick={() => updateQueueParams({ releaseQueuePage: String(pages) })}>Last</Button>
-              </nav>
-            </div>
+            <LibraryPager
+              label="Release queue pagination"
+              page={page}
+              pages={pages}
+              first={firstItem}
+              last={lastItem}
+              total={total}
+              disabled={loading}
+              onPage={(target) => updateQueueParams({ releaseQueuePage: target > 1 ? String(target) : null })}
+            />
           </div>
         )}
       </div>

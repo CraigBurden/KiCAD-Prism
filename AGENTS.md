@@ -8,8 +8,8 @@ are repo-root relative and CI-verified by `scripts/check_agent_docs.py`.
 **Read these before acting, not after:**
 
 - Service topology, storage domains, PostgreSQL schemas, trust boundaries —
-  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Read before changing any service
-  boundary, job class, or persistence path.
+  [website/src/content/docs/contribute/architecture.md](website/src/content/docs/contribute/architecture.md).
+  Read before changing any service boundary, job class, or persistence path.
 - Setup, check suites, branch prefixes, dependency policy —
   [CONTRIBUTING.md](CONTRIBUTING.md). Read before your first command in a fresh
   checkout, and before adding any dependency.
@@ -23,6 +23,10 @@ change:
 | Catalog services | `backend/app/services/AGENTS.md` |
 | Design comparison | `frontend/src/components/design-comparison/AGENTS.md` |
 | Library workspace | `frontend/src/components/workspace/AGENTS.md` |
+| Design bundles (backend: keys, store, jobs, reader) | `backend/app/services/design_bundle/AGENTS.md` |
+| MCP server (tools, registry, invocation) | `backend/app/services/mcp/AGENTS.md` |
+| Native KiCad parser and design bundle (Rust) | `native/AGENTS.md` |
+| Projection goldens and the parity runner | `native/parity/AGENTS.md` |
 
 ## Task skills
 
@@ -33,20 +37,27 @@ skills automatically should open the relevant linked playbook directly.
 | --- | --- |
 | Select and report verification checks | `.agents/skills/prism-quality-gate/SKILL.md` |
 | Add or change an API endpoint | `.agents/skills/prism-api-endpoint/SKILL.md` |
+| Add or change an MCP tool | `.agents/skills/prism-mcp-tool/SKILL.md` |
 | Change Prism catalog behavior or structure | `.agents/skills/prism-catalog-change/SKILL.md` |
 | Extend design-comparison semantics | `.agents/skills/prism-comparison-change-kind/SKILL.md` |
 | Rebuild the vendored ECAD viewer/parser | `.agents/skills/prism-viewer-rebuild/SKILL.md` |
 
 ## How work reaches a worker
 
-Long-running operations use the job system. Start at
-`backend/app/services/job_handlers.py`, which builds the worker registry;
-catalog job kinds are delegated through the `HANDLERS` registry in
-`backend/app/services/catalog_worker_tasks.py`. Jobs are claimed from PostgreSQL
-with leases and fencing (`backend/app/services/job_service.py`,
-`backend/app/services/job_runtime.py`) and executed by
-`backend/app/prism_worker.py` or the catalog worker. The browser polls job
-state.
+Long-running operations use the job system. A job kind is declared once, next
+to its handler, as a `JobKind` (`backend/app/services/job_kinds.py`: pool,
+resource slots, lock shape, attempts, priority, and an optional end hook) in
+the module's `JOB_KINDS`; callers queue with `KIND.enqueue(payload, subject=...)`.
+`backend/app/services/job_handlers.py` registers the kinds (catalog kinds come
+from `backend/app/services/catalog_worker_tasks.py`). Jobs are claimed from
+PostgreSQL with leases and fencing (`backend/app/services/job_service.py`,
+`backend/app/services/job_runtime.py`, whose `JobContext` also carries a
+handler's checkpoint) and executed by `backend/app/prism_worker.py` or the
+catalog worker. When a job ends, its kind's end hook settles the kind's own
+rows; the worker sweeps for rows a dead process left behind. The browser waits on a
+job only through `frontend/src/lib/jobs.ts` (`watchPrismJob` on
+`/api/jobs/{id}`; `frontend/src/hooks/use-job-watcher.ts` ties a watch to a
+component's lifetime).
 
 The authenticated application has two main routes plus a catch-all, all in
 `frontend/src/App.tsx`. The root route mounts
@@ -62,17 +73,41 @@ hop usually requires checking its consumers and tests.
 **Import a project from Git**
 `backend/app/api/projects.py` · `backend/app/api/folders.py` →
 `backend/app/services/project_import_service.py` (`run_project_analyze_job_v3`
-then `run_project_import_job_v3`) → `backend/app/services/git_service.py` ·
+then `run_project_import_job_v3`) →
+`backend/app/services/git_remote_access.py` (credentials, host keys, ls-remote) ·
+`backend/app/services/git_service.py` ·
 `backend/app/services/git_access_service.py` → worker →
 `frontend/src/components/import-dialog.tsx` →
 `frontend/src/components/workspace.tsx`
 
+**Build a revision's design bundle**
+Every feature below reads a revision through its bundle, never KiCad files.
+`backend/app/services/design_bundle/jobs.py` (`start_design_bundle_job`, the
+`design_bundle` kind) → `backend/app/services/design_bundle/reuse.py` (alias or
+build) → `backend/app/services/design_bundle/materialize.py` ·
+`backend/app/services/design_bundle/kicad_steps.py` (sources, upgrade, refill)
+→ `backend/app/services/design_bundle/cli.py` (`prism-kicad bundle build`, one
+stage at a time) → `backend/app/services/design_bundle/store.py` →
+`backend/app/services/design_bundle/consumer.py` (what readers call; pending and
+failed answers from `backend/app/services/design_bundle/errors.py`) →
+`frontend/src/components/design-data-state.tsx`. The CLI's source is
+`native/src/rs/prism-kicad-cli`; the paced prebuild is
+`backend/app/services/design_bundle/backfill.py`.
+
+**Open the 3D tab**
+`backend/app/api/project_viewer_3d.py` →
+`backend/app/services/viewer_3d_bundle.py` (the bundle's analytic pack,
+stackup and parts GLB) → `frontend/src/components/webgpu-3d-tab.tsx` →
+`kicad-prism-viewer/viewer/src/analytic-board.js` (lowering in workers with the
+WASM build of `native/src/rs/prism-kicad-wasm`)
+
 **Compare two commits**
 `backend/app/api/design_compare.py` →
-`backend/app/services/design_compare_service.py` (`run_design_compare_job_v3`)
-→ `backend/app/services/design_compare_nodes.py` (parse) →
-`backend/app/services/design_compare_semantics.py` (grouping) →
-`backend/app/services/design_compare_artifacts.py` →
+`backend/app/services/design_compare_service.py` (job, cache, status) →
+`backend/app/services/design_compare_bundle_path.py` (`prism-kicad compare`
+over each side's bundle or source tree) →
+`backend/app/services/project_revision.py` (location, commit, snapshot) →
+`backend/app/services/design_compare_artifacts.py` (fabrication) →
 `frontend/src/components/history-viewer.tsx` →
 `frontend/src/components/design-comparison/design-comparison-workspace.tsx`
 
@@ -86,6 +121,24 @@ then `run_project_import_job_v3`) → `backend/app/services/git_service.py` ·
 `backend/app/release_studio/documents/` →
 `frontend/src/components/release-studio/ReleaseStudioPanel.tsx`
 
+**Publish a release**
+`backend/app/api/release_studio.py` →
+`backend/app/services/release_studio_publish_service.py` (approve, package,
+forge, record) → `backend/app/services/forge_publish_service.py`
+(`GitHubForge` / `GitLabForge`) → `backend/app/services/release_studio_service.py`
+(publish record)
+
+**View a fabrication package**
+`backend/app/api/fabrication_view.py` (a Release Studio build's package and
+committed output folders, both sources) →
+`backend/app/services/fabrication_view_service.py` (layers, drill) ·
+`backend/app/services/placement_service.py` (parts, BOM check) →
+`backend/app/services/fabrication_compare_service.py` (the Gerber parser and
+renderer it reuses) →
+`frontend/src/components/fabrication-viewer/fabrication-viewer.tsx`, opened from
+`frontend/src/components/release-studio/steps/InspectOutputsStep.tsx` and
+`frontend/src/components/assets-portal.tsx`
+
 **Author and release a component**
 `backend/app/api/catalog_admin.py` →
 `backend/app/services/component_catalog_service.py` (runtime alias) →
@@ -97,7 +150,8 @@ then `run_project_import_job_v3`) → `backend/app/services/git_service.py` ·
 
 **Comment on a project or comparison**
 `backend/app/api/comments.py` →
-`backend/app/services/comments_store_service.py` ·
+`backend/app/services/comments_store_writes.py` (writes: authorize, mutate, stream) ·
+`backend/app/services/comments_store_service.py` (reads) ·
 `backend/app/services/comments_url_service.py` →
 `frontend/src/components/comment-panel.tsx` →
 `frontend/src/lib/comment-overlays.ts` (overlay shaping) →
@@ -111,18 +165,32 @@ in `backend/app/services/comment_anchor_bindings.py`. Read
 `backend/app/services/trackers/promotion.py` →
 `backend/app/services/trackers/op_store.py` →
 `backend/app/services/trackers/jobs.py` →
-`backend/app/services/trackers/provider_registry.py`. GitHub and GitLab issue
+`backend/app/services/trackers/connector_runtime.py` →
+`backend/app/services/trackers/providers.py`. GitHub and GitLab issue
 publication are available; Gitea/Forgejo is account-linking only. See
-`docs/TRACKER_INTEGRATION.md` for credentials, destinations, and recovery.
+`website/src/content/docs/admin/issue-trackers.md` for credentials, destinations, and recovery.
 
 **Select a design variant**
-`backend/app/services/variant_catalog_service.py` →
-`backend/app/services/semantic_index_variants.py` (index catalog and assembly block) →
+`backend/app/services/variant_catalog_service.py` (the bundle catalog) →
+the bundle's semantic-index member (the `assembly` block, built by
+`prism-kicad`) →
 `frontend/src/components/design-variants/variant-selection.ts` (URL owner and
 resolution) →
 `frontend/src/lib/design-variants.ts` (effective projection) →
 `frontend/src/components/visualizer.tsx` ·
 `frontend/src/components/engineering-bom-table.tsx` (viewer-side selection)
+
+**Connect boards into a system**
+System Builder was removed on 2026-10-23 and is being re-scoped on
+`feature/system-builder-v3` (`docs/system-builder/README.md`). Nothing in
+this tree implements it.
+
+**Run a simulation (experimental, `PRISM_SIM_STUDIO_ENABLED`)**
+`backend/app/api/sim_studio.py` → `backend/app/sim_studio/service.py` (setups)
+· `backend/app/sim_studio/runs.py` (`sim_run` job, engines from
+`backend/sim-engines.lock.json`) →
+`frontend/src/components/sim-studio/SimStudioPanel.tsx`. See
+`website/src/content/docs/use/simulation-studio.md`.
 
 **Place a symbol from desktop KiCad**
 `backend/app/api/remote_provider.py` · `backend/app/api/provider_oauth.py` →
@@ -157,14 +225,27 @@ invariant, not the tool workaround.
 - Never add a project lookup that ignores the caller's role.
   `backend/app/api/projects.py` carries an explicit warning: a role-blind helper
   is one import away from an access-control bypass. Use the role-aware function.
+- Who may do what is decided once, in `backend/app/core/policy.py`. Routes
+  ask it (through the `require_*` dependencies, `authorized_project`, or
+  `require_owner_or_admin`) instead of comparing roles or emails inline. A
+  policy change regenerates the frontend matrix with
+  `scripts/export_role_matrix.py`.
 - Derive audit identity from the authenticated session, never from a
   request-supplied name.
 - Never fail open. A limiter, auth, or provider outage denies the request;
   `backend/app/services/rate_limit_service.py` documents why.
 - Never put exception detail in an error response. Database errors can carry
-  credentials (`backend/app/api/health.py`).
+  credentials (`backend/app/api/health.py`). Services refuse with typed errors
+  that one handler renders as one flat body `{detail, code, ...}`
+  (`backend/app/core/errors.py`); guarded writes take `If-Match` and answer
+  412/428 (`backend/app/core/preconditions.py`); the browser reads them only
+  through `frontend/src/lib/api.ts`. A read a component keeps fresh
+  (abort, stale responses, polling while visible, invalidation by key, data
+  kept after unmount for a retention window) and any poll or wait on a job
+  (`usePoll`, `pollUntil`) go through `frontend/src/lib/server-state.ts`; no
+  TanStack Query (decision D21).
 - Never pin Git host keys with `accept-new`
-  (`backend/app/services/project_import_service.py`).
+  (`backend/app/services/git_remote_access.py`).
 
 ### Scope
 
@@ -193,26 +274,33 @@ load the relevant ranges rather than reading them end to end.
 ## Release and experimental boundaries
 
 Release promotion requires reviewed `dev` to `main`, the main commit Quality
-gate, and checked-in `docs/releases/<tag>.md`; see `docs/RELEASES.md`.
-The next tag is `v4.0.0-alpha`, superseding the unpublished v3.1 plan.
+gate, and checked-in `docs/releases/<tag>.md`; see `website/src/content/docs/contribute/release-process.md`.
+The latest tag is `v4.0.0-alpha`; it superseded the unpublished v3.1 plan.
 
-`PRISM_PCB_GEOMETRY_BACKEND=legacy` is the supported default. Rust and
-Python-copper require explicit experimental selection; never infer activation
-from an installed helper or replace the published Python toolchain with a
-sibling checkout. See `docs/PCB_RUST_GEOMETRY.md` and `docs/DEPENDENCIES.md`.
+Never replace the published Python toolchain with a sibling checkout; see
+`website/src/content/docs/contribute/dependencies.md`.
 
 ## Generated and vendored boundaries
 
 Do not load minified bundles into context or edit them by hand when source is
 available.
 
-- `frontend/public/ecad-viewer.js`, `frontend/public/parser.worker.js`, and the
-  parser under `scripts/vendor/` come from the sibling `ecad-viewer` checkout.
+- `frontend/public/ecad-viewer.js` and `frontend/public/parser.worker.js` come
+  from the sibling `ecad-viewer` checkout.
   Use `.agents/skills/prism-viewer-rebuild/SKILL.md`.
 - `kicad-prism-viewer/` is Prism's semantic viewer source. Its build writes
   `kicad-prism-viewer/dist/prism-semantic-viewer.js` and synchronizes the served
-  `frontend/public/prism-semantic-viewer.js` plus its digest cache key. CI fails
-  when the tracked served files were not regenerated from current source.
+  `frontend/public/prism-semantic-viewer.js` plus its digest cache key, the
+  analytic lowering worker `frontend/public/prism-semantic-viewer-lower.js` and
+  the analytic WASM `frontend/public/prism-kicad-analytic.wasm`. CI fails when
+  the tracked served files were not regenerated from current source.
+- The analytic WASM is built from Prism's own Rust crate
+  `native/src/rs/prism-kicad-wasm` by `npm run build:analytic-wasm` (in
+  `kicad-prism-viewer/`) into `kicad-prism-viewer/viewer/vendor/prism-kicad-wasm/`
+  with a provenance file naming the source tree; rebuild it after changing the
+  crates it compiles. Boards draw from bundles through
+  `kicad-prism-viewer/viewer/src/analytic-board.js` (lowering pool, cache, board
+  clip and renderer in the `analytic-*.js` modules beside it).
 - `frontend/public/three/` is a vendored module tree used through the import map
   in `frontend/index.html` and imports in `frontend/public/3d-viewer.js`. Do not
   classify files there as dead from first-party import search alone.

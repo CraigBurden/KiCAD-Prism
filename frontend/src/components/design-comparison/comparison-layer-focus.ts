@@ -1,3 +1,4 @@
+import { kindsWith } from "./comparison-change-kinds";
 import type { ChangeItem } from "./types";
 
 /**
@@ -36,25 +37,15 @@ export type LayerFocusSide = "reference" | "comparison" | "both";
  */
 export const LAYER_FOCUS_CONTEXT_LAYERS = ["Edge.Cuts"];
 
-const VIA_KINDS = new Set(["via"]);
+const VIA_KINDS = kindsWith("via-span");
 
 function nativeKind(change: ChangeItem): string {
-    return String(
-        change.object_kind
-        ?? change.geometry?.kind
-        ?? change.oldGeometry?.kind
-        ?? "",
-    ).toLocaleLowerCase();
+    return (change.objectKind ?? "").toLocaleLowerCase();
 }
 
 function sideLayers(change: ChangeItem, side: "reference" | "comparison"): string[] {
-    const item = side === "reference" ? change.base_item : change.compare_item;
-    const geometry = side === "reference" ? change.oldGeometry : change.geometry;
-    const candidates = [
-        ...(item?.layers ?? []),
-        item?.layer,
-        geometry?.layer,
-    ];
+    const item = side === "reference" ? change.base : change.head;
+    const candidates = [...(item?.layers ?? []), item?.layer];
     return [...new Set(candidates.filter((layer): layer is string => Boolean(layer)))];
 }
 

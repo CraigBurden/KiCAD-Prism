@@ -1,0 +1,45 @@
+{
+  "schema": "prism.cli.extract_result.a0",
+  "members": [
+    {
+      "path": "bundle.json",
+      "bytes": 3387,
+      "sha256": "17952654b5ec2e93c08f46090959d8237eb7591e669a5147d1bc0f3f16085207"
+    },
+    {
+      "path": "sources/Subsheets/Output-Connector.kicad_sch",
+      "bytes": 11485,
+      "sha256": "9b6cc1f3cc5ac14b32567ebe08afb3742286349a822a04f34490e7f7037af2e5"
+    },
+    {
+      "path": "sources/USB-PD-Trigger-Board.kicad_pcb",
+      "bytes": 573641,
+      "sha256": "1f67670223a49806959ddf53c11baae9618959011e9de05cba82f5e95ad7c700"
+    },
+    {
+      "path": "sources/USB-PD-Trigger-Board.kicad_pro",
+      "bytes": 15577,
+      "sha256": "49add01bb4343f97215018b6b6b871b0d2330697fbd3278709a6b74d89e74bef"
+    },
+    {
+      "path": "sources/USB-PD-Trigger-Board.kicad_sch",
+      "bytes": 321649,
+      "sha256": "258d7516c6d51c17aa19e171b1a8e9e4279ab3486d2efe5a22e062eb8a969a92"
+    },
+    {
+      "path": "sources/packages3D/796638-2.step",
+      "bytes": 89300,
+      "sha256": "110ef5e5dac9547cd859e8dce0138098c57f4e37128da9ff51da889f8801a87f"
+    },
+    {
+      "path": "sources/packages3D/CYPD3177-24LQXQT.stp",
+      "bytes": 426989,
+      "sha256": "2c3483eafced00e2e8867ec71b588ef0048bee6a0c0157ec47d4e1fe92ad94d5"
+    },
+    {
+      "path": "sources/packages3D/USB4056-03-A_REVA2.step",
+      "bytes": 3001124,
+      "sha256": "054081719a32b05ea9dfd650dcaf768c1cb0c7eb2b27036a4bbf2221228e9513"
+    }
+  ]
+}

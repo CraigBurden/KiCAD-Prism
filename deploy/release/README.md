@@ -62,6 +62,18 @@ connections from the internet, replace `Caddyfile` with `Caddyfile.dns-01`,
 build a proxy image from `Dockerfile.caddy-dns`, and set `PRISM_CADDY_IMAGE`.
 Ports 80 and 443 then stay closed to the internet. See the Deployment guide.
 
+If another service already uses port 80 or 443 on the host, the proxy fails to
+start with `Ports are not available`. Set other host ports in `.env`:
+
+```bash
+PRISM_CADDY_HTTP_PORT=8081
+PRISM_CADDY_HTTPS_PORT=8443
+```
+
+Include the port in the HTTPS origin, for example `https://prism.example.com:8443`.
+Public ACME certificates through `Caddyfile` need ports 80 and 443 reachable from
+the internet, so with other ports use `Caddyfile.internal` or `Caddyfile.dns-01`.
+
 ## Verify
 
 ```bash
@@ -86,8 +98,8 @@ Full guides:
 
 - `UPGRADES.md` in this archive
 - `scripts/prism_backup.py` in this archive
-- <https://github.com/krishna-swaroop/KiCAD-Prism/blob/main/docs/DEPLOYMENT.md>
-- <https://github.com/krishna-swaroop/KiCAD-Prism/blob/main/docs/OPERATIONS.md>
+- <https://krishna-swaroop.github.io/KiCAD-Prism/admin/deployment/>
+- <https://krishna-swaroop.github.io/KiCAD-Prism/admin/operations/>
 
 ## Release notes and experimental settings
 
@@ -96,7 +108,5 @@ They are included in `SHA256SUMS`. A pre-epoch-2 catalog requires the documented
 catalog cutover; do not start the new API against it before preparing backups
 and survivor archives.
 
-Keep `PRISM_PCB_GEOMETRY_BACKEND=legacy` for normal use. Rust and Python-copper
-are experimental opt-ins. Changing an environment value requires recreating
-the affected containers. `PRISM_COMMENT_LIVE_ENABLED=false` disables live
+Changing an environment value requires recreating the affected containers. `PRISM_COMMENT_LIVE_ENABLED=false` disables live
 comment sockets while retaining HTTP comment refresh.

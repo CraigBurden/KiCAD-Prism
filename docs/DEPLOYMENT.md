@@ -1,7 +1,6 @@
 # Deployment
 
-This guide covers the supported shared deployment path for KiCAD Prism:
-the digest-pinned deployment bundle attached to a stable GitHub Release.
+This guide moved to the KiCAD Prism docs site: [Deploy Prism](https://krishna-swaroop.github.io/KiCAD-Prism/admin/deployment/).
 
 Feature development and source testing happen on `dev`. Stable code is promoted
 to `main`, tagged, built, smoke-tested, and published by the release workflow.

@@ -1,9 +1,9 @@
 """Versioned, additive migrations for the ``comments`` schema.
 
-``CommentsStoreService.initialize()`` creates the base tables with
-``CREATE TABLE IF NOT EXISTS`` and then applies these in order under the
-schema advisory lock, recording each in ``comment_schema_migrations`` so a
-restart never re-runs or skips one. Every step must be safe to apply to a
+Step 0 creates the base tables (``comments_store_schema``); the rest build on
+them. :mod:`app.services.schema_ledger` applies them in order under the schema
+advisory lock, recording each in ``comment_schema_migrations`` so a restart
+never re-runs or skips one. Every step must be safe to apply to a
 populated database and safe to apply twice: ``ADD COLUMN IF NOT EXISTS``,
 backfills guarded by ``WHERE ... IS NULL``, indexes ``IF NOT EXISTS``.
 
@@ -13,10 +13,12 @@ search path to the comments schema (or a disposable test schema).
 
 from __future__ import annotations
 
-import logging
 from typing import Callable, List, Tuple
 
-from app.services import comment_live_events
+from app.services import comment_live_events, comment_social
+from app.services.comments_store_schema import create_base_tables
+from app.services.schema_ledger import Ledger, Step
+from app.services.trackers import attachment_links
 from app.services.trackers.inbox_store import apply_schema as apply_inbox_schema
 from app.services.trackers.migrations import (
     cascade_comments_tracker_fks,
@@ -26,10 +28,6 @@ from app.services.trackers.migrations import (
 )
 from app.services.trackers.op_store import apply_schema as apply_op_schema
 from app.services.trackers.projection_events import apply_schema as apply_tracker_projection_events
-
-logger = logging.getLogger(__name__)
-
-LEDGER_TABLE = "comment_schema_migrations"
 
 
 def _m001_identity_revisions_tombstones(conn) -> None:
@@ -191,7 +189,77 @@ def _m011_comment_scope_columns(conn) -> None:
     )
 
 
+def _m013_rich_content_and_attachments(conn) -> None:
+    """Markdown bodies and first-class attachments (issue #417).
+
+    Rows written before this stay ``plain`` and render exactly as before.
+    Attachments are soft-owned by the root or reply that first referenced
+    them; tombstoned threads keep theirs so revision history still resolves.
+    """
+    conn.execute(
+        """
+        ALTER TABLE comments ADD COLUMN IF NOT EXISTS content_format TEXT NOT NULL DEFAULT 'plain';
+        ALTER TABLE comment_replies ADD COLUMN IF NOT EXISTS content_format TEXT NOT NULL DEFAULT 'plain';
+        ALTER TABLE comment_revisions ADD COLUMN IF NOT EXISTS content_format TEXT;
+        CREATE TABLE IF NOT EXISTS comment_attachments (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            comment_id TEXT REFERENCES comments(id) ON DELETE CASCADE,
+            reply_id TEXT REFERENCES comment_replies(id) ON DELETE CASCADE,
+            uploader_user_id TEXT,
+            uploader_display TEXT NOT NULL DEFAULT '',
+            sha256 TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            media_type TEXT NOT NULL,
+            size_bytes BIGINT NOT NULL,
+            width INTEGER,
+            height INTEGER,
+            state TEXT NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_comment_attachments_project
+            ON comment_attachments(project_id, state, created_at);
+        CREATE INDEX IF NOT EXISTS idx_comment_attachments_sha
+            ON comment_attachments(sha256);
+        """,
+        prepare=False,
+    )
+
+
+def _m016_actor_columns(conn) -> None:
+    """Record which client and token wrote a comment and its history (ADR §3.5).
+
+    ``author_client_id`` names the MCP or service client on a root or reply;
+    the revision columns name the door (``auth_type``), the client, and the
+    token id, which stays internal for audit. Sessions write NULL.
+    """
+    conn.execute(
+        ";\n".join((
+            "ALTER TABLE comment_revisions ADD COLUMN IF NOT EXISTS editor_auth_type TEXT",
+            "ALTER TABLE comment_revisions ADD COLUMN IF NOT EXISTS editor_client_id TEXT",
+            "ALTER TABLE comment_revisions ADD COLUMN IF NOT EXISTS editor_token_id TEXT",
+            "ALTER TABLE comments ADD COLUMN IF NOT EXISTS author_client_id TEXT",
+            "ALTER TABLE comment_replies ADD COLUMN IF NOT EXISTS author_client_id TEXT",
+        )),
+        prepare=False,
+    )
+
+
+def _m100_anchor_design_key(conn) -> None:
+    """Store the displayed revision's design key beside its commit (K2 §3.6).
+
+    The key is the identity derived from the revision, not an edit: it is
+    written when the comment is created or pinned and filled in later for
+    older rows, so it never bumps ``revision`` or ``updated_at``.
+    """
+    conn.execute(
+        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS anchor_design_key TEXT",
+        prepare=False,
+    )
+
+
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
+    (0, "base_tables", create_base_tables),
     (1, "identity_revisions_tombstones", _m001_identity_revisions_tombstones),
     (2, "backfill_create_revisions", _m002_backfill_create_revisions),
     (3, "tracked_threads_and_replies", migrate_comments_tracked_links),
@@ -205,38 +273,17 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
     (11, "comment_scope_columns", _m011_comment_scope_columns),
     # Re-installs the v10 trigger function without retry-bookkeeping columns.
     (12, "tracker_projection_ignores_retry_bookkeeping", apply_tracker_projection_events),
+    (13, "rich_content_and_attachments", _m013_rich_content_and_attachments),
+    (14, "attachment_remote_links", attachment_links.apply_schema),
+    (15, "comment_reactions", comment_social.apply_schema),
+    (16, "actor_columns", _m016_actor_columns),
+    (100, "anchor_design_key", _m100_anchor_design_key),
 ]
 
 
-def applied_versions(conn) -> set[int]:
-    conn.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS {LEDGER_TABLE} (
-            version INTEGER PRIMARY KEY,
-            name TEXT NOT NULL,
-            applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-        """
-    )
-    return {int(row["version"]) for row in conn.execute(f"SELECT version FROM {LEDGER_TABLE}").fetchall()}
-
-
-def apply_comments_migrations(conn) -> List[int]:
-    """Apply every pending migration in order; return the versions applied.
-
-    Runs inside the caller's transaction and advisory lock, so a crash in the
-    middle of a step rolls the step and its ledger row back together.
-    """
-    applied = applied_versions(conn)
-    newly: List[int] = []
-    for version, name, migration in MIGRATIONS:
-        if version in applied:
-            continue
-        logger.info("Applying comments schema migration %s (%s)", version, name)
-        migration(conn)
-        conn.execute(
-            f"INSERT INTO {LEDGER_TABLE}(version, name) VALUES (%s, %s)",
-            (version, name),
-        )
-        newly.append(version)
-    return newly
+COMMENTS_LEDGER = Ledger(
+    name="comments",
+    schema="comments",
+    table="comment_schema_migrations",
+    steps=tuple(Step(version, name, body) for version, name, body in MIGRATIONS),
+)

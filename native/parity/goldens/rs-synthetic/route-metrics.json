@@ -1,0 +1,33 @@
+{
+ "schema": "prism.route_metrics.a0",
+ "nets": [
+  {
+   "netName": "+5V",
+   "routeLengthNm": 6529931,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "GND",
+   "routeLengthNm": 24200000,
+   "viaCount": 0,
+   "usedLayers": [
+    "B.Cu",
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "STATUS",
+   "routeLengthNm": 8400000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  }
+ ]
+}

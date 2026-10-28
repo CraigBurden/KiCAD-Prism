@@ -29,6 +29,7 @@ from app.release_studio.dossier import (  # noqa: E402
     assert_no_governance_leak,
     compute_dossier_digest,
 )
+from tests.kicad_tool_fakes import FakeTool  # noqa: E402
 from app.release_studio.steps import (  # noqa: E402
     STEP_BY_ID,
     STEP_CATALOGUE,
@@ -92,7 +93,7 @@ def _member_fields(member) -> dict:
 def _fake_runner(stamp: str, plain: str):
     """Return a runner that writes what the requested step would have written."""
 
-    def run(argv, cwd, timeout_seconds):  # noqa: ARG001 - signature is the contract
+    def run(argv, **_kwargs):  # noqa: ARG001 - FakeTool handler contract
         out = Path(argv[argv.index("--output") + 1])
         text = lambda body: body.format(stamp=stamp, plain=plain)  # noqa: E731
         jdump = lambda payload: json.dumps(payload).replace("{stamp}", stamp)  # noqa: E731
@@ -150,21 +151,20 @@ class StepCatalogueOrderTests(unittest.TestCase):
         inner = _fake_runner("2026-01-01T00:00:00+00:00", "2026-01-01")
         started: list[float] = []
 
-        def run(argv, cwd, timeout_seconds):
+        def run(argv, **kwargs):
             started.append(time.monotonic())
             # Invert the finishing order relative to the catalogue: the first
             # step waits longest, so a completion-ordered result would be
             # visibly reversed.
             time.sleep(0.05 if "drc" in argv else 0.0)
-            return inner(argv, cwd=cwd, timeout_seconds=timeout_seconds)
+            return inner(argv, **kwargs)
 
         outputs = run_step_catalogue(
             closure_root=closure,
             board_rel="hardware/board.kicad_pcb",
             schematic_rel="hardware/board.kicad_sch",
             output_root=root / "out",
-            cli_path="/usr/bin/true",
-            runner=run,
+            tool=FakeTool(run),
         )
 
         produced = [output.step_id for output in outputs]
@@ -184,29 +184,29 @@ class CatalogueWaveCoverageTests(unittest.TestCase):
     def test_every_catalogue_step_is_in_exactly_one_wave(self) -> None:
         from app.release_studio.steps import (
             CATALOGUE_WAVE_ARTWORK,
+            CATALOGUE_WAVE_BOARD,
             CATALOGUE_WAVE_BOM,
             CATALOGUE_WAVE_CHECKS,
-            CATALOGUE_WAVE_POSITIONS,
         )
 
         wave = (
-            CATALOGUE_WAVE_CHECKS
-            + CATALOGUE_WAVE_POSITIONS
+            CATALOGUE_WAVE_BOARD
+            + CATALOGUE_WAVE_CHECKS
             + CATALOGUE_WAVE_BOM
             + CATALOGUE_WAVE_ARTWORK
         )
         self.assertEqual(len(wave), len(set(wave)))
         self.assertEqual(set(wave), {spec.step_id for spec in STEP_CATALOGUE})
 
-    def test_bom_is_alone_after_positions_and_checks(self) -> None:
+    def test_the_board_wave_is_every_jobset_step_and_bom_runs_alone(self) -> None:
         from app.release_studio.steps import (
+            CATALOGUE_WAVE_BOARD,
             CATALOGUE_WAVE_BOM,
-            CATALOGUE_WAVE_CHECKS,
-            CATALOGUE_WAVE_POSITIONS,
+            JOBSET_SETTINGS,
         )
 
-        self.assertEqual(CATALOGUE_WAVE_CHECKS, ("drc", "erc", "board_stats"))
-        self.assertEqual(CATALOGUE_WAVE_POSITIONS, ("positions",))
+        self.assertEqual(set(CATALOGUE_WAVE_BOARD), set(JOBSET_SETTINGS))
+        self.assertEqual(CATALOGUE_WAVE_BOARD[0], "drc")
         self.assertEqual(CATALOGUE_WAVE_BOM, ("bom",))
 
 
@@ -237,8 +237,7 @@ class ReleaseStudioDossierTests(unittest.TestCase):
             schematic_rel="hardware/board.kicad_sch",
             output_root=output_root,
             variant="default",
-            cli_path="/usr/bin/true",
-            runner=_fake_runner(stamp, plain),
+            tool=FakeTool(_fake_runner(stamp, plain)),
         )
         return assemble(
             outputs=outputs,

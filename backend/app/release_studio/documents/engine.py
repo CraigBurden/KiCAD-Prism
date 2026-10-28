@@ -39,20 +39,25 @@ from app.release_studio.documents.artwork import (
 )
 from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY, typography_preset
 from app.release_studio.documents.inputs import DocumentInputs
-from app.release_studio.documents.layout import Rect, Sheet
+from app.release_studio.documents.layout import Rect, Sheet, stroke_text_batch
 from app.release_studio.documents.pdf import append_pdf_pages, render_pdf_pages
+from app.release_studio.documents.style import (
+    DEFAULT_SHEET_STYLE,
+    PRISM_STYLE,
+    sheet_style as normalize_sheet_style,
+)
 from app.release_studio.documents.svg import render_svg
+from app.services.kicad_tools import KicadTool
 
 logger = logging.getLogger(__name__)
 
 DOCUMENT_DOMAIN = "documentation"
 
-#: Assembly views come from `kicad-cruncher pcb-svg`, which fits one designator
+#: Assembly views come from `prism-kicad artwork`, which fits one designator
 #: into each component's own bounds over a hidden-line-removed outline.
 ASSEMBLY_SIDES: tuple[str, ...] = ("top", "bottom")
 
-#: Testpoint views use a derived board containing only TP footprints, with
-#: legacy references normalized through Monkey before Cruncher renders them.
+#: Testpoint views use the testpoint configuration's `TP*` selector.
 TESTPOINT_SIDES: tuple[str, ...] = ("top", "bottom")
 
 
@@ -144,13 +149,13 @@ def compose(
     #: testpoint drawing and its released schedule select the same parts.
     designators: Sequence[str] = (),
     board: Path | None = None,
-    cli_path: str | None = None,
-    cruncher_path: str | None = None,
+    cli: KicadTool | None = None,
     workdir: Path | None = None,
     sheet_size: str | None = None,
     notes: Mapping[str, Any] | None = None,
     fields: Mapping[str, Any] | None = None,
     typography: str = DEFAULT_TYPOGRAPHY,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
     revision_history: Sequence[Mapping[str, Any]] | None = None,
     impedance_rows: Sequence[Mapping[str, Any]] | None = None,
     stackup_pdf: bytes | None = None,
@@ -185,6 +190,7 @@ def compose(
             notes=notes,
             fields=fields,
             typography=typography,
+            sheet_style=sheet_style,
             revision_history=revision_history,
             impedance_rows=impedance_rows,
             stackup_pdf=stackup_pdf,
@@ -192,8 +198,7 @@ def compose(
             bom_rows=bom_rows,
             sheet_size=sheet_size,
             board=board,
-            cli_path=cli_path,
-            cruncher_path=cruncher_path,
+            cli=cli,
             workdir=workdir,
         ),
         on_progress=on_progress,
@@ -226,7 +231,12 @@ def compose_documents(
     # cannot perform work and then degrade into a default-looking document.
     typography = inputs.typography
     typography_preset(typography)
-    logger.info("Release Studio composing documents with typography %s", typography)
+    sheet_style = normalize_sheet_style(inputs.sheet_style)
+    logger.info(
+        "Release Studio composing documents with typography %s and sheet style %s",
+        typography,
+        sheet_style,
+    )
 
     def report(step: str, message: str, percent: float) -> None:
         if on_progress is not None:
@@ -270,8 +280,7 @@ def compose_documents(
             workdir=inputs.workdir,
             layer_pages=layer_pages,
             variant=str(context.get("variant") or ""),
-            cli_path=inputs.cli_path,
-            cruncher_path=inputs.cruncher_path,
+            cli=inputs.cli,
             designators=tuple(inputs.designators or ()),
             acquirer=acquirer,
             drill_acquirer=drill_acquirer,
@@ -297,14 +306,27 @@ def compose_documents(
 
     title_height = sheet_templates.title_block_height(context, title_fields)
     extent_width, extent_height = board_extent(stats)
-    if sheet_size is None:
-        sheet_size = _select_size(stats, title_height)
     # One ratio for the whole package. A reader who scales a dimension off the
     # fabrication sheet and applies it to the assembly sheet has to get the same
     # number, so the scale is a property of the set rather than of each sheet.
-    scale = sheet_templates.set_scale(
-        extent_width, extent_height, sheet_size, title_height
-    )
+    # In `paper` line-weight mode the artwork was already drawn at this ratio,
+    # so the sheet is placed at exactly that ratio rather than choosing again.
+    if inputs.artwork_paper_scale is not None:
+        if sheet_size is None:
+            sheet_size = _select_size(stats, title_height, sheet_style=sheet_style)
+        scale = float(inputs.artwork_paper_scale)
+        if not (scale > 0 and scale < float("inf")):
+            raise ValueError(
+                f"the artwork's paper scale is not a positive ratio: {scale!r}"
+            )
+    else:
+        sheet_size, scale = sheet_templates.package_scale(
+            extent_width,
+            extent_height,
+            sheet_size=sheet_size,
+            title_height=title_height,
+            sheet_style=sheet_style,
+        )
 
     # Placement uses content bounds when an acquired SVG reports a drawing-sheet
     # frame (or otherwise dwarfs the board).  Package size already ignored those
@@ -341,6 +363,7 @@ def compose_documents(
     cover, cover_overflow = sheet_templates.technical_cover(
         context, stats, stackup, variants, members, size=sheet_size,
         notes=sheet_notes["cover"], fields=title_fields, typography=typography,
+        sheet_style=sheet_style,
         revision_history=revision_history,
         placements=placements,
         render=board_render,
@@ -357,6 +380,7 @@ def compose_documents(
             sheet_size=sheet_size,
             fields=title_fields,
             typography=typography,
+            sheet_style=sheet_style,
             warnings=warnings,
         ),
         "cover",
@@ -371,6 +395,7 @@ def compose_documents(
     fabrication, fab_scale, fab_overflow = sheet_templates.fabrication_sheet(
         context, stats, stackup, overview, size=sheet_size, scale=scale,
         notes=sheet_notes["fabrication"], fields=title_fields, typography=typography,
+        sheet_style=sheet_style,
     )
     fabrication_pages = [
         (
@@ -395,7 +420,7 @@ def compose_documents(
         sheet, used, _overflow = sheet_templates.fabrication_sheet(
             context, stats, stackup, drawing, size=sheet_size, scale=scale,
             notes=sheet_notes["fabrication"], fields=title_fields,
-            typography=typography, layer=layer,
+            typography=typography, layer=layer, sheet_style=sheet_style,
         )
         fabrication_pages.append(
             (sheet, layer_page_key(layer), used, drawing, _artwork_window(sheet))
@@ -409,6 +434,7 @@ def compose_documents(
             sheet_size=sheet_size,
             fields=title_fields,
             typography=typography,
+            sheet_style=sheet_style,
             warnings=warnings,
         )
     )
@@ -422,6 +448,7 @@ def compose_documents(
             size=sheet_size,
             fields=title_fields,
             typography=typography,
+            sheet_style=sheet_style,
         )
         fabrication_pages.append((impedance_sheet, "impedance", 1.0, None, None))
         fabrication_pages.extend(
@@ -433,6 +460,7 @@ def compose_documents(
                 sheet_size=sheet_size,
                 fields=title_fields,
                 typography=typography,
+            sheet_style=sheet_style,
                 warnings=warnings,
             )
         )
@@ -457,15 +485,30 @@ def compose_documents(
     assembly_pages = []
     for side in ASSEMBLY_SIDES:
         key = f"assembly-{side}"
-        sheet, used = sheet_templates.assembly_sheet(
+        sheet, used, overflow = sheet_templates.assembly_sheet(
             context, side, assembly.get(side), placements, size=sheet_size, scale=scale,
             notes=sheet_notes[key], fields=title_fields, typography=typography,
+            sheet_style=sheet_style,
             projection_mix=assembly_mix.get(side),
             population=population or {},
         )
         assembly_pages.append(
             (sheet, key, used, assembly.get(side), _artwork_window(sheet))
         )
+        if sheet_style == PRISM_STYLE:
+            assembly_pages.extend(
+                _continuation_pages(
+                    overflow,
+                    context=context,
+                    prefix=key,
+                    title=f"ASSEMBLY SCHEDULE — {side.upper()}",
+                    sheet_size=sheet_size,
+                    fields=title_fields,
+                    typography=typography,
+                    sheet_style=sheet_style,
+                    warnings=warnings,
+                )
+            )
     _append_document(
         outputs, assembly_pages, "assembly", "ASSEMBLY DRAWING", warnings
     )
@@ -477,6 +520,7 @@ def compose_documents(
         sheet, used, overflow = sheet_templates.testpoint_sheet(
             context, side, testpoint.get(side), testpoints or {}, size=sheet_size, scale=scale,
             notes=sheet_notes[key], fields=title_fields, typography=typography,
+            sheet_style=sheet_style,
         )
         testpoint_pages.append(
             (sheet, key, used, testpoint.get(side), _artwork_window(sheet))
@@ -490,6 +534,7 @@ def compose_documents(
                 sheet_size=sheet_size,
                 fields=title_fields,
                 typography=typography,
+            sheet_style=sheet_style,
                 warnings=warnings,
             )
         )
@@ -501,11 +546,13 @@ def compose_documents(
     # a reader can measure across them. The drill map is not one of those: it
     # carries a hole legend alongside the board, so forcing the board's ratio
     # onto it overruns the window and the sheet then states a ratio its own
-    # artwork does not honour. It fits itself and reports what it used.
+    # artwork does not honour (JTYU-OBC at 2:1: the board's top clipped and the
+    # legend over the notes). It fits itself and reports what it used.
     report("documents-drill", "Composing the drill drawing", 77.0)
     drill, drill_scale, drill_overflow = sheet_templates.drill_sheet(
         context, stats, stackup, art.get("drill"), size=sheet_size, scale=None,
         notes=sheet_notes["drill"], fields=title_fields, typography=typography,
+        sheet_style=sheet_style,
     )
     _append_document(
         outputs,
@@ -518,6 +565,7 @@ def compose_documents(
             sheet_size=sheet_size,
             fields=title_fields,
             typography=typography,
+            sheet_style=sheet_style,
             warnings=warnings,
         ),
         "drill",
@@ -535,6 +583,7 @@ def compose_documents(
             size=sheet_size,
             fields=title_fields,
             typography=typography,
+            sheet_style=sheet_style,
         )
         _append_document(
             outputs,
@@ -547,6 +596,7 @@ def compose_documents(
                 sheet_size=sheet_size,
                 fields=title_fields,
                 typography=typography,
+            sheet_style=sheet_style,
                 warnings=warnings,
             ),
             "bom",
@@ -593,7 +643,12 @@ def board_extent(stats: Mapping[str, Any]) -> tuple[float, float]:
     return width, height
 
 
-def _select_size(stats: Mapping[str, Any], title_height: float) -> str:
+def _select_size(
+    stats: Mapping[str, Any],
+    title_height: float,
+    *,
+    sheet_style: str = DEFAULT_SHEET_STYLE,
+) -> str:
     """Pick one standard sheet size for the whole set, from the board alone."""
 
     width, height = board_extent(stats)
@@ -602,7 +657,9 @@ def _select_size(stats: Mapping[str, Any], title_height: float) -> str:
         # Sizing from a guess would be worse than stating a conventional
         # default, so the set keeps the historical one.
         return sheet_templates.DEFAULT_SIZE
-    return sheet_templates.select_sheet_size(width, height, title_height=title_height)
+    return sheet_templates.select_sheet_size(
+        width, height, title_height=title_height, sheet_style=sheet_style
+    )
 
 
 def _artwork_window(sheet: Sheet) -> Rect | None:
@@ -623,7 +680,10 @@ def _serialize(
     """Render *pages* into one PDF. Page SVGs stay in memory for tests."""
 
     sheets = [sheet for sheet, _k, _s, _a, _w in pages]
-    pdf_bytes = render_pdf_pages(sheets)
+    # One NewStroke batch for the whole document: its pages reach the CLI once,
+    # and the PDF and in-memory SVG share exactly the same glyph geometry.
+    stroke_text = stroke_text_batch(sheets)
+    pdf_bytes = render_pdf_pages(sheets, stroke_text=stroke_text)
 
     for index, (_sheet, page_key, scale, art, window) in enumerate(pages):
         if art is None or window is None:
@@ -648,7 +708,7 @@ def _serialize(
                 key=page_key,
                 title=sheet.title,
                 svg_path=f"documentation/{page_key}.svg",
-                svg_bytes=render_svg(sheet).encode("utf-8"),
+                svg_bytes=render_svg(sheet, stroke_text=stroke_text).encode("utf-8"),
                 scale=scale,
                 artwork_digest=art.digest if art else "",
             )
@@ -691,6 +751,7 @@ def _continuation_pages(
     sheet_size: str,
     fields: Sequence,
     typography: str,
+    sheet_style: str,
     warnings: list[str],
 ) -> list[tuple[Sheet, str, float, None, None]]:
     """Pages carrying tables the originating sheet could not hold.
@@ -713,6 +774,7 @@ def _continuation_pages(
             size=sheet_size,
             fields=fields,
             typography=typography,
+            sheet_style=sheet_style,
         )
         pages.append((sheet, key, 1.0, None, None))
     if remaining:

@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import subprocess
 import threading
 import uuid
 from contextlib import contextmanager
@@ -13,10 +14,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
+from app.core import errors
 from app.core.config import settings
-from app.core.roles import Role, role_matches_allowed_role
+from app.core.policy import folder_visibility_params, folder_visible, folder_visible_sql
+from app.core.roles import Role
 from app.services.postgres_database import database
-from app.services.workspace_schema_migrations import apply_workspace_migrations
+from app.services.project_anchor_backfill import backfill_project_anchors
+from app.services.project_settings_service import import_working_tree_settings, restore_committed_prism_json
+from app.services.workspace_schema_migrations import WORKSPACE_LEDGER
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +37,12 @@ _RELEASE_IMMUTABLE_TRIGGERS = (
 )
 
 
-class ProjectHasSignedReleasesError(Exception):
-    """Raised when a non-admin delete is blocked by signed release records."""
+class WorkspaceNotFound(errors.NotFound, ValueError):
+    """A folder or project named in a workspace change does not exist (404; still a ``ValueError``)."""
+
+
+class ProjectHasSignedReleasesError(errors.Conflict):
+    """Raised when a non-admin delete is blocked by signed release records (409)."""
 
     def __init__(self, project_id: str, record_count: int) -> None:
         self.project_id = project_id
@@ -62,6 +71,29 @@ def _hash_file(path: Path) -> Optional[str]:
         return None
 
 
+def _git_origin(tree: str) -> str:
+    """The `origin` remote of a working tree, or "" if it has none.
+
+    Asks git rather than trusting the stored `url`, which for a local import is a
+    filesystem path the user picked, not a remote. Returns "" for a directory that
+    is not a git repo at all, which is a legitimate state, not an error.
+    """
+    if not tree or not os.path.isdir(tree):
+        return ""
+    try:
+        result = subprocess.run(
+            ["git", "-C", tree, "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as err:
+        logger.warning("Could not read the git origin of %s: %s", tree, err)
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
 class WorkspaceService:
     """Native PostgreSQL workspace persistence."""
 
@@ -77,13 +109,49 @@ class WorkspaceService:
         with self._lock:
             if self._initialized:
                 return
-            with self._connect() as conn:
-                conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-schema",))
-                self._create_schema(conn)
-                apply_workspace_migrations(conn)
-                conn.commit()
+            dirtied: list = []
+            WORKSPACE_LEDGER.migrate(self._connect, after=(
+                self._backfill_origin,
+                lambda conn: backfill_project_anchors(conn, self._abs_clone_path),
+                lambda conn: import_working_tree_settings(conn, self._abs_clone_path, dirtied)))
+            restore_committed_prism_json(dirtied)  # after the commit (D3)
             self._initialized = True
             logger.info("Workspace service initialized in PostgreSQL schema workspace")
+
+    def _backfill_origin(self, conn: Any) -> None:
+        """Fill origin_url/origin_owner for repositories that lack them.
+
+        clone_path/url is not trustworthy for this: a cloned repo holds a real
+        remote there, but a local import holds the filesystem path the user
+        picked, and the two are indistinguishable to a client. So ask git, the
+        only thing that actually knows:
+
+          origin_owner = "external"  a real remote exists (a GitLab URL, an SSH
+                                     path, a NAS share)
+          origin_owner = "none"      the tree is not a git repo, or has no remote
+
+        "none" is honest, not a failure: a project can be registered with Prism
+        and simply not be backed by a remote yet. Runs once per repository (only
+        rows where origin_owner is still NULL), so a settled workspace pays
+        nothing on later startups.
+        """
+        rows = conn.execute(
+            "SELECT id, clone_path FROM ws_repositories WHERE origin_owner IS NULL"
+        ).fetchall()
+        for row in rows:
+            clone = self._abs_clone_path(row["clone_path"] or "")
+            origin = _git_origin(clone)
+            owner = "external" if origin else "none"
+            conn.execute(
+                "UPDATE ws_repositories SET origin_url=%s, origin_owner=%s WHERE id=%s",
+                (origin, owner, row["id"]),
+            )
+            logger.info(
+                "Repository %s: origin_owner=%s origin_url=%s",
+                row["id"],
+                owner,
+                origin or "(none)",
+            )
 
     # ------------------------------------------------------------------
     # Connection
@@ -96,93 +164,12 @@ class WorkspaceService:
             yield conn
 
     # ------------------------------------------------------------------
-    # Schema
-    # ------------------------------------------------------------------
-
-    def _create_schema(self, conn: Any) -> None:
-        conn.execute("CREATE SCHEMA IF NOT EXISTS workspace")
-        conn.execute("SET search_path TO workspace, public")
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS ws_repositories (
-                id          TEXT PRIMARY KEY,
-                name        TEXT NOT NULL,
-                url         TEXT NOT NULL UNIQUE,
-                clone_path  TEXT NOT NULL UNIQUE,
-                import_type TEXT NOT NULL DEFAULT 'single',
-                cloned_at   TIMESTAMPTZ NOT NULL,
-                last_synced_at TIMESTAMPTZ
-            );
-
-            CREATE TABLE IF NOT EXISTS ws_folders (
-                id              TEXT PRIMARY KEY,
-                name            TEXT NOT NULL,
-                parent_id       TEXT REFERENCES ws_folders(id) ON DELETE CASCADE,
-                visibility_mode TEXT,
-                allowed_roles   JSONB NOT NULL DEFAULT '[]'::jsonb,
-                created_at      TIMESTAMPTZ NOT NULL,
-                updated_at      TIMESTAMPTZ NOT NULL,
-                UNIQUE(parent_id, name)
-            );
-            CREATE INDEX IF NOT EXISTS idx_ws_folders_parent ON ws_folders(parent_id);
-
-            CREATE TABLE IF NOT EXISTS ws_projects (
-                id              TEXT PRIMARY KEY,
-                repo_id         TEXT NOT NULL REFERENCES ws_repositories(id) ON DELETE CASCADE,
-                name            TEXT NOT NULL,
-                display_name    TEXT,
-                description     TEXT NOT NULL DEFAULT '',
-                relative_path   TEXT NOT NULL DEFAULT '.',
-                project_file_rel TEXT NOT NULL DEFAULT '',
-                folder_id       TEXT REFERENCES ws_folders(id) ON DELETE SET NULL,
-                schematic_rel   TEXT,
-                pcb_rel         TEXT,
-                thumbnail_rel   TEXT,
-                jobset_rel      TEXT,
-                has_3d_model    BOOLEAN NOT NULL DEFAULT FALSE,
-                has_ibom        BOOLEAN NOT NULL DEFAULT FALSE,
-                registered_at   TIMESTAMPTZ NOT NULL,
-                last_modified   TIMESTAMPTZ NOT NULL,
-                prism_json_hash TEXT,
-                -- A directory can hold more than one KiCad project, so it does
-                -- not identify one on its own. Keying uniqueness on the
-                -- directory alone made a repository with two projects in its
-                -- root importable only as one of them.
-                CONSTRAINT ws_projects_repo_path_file_key
-                    UNIQUE (repo_id, relative_path, project_file_rel)
-            );
-            CREATE INDEX IF NOT EXISTS idx_ws_projects_folder ON ws_projects(folder_id);
-            CREATE INDEX IF NOT EXISTS idx_ws_projects_repo   ON ws_projects(repo_id);
-
-            CREATE TABLE IF NOT EXISTS ws_project_portfolio (
-                project_id  TEXT PRIMARY KEY REFERENCES ws_projects(id) ON DELETE CASCADE,
-                model_rel   TEXT,
-                tags        JSONB NOT NULL DEFAULT '[]'::jsonb,
-                scene_config JSONB
-            );
-
-            CREATE TABLE IF NOT EXISTS ws_jobs (
-                id         TEXT PRIMARY KEY,
-                kind       TEXT NOT NULL,
-                status     TEXT NOT NULL,
-                message    TEXT NOT NULL DEFAULT '',
-                percent    REAL NOT NULL DEFAULT 0,
-                payload    JSONB NOT NULL DEFAULT '{}'::jsonb,
-                created_at TIMESTAMPTZ NOT NULL,
-                updated_at TIMESTAMPTZ NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_ws_jobs_kind_status ON ws_jobs(kind, status);
-        """, prepare=False)
-
-    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
     @staticmethod
     def _projects_root() -> str:
-        return os.environ.get(
-            "KICAD_PROJECTS_ROOT",
-            os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data/projects")),
-        )
+        return settings.KICAD_PROJECTS_ROOT
 
     def _abs_clone_path(self, relative_clone_path: str) -> str:
         return os.path.join(self._projects_root(), relative_clone_path)
@@ -207,15 +194,9 @@ class WorkspaceService:
 
     @staticmethod
     def _is_folder_visible(row: Dict[str, Any], user_role: Optional[Role]) -> bool:
-        if user_role is None:
-            return True
-        if row.get("visibility_mode") != "roles":
-            return True
         raw_allowed = row.get("allowed_roles") or []
         allowed = json.loads(raw_allowed) if isinstance(raw_allowed, str) else raw_allowed
-        if not allowed:
-            return True
-        return role_matches_allowed_role(user_role, allowed)
+        return folder_visible(user_role, row.get("visibility_mode"), allowed)
 
     # ------------------------------------------------------------------
     # Repository CRUD
@@ -227,17 +208,37 @@ class WorkspaceService:
         url: str,
         clone_path_abs: str,
         import_type: str = "single",
+        origin_url: str | None = None,
+        origin_owner: str | None = None,
     ) -> str:
+        """Register a repository, recording where its git actually lives.
+
+        The origin is settled here rather than left NULL for the next startup's
+        backfill. The agent reads origin_url to decide what it may clone from, and a
+        row registered mid-session would otherwise answer "nothing" until a restart.
+
+        `url` cannot be trusted for this: a clone holds a real remote there, a local
+        import holds the filesystem path the user picked, and a client cannot tell them
+        apart. So ask git, exactly as _backfill_origin does. A caller that already knows
+        (Prism hosting the origin itself) passes it instead of making us guess.
+        """
         repo_id = _new_id("repo_")
         now = _utc_now_iso()
         rel = self._rel_clone_path(clone_path_abs)
+        if origin_owner is None:
+            discovered = _git_origin(clone_path_abs)
+            origin_url = discovered
+            origin_owner = "external" if discovered else "none"
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO ws_repositories (id,name,url,clone_path,import_type,cloned_at) VALUES (%s,%s,%s,%s,%s,%s)",
-                (repo_id, name, url, rel, import_type, now),
+                "INSERT INTO ws_repositories (id,name,url,clone_path,import_type,cloned_at,origin_url,origin_owner)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                (repo_id, name, url, rel, import_type, now, origin_url or "", origin_owner),
             )
             conn.commit()
-        logger.info("Registered repository %s (%s)", name, repo_id)
+        logger.info(
+            "Registered repository %s (%s) origin_owner=%s", name, repo_id, origin_owner
+        )
         return repo_id
 
     def get_repository_by_url(self, url: str) -> Optional[Dict[str, Any]]:
@@ -301,8 +302,15 @@ class WorkspaceService:
         has_3d_model: bool = False,
         has_ibom: bool = False,
         prism_json_hash: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> str:
-        project_id = _new_id("prj_")
+        """Register a project, minting an id unless the caller already has one.
+
+        Prism-hosted creation mints the id first because the bare repo is named after
+        it (prj_abc.git). Minting a second one here would leave the repo and the row
+        pointing at different projects, and every later lookup by id would miss.
+        """
+        project_id = project_id or _new_id("prj_")
         now = _utc_now_iso()
         with self._connect() as conn:
             conn.execute(
@@ -342,6 +350,7 @@ class WorkspaceService:
             rows = conn.execute(
                 """SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
                           r.name AS parent_repo, r.import_type,
+                          r.origin_url, r.origin_owner,
                           r.last_synced_at AS repo_last_synced,
                           f.visibility_mode, f.allowed_roles
                    FROM ws_projects p
@@ -361,7 +370,9 @@ class WorkspaceService:
         with self._connect() as conn:
             row = conn.execute(
                 """SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
-                          r.name AS parent_repo, r.import_type
+                          r.name AS parent_repo, r.import_type,
+                          r.origin_url, r.origin_owner,
+                          r.last_synced_at AS repo_last_synced
                    FROM ws_projects p
                    JOIN ws_repositories r ON r.id = p.repo_id
                    WHERE p.id=%s""",
@@ -376,25 +387,20 @@ class WorkspaceService:
     ) -> Optional[Dict[str, Any]]:
         """Resolve and authorize a project in one PostgreSQL query."""
 
-        viewer_fallback = user_role in {"viewer", "qa"}
         with self._connect() as conn:
             row = conn.execute(
-                """
+                f"""
                 SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
-                       r.name AS parent_repo, r.import_type
+                       r.name AS parent_repo, r.import_type,
+                       r.origin_url, r.origin_owner,
+                       r.last_synced_at AS repo_last_synced
                 FROM ws_projects p
                 JOIN ws_repositories r ON r.id = p.repo_id
                 LEFT JOIN ws_folders f ON f.id = p.folder_id
-                WHERE p.id = %s
-                  AND (
-                    f.id IS NULL
-                    OR f.visibility_mode IS DISTINCT FROM 'roles'
-                    OR jsonb_array_length(COALESCE(f.allowed_roles, '[]'::jsonb)) = 0
-                    OR COALESCE(f.allowed_roles, '[]'::jsonb) ? %s
-                    OR (%s AND COALESCE(f.allowed_roles, '[]'::jsonb) ? 'viewer')
-                  )
+                WHERE p.id = %(project_id)s
+                  AND {folder_visible_sql("f")}
                 """,
-                (project_id, user_role, viewer_fallback),
+                {"project_id": project_id, **folder_visibility_params(user_role)},
             ).fetchone()
         return self._project_row_to_dict(row) if row else None
 
@@ -402,7 +408,7 @@ class WorkspaceService:
         with self._connect() as conn:
             rows = conn.execute(
                 """SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
-                          r.name AS parent_repo, r.import_type
+                          r.name AS parent_repo, r.import_type, r.last_synced_at AS repo_last_synced
                    FROM ws_projects p
                    JOIN ws_repositories r ON r.id = p.repo_id
                    WHERE p.repo_id=%s ORDER BY p.name""",
@@ -419,7 +425,7 @@ class WorkspaceService:
             "schematic_rel", "pcb_rel", "thumbnail_rel", "jobset_rel",
             "thumbnail_source", "thumbnail_digest", "thumbnail_media_type",
             "thumbnail_size_bytes",
-            "has_3d_model", "has_ibom", "last_modified", "prism_json_hash",
+            "has_3d_model", "has_ibom", "last_modified", "prism_json_hash", "path_settings",
         }
         fields = {k: v for k, v in kwargs.items() if k in allowed}
         if not fields:
@@ -467,7 +473,7 @@ class WorkspaceService:
                     (folder_id,),
                 ).fetchone()
                 if not folder:
-                    raise ValueError("Folder not found")
+                    raise WorkspaceNotFound("Folder not found")
 
             rows = conn.execute(
                 "SELECT id FROM ws_projects WHERE id = ANY(%s) FOR UPDATE",
@@ -481,7 +487,7 @@ class WorkspaceService:
             ]
             if missing_ids:
                 noun = "Project" if len(missing_ids) == 1 else "Projects"
-                raise ValueError(f"{noun} not found: {', '.join(missing_ids)}")
+                raise WorkspaceNotFound(f"{noun} not found: {', '.join(missing_ids)}")
 
             cursor = conn.execute(
                 "UPDATE ws_projects SET folder_id=%s WHERE id = ANY(%s)",
@@ -601,10 +607,6 @@ class WorkspaceService:
                 "DELETE FROM ws_release_audit_events WHERE project_id = %s",
                 (project_id,),
             )
-            conn.execute(
-                "DELETE FROM ws_webgpu_ready WHERE project_id = %s",
-                (project_id,),
-            )
         finally:
             for table, trigger in _RELEASE_IMMUTABLE_TRIGGERS:
                 conn.execute(f"ALTER TABLE {table} ENABLE TRIGGER {trigger}")
@@ -697,7 +699,7 @@ class WorkspaceService:
         with self._connect() as conn:
             rows = conn.execute(
                 """SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
-                          r.name AS parent_repo, r.import_type,
+                          r.name AS parent_repo, r.import_type, r.last_synced_at AS repo_last_synced,
                           f.visibility_mode, f.allowed_roles
                    FROM ws_projects p
                    JOIN ws_repositories r ON r.id = p.repo_id
@@ -821,7 +823,7 @@ class WorkspaceService:
             if parent_id is not None:
                 parent = conn.execute("SELECT id FROM ws_folders WHERE id=%s", (parent_id,)).fetchone()
                 if not parent:
-                    raise ValueError("Parent folder not found")
+                    raise WorkspaceNotFound("Parent folder not found")
             try:
                 conn.execute(
                     """INSERT INTO ws_folders (id,name,parent_id,visibility_mode,allowed_roles,created_at,updated_at)
@@ -852,7 +854,7 @@ class WorkspaceService:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM ws_folders WHERE id=%s", (folder_id,)).fetchone()
             if not row:
-                raise ValueError("Folder not found")
+                raise WorkspaceNotFound("Folder not found")
             folder = self._row_to_dict(row)
             target_name = name.strip() if name is not None else folder["name"]
             target_parent = parent_id if _use_parent else folder["parent_id"]
@@ -863,7 +865,7 @@ class WorkspaceService:
             if target_parent is not None:
                 p = conn.execute("SELECT id FROM ws_folders WHERE id=%s", (target_parent,)).fetchone()
                 if not p:
-                    raise ValueError("Parent folder not found")
+                    raise WorkspaceNotFound("Parent folder not found")
                 # Prevent cycles
                 current = target_parent
                 visited = {folder_id}
@@ -977,19 +979,19 @@ class WorkspaceService:
             if folder_id is not None:
                 row = conn.execute("SELECT * FROM ws_folders WHERE id=%s", (folder_id,)).fetchone()
                 if not row:
-                    raise ValueError("Folder not found")
+                    raise WorkspaceNotFound("Folder not found")
                 fd = self._row_to_dict(row)
                 raw_roles = fd.get("allowed_roles") or []
                 fd["allowed_roles"] = json.loads(raw_roles) if isinstance(raw_roles, str) else raw_roles
                 if not self._is_folder_visible(fd, user_role):
-                    raise ValueError("Folder not found")
+                    raise WorkspaceNotFound("Folder not found")
             child_folders = conn.execute(
                 "SELECT * FROM ws_folders WHERE parent_id IS NOT DISTINCT FROM %s ORDER BY name",
                 (folder_id,),
             ).fetchall()
             projects = conn.execute(
                 """SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
-                          r.name AS parent_repo, r.import_type
+                          r.name AS parent_repo, r.import_type, r.last_synced_at AS repo_last_synced
                    FROM ws_projects p JOIN ws_repositories r ON r.id=p.repo_id
                    WHERE p.folder_id IS NOT DISTINCT FROM %s ORDER BY p.name""",
                 (folder_id,),
@@ -1022,18 +1024,13 @@ class WorkspaceService:
     def get_bootstrap_data(self, user_role: Optional[Role] = None) -> Dict[str, Any]:
         role = user_role or "admin"
         bypass_visibility = user_role is None
-        viewer_fallback = role in {"viewer", "qa"}
         with self._connect() as conn:
             row = conn.execute(
-                """
+                f"""
                 WITH visible_folders AS (
                     SELECT f.*
                     FROM ws_folders f
-                    WHERE %s
-                       OR f.visibility_mode IS DISTINCT FROM 'roles'
-                       OR jsonb_array_length(COALESCE(f.allowed_roles, '[]'::jsonb)) = 0
-                       OR COALESCE(f.allowed_roles, '[]'::jsonb) ? %s
-                       OR (%s AND COALESCE(f.allowed_roles, '[]'::jsonb) ? 'viewer')
+                    WHERE %(bypass)s OR {folder_visible_sql("f")}
                 ),
                 project_rows AS (
                     SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
@@ -1044,7 +1041,7 @@ class WorkspaceService:
                     JOIN ws_repositories r ON r.id = p.repo_id
                     LEFT JOIN ws_folders f ON f.id = p.folder_id
                     WHERE f.id IS NULL
-                       OR %s
+                       OR %(bypass)s
                        OR f.id IN (SELECT id FROM visible_folders)
                 ),
                 folder_counts AS (
@@ -1074,7 +1071,7 @@ class WorkspaceService:
                         1
                     ) AS version
                 """,
-                (bypass_visibility, role, viewer_fallback, bypass_visibility),
+                {"bypass": bypass_visibility, **folder_visibility_params(role)},
             ).fetchone()
         projects = [
             self._project_row_to_dict(project)

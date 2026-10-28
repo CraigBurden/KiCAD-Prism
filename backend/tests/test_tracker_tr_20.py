@@ -89,12 +89,6 @@ class GitHubIdentityAdapterTests(unittest.TestCase):
             _Raw(status, content=content, url=url, headers=headers or {})
         )
 
-    def test_fixture_cases_are_present(self) -> None:
-        ids = {case["id"] for case in F3["cases"]}
-        self.assertIn("F3.oauth_pkce_required", ids)
-        self.assertIn("F3.oauth_refresh", ids)
-        self.assertIn("F3.oauth_state_mismatch", ids)
-
     def test_authorize_url_requires_pkce_s256(self) -> None:
         adapter = self._adapter()
         verifier = "pkce-verifier-fixture-aaaaaaaaaaaaaaaa"

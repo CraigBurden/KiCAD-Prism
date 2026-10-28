@@ -1,0 +1,291 @@
+{
+  "schema": "prism.placements.a1",
+  "footprints": [
+    {
+      "uuid": "00000000-0000-0000-0000-00005fdfc3f1",
+      "reference": "U7",
+      "libId": "Package_SO:SOIC-8_5.23x5.23mm_P1.27mm",
+      "side": "front",
+      "positionNm": {
+        "xNm": 140000000,
+        "yNm": 75500000
+      },
+      "rotationDeg": 180,
+      "dnp": false,
+      "excludeFromPosFiles": false,
+      "courtyardBounds": {
+        "minNm": {
+          "xNm": -4650000,
+          "yNm": -2860000
+        },
+        "maxNm": {
+          "xNm": 4650000,
+          "yNm": 2860000
+        }
+      },
+      "pads": [
+        {
+          "number": "1",
+          "type": "smd",
+          "shape": "roundrect",
+          "positionNm": {
+            "xNm": 143600000,
+            "yNm": 77405000
+          },
+          "size": {
+            "xNm": 1600000,
+            "yNm": 600000
+          }
+        },
+        {
+          "number": "8",
+          "type": "smd",
+          "shape": "roundrect",
+          "positionNm": {
+            "xNm": 136400000,
+            "yNm": 77405000
+          },
+          "size": {
+            "xNm": 1600000,
+            "yNm": 600000
+          }
+        }
+      ],
+      "models": [
+        {
+          "path": "${KICAD6_3DMODEL_DIR}/Package_SO.3dshapes/SOIC-8_5.23x5.23mm_P1.27mm.wrl",
+          "hidden": true,
+          "offset": {
+            "xNm": 0,
+            "yNm": 0,
+            "zNm": 0
+          },
+          "rotation": {
+            "xDeg": 0,
+            "yDeg": 0,
+            "zDeg": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        {
+          "path": "${KICAD6_3DMODEL_DIR}/Package_SO.3dshapes/SOIJ-8_5.3x5.3mm_P1.27mm.wrl",
+          "hidden": false,
+          "offset": {
+            "xNm": 0,
+            "yNm": 0,
+            "zNm": 0
+          },
+          "rotation": {
+            "xDeg": 0,
+            "yDeg": 0,
+            "zDeg": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      ],
+      "sourceSpan": {
+        "offsetBytes": 132826,
+        "lengthBytes": 6638
+      }
+    },
+    {
+      "uuid": "00000000-0000-0000-0000-00005ff547a0",
+      "reference": "J10",
+      "libId": "Connector:Tag-Connect_TC2030-IDC-FP_2x03_P1.27mm_Vertical",
+      "side": "front",
+      "positionNm": {
+        "xNm": 149580000,
+        "yNm": 69030000
+      },
+      "rotationDeg": 90,
+      "dnp": false,
+      "excludeFromPosFiles": true,
+      "courtyardBounds": {
+        "minNm": {
+          "xNm": -4250000,
+          "yNm": -4250000
+        },
+        "maxNm": {
+          "xNm": 3750000,
+          "yNm": 4250000
+        }
+      },
+      "pads": [
+        {
+          "number": "",
+          "type": "np_thru_hole",
+          "shape": "circle",
+          "positionNm": {
+            "xNm": 147040000,
+            "yNm": 71570000
+          },
+          "size": {
+            "xNm": 2374900,
+            "yNm": 2374900
+          }
+        },
+        {
+          "number": "1",
+          "type": "connect",
+          "shape": "circle",
+          "positionNm": {
+            "xNm": 150215000,
+            "yNm": 70300000
+          },
+          "size": {
+            "xNm": 787400,
+            "yNm": 787400
+          }
+        }
+      ],
+      "models": [],
+      "sourceSpan": {
+        "offsetBytes": 226374,
+        "lengthBytes": 5576
+      }
+    },
+    {
+      "uuid": "00000000-0000-0000-0000-00005fd1306f",
+      "reference": "C22",
+      "libId": "Capacitor_SMD:C_0402_1005Metric",
+      "side": "back",
+      "positionNm": {
+        "xNm": 135100000,
+        "yNm": 87700000
+      },
+      "rotationDeg": 90,
+      "dnp": false,
+      "excludeFromPosFiles": false,
+      "courtyardBounds": {
+        "minNm": {
+          "xNm": -910000,
+          "yNm": -460000
+        },
+        "maxNm": {
+          "xNm": 910000,
+          "yNm": 460000
+        }
+      },
+      "pads": [
+        {
+          "number": "1",
+          "type": "smd",
+          "shape": "roundrect",
+          "positionNm": {
+            "xNm": 135100000,
+            "yNm": 88180000
+          },
+          "size": {
+            "xNm": 560000,
+            "yNm": 620000
+          }
+        },
+        {
+          "number": "2",
+          "type": "smd",
+          "shape": "roundrect",
+          "positionNm": {
+            "xNm": 135100000,
+            "yNm": 87220000
+          },
+          "size": {
+            "xNm": 560000,
+            "yNm": 620000
+          }
+        }
+      ],
+      "models": [
+        {
+          "path": "${KICAD6_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0402_1005Metric.wrl",
+          "hidden": false,
+          "offset": {
+            "xNm": 0,
+            "yNm": 0,
+            "zNm": 0
+          },
+          "rotation": {
+            "xDeg": 0,
+            "yDeg": 0,
+            "zDeg": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        }
+      ],
+      "sourceSpan": {
+        "offsetBytes": 567219,
+        "lengthBytes": 3664
+      }
+    },
+    {
+      "uuid": "00000000-0000-0000-0000-00005fd132ca",
+      "reference": "TP14",
+      "libId": "TestPoint:TestPoint_Pad_D1.0mm",
+      "side": "back",
+      "positionNm": {
+        "xNm": 130000000,
+        "yNm": 82700000
+      },
+      "rotationDeg": 0,
+      "dnp": false,
+      "excludeFromPosFiles": true,
+      "courtyardBounds": {
+        "minNm": {
+          "xNm": -1000000,
+          "yNm": -1000000
+        },
+        "maxNm": {
+          "xNm": 1000000,
+          "yNm": 1000000
+        }
+      },
+      "pads": [
+        {
+          "number": "1",
+          "type": "smd",
+          "shape": "circle",
+          "positionNm": {
+            "xNm": 130000000,
+            "yNm": 82700000
+          },
+          "size": {
+            "xNm": 1000000,
+            "yNm": 1000000
+          }
+        }
+      ],
+      "models": [],
+      "sourceSpan": {
+        "offsetBytes": 574573,
+        "lengthBytes": 1702
+      }
+    }
+  ],
+  "designators": [
+    "C22",
+    "J10",
+    "TP14",
+    "U7"
+  ],
+  "outlineBounds": {
+    "minNm": {
+      "xNm": 104000000,
+      "yNm": 64000000
+    },
+    "maxNm": {
+      "xNm": 160000000,
+      "yNm": 120000000
+    }
+  }
+}

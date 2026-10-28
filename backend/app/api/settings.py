@@ -1,21 +1,22 @@
 import asyncio
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 import logging
 
+from app.core.errors import caller_errors, value_errors_as
 from app.core.config import settings
 from app.core.roles import ROLE_LABELS, Role, normalize_role
 from app.core.security import AuthenticatedUser, require_admin
 from app.services import (
     access_service,
     git_access_service,
+    git_remote_access,
     password_credential_service,
-    project_import_service,
     session_store_service,
 )
-from app.services.git_remote_url import RemoteUrlError, parse_remote_url
+from app.services.git_remote_url import parse_remote_url
 from app.services.workspace_service import workspace
 
 # Configure logging
@@ -53,6 +54,112 @@ class SetPasswordRequest(BaseModel):
     password: str
     must_change: bool = True
 
+
+class GenerateSSHKeyResponse(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    success: bool
+    public_key: Optional[str] = None
+    fingerprint: Optional[str] = None
+
+
+class GitAccessKeyView(BaseModel):
+    """The workspace key and what an operator can confirm about it."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    exists: bool
+    public_key: Optional[str]
+    fingerprint: Optional[str]
+    key_type: Optional[str]
+    comment: Optional[str]
+    created_at: Optional[str]
+
+
+class GitAccessRepositoryView(BaseModel):
+    """One imported repository's access state, without a network call."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    id: Optional[str]
+    name: Optional[str]
+    url: str
+    last_synced_at: Optional[str]
+    host: Optional[str]
+    host_trusted: Optional[bool]
+    guidance: Optional[str]
+    forge: Optional[str] = None
+    deploy_key_url: Optional[str] = None
+
+
+class GitAccessResponse(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    key: GitAccessKeyView
+    trusted_hosts: List[str]
+    repositories: List[GitAccessRepositoryView]
+    tools: dict[str, bool]
+
+
+class GitAccessCheckResponse(BaseModel):
+    """A live ``ls-remote`` answer, plus how to grant access if it was refused."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    reachable: bool
+    authorized: bool
+    reason: str
+    message: str
+    default_branch: Optional[str]
+    forge: str
+    deploy_key_url: Optional[str]
+    instructions: str
+
+
+class HostKeyScanResponse(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    host: str
+    fingerprints: List[str]
+    already_trusted: bool
+
+
+class HostKeyTrustResponse(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    host: str
+    fingerprints: List[str]
+    trusted: bool
+
+
+class HostKeyForgetResponse(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    host: str
+    removed: bool
+
+
+class AccessUserDeletedResponse(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    deleted: str
+    sessions_revoked: int
+
+
+class SetUserPasswordResponse(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    email: str
+    must_change: bool
+    sessions_revoked: int
+
+
+class UserPasswordDeletedResponse(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    email: str
+    deleted: bool
+
 @router.get("/ssh-key", response_model=SSHKeyResponse)
 async def get_ssh_key():
     """Get the workspace machine-user key and its fingerprint."""
@@ -66,14 +173,19 @@ async def get_ssh_key():
         created_at=info.created_at,
     )
 
-@router.post("/ssh-key/generate")
+@router.post(
+    "/ssh-key/generate",
+    response_model=GenerateSSHKeyResponse,
+    response_model_exclude_unset=True,
+    summary="Generate a new workspace SSH key",
+)
 async def generate_ssh_key(request: GenerateSSHKeyRequest):
     """Generate a new Ed25519 key for the workspace."""
     try:
         info = await asyncio.to_thread(git_access_service.generate_key, request.email)
     except Exception as error:
         logger.exception("SSH key generation failed")
-        raise HTTPException(status_code=500, detail=f"Failed to generate SSH key: {error}")
+        raise HTTPException(status_code=500, detail="Failed to generate SSH key") from error
     return {
         "success": True,
         "public_key": info.public_key,
@@ -81,7 +193,12 @@ async def generate_ssh_key(request: GenerateSSHKeyRequest):
     }
 
 
-@router.get("/git-access")
+@router.get(
+    "/git-access",
+    response_model=GitAccessResponse,
+    response_model_exclude_unset=True,
+    summary="Read the workspace key, pinned hosts and repository access state",
+)
 async def get_git_access():
     """Everything an operator needs to reason about Prism's Git access.
 
@@ -149,18 +266,20 @@ class CheckAccessRequest(BaseModel):
     url: str
 
 
-@router.post("/git-access/check")
+@router.post(
+    "/git-access/check",
+    response_model=GitAccessCheckResponse,
+    response_model_exclude_unset=True,
+    summary="Check whether Prism may read one repository right now",
+)
 async def check_git_access(request: CheckAccessRequest):
     """Ask a Git server whether Prism may read one repository, right now."""
-    try:
-        parsed = parse_remote_url(request.url, project_import_service.remote_url_policy())
-    except RemoteUrlError as error:
-        raise HTTPException(status_code=400, detail=str(error))
+    parsed = parse_remote_url(request.url, git_remote_access.remote_url_policy())
 
     result = await asyncio.to_thread(
         git_access_service.check_repository_access,
         parsed,
-        git_env=project_import_service.git_env(),
+        git_env=git_remote_access.git_env(),
     )
     guidance = git_access_service.guidance_for(parsed)
     return {
@@ -175,12 +294,24 @@ async def check_git_access(request: CheckAccessRequest):
     }
 
 
+def _scan_errors():
+    """A host-key scan refuses bad input (400), a missing ssh tool (503) and a failed scan (502)."""
+    return caller_errors(
+        (ValueError, 400), (git_access_service.MissingSSHToolError, 503), (RuntimeError, 502)
+    )
+
+
 class HostKeyRequest(BaseModel):
     host: str
     port: int = 22
 
 
-@router.post("/git-access/host-keys/scan")
+@router.post(
+    "/git-access/host-keys/scan",
+    response_model=HostKeyScanResponse,
+    response_model_exclude_unset=True,
+    summary="Scan a Git host's SSH key fingerprint",
+)
 async def scan_git_host_key(request: HostKeyRequest):
     """Fetch a host's SSH key so its fingerprint can be checked before trusting.
 
@@ -188,16 +319,10 @@ async def scan_git_host_key(request: HostKeyRequest):
     trustworthy as the network it ran over, so an administrator has to compare
     the fingerprint against what the Git server's operator publishes.
     """
-    try:
+    with _scan_errors():
         candidate = await asyncio.to_thread(
             git_access_service.scan_host_key, request.host, request.port
         )
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error))
-    except git_access_service.MissingSSHToolError as error:
-        raise HTTPException(status_code=503, detail=str(error))
-    except RuntimeError as error:
-        raise HTTPException(status_code=502, detail=str(error))
     return {
         "host": candidate.host,
         "fingerprints": candidate.fingerprints,
@@ -205,29 +330,31 @@ async def scan_git_host_key(request: HostKeyRequest):
     }
 
 
-@router.post("/git-access/host-keys/trust")
+@router.post(
+    "/git-access/host-keys/trust",
+    response_model=HostKeyTrustResponse,
+    response_model_exclude_unset=True,
+    summary="Pin a verified Git host key",
+)
 async def trust_git_host_key(request: HostKeyRequest):
     """Pin a host key the administrator has verified."""
-    try:
+    with _scan_errors():
         candidate = await asyncio.to_thread(
             git_access_service.scan_host_key, request.host, request.port
         )
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error))
-    except git_access_service.MissingSSHToolError as error:
-        raise HTTPException(status_code=503, detail=str(error))
-    except RuntimeError as error:
-        raise HTTPException(status_code=502, detail=str(error))
     await asyncio.to_thread(git_access_service.trust_host, candidate)
     return {"host": candidate.host, "fingerprints": candidate.fingerprints, "trusted": True}
 
 
-@router.delete("/git-access/host-keys/{host}")
+@router.delete(
+    "/git-access/host-keys/{host}",
+    response_model=HostKeyForgetResponse,
+    response_model_exclude_unset=True,
+    summary="Forget a pinned Git host key",
+)
 async def forget_git_host_key(host: str):
-    try:
+    with value_errors_as(400):
         removed = await asyncio.to_thread(git_access_service.forget_host, host)
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error))
     return {"host": host, "removed": removed}
 
 
@@ -258,10 +385,8 @@ async def upsert_access_user(
         valid_roles = ", ".join(f"{role} ({label})" for role, label in ROLE_LABELS.items())
         raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {valid_roles}.")
 
-    try:
+    with value_errors_as(400):
         assignment = access_service.upsert_user_role(email=email, role=normalized_role, updated_by=user.email)
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error))
 
     return RoleAssignmentResponse(
         **assignment,
@@ -269,12 +394,15 @@ async def upsert_access_user(
     )
 
 
-@router.delete("/access/users/{email}")
+@router.delete(
+    "/access/users/{email}",
+    response_model=AccessUserDeletedResponse,
+    response_model_exclude_unset=True,
+    summary="Withdraw an account's role and end its sessions",
+)
 async def delete_access_user(email: str, user: AuthenticatedUser = Depends(require_admin)):
-    try:
+    with value_errors_as(400):
         deleted = access_service.delete_user_role(email=email, updated_by=user.email)
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error))
 
     if not deleted:
         raise HTTPException(status_code=404, detail="User role assignment not found")
@@ -292,7 +420,12 @@ async def delete_access_user(email: str, user: AuthenticatedUser = Depends(requi
     return {"deleted": email.strip().lower(), "sessions_revoked": revoked}
 
 
-@router.put("/access/users/{email}/password")
+@router.put(
+    "/access/users/{email}/password",
+    response_model=SetUserPasswordResponse,
+    response_model_exclude_unset=True,
+    summary="Set or reset a user's local password",
+)
 async def set_user_password(
     email: str,
     request: SetPasswordRequest,
@@ -301,17 +434,12 @@ async def set_user_password(
     """Set or reset a user's local password. Requires an existing Prism account."""
     if not settings.PASSWORD_AUTH_ENABLED:
         raise HTTPException(status_code=400, detail="Password login is not enabled on this deployment")
-    try:
-        password_credential_service.set_password(
-            email,
-            request.password,
-            updated_by=user.email,
-            must_change=request.must_change,
-        )
-    except password_credential_service.NoSuchUserError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-    except password_credential_service.PasswordPolicyError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    password_credential_service.set_password(
+        email,
+        request.password,
+        updated_by=user.email,
+        must_change=request.must_change,
+    )
 
     account = access_service.get_user_by_email(email)
     revoked = 0
@@ -329,7 +457,12 @@ async def set_user_password(
     }
 
 
-@router.delete("/access/users/{email}/password")
+@router.delete(
+    "/access/users/{email}/password",
+    response_model=UserPasswordDeletedResponse,
+    response_model_exclude_unset=True,
+    summary="Remove a user's local password",
+)
 async def delete_user_password(email: str, user: AuthenticatedUser = Depends(require_admin)):
     if not settings.PASSWORD_AUTH_ENABLED:
         raise HTTPException(status_code=400, detail="Password login is not enabled on this deployment")

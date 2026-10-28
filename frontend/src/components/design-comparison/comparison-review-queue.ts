@@ -17,7 +17,9 @@ import {
     meaningfulFieldEntries,
     objectKind,
     pageFor,
+    unionLayers,
 } from "./comparison-change-facts";
+import { kindNoun } from "./comparison-change-kinds";
 import type { ChangeGroup } from "./comparison-review-groups";
 import type { ChangeItem } from "./types";
 
@@ -171,13 +173,13 @@ function statusSummary(changes: ChangeItem[]): string {
 function kindSummary(changes: ChangeItem[]): string {
     const counts = new Map<string, number>();
     for (const change of changes) {
-        const kind = objectKind(change).replace(/_/g, " ");
+        const kind = objectKind(change);
         counts.set(kind, (counts.get(kind) ?? 0) + 1);
     }
     return [...counts.entries()]
         .sort((left, right) => right[1] - left[1])
         .slice(0, 3)
-        .map(([kind, count]) => `${count} ${kind}${count === 1 ? "" : "s"}`)
+        .map(([kind, count]) => `${count} ${kindNoun(kind, count)}`)
         .join(" · ");
 }
 
@@ -271,14 +273,9 @@ export function groupDocumentEntries(group: ChangeGroup): GroupDocumentEntry[] {
         const paths = new Set<string>();
         for (const path of [
             change.page,
-            change.base_item?.path,
-            change.base_item?.page,
-            change.compare_item?.path,
-            change.compare_item?.page,
-            ...(change.details?.visualTargets ?? []).flatMap((target) => [
-                target.documentPath,
-                target.page,
-            ]),
+            change.base?.documentPath,
+            change.head?.documentPath,
+            ...(change.details.targets ?? []).map((target) => target.documentPath),
         ]) {
             if (path) paths.add(path);
         }
@@ -382,7 +379,7 @@ export function groupMatchesSearch(group: ChangeGroup, search: string): boolean 
             change.page,
             ...(change.reasons ?? []),
             ...Object.keys(change.fields ?? {}),
-            ...(change.layers ?? []),
+            ...unionLayers(change),
         );
     }
     return values.some((value) => String(value ?? "").toLocaleLowerCase().includes(query));

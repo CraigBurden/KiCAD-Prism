@@ -7,6 +7,7 @@ import type {
     KiCadProjectDiffBundle,
     SourceFileRef,
 } from "./types";
+import { fetchApi } from "@/lib/api";
 
 export type ComparisonDomain = "schematic" | "pcb";
 export type ViewerBlobSource = { filename: string; content: string };
@@ -81,7 +82,7 @@ export function useRevisionSources(
             try {
                 const root = `/api/projects/${projectId}`;
                 const query = `commit=${encodeURIComponent(commit)}`;
-                const supportResponse = await fetch(
+                const supportResponse = await fetchApi(
                     `${root}/viewer/support-files?${query}`,
                     { signal },
                 );
@@ -103,7 +104,7 @@ export function useRevisionSources(
                 }
                 const settled = await Promise.allSettled(
                     sourcePaths.map(async (path) => {
-                        const response = await fetch(
+                        const response = await fetchApi(
                             `${root}/asset/${encodeAssetPath(path)}?${query}`,
                             { signal },
                         );
@@ -206,99 +207,4 @@ export function resolveSelectedDocument(
         )
         ?? null
     );
-}
-
-export type SideBySideFocusTarget = {
-    page?: string | null;
-    baseBounds?: [number, number, number, number];
-    compareBounds?: [number, number, number, number];
-    baseUuid?: string | null;
-    compareUuid?: string | null;
-};
-
-function validBounds(
-    bounds?: [number, number, number, number] | null,
-): bounds is [number, number, number, number] {
-    return Boolean(
-        bounds
-        && bounds.length === 4
-        && bounds.every((value) => Number.isFinite(value))
-        && (bounds[2] > 0 || bounds[3] > 0),
-    );
-}
-
-function unionBounds(
-    boundsList: Array<[number, number, number, number]>,
-): [number, number, number, number] | undefined {
-    if (!boundsList.length) return undefined;
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    for (const [x, y, w, h] of boundsList) {
-        minX = Math.min(minX, x);
-        minY = Math.min(minY, y);
-        maxX = Math.max(maxX, x + w);
-        maxY = Math.max(maxY, y + h);
-    }
-    if (!Number.isFinite(minX) || !Number.isFinite(minY)) return undefined;
-    return [minX, minY, Math.max(maxX - minX, 0), Math.max(maxY - minY, 0)];
-}
-
-/** Map selected semantic changes to dual-pane focus targets (world mm). */
-export function resolveSideBySideFocus(
-    changes: ChangeItem[],
-): SideBySideFocusTarget | null {
-    if (!changes.length) return null;
-
-    const baseBoundsList: Array<[number, number, number, number]> = [];
-    const compareBoundsList: Array<[number, number, number, number]> = [];
-    let baseUuid: string | null | undefined;
-    let compareUuid: string | null | undefined;
-    let page: string | null | undefined;
-
-    for (const change of changes) {
-        page = page
-            ?? change.page
-            ?? change.geometry?.page
-            ?? change.oldGeometry?.page
-            ?? change.compare_item?.page
-            ?? change.base_item?.page;
-
-        // Both panes show the same board in the same world coordinates, so a
-        // change that exists on only one side still names an area on the other.
-        // Selecting an addition used to leave the base pane wherever it was,
-        // which is the one moment you most want to see what used to be there.
-        // Each side falls back to the other side's geometry for that reason.
-        const baseBounds = change.oldGeometry?.bounds ?? change.geometry?.bounds;
-        const compareBounds = change.geometry?.bounds ?? change.oldGeometry?.bounds;
-        if (validBounds(baseBounds)) baseBoundsList.push(baseBounds);
-        if (validBounds(compareBounds)) compareBoundsList.push(compareBounds);
-
-        // Identity does not cross over the way position does: an added object
-        // has no base-side counterpart to select, and asking a viewer to select
-        // an id it does not have would clear the selection it already shows.
-        if (change.kind !== "added") {
-            baseUuid = baseUuid
-                ?? change.source_id_base
-                ?? change.base_item?.source_id
-                ?? change.uuid
-                ?? null;
-        }
-        if (change.kind !== "removed") {
-            compareUuid = compareUuid
-                ?? change.source_id_compare
-                ?? change.compare_item?.source_id
-                ?? change.uuid
-                ?? null;
-        }
-    }
-
-    return {
-        page: page ?? null,
-        baseBounds: unionBounds(baseBoundsList),
-        compareBounds: unionBounds(compareBoundsList),
-        baseUuid: baseUuid ?? null,
-        compareUuid: compareUuid ?? null,
-    };
 }

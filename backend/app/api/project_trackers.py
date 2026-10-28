@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Callable, Optional, TypeVar
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api._helpers import get_project_for_role_or_404
+from app.core import errors
+from app.core.errors import from_value_error
 from app.core.security import AuthenticatedUser, require_admin, require_viewer
 from app.services.trackers.publication_policy import (
     DispatchPause,
@@ -67,25 +69,15 @@ def _actor(user: AuthenticatedUser) -> str:
     return user.user_id or user.email
 
 
-def _http_error(exc: Exception) -> HTTPException:
+def _http_error(exc: Exception) -> Exception:
     if isinstance(exc, ProjectTrackerNotFound):
-        return HTTPException(status_code=404, detail="Project tracker settings not found")
+        return errors.NotFound("Project tracker settings not found")
     if isinstance(exc, PublicationDenied):
-        return HTTPException(
-            status_code=403,
-            detail={
-                "detail": str(exc),
-                "code": exc.code,
-                "requiredRole": exc.required_role,
-            },
-        )
+        return exc
     if isinstance(exc, DispatchPause):
-        return HTTPException(
-            status_code=409,
-            detail={"detail": str(exc), "code": "visibility_ack_required", "pausedReason": exc.reason},
-        )
+        return exc.refusal("visibility_ack_required")
     if isinstance(exc, ValueError):
-        return HTTPException(status_code=400, detail=str(exc))
+        return from_value_error(exc, 400)
     raise exc
 
 

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
     CheckCircle,
     ChevronDown,
+    Images,
     ChevronRight,
     Circle,
     MessageSquare,
@@ -11,6 +12,7 @@ import {
     X,
 } from "lucide-react";
 import { commentClassLabel, type Comment } from "@/types/comments";
+import { CommentAuthorKindBadge } from "@/components/comment-author-kind-badge";
 import { CommentSeverityBadge } from "@/components/comment-severity-badge";
 import { ReplyTrackerState } from "@/features/tracker-integration/reply-tracker-state";
 import { TrackerIssueAction } from "@/features/tracker-integration/tracker-issue-action";
@@ -20,8 +22,14 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { EcadCommentAnchorResolution } from "@/types/ecad-viewer";
+import { SnipGallery } from "@/features/rich-comments/snip-gallery";
+import { ThreadMessage } from "@/features/rich-comments/thread-message";
+import { useUnreadThreads } from "@/features/rich-comments/unread";
+import { RichComposer } from "@/features/rich-comments/rich-composer";
+import { useReplyBox } from "@/features/rich-comments/use-reply-box";
 
 interface CommentPanelProps {
+    projectId: string;
     comments: Comment[];
     onClose: () => void;
     onResolve: (commentId: string, resolved: boolean) => void;
@@ -39,6 +47,7 @@ interface CommentPanelProps {
 }
 
 export function CommentPanel({
+    projectId,
     comments,
     onClose,
     onResolve,
@@ -55,6 +64,12 @@ export function CommentPanel({
     onShareReply,
 }: CommentPanelProps) {
     const [filter, setFilter] = useState<"ALL" | "OPEN" | "RESOLVED">("ALL");
+    const [view, setView] = useState<"threads" | "snips">("threads");
+    const { isUnread, markSeen } = useUnreadThreads(projectId);
+    const openThread = (comment: Comment) => {
+        markSeen(comment);
+        onCommentClick(comment);
+    };
 
     const filteredComments = comments.filter((c) => {
         if (filter === "ALL") return true;
@@ -88,9 +103,12 @@ export function CommentPanel({
                     <button
                         key={value}
                         type="button"
-                        onClick={() => setFilter(value)}
+                        onClick={() => {
+                            setFilter(value);
+                            setView("threads");
+                        }}
                         className={`rounded-full px-3 py-1 text-xs transition-colors ${
-                            filter === value
+                            view === "threads" && filter === value
                                 ? "bg-primary font-medium text-primary-foreground"
                                 : "bg-transparent text-muted-foreground hover:bg-muted"
                         }`}
@@ -98,11 +116,33 @@ export function CommentPanel({
                         {value === "ALL" ? "All" : value === "OPEN" ? "Open" : "Resolved"}
                     </button>
                 ))}
+                <button
+                    type="button"
+                    onClick={() => setView(view === "snips" ? "threads" : "snips")}
+                    aria-pressed={view === "snips"}
+                    className={`ml-auto inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs transition-colors ${
+                        view === "snips"
+                            ? "bg-primary font-medium text-primary-foreground"
+                            : "bg-transparent text-muted-foreground hover:bg-muted"
+                    }`}
+                >
+                    <Images className="h-3 w-3" />
+                    Snips
+                </button>
             </div>
 
             <ScrollArea className="flex-1 p-4">
                 <div className="space-y-6">
-                    {filteredComments.length === 0 ? (
+                    {view === "snips" ? (
+                        <SnipGallery
+                            projectId={projectId}
+                            comments={comments}
+                            onOpenThread={(comment) => {
+                                setView("threads");
+                                openThread(comment);
+                            }}
+                        />
+                    ) : filteredComments.length === 0 ? (
                         <div className="py-8 text-center text-sm text-muted-foreground">
                             No comments found.
                         </div>
@@ -119,12 +159,15 @@ export function CommentPanel({
                                         {group.map((comment) => (
                                             <PanelCommentCard
                                                 key={comment.id}
+                                                projectId={projectId}
                                                 comment={comment}
                                                 highlighted={highlightedId === comment.id}
+                                                unread={isUnread(comment)}
+                                                onSeen={() => markSeen(comment)}
                                                 onResolve={onResolve}
                                                 onReply={onReply}
                                                 onDelete={onDelete}
-                                                onClick={() => onCommentClick(comment)}
+                                                onClick={() => openThread(comment)}
                                                 canModify={canModify}
                                                 anchorStatus={anchorStatuses[comment.id]}
                                                 onReattach={onReattach}
@@ -145,8 +188,11 @@ export function CommentPanel({
 }
 
 function PanelCommentCard({
+    projectId,
     comment,
     highlighted,
+    unread,
+    onSeen,
     onResolve,
     onReply,
     onDelete,
@@ -158,8 +204,11 @@ function PanelCommentCard({
     onRetrySync,
     onShareReply,
 }: {
+    projectId: string;
     comment: Comment;
     highlighted: boolean;
+    unread: boolean;
+    onSeen: () => void;
     onResolve: (id: string, resolved: boolean) => void;
     onReply: (id: string, content: string) => Promise<void>;
     onDelete: (id: string) => Promise<void>;
@@ -171,17 +220,11 @@ function PanelCommentCard({
     onRetrySync?: (commentId: string) => Promise<void>;
     onShareReply?: (commentId: string, replyId: string) => Promise<void>;
 }) {
-    const [isReplying, setIsReplying] = useState(false);
-    const [replyContent, setReplyContent] = useState("");
+    const replyBox = useReplyBox();
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [expanded, setExpanded] = useState(true);
     const [confirmDelete, setConfirmDelete] = useState(false);
-    const replyRef = useRef<HTMLTextAreaElement>(null);
-
-    // Revealing the reply box is a deliberate request to type in it.
-    useEffect(() => {
-        if (isReplying && canModify) replyRef.current?.focus();
-    }, [isReplying, canModify]);
+    const canSendReply = Boolean(replyBox.draft.markdown) && !replyBox.draft.uploading && !isSubmitting;
     const isResolved = comment.status === "RESOLVED";
     const anchorIssue = comment.anchorResolution?.state === "unresolved"
         ? ({
@@ -196,15 +239,21 @@ function PanelCommentCard({
     creationUrl?.searchParams.set("commit", creationCommit ?? "");
 
     const handleReply = async () => {
-        if (!replyContent.trim()) return;
+        if (!canSendReply) return;
         setIsSubmitting(true);
         try {
-            await onReply(comment.id, replyContent.trim());
-            setReplyContent("");
-            setIsReplying(false);
+            await onReply(comment.id, replyBox.draft.markdown);
+            replyBox.close();
+            onSeen();
         } finally {
             setIsSubmitting(false);
         }
+    };
+
+    const canInteract = canModify && comment.permissions?.canReply !== false;
+    const quote = (markdown: string) => {
+        setExpanded(true);
+        replyBox.quote(markdown);
     };
 
     return (
@@ -221,7 +270,15 @@ function PanelCommentCard({
             >
                 <div className="mb-2 flex items-start justify-between">
                     <div className="flex items-center gap-2">
+                        {unread && (
+                            <span className="h-2 w-2 shrink-0 rounded-full bg-primary" role="img" aria-label="New activity" />
+                        )}
                         <span className="text-sm font-semibold">{comment.author}</span>
+                        <CommentAuthorKindBadge
+                            authorKind={comment.authorKind}
+                            authorClientId={comment.authorClientId}
+                            authorClientName={comment.authorClientName}
+                        />
                         {comment.elementRef && (
                             <Badge variant="outline" className="h-5 px-1 text-[10px]">
                                 {comment.elementRef}
@@ -238,8 +295,17 @@ function PanelCommentCard({
                     <CommentSeverityBadge severity={comment.severity ?? "info"} />
                     {anchorIssue && <Badge variant="outline">{anchorIssue}</Badge>}
                 </div>
+            </button>
 
-                <p className="mb-3 whitespace-pre-wrap text-sm">{comment.content}</p>
+            {/* Outside the open-comment button: rich bodies carry links and image buttons. */}
+            <div className="px-3">
+                <ThreadMessage
+                    projectId={projectId}
+                    thread={comment}
+                    canInteract={canInteract}
+                    onQuote={quote}
+                    className="mb-3"
+                />
 
                 {comment.mentions && comment.mentions.length > 0 && (
                     <div className="mb-3 flex flex-wrap gap-1">
@@ -250,8 +316,7 @@ function PanelCommentCard({
                         ))}
                     </div>
                 )}
-
-            </button>
+            </div>
 
             {(creationUrl || (anchorIssue && comment.permissions?.canEdit && onReattach)) && (
                 <div className="flex flex-wrap items-center gap-2 px-3 pb-2 text-xs">
@@ -277,46 +342,50 @@ function PanelCommentCard({
                                 variant="ghost"
                                 size="sm"
                                 className="h-6 px-2 text-xs"
-                                onClick={() => setIsReplying(!isReplying)}
+                                onClick={replyBox.toggle}
                             >
                                 <ReplyIcon className="mr-1 h-3 w-3" />
                                 Reply
                             </Button>
+                            {comment.permissions?.canDelete !== false && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                    onClick={() => setConfirmDelete(true)}
+                                >
+                                    <Trash2 className="mr-1 h-3 w-3" />
+                                    Delete
+                                </Button>
+                            )}
+                        </div>
+                        {comment.permissions?.canResolve !== false && (
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-6 px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                                onClick={() => setConfirmDelete(true)}
+                                className={`h-6 px-2 text-xs ${isResolved ? "text-success" : "text-muted-foreground"}`}
+                                onClick={() => onResolve(comment.id, !isResolved)}
                             >
-                                <Trash2 className="mr-1 h-3 w-3" />
-                                Delete
+                                {isResolved ? (
+                                    <>
+                                        <CheckCircle className="mr-1 h-3 w-3" />
+                                        Resolved
+                                    </>
+                                ) : (
+                                    <>
+                                        <Circle className="mr-1 h-3 w-3" />
+                                        Resolve
+                                    </>
+                                )}
                             </Button>
-                        </div>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className={`h-6 px-2 text-xs ${isResolved ? "text-success" : "text-muted-foreground"}`}
-                            onClick={() => onResolve(comment.id, !isResolved)}
-                        >
-                            {isResolved ? (
-                                <>
-                                    <CheckCircle className="mr-1 h-3 w-3" />
-                                    Resolved
-                                </>
-                            ) : (
-                                <>
-                                    <Circle className="mr-1 h-3 w-3" />
-                                    Resolve
-                                </>
-                            )}
-                        </Button>
+                        )}
                     </>
                 ) : (
                     <div className="text-xs text-muted-foreground">Read-only</div>
                 )}
             </div>
 
-            {(comment.replies.length > 0 || (isReplying && canModify)) && (
+            {(comment.replies.length > 0 || (replyBox.open && canModify)) && (
                 <div className="space-y-3 border-t bg-muted/20 p-3">
                     {comment.replies.length > 0 && (
                         <div className="space-y-3">
@@ -334,17 +403,31 @@ function PanelCommentCard({
                                 {comment.replies.length} replies
                             </button>
                             {expanded &&
-                                comment.replies.map((reply) => (
-                                    <div key={reply.id ?? `${reply.timestamp}-${reply.author}-${reply.content}`} className="relative border-l-2 border-muted pl-2 text-sm">
+                                comment.replies.map((item) => (
+                                    <div key={item.id ?? `${item.timestamp}-${item.author}-${item.content}`} className="relative border-l-2 border-muted pl-2 text-sm">
                                         <div className="mb-1 flex items-center justify-between">
-                                            <span className="text-xs font-medium">{reply.author}</span>
+                                            <span className="flex items-center gap-1">
+                                                <span className="text-xs font-medium">{item.author}</span>
+                                                <CommentAuthorKindBadge
+                                                    authorKind={item.authorKind}
+                                                    authorClientId={item.authorClientId}
+                                                    authorClientName={item.authorClientName}
+                                                />
+                                            </span>
                                             <span className="text-[10px] text-muted-foreground">
-                                                {new Date(reply.timestamp).toLocaleDateString()}
+                                                {new Date(item.timestamp).toLocaleDateString()}
                                             </span>
                                         </div>
-                                        <p className="text-muted-foreground">{reply.content}</p>
+                                        <ThreadMessage
+                                            projectId={projectId}
+                                            thread={comment}
+                                            reply={item}
+                                            canInteract={canInteract}
+                                            onQuote={quote}
+                                            bodyClassName="text-muted-foreground"
+                                        />
                                         <ReplyTrackerState
-                                            reply={reply}
+                                            reply={item}
                                             provider={comment.tracker?.provider}
                                             onShare={onShareReply
                                                 ? (replyId) => onShareReply(comment.id, replyId)
@@ -355,28 +438,30 @@ function PanelCommentCard({
                         </div>
                     )}
 
-                    {isReplying && canModify && (
+                    {replyBox.open && canModify && (
                         <div className="mt-2 flex items-end gap-2 pt-2">
-                            <label className="flex-1 space-y-1 text-xs font-medium">
+                            <div className="min-w-0 flex-1 space-y-1 text-xs font-medium">
                                 <span>Reply</span>
-                                <textarea
-                                    ref={replyRef}
-                                    value={replyContent}
-                                    onChange={(e) => setReplyContent(e.target.value)}
+                                {/* Revealing the reply box is a deliberate request to type in it. */}
+                                <RichComposer
+                                    ref={replyBox.ref}
+                                    projectId={projectId}
+                                    ariaLabel="Reply"
+                                    autoFocus
                                     placeholder="Write a reply..."
-                                    className="min-h-[60px] w-full resize-none rounded border bg-background p-2 text-sm font-normal text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                                    onKeyDown={(e) => {
-                                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                                            e.preventDefault();
-                                            void handleReply();
-                                        }
-                                    }}
+                                    initialMarkdown={replyBox.seed}
+                                    onChange={replyBox.setDraft}
+                                    onSubmit={() => void handleReply()}
+                                    onCancel={replyBox.close}
+                                    disabled={isSubmitting}
+                                    minHeightClassName="min-h-16"
+                                    className="font-normal"
                                 />
-                            </label>
+                            </div>
                             <Button
                                 size="icon"
                                 className="mb-0.5 h-8 w-8"
-                                disabled={isSubmitting || !replyContent.trim()}
+                                disabled={!canSendReply}
                                 onClick={() => void handleReply()}
                                 aria-label="Send reply"
                             >

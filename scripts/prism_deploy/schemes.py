@@ -225,54 +225,108 @@ class Sizing:
     values: dict[str, str]
 
 
+GIB = 1024**3
+# Backend defaults the memory presets are derived from. test_prism_deploy reads
+# the backend sources and fails if these drift.
+#: Largest default per-stage heap cap passed to prism-kicad (the board stage,
+#: backend/app/core/design_bundle_config.py).
+BUNDLE_LARGEST_STAGE_CAP_BYTES = 6 * GIB
+#: The Linux backstop's overhead over a stage cap (cli-spec.md §7.4).
+BUNDLE_BACKSTOP_OVERHEAD_BYTES = GIB + GIB // 4
+#: PRISM_DESIGN_BUNDLE_MEMORY_BUDGET_BYTES when unset.
+BUNDLE_DEFAULT_MEMORY_BUDGET_BYTES = 8 * GIB
+#: backend/app/core/worker_memory.py: the default worker budget's floor (the
+#: heaviest job kind must fit) and the unit it is rounded down to.
+WORKER_MIN_BUDGET_MIB = 4096
+WORKER_MEMORY_UNIT_MIB = 256
+
+
+def bundle_memory_budget_bytes(concurrency: int) -> int:
+    """The PRISM_DESIGN_BUNDLE_MEMORY_BUDGET_BYTES for this many bundle builds.
+
+    The backend refuses to start when CONCURRENCY x (largest stage cap +
+    1.25 GiB) exceeds the budget (.env.example,
+    https://krishna-swaroop.github.io/KiCAD-Prism/admin/configuration/). This is
+    the smallest budget that passes, and never below the backend's own default.
+    """
+    needed = concurrency * (BUNDLE_LARGEST_STAGE_CAP_BYTES + BUNDLE_BACKSTOP_OVERHEAD_BYTES)
+    return max(BUNDLE_DEFAULT_MEMORY_BUDGET_BYTES, needed)
+
+
+def worker_memory_budget_mib(worker_memory_limit: str) -> int:
+    """PRISM_WORKER_MEMORY_BUDGET_MIB: half the prism-worker container.
+
+    The same derivation as the backend's default, which also clamps to 8 GiB,
+    so a larger container only gets its half when the value is written out.
+    """
+    half = int(worker_memory_limit.removesuffix("g")) * 1024 // 2
+    return max(WORKER_MIN_BUDGET_MIB, half // WORKER_MEMORY_UNIT_MIB * WORKER_MEMORY_UNIT_MIB)
+
+
+def _with_derived(values: dict[str, str]) -> dict[str, str]:
+    """Add the memory budgets that follow from a preset's limits and concurrency."""
+    budget = worker_memory_budget_mib(values["PRISM_WORKER_MEMORY_LIMIT"])
+    bundles = int(values["PRISM_DESIGN_BUNDLE_CONCURRENCY"])
+    return {
+        **values,
+        "PRISM_WORKER_MEMORY_BUDGET_MIB": str(budget),
+        "PRISM_DESIGN_BUNDLE_MEMORY_BUDGET_BYTES": str(bundle_memory_budget_bytes(bundles)),
+    }
+
+
 SIZINGS: dict[str, Sizing] = {
     "evaluation": Sizing(
         "evaluation",
         "Private evaluation",
         "4 vCPU, 16 GB",
-        {
+        _with_derived({
             "UVICORN_WORKERS": "1",
             "PRISM_WORKER_CONCURRENCY": "2",
             "CATALOG_WORKER_CONCURRENCY": "1",
+            "PRISM_DESIGN_BUNDLE_CONCURRENCY": "1",
             "PRISM_BACKEND_CPU_LIMIT": "1.0",
             "PRISM_BACKEND_MEMORY_LIMIT": "2g",
             "PRISM_WORKER_CPU_LIMIT": "2.0",
             "PRISM_WORKER_MEMORY_LIMIT": "6g",
             "CATALOG_WORKER_CPU_LIMIT": "2.0",
             "CATALOG_WORKER_MEMORY_LIMIT": "4g",
-        },
+        }),
     ),
     "small-team": Sizing(
         "small-team",
         "Small team",
         "8 vCPU, 32 GB",
-        {
+        _with_derived({
             "UVICORN_WORKERS": "2",
             "PRISM_WORKER_CONCURRENCY": "4",
             "CATALOG_WORKER_CONCURRENCY": "2",
+            "PRISM_DESIGN_BUNDLE_CONCURRENCY": "1",
             "PRISM_BACKEND_CPU_LIMIT": "2.0",
             "PRISM_BACKEND_MEMORY_LIMIT": "4g",
             "PRISM_WORKER_CPU_LIMIT": "6.0",
             "PRISM_WORKER_MEMORY_LIMIT": "12g",
             "CATALOG_WORKER_CPU_LIMIT": "4.0",
             "CATALOG_WORKER_MEMORY_LIMIT": "8g",
-        },
+        }),
     ),
     "large": Sizing(
         "large",
         "Larger installation",
         "16 vCPU, 64 GB",
-        {
+        _with_derived({
             "UVICORN_WORKERS": "4",
             "PRISM_WORKER_CONCURRENCY": "8",
             "CATALOG_WORKER_CONCURRENCY": "3",
+            # Two builds need a 14.5 GiB bundle budget; only the 24 GiB worker
+            # has that beside its other heavy jobs.
+            "PRISM_DESIGN_BUNDLE_CONCURRENCY": "2",
             "PRISM_BACKEND_CPU_LIMIT": "4.0",
             "PRISM_BACKEND_MEMORY_LIMIT": "8g",
             "PRISM_WORKER_CPU_LIMIT": "10.0",
             "PRISM_WORKER_MEMORY_LIMIT": "24g",
             "CATALOG_WORKER_CPU_LIMIT": "6.0",
             "CATALOG_WORKER_MEMORY_LIMIT": "16g",
-        },
+        }),
     ),
 }
 

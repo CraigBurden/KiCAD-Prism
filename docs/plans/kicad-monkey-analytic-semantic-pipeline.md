@@ -1,5 +1,7 @@
 # Native Analytic PCB-to-WebGPU Pipeline
 
+> **Superseded (2026-10-23).** This plan describes the Python `kicad_monkey` pipeline that the native design bundle replaced ([ADR](../architecture/adr-native-design-bundle.md)). Kept as a historical record; the paths, settings and jobs it names may no longer exist.
+
 This feature branch replaces the eager polygon boundary used by the experimental
 Rust PCB backend with a native analytic pipeline. `kicad-monkey-core` remains
 authoritative for KiCad parsing and physical semantics. Prism preserves analytic

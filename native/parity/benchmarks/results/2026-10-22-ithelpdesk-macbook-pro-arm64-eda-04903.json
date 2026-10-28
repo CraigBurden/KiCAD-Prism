@@ -1,0 +1,126 @@
+{
+ "schema": "prism.parity.bench.native.a0",
+ "host": {
+  "machine": "arm64",
+  "system": "macOS-27.0.1-arm64-arm-64bit",
+  "cpus": 10,
+  "python": "3.12.13",
+  "prismKicad": "{\"schema\":\"prism.cli.version.a0\",\"crate_version\":\"0.7.0\",\"engine_version\":\"2026.9.7\",\"hlr_procedure\":{\"geometer_version\":\"2026.9.19\",\"options\":\"assembly-hlr-a0\"},\"kicad_file_formats\":{\"board\":20260206,\"schematic\":20260306},\"kicad_version\":\"10.0.6\",\"member_schemas\":[{\"path\":\"bundle.json\",\"schema\":\"prism.bundle.manifest.a3\"},{\"path\":\"design.json\",\"schema\":\"kicad_monkey.design.a0\"},{\"path\":\"materialization/board.kmpack\",\"schema\":\"kicad_monkey.materialization.a0\"},{\"path\":\"models/assembly-hlr.json\",\"schema\":\"prism.assembly_hlr.a0\"},{\"path\":\"projections/board-objects.json\",\"schema\":\"prism.board_objects.a0\"},{\"path\":\"projections/occurrences.json\",\"schema\":\"prism.occurrences.a0\"},{\"path\":\"projections/placements.json\",\"schema\":\"prism.placements.a1\"},{\"path\":\"projections/project.json\",\"schema\":\"prism.project.a0\"},{\"path\":\"projections/route-metrics.json\",\"schema\":\"prism.route_metrics.a0\"},{\"path\":\"projections/semantic-index.json\",\"schema\":\"prism.semantic_index.a2\"},{\"path\":\"projections/stackup.json\",\"schema\":\"prism.stackup.a0\"},{\"path\":\"projections/system-interface.json\",\"schema\":\"prism.system_interface.v1\"}],\"models_procedure\":\"kicad-cli-glb-a0\",\"pack_format_version\":0,\"refill_procedure\":\"pcbnew-zone-filler-a0\",\"upgrade_procedure\":\"kicad-seeded-upgrade-a0\"}",
+  "commit": "6b042bdcf498bf98bb161e1ad034cb22785ab2db",
+  "loadAvgStart": [
+   5.05,
+   5.96,
+   7.07
+  ],
+  "loadAvgEnd": [
+   4.86,
+   5.7,
+   6.88
+  ]
+ },
+ "repeat": 3,
+ "baseline": null,
+ "results": [
+  {
+   "case": "eda-04903",
+   "build": {
+    "timesS": [
+     5.538300292100757,
+     5.456101207993925,
+     5.323839624878019
+    ],
+    "peakRssBytes": 1885831168,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "reads": {
+    "projections/semantic-index.json": {
+     "timesS": [
+      0.2542044590227306,
+      0.22914766683243215,
+      0.25139266694895923
+     ],
+     "bytes": 19753917
+    },
+    "projections/system-interface.json": {
+     "timesS": [
+      0.07376491697505116,
+      0.07438591704703867,
+      0.07275954214856029
+     ],
+     "bytes": 2840061
+    }
+   },
+   "verify": {
+    "timesS": [
+     4.983081000158563,
+     5.026394959073514,
+     5.019162165932357
+    ],
+    "peakRssBytes": 767180800,
+    "exits": [
+     0,
+     0,
+     0
+    ]
+   },
+   "python": {},
+   "pythonPeakRssBytes": 0
+  }
+ ],
+ "python": {
+  "commit": "aa6c8e3b7ad37b44282ff00e0cf276ae72aa6aaa",
+  "kicadMonkey": "2026.9.7",
+  "targets": {
+   "prod:km-load": {
+    "importsS": 0.6868574169930071,
+    "timesS": [
+     40.02545183291659,
+     43.51032666605897,
+     39.45824358379468
+    ],
+    "peakRssBytes": 2790735872,
+    "error": null
+   },
+   "prod:semantic-index": {
+    "importsS": 0.6351222079247236,
+    "timesS": [
+     43.13329608296044,
+     43.7903791249264,
+     47.22838104213588
+    ],
+    "peakRssBytes": 2712256512,
+    "error": null
+   },
+   "prod:variant-catalog": {
+    "importsS": 0.6485791660379618,
+    "timesS": [
+     0.241158583201468,
+     0.22566704195924103,
+     0.22402062499895692
+    ],
+    "peakRssBytes": 497336320,
+    "error": null
+   },
+   "prod:system-interface": {
+    "importsS": 0.5480512077920139,
+    "timesS": [
+     41.835478709079325,
+     41.36633062502369,
+     42.00870579085313
+    ],
+    "peakRssBytes": 2794881024,
+    "error": null
+   }
+  },
+  "loadAvgStart": [
+   10.09,
+   8.45,
+   8.15
+  ]
+ },
+ "note": "EDA-04903 (CERN, KiCad 8.99 sources upgraded to 10.0.6 by prism_parity, untimed). Python side: bench_python.py --child at the baseline commit, same machine, same prepared sources."
+}

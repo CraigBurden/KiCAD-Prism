@@ -1,0 +1,200 @@
+{
+ "schema": "prism.placements.a1",
+ "footprints": [
+  {
+   "uuid": "024715cb-8914-5466-858a-3605bcc29b5c",
+   "reference": "J1",
+   "libId": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+   "side": "front",
+   "positionNm": {
+    "xNm": 10000000,
+    "yNm": 10000000
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "pads": [
+    {
+     "number": "1",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 10000000,
+      "yNm": 10000000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "2",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 10000000,
+      "yNm": 12540000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "3",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 10000000,
+      "yNm": 15080000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "4",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 10000000,
+      "yNm": 17620000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    }
+   ],
+   "models": [],
+   "sourceSpan": {
+    "offsetBytes": 1667,
+    "lengthBytes": 1960
+   }
+  },
+  {
+   "uuid": "a00b664a-6006-5b83-b4a6-28b2207123d6",
+   "reference": "J8",
+   "libId": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical",
+   "side": "front",
+   "positionNm": {
+    "xNm": 50000000,
+    "yNm": 10000000
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "pads": [
+    {
+     "number": "1",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 50000000,
+      "yNm": 10000000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "2",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 50000000,
+      "yNm": 12540000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    }
+   ],
+   "models": [],
+   "sourceSpan": {
+    "offsetBytes": 3629,
+    "lengthBytes": 1556
+   }
+  },
+  {
+   "uuid": "df6d8023-dbe2-5a45-977c-56a8546474a2",
+   "reference": "J3",
+   "libId": "MiniSys:Conn_Split_2x2",
+   "side": "front",
+   "positionNm": {
+    "xNm": 30000000,
+    "yNm": 10000000
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "pads": [
+    {
+     "number": "1",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 30000000,
+      "yNm": 10000000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "2",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 30000000,
+      "yNm": 12540000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "3",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 30000000,
+      "yNm": 15080000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "4",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 30000000,
+      "yNm": 17620000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    }
+   ],
+   "models": [],
+   "sourceSpan": {
+    "offsetBytes": 5187,
+    "lengthBytes": 1925
+   }
+  }
+ ],
+ "designators": [
+  "J1",
+  "J3",
+  "J8"
+ ]
+}

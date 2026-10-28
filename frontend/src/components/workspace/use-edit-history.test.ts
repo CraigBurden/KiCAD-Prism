@@ -4,20 +4,24 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
     editHistoryReducer,
-    emptyEditHistory,
+    emptyEditHistory as untypedEmpty,
     useEditHistory,
     type EditHistoryState,
 } from "./use-edit-history";
 import type { RowEdits } from "./library-import-remediation-grid";
 
+type State = EditHistoryState<RowEdits>;
+const emptyEditHistory = untypedEmpty as State;
+
 /**
  * Characterization tests for the remediation-grid edit history. These pin the
  * behavior contract the old nested-setState implementation provided before it
  * was replaced with a pure reducer:
- * - commit snapshots prior edits onto undo (capped at 50) and clears redo
+ * - commit snapshots prior edits onto undo (capped at EDIT_HISTORY_DEPTH,
+ *   100, for both grids) and clears redo
  * - undo/redo are symmetric no-ops on empty stacks
  * - replaceEdits rewrites edits without touching history
- * - reset wipes everything
+ * - reset wipes everything, or clears history and keeps what its update returns
  */
 
 const setField = (value: string) => (current: RowEdits): RowEdits => ({
@@ -31,7 +35,7 @@ afterEach(() => {
 
 describe("editHistoryReducer", () => {
     it("commit applies the update and pushes prior edits onto the undo stack", () => {
-        const base: EditHistoryState = { ...emptyEditHistory, edits: { R0: { metadata: {} } } };
+        const base: State = { ...emptyEditHistory, edits: { R0: { metadata: {} } } };
         const next = editHistoryReducer(base, { type: "commit", update: setField("v1") });
 
         expect(Object.keys(next.edits)).toContain("R1");
@@ -40,7 +44,7 @@ describe("editHistoryReducer", () => {
     });
 
     it("a no-op commit returns the same state object", () => {
-        const base: EditHistoryState = { ...emptyEditHistory, edits: { R1: { metadata: {} } } };
+        const base: State = { ...emptyEditHistory, edits: { R1: { metadata: {} } } };
         const next = editHistoryReducer(base, { type: "commit", update: (current) => current });
 
         expect(next).toBe(base);
@@ -67,12 +71,14 @@ describe("editHistoryReducer", () => {
         expect(editHistoryReducer(emptyEditHistory, { type: "redo" })).toBe(emptyEditHistory);
     });
 
-    it("caps the undo stack at 50 entries", () => {
+    it("caps the undo stack at 100 entries", () => {
         let current = emptyEditHistory;
-        for (let index = 0; index < 60; index += 1) {
+        for (let index = 0; index < 120; index += 1) {
             current = editHistoryReducer(current, { type: "commit", update: setField(`v${index}`) });
         }
-        expect(current.undoStack.length).toBe(50);
+        expect(current.undoStack.length).toBe(100);
+        // The oldest entries fell off: the bottom of the stack is commit 20's prior state.
+        expect(current.undoStack[0].R1.metadata.package_name).toBe("v19");
     });
 
     it("replaceEdits rewrites edits without touching history", () => {
@@ -97,6 +103,19 @@ describe("editHistoryReducer", () => {
         const committed = editHistoryReducer(emptyEditHistory, { type: "commit", update: setField("v1") });
         expect(editHistoryReducer(committed, { type: "reset" })).toBe(emptyEditHistory);
     });
+
+    it("reset with an update keeps its edits and clears both stacks", () => {
+        const first = editHistoryReducer(emptyEditHistory, { type: "commit", update: setField("v1") });
+        const undone = editHistoryReducer(
+            editHistoryReducer(first, { type: "commit", update: setField("v2") }),
+            { type: "undo" },
+        );
+        const kept = editHistoryReducer(undone, { type: "reset", update: (current) => ({ ...current, R2: { metadata: {} } }) });
+
+        expect(Object.keys(kept.edits).sort()).toEqual(["R1", "R2"]);
+        expect(kept.undoStack).toEqual([]);
+        expect(kept.redoStack).toEqual([]);
+    });
 });
 
 describe("useEditHistory under StrictMode", () => {
@@ -105,7 +124,7 @@ describe("useEditHistory under StrictMode", () => {
     // which would push duplicate undo entries; the reducer makes that hazard
     // unreachable by construction.
     it("one commit produces exactly one undo entry", () => {
-        const { result } = renderHook(() => useEditHistory(), { wrapper: StrictMode });
+        const { result } = renderHook(() => useEditHistory<RowEdits>(), { wrapper: StrictMode });
 
         act(() => result.current.commitEdits(setField("v1")));
         act(() => result.current.commitEdits(setField("v2")));

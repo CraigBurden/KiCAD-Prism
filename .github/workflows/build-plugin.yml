@@ -1,0 +1,164 @@
+name: Build KiCad Plugin
+
+# Manual only. PyInstaller cannot cross-compile — a macOS binary must be built on
+# macOS, a Linux one on Linux — so this matrix is the only way to get all three
+# artifacts. It never runs on push: building 3 binaries on every commit would be
+# pure waste, and this is a release step, not a check.
+on:
+  workflow_dispatch:
+    inputs:
+      # Verified against the source, never used to set it. Bump the version in
+      # tools/kicad_plugin/version.py and its vendored copy tools/prism_agent/version.py.
+      version:
+        description: "Expected version (optional). Fails the build if the source says otherwise."
+        required: false
+      publish:
+        description: "Attach the zip to a GitHub Release"
+        type: boolean
+        default: false
+
+concurrency:
+  group: build-plugin-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+
+permissions:
+  contents: read
+
+jobs:
+  # ── One binary per OS ────────────────────────────────────────────────────────
+  agent:
+    name: Agent / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false # one platform failing shouldn't hide the others' results
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: prism-agent-windows
+            binary: prism-agent.exe
+          # Two macOS legs: macos-latest is an Apple Silicon (arm64) runner as of
+          # 2024, and PyInstaller builds only for the arch it runs on, no flag
+          # produces a universal2 binary without a universal2 Python and fused
+          # (delocate) wheels for every compiled dependency (Pillow, here), which
+          # is real CI machinery for one platform. Two thin binaries, each built
+          # the same way Windows/Linux already are, is the boring reliable answer.
+          - os: macos-latest
+            artifact: prism-agent-macos-arm64
+            binary: prism-agent
+          - os: macos-15-intel # Intel. GitHub retired macos-13 in Dec 2025; this
+            # is the current x86_64 label (see actions/runner-images#13045). Expected
+            # to be GitHub's last Intel macOS image, planned to retire ~Fall 2027,
+            # after which hosted macOS runners are arm64-only.
+            artifact: prism-agent-macos-x86_64
+            binary: prism-agent
+          - os: ubuntu-latest
+            artifact: prism-agent-linux
+            binary: prism-agent
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # The tray needs a GTK/AppIndicator stack on Linux. Without it pystray raises
+      # ImportError at import, PyInstaller can't collect the backend, and the shipped
+      # binary would silently have no tray on every Linux machine.
+      - name: Install Linux tray dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gir1.2-ayatanaappindicator3-0.1 \
+            libcairo2-dev libgirepository1.0-dev python3-gi
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r tools/prism_agent/requirements.txt
+
+      - name: Build the agent
+        run: python tools/build_agent.py
+
+      # Prove the thing we just built actually runs. A binary that builds but
+      # crashes on launch is worse than a build failure — it ships.
+      - name: Smoke test
+        shell: bash
+        run: |
+          BIN="tools/dist/${{ matrix.binary }}"
+          test -f "$BIN" || { echo "::error::$BIN was not produced"; exit 1; }
+          # --help exercises argparse, which means the whole import graph loaded:
+          # the frozen agent, its bundled diff services, and the tray backend.
+          "$BIN" --help
+          echo "OK: $BIN starts"
+
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ${{ matrix.artifact }}
+          path: tools/dist/${{ matrix.binary }}
+          if-no-files-found: error
+          retention-days: 7
+
+  # ── Assemble the KiCad Plugin & Content Manager zip ──────────────────────────
+  package:
+    name: Package
+    needs: agent
+    runs-on: ubuntu-latest
+    # Only this job writes anything, and only when `publish` is ticked. Scoped here
+    # rather than granted workflow-wide.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          path: binaries
+
+      # Read before packaging, so the artifact can be named after it. package_plugin.py
+      # reads the same constant, and --expect makes it fail rather than disagree.
+      - name: Read the version being built
+        id: built
+        run: |
+          python - <<'EOF' >> "$GITHUB_OUTPUT"
+          import pathlib, re
+          src = pathlib.Path("tools/kicad_plugin/version.py").read_text(encoding="utf-8")
+          print("version=" + re.search(r'^VERSION\s*=\s*"([^"]+)"', src, re.M).group(1))
+          EOF
+
+      # The version comes from the source, so the zip always matches the commit it was
+      # built from. The input only verifies, and only when one was given.
+      - name: Assemble the package
+        run: |
+          python tools/package_plugin.py \
+            ${{ inputs.version && format('--expect "{0}"', inputs.version) || '' }} \
+            --binaries binaries \
+            --out dist
+
+      # Versioned, so a downloaded artifact says what it is. Two builds in the same
+      # session are otherwise both called "kicad-prism-plugin" and tell you nothing
+      # apart, which is exactly the confusion an update test does not need.
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: kicad-prism-plugin-${{ steps.built.outputs.version }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+      - name: Attach to a release
+        if: inputs.publish
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: v${{ steps.built.outputs.version }}
+          files: dist/*.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

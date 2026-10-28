@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,6 +21,8 @@ from app.release_studio.config import (
     technical_config_digest,
     validate_org_extends,
 )
+from app.services.project_revision import ProjectLocation
+from support.repo import git, init_repo, set_identity  # noqa: E402
 
 
 _MIN_CONFIG = """
@@ -71,57 +72,27 @@ def _config_with_file_reference(field: str, relative: str) -> str:
 
 
 def _commit_temp_repo(root: Path, message: str) -> str:
-    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "r6@example.com"],
-        cwd=root,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "R6"],
-        cwd=root,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", message],
-        cwd=root,
-        check=True,
-        capture_output=True,
-    )
-    return subprocess.check_output(
-        ["git", "rev-parse", "HEAD"],
-        cwd=root,
-        text=True,
-    ).strip()
+    init_repo(root)
+    git(root, "add", ".")
+    git(root, "commit", "-m", message)
+    return git(root, "rev-parse", "HEAD")
 
 
 class ConfigurationAuthoringTests(unittest.TestCase):
     def _checkout_with_remote(self, root: Path) -> tuple[Path, Path]:
         remote = root / "remote.git"
         checkout = root / "checkout"
-        subprocess.run(
-            ["git", "init", "--bare", "--initial-branch=main", str(remote)],
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(
-            ["git", "clone", str(remote), str(checkout)],
-            check=True,
-            capture_output=True,
-        )
+        git(None, "init", "--bare", "--initial-branch=main", str(remote))
+        git(None, "clone", str(remote), str(checkout))
         _write_design_files(checkout)
-        subprocess.run(["git", "config", "user.email", "seed@example.com"], cwd=checkout, check=True)
-        subprocess.run(["git", "config", "user.name", "Seed"], cwd=checkout, check=True)
-        subprocess.run(["git", "add", "."], cwd=checkout, check=True)
-        subprocess.run(["git", "commit", "-m", "design"], cwd=checkout, check=True, capture_output=True)
-        subprocess.run(["git", "push", "-u", "origin", "main"], cwd=checkout, check=True, capture_output=True)
+        set_identity(checkout)
+        git(checkout, "add", ".")
+        git(checkout, "commit", "-m", "design")
+        git(checkout, "push", "-u", "origin", "main")
         return checkout, remote
 
     def test_studio_publishes_then_fast_forwards_the_clean_mirror(self) -> None:
-        from app.services import release_studio_build_service as builds
+        from app.services import release_studio_config_service as builds
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -137,7 +108,7 @@ class ConfigurationAuthoringTests(unittest.TestCase):
                 "default_variant": "default",
             }
             with (
-                patch("app.services.design_compare_service._repo_paths", return_value=(checkout, None, checkout)),
+                patch("app.services.project_revision.locate_id", return_value=ProjectLocation(checkout.resolve(), "")),
                 patch.object(builds, "sync_configurations", return_value=[row]),
             ):
                 saved = builds.save_configuration(
@@ -148,38 +119,27 @@ class ConfigurationAuthoringTests(unittest.TestCase):
                 )
 
             self.assertRegex(saved["commit_sha"], r"^[0-9a-f]{40}$")
-            committed = subprocess.run(
-                ["git", f"--git-dir={remote}", "show", "main:.prism/release-studio/configurations/default.yaml"],
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout
+            committed = git(None, f"--git-dir={remote}", "show", "main:.prism/release-studio/configurations/default.yaml")
             self.assertIn("schema: prism.release-studio.configuration/1", committed)
-            local_head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
-            remote_head = subprocess.check_output(["git", f"--git-dir={remote}", "rev-parse", "main"], text=True).strip()
+            local_head = git(checkout, "rev-parse", "HEAD")
+            remote_head = git(None, f"--git-dir={remote}", "rev-parse", "main")
             self.assertEqual(local_head, remote_head)
-            changed = subprocess.run(
-                ["git", "status", "--porcelain"],
-                cwd=checkout,
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout
+            changed = git(checkout, "status", "--porcelain")
             self.assertIn("?? unrelated.txt", changed)
 
     def test_a_rejected_push_leaves_no_local_configuration_commit(self) -> None:
-        from app.services import release_studio_build_service as builds
+        from app.services import release_studio_config_service as builds
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             checkout, remote = self._checkout_with_remote(root)
-            old_head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+            old_head = git(checkout, "rev-parse", "HEAD")
             hook = remote / "hooks" / "pre-receive"
             hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
             hook.chmod(0o755)
             with patch(
-                "app.services.design_compare_service._repo_paths",
-                return_value=(checkout, None, checkout),
+                "app.services.project_revision.locate_id",
+                return_value=ProjectLocation(checkout.resolve(), ""),
             ):
                 with self.assertRaisesRegex(builds.BuildError, "mirror is unchanged"):
                     builds.save_configuration(
@@ -190,7 +150,7 @@ class ConfigurationAuthoringTests(unittest.TestCase):
                     )
 
             self.assertEqual(
-                subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip(),
+                git(checkout, "rev-parse", "HEAD"),
                 old_head,
             )
             self.assertFalse(
@@ -198,20 +158,20 @@ class ConfigurationAuthoringTests(unittest.TestCase):
             )
 
     def test_a_form_loaded_from_an_older_tip_cannot_overwrite_newer_remote_state(self) -> None:
-        from app.services import release_studio_build_service as builds
+        from app.services import release_studio_config_service as builds
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             checkout, _remote = self._checkout_with_remote(root)
-            stale_tip = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+            stale_tip = git(checkout, "rev-parse", "HEAD")
             (checkout / "board.kicad_pcb").write_text("newer design\n", encoding="utf-8")
-            subprocess.run(["git", "add", "board.kicad_pcb"], cwd=checkout, check=True)
-            subprocess.run(["git", "commit", "-m", "newer design"], cwd=checkout, check=True, capture_output=True)
-            subprocess.run(["git", "push"], cwd=checkout, check=True, capture_output=True)
+            git(checkout, "add", "board.kicad_pcb")
+            git(checkout, "commit", "-m", "newer design")
+            git(checkout, "push")
 
             with patch(
-                "app.services.design_compare_service._repo_paths",
-                return_value=(checkout, None, checkout),
+                "app.services.project_revision.locate_id",
+                return_value=ProjectLocation(checkout.resolve(), ""),
             ):
                 with self.assertRaisesRegex(builds.BuildError, "changed after this configuration was loaded"):
                     builds.save_configuration(
@@ -223,12 +183,12 @@ class ConfigurationAuthoringTests(unittest.TestCase):
                     )
 
     def test_retry_after_a_successful_push_converges_on_the_published_commit(self) -> None:
-        from app.services import release_studio_build_service as builds
+        from app.services import release_studio_config_service as builds
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             checkout, _remote = self._checkout_with_remote(root)
-            base = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+            base = git(checkout, "rev-parse", "HEAD")
             document = parse_configuration_yaml(_MIN_CONFIG)
             row = {
                 "config_key": "default",
@@ -240,8 +200,8 @@ class ConfigurationAuthoringTests(unittest.TestCase):
             }
             with (
                 patch(
-                    "app.services.design_compare_service._repo_paths",
-                    return_value=(checkout, None, checkout),
+                    "app.services.project_revision.locate_id",
+                    return_value=ProjectLocation(checkout.resolve(), ""),
                 ),
                 patch.object(builds, "sync_configurations", return_value=[row]),
             ):
@@ -264,21 +224,19 @@ class ConfigurationAuthoringTests(unittest.TestCase):
 
     def test_a_blocked_push_times_out_without_updating_the_mirror(self) -> None:
         from app.release_studio import git_publish
-        from app.services import release_studio_build_service as builds
+        from app.services import release_studio_config_service as builds
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             checkout, _remote = self._checkout_with_remote(root)
-            old_head = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], cwd=checkout, text=True
-            ).strip()
+            old_head = git(checkout, "rev-parse", "HEAD")
             path = str(_blocking_git_bin(root / "git-bin")) + os.pathsep + os.environ["PATH"]
             with (
                 patch.dict(os.environ, {"PATH": path}),
                 patch.object(git_publish, "GIT_COMMAND_TIMEOUT_SECONDS", 1),
                 patch(
-                    "app.services.design_compare_service._repo_paths",
-                    return_value=(checkout, None, checkout),
+                    "app.services.project_revision.locate_id",
+                    return_value=ProjectLocation(checkout.resolve(), ""),
                 ),
             ):
                 with self.assertRaisesRegex(builds.BuildError, "timed out"):
@@ -290,7 +248,7 @@ class ConfigurationAuthoringTests(unittest.TestCase):
                     )
 
             self.assertEqual(
-                subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip(),
+                git(checkout, "rev-parse", "HEAD"),
                 old_head,
             )
             self.assertFalse(
@@ -298,22 +256,20 @@ class ConfigurationAuthoringTests(unittest.TestCase):
             )
 
     def test_cancellation_does_not_update_the_mirror(self) -> None:
-        from app.services import release_studio_build_service as builds
+        from app.services import release_studio_config_service as builds
         from app.services.job_runtime import JobCancelled
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             checkout, _remote = self._checkout_with_remote(root)
-            old_head = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], cwd=checkout, text=True
-            ).strip()
+            old_head = git(checkout, "rev-parse", "HEAD")
 
             def cancel() -> None:
                 raise JobCancelled("stop")
 
             with patch(
-                "app.services.design_compare_service._repo_paths",
-                return_value=(checkout, None, checkout),
+                "app.services.project_revision.locate_id",
+                return_value=ProjectLocation(checkout.resolve(), ""),
             ):
                 with self.assertRaises(JobCancelled):
                     builds.save_configuration(
@@ -325,7 +281,7 @@ class ConfigurationAuthoringTests(unittest.TestCase):
                     )
 
             self.assertEqual(
-                subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip(),
+                git(checkout, "rev-parse", "HEAD"),
                 old_head,
             )
 
@@ -378,6 +334,23 @@ class ReleaseStudioConfigTests(unittest.TestCase):
         self.assertEqual(configured["typography"], "kicad-newstroke")
         with self.assertRaisesRegex(ConfigSchemaError, "unknown preset 'host-font'"):
             parse_configuration_yaml(_MIN_CONFIG + "\ntypography: host-font\n")
+
+    def test_a_configuration_without_sheet_style_normalizes_to_prism(self) -> None:
+        from app.release_studio.documents.style import DEFAULT_SHEET_STYLE
+
+        self.assertEqual(
+            parse_configuration_yaml(_MIN_CONFIG)["sheet_style"],
+            DEFAULT_SHEET_STYLE,
+        )
+        self.assertEqual(DEFAULT_SHEET_STYLE, "prism")
+
+    def test_sheet_style_accepts_only_released_styles(self) -> None:
+        configured = parse_configuration_yaml(
+            _MIN_CONFIG + "\nsheet_style: kicad\n"
+        )
+        self.assertEqual(configured["sheet_style"], "kicad")
+        with self.assertRaisesRegex(ConfigSchemaError, "unknown style 'blueprint'"):
+            parse_configuration_yaml(_MIN_CONFIG + "\nsheet_style: blueprint\n")
 
     def test_unpinned_org_extends_is_a_load_error(self) -> None:
         with self.assertRaisesRegex(ConfigSchemaError, "unpinned org reference"):
@@ -807,40 +780,26 @@ variants: null
             technical_config_digest(base),
             technical_config_digest(typography_changed),
         )
+        sheet_style_changed = parse_configuration_yaml(
+            _MIN_CONFIG + "\nsheet_style: kicad\n"
+        )
+        self.assertNotEqual(
+            technical_config_digest(base),
+            technical_config_digest(sheet_style_changed),
+        )
 
     def test_load_at_commit_matches_checkout(self) -> None:
         workspace = Path(__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory(dir=workspace) as temporary:
             root = Path(temporary)
             _write_design_files(root)
-            subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
-            subprocess.run(
-                ["git", "config", "user.email", "r6@example.com"],
-                cwd=root,
-                check=True,
-                capture_output=True,
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "R6"],
-                cwd=root,
-                check=True,
-                capture_output=True,
-            )
+            init_repo(root)
             config_dir = root / ".prism" / "release-studio" / "configurations"
             config_dir.mkdir(parents=True)
             (config_dir / "default.yaml").write_text(_MIN_CONFIG, encoding="utf-8")
-            subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True)
-            subprocess.run(
-                ["git", "commit", "-m", "add config"],
-                cwd=root,
-                check=True,
-                capture_output=True,
-            )
-            commit = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"],
-                cwd=root,
-                text=True,
-            ).strip()
+            git(root, "add", ".")
+            git(root, "commit", "-m", "add config")
+            commit = git(root, "rev-parse", "HEAD")
 
             from_checkout = load_configuration_from_checkout(root, "default")
             from_commit = load_configuration_at_commit(root, commit, "default")

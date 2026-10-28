@@ -13,7 +13,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Check, AlertCircle } from "lucide-react";
+import { toast } from "sonner";
+import { fetchJson } from "@/lib/api";
 import { isDialogSubmitShortcut } from "@/lib/dialog-shortcuts";
+import { cancelPrismJob, isAbortError, watchPrismJob, type PrismJobStatus } from "@/lib/jobs";
 
 export interface DiscoveredProject {
   name: string;
@@ -100,17 +103,23 @@ export function importReviewTitle(
     : "Multiple Projects Detected";
 }
 
-interface JobStatus {
-  job_id: string;
-  status: "queued" | "running" | "completed" | "failed" | "cancelled";
-  message: string;
-  percent: number;
-  /** Coarse phase, e.g. "clone-repository". Set by the job handler. */
-  stage?: string;
-  /** True when the failure is one the user can fix by granting Prism access. */
-  access_failure?: boolean;
-  project_ids?: string[];
-  error?: string;
+/** Job error code for a failure the user can fix by granting Prism access. */
+const GIT_ACCESS_ERROR_CODE = "git_access";
+
+/** The analysis a completed analyse job left in its result metadata. */
+export function analysisResultOf(job: PrismJobStatus): AnalysisResult | undefined {
+  return job.result_metadata?.result as AnalysisResult | undefined;
+}
+
+/** Project ids a completed import job registered. */
+export function importedProjectIdsOf(job: PrismJobStatus): string[] {
+  const ids = job.result_metadata?.project_ids;
+  return Array.isArray(ids) ? ids.map(String) : [];
+}
+
+/** Whether a failed job is one the user can fix by granting Prism access. */
+export function isAccessFailure(job: PrismJobStatus): boolean {
+  return job.status === "failed" && job.error_code === GIT_ACCESS_ERROR_CODE;
 }
 
 /** Human wording for the stages the analyse and import jobs report. */
@@ -124,7 +133,7 @@ const STAGE_LABELS: Record<string, string> = {
   "queue-thumbnails": "Queueing board renders",
 };
 
-function describeJob(status: JobStatus | undefined, fallback: string): string {
+function describeJob(status: PrismJobStatus | undefined, fallback: string): string {
   if (!status) return fallback;
   if (status.message) return status.message;
   if (status.stage && STAGE_LABELS[status.stage]) return STAGE_LABELS[status.stage];
@@ -163,9 +172,9 @@ interface ImportDialogProps {
 type ImportState =
   | { step: "input" }
   | { step: "input" }
-  | { step: "analyzing"; url: string; jobId?: string; status?: JobStatus }
+  | { step: "analyzing"; url: string; jobId?: string; status?: PrismJobStatus }
   | { step: "review"; url: string; analysis: AnalysisResult }
-  | { step: "importing"; url: string; jobId: string; status: JobStatus }
+  | { step: "importing"; url: string; jobId: string; status: PrismJobStatus }
   | {
       step: "complete";
       success: boolean;
@@ -177,16 +186,24 @@ type ImportState =
       retryUrl?: string;
     };
 
+const fetchCommentsSourceUrls = async (projectIds: string[]): Promise<CommentsSourceUrls[]> =>
+  Promise.all(
+    projectIds.map((id) =>
+      fetchJson<CommentsSourceUrls>(
+        `/api/projects/${id}/comments/source-urls`,
+        undefined,
+        `Failed to fetch KiCad URL helper for project ${id}`,
+      )
+    )
+  );
+
 // Closes over nothing in the component.
 const loadAccessHelp = async (repoUrl: string): Promise<AccessHelp | undefined> => {
 try {
-  const res = await fetch("/api/projects/access-help", {
+  return await fetchJson<AccessHelp>("/api/projects/access-help", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url: repoUrl }),
   });
-  if (!res.ok) return undefined;
-  return (await res.json()) as AccessHelp;
 } catch {
   // The failure message still stands on its own; the guided fix is a bonus.
   return undefined;
@@ -205,25 +222,13 @@ export function ImportDialog({
   // Empty means "whatever the remote's HEAD points at". The value feeds the
   // next analysis request but never the screen, so it is not state.
   const refRef = useRef("");
-  const pollTimeoutRef = useRef<number | null>(null);
-  const pollControllerRef = useRef<AbortController | null>(null);
-  const pollingTokenRef = useRef(0);
-
-  const clearPollingHandles = useCallback(() => {
-    if (pollTimeoutRef.current !== null) {
-      window.clearTimeout(pollTimeoutRef.current);
-      pollTimeoutRef.current = null;
-    }
-    if (pollControllerRef.current) {
-      pollControllerRef.current.abort();
-      pollControllerRef.current = null;
-    }
-  }, []);
+  // One watch at a time; stopping it aborts the poll and drops late updates.
+  const watchRef = useRef<AbortController | null>(null);
 
   const stopPolling = useCallback(() => {
-    pollingTokenRef.current += 1;
-    clearPollingHandles();
-  }, [clearPollingHandles]);
+    watchRef.current?.abort();
+    watchRef.current = null;
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -261,21 +266,14 @@ export function ImportDialog({
     setState({ step: "analyzing", url: target });
 
     try {
-      const res = await fetch("/api/projects/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: target, ref: branch.trim() || null }),
-      });
-
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.detail || "Analysis failed");
-      }
-
-      const { job_id } = await res.json();
+      const { job_id } = await fetchJson<{ job_id: string }>(
+        "/api/projects/analyze",
+        { method: "POST", body: JSON.stringify({ url: target, ref: branch.trim() || null }) },
+        "Analysis failed",
+      );
 
       // Start polling analysis job
-      pollAnalysisJob(job_id, target);
+      void pollAnalysisJob(job_id, target);
 
     } catch (error: any) {
       setState({
@@ -286,89 +284,79 @@ export function ImportDialog({
     }
   };
 
-  const pollAnalysisJob = async (jobId: string, repoUrl: string) => {
+  /**
+   * Watch an analyse or import job, mirroring each update into the dialog
+   * and settling failure the same way for both.
+   */
+  const watchJob = async (
+    jobId: string,
+    repoUrl: string,
+    step: "analyzing" | "importing",
+    onCompleted: (job: PrismJobStatus, signal: AbortSignal) => Promise<void>,
+  ) => {
     stopPolling();
-    const pollingToken = pollingTokenRef.current;
-
-    const poll = async () => {
-      const controller = new AbortController();
-      try {
-        pollControllerRef.current = controller;
-        const res = await fetch(`/api/projects/jobs/${jobId}`, { signal: controller.signal });
-        if (pollingTokenRef.current !== pollingToken) return;
-        if (!res.ok) throw new Error("Failed to get job status");
-
-        const status: JobStatus = await res.json();
-        if (pollingTokenRef.current !== pollingToken) return;
-
-        // Update state with ongoing job status
-        setState({ step: "analyzing", url: repoUrl, jobId, status });
-
-        if (status.status === "completed") {
-          // Job completed, result should be in status (we need to ensure backend sends it)
-          // The backend project_import_service puts 'result' in job dict
-          // We need to extend JobStatus interface or cast it
-          const result = (status as any).result as AnalysisResult;
-
-          if (!result) {
-            throw new Error("Analysis completed but no result returned");
-          }
-
-          // Auto-select type1
-          if (result.import_type === "type1" && result.projects.length === 1) {
-            setSelectedPaths(new Set([projectKeyOf(result.projects[0])]));
-          } else {
-            // Adding to an existing repository: preselect nothing, so the user
-            // picks only what they actually want on top of what is there.
-            setSelectedPaths(new Set());
-          }
-          if (result.ref) {
-            refRef.current = result.ref;
-          }
-
-          setState({ step: "review", url: repoUrl, analysis: result });
-
-        } else if (status.status === "failed" || status.status === "cancelled") {
-          const accessHelp =
-            status.status === "failed" && status.access_failure
-              ? await loadAccessHelp(repoUrl)
-              : undefined;
-          if (pollingTokenRef.current !== pollingToken) return;
-          setState({
-            step: "complete",
-            success: false,
-            message:
-              status.status === "cancelled"
-                ? "Analysis cancelled."
-                : status.error || "Analysis failed",
-            accessHelp,
-            retryUrl: status.status === "failed" ? repoUrl : undefined,
-          });
-        } else {
-          // Continue polling
-          pollTimeoutRef.current = window.setTimeout(() => {
-            void poll();
-          }, 1000);
-        }
-      } catch (error: any) {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          return;
-        }
-        if (pollingTokenRef.current !== pollingToken) return;
-        setState({
-          step: "complete",
-          success: false,
-          message: error.message || "Failed to check analysis status",
-        });
-      } finally {
-        if (pollControllerRef.current === controller) {
-          pollControllerRef.current = null;
-        }
+    const controller = new AbortController();
+    watchRef.current = controller;
+    const { signal } = controller;
+    const noun = step === "analyzing" ? "Analysis" : "Import";
+    try {
+      const job = await watchPrismJob(jobId, {
+        signal,
+        intervalMs: 1000,
+        onUpdate: (status) => setState({ step, url: repoUrl, jobId, status }),
+      });
+      if (job.status === "completed") {
+        await onCompleted(job, signal);
+        return;
       }
-    };
-
-    void poll();
+      const accessHelp = isAccessFailure(job) ? await loadAccessHelp(repoUrl) : undefined;
+      if (signal.aborted) return;
+      setState({
+        step: "complete",
+        success: false,
+        message:
+          job.status === "cancelled"
+            ? `${noun} cancelled.`
+            : job.error_message || `${noun} failed`,
+        accessHelp,
+        retryUrl: job.status === "failed" ? repoUrl : undefined,
+      });
+    } catch (error) {
+      if (isAbortError(error) || signal.aborted) return;
+      setState({
+        step: "complete",
+        success: false,
+        message:
+          error instanceof Error && error.message
+            ? error.message
+            : `Failed to check ${noun.toLowerCase()} status`,
+      });
+    } finally {
+      if (watchRef.current === controller) watchRef.current = null;
+    }
   };
+
+  const pollAnalysisJob = (jobId: string, repoUrl: string) =>
+    watchJob(jobId, repoUrl, "analyzing", async (job) => {
+      const result = analysisResultOf(job);
+      if (!result) {
+        throw new Error("Analysis completed but no result returned");
+      }
+
+      // Auto-select type1
+      if (result.import_type === "type1" && result.projects.length === 1) {
+        setSelectedPaths(new Set([projectKeyOf(result.projects[0])]));
+      } else {
+        // Adding to an existing repository: preselect nothing, so the user
+        // picks only what they actually want on top of what is there.
+        setSelectedPaths(new Set());
+      }
+      if (result.ref) {
+        refRef.current = result.ref;
+      }
+
+      setState({ step: "review", url: repoUrl, analysis: result });
+    });
 
   const startImport = async () => {
     if (state.step !== "review") return;
@@ -381,26 +369,22 @@ export function ImportDialog({
 
     try {
       stopPolling();
-      const res = await fetch("/api/projects/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url,
-          import_type: analysis.import_type,
-          selected_paths: pathsToImport,
-          ref: analysis.ref ?? null,
-        }),
-      });
-
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.detail || "Import failed");
-      }
-
-      const { job_id } = await res.json();
+      const { job_id } = await fetchJson<{ job_id: string }>(
+        "/api/projects/import",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            url,
+            import_type: analysis.import_type,
+            selected_paths: pathsToImport,
+            ref: analysis.ref ?? null,
+          }),
+        },
+        "Import failed",
+      );
 
       // Start polling
-      pollJobStatus(job_id, url);
+      void pollJobStatus(job_id, url);
     } catch (error: any) {
       setState({
         step: "complete",
@@ -410,102 +394,29 @@ export function ImportDialog({
     }
   };
 
-  const pollJobStatus = async (jobId: string, repoUrl: string) => {
-    stopPolling();
-    const pollingToken = pollingTokenRef.current;
+  const pollJobStatus = (jobId: string, repoUrl: string) =>
+    watchJob(jobId, repoUrl, "importing", async (job, signal) => {
+      const projectIds = importedProjectIdsOf(job);
+      let commentsSourceUrls: CommentsSourceUrls[] | undefined = undefined;
 
-    const fetchCommentsSourceUrls = async (projectIds: string[]): Promise<CommentsSourceUrls[]> => {
-      const entries = await Promise.all(
-        projectIds.map(async (id) => {
-          const response = await fetch(`/api/projects/${id}/comments/source-urls`);
-
-          if (!response.ok) {
-            throw new Error(`Failed to fetch KiCad URL helper for project ${id}`);
-          }
-
-          return response.json();
-        })
-      );
-
-      return entries;
-    };
-
-    const poll = async () => {
-      const controller = new AbortController();
-      try {
-        pollControllerRef.current = controller;
-        const res = await fetch(`/api/projects/jobs/${jobId}`, { signal: controller.signal });
-        if (pollingTokenRef.current !== pollingToken) return;
-        if (!res.ok) throw new Error("Failed to get job status");
-
-        const status: JobStatus = await res.json();
-        if (pollingTokenRef.current !== pollingToken) return;
-
-        setState({ step: "importing", url: repoUrl, jobId, status });
-
-        if (status.status === "completed") {
-          let commentsSourceUrls: CommentsSourceUrls[] | undefined = undefined;
-
-          if (status.project_ids && status.project_ids.length > 0) {
-            try {
-              commentsSourceUrls = await fetchCommentsSourceUrls(status.project_ids);
-            } catch (error) {
-              console.warn("Unable to load comments source URLs", error);
-            }
-          }
-
-          if (pollingTokenRef.current !== pollingToken) return;
-
-          setState({
-            step: "complete",
-            success: true,
-            message: `Successfully imported ${status.project_ids?.length || 1} project(s)`,
-            commentsSourceUrls,
-          });
-          onImportComplete();
-        } else if (status.status === "failed" || status.status === "cancelled") {
-          const accessHelp =
-            status.status === "failed" && status.access_failure
-              ? await loadAccessHelp(repoUrl)
-              : undefined;
-          if (pollingTokenRef.current !== pollingToken) return;
-          setState({
-            step: "complete",
-            success: false,
-            message:
-              status.status === "cancelled"
-                ? "Import cancelled."
-                : status.error || "Import failed",
-            commentsSourceUrls: undefined,
-            accessHelp,
-            retryUrl: status.status === "failed" ? repoUrl : undefined,
-          });
-        } else {
-          // Continue polling
-          pollTimeoutRef.current = window.setTimeout(() => {
-            void poll();
-          }, 1000);
-        }
-      } catch (error: any) {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          return;
-        }
-        if (pollingTokenRef.current !== pollingToken) return;
-        setState({
-          step: "complete",
-          success: false,
-          message: error.message || "Failed to check import status",
-          commentsSourceUrls: undefined,
-        });
-      } finally {
-        if (pollControllerRef.current === controller) {
-          pollControllerRef.current = null;
+      if (projectIds.length > 0) {
+        try {
+          commentsSourceUrls = await fetchCommentsSourceUrls(projectIds);
+        } catch (error) {
+          console.warn("Unable to load comments source URLs", error);
         }
       }
-    };
 
-    void poll();
-  };
+      if (signal.aborted) return;
+
+      setState({
+        step: "complete",
+        success: true,
+        message: `Successfully imported ${projectIds.length || 1} project(s)`,
+        commentsSourceUrls,
+      });
+      onImportComplete();
+    });
 
   const retryAnalysis = (repoUrl: string) => {
     setUrl(repoUrl);
@@ -519,12 +430,12 @@ export function ImportDialog({
         : undefined;
     stopPolling();
     if (jobId) {
-      // Best effort: the job may already have finished, and the dialog should
-      // close either way.
+      // The dialog closes either way; a refused cancel is reported, since the
+      // job will then run to the end.
       try {
-        await fetch(`/api/jobs/${jobId}/cancel`, { method: "POST" });
-      } catch {
-        // Ignore; the user asked to stop watching, not to guarantee a rollback.
+        await cancelPrismJob(jobId);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to cancel the job");
       }
     }
     handleClose();

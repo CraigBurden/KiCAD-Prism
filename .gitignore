@@ -34,9 +34,17 @@ dist/
 # Local Compose development overrides
 docker-compose.override.yml
 
-# Deployment installer output: contains .env with live secrets
-generated/
-generated.bak.*/
+# Deployment installer output: contains .env with live secrets. Anchored to
+# the root, where scripts/prism_deploy writes it, so committed generated
+# contracts elsewhere (e.g. JSON Schema) are not hidden.
+/generated/
+/generated.bak.*/
+# Operator Caddy sites imported by the generated Caddyfile.
+/sites/
+# prism_backup.py archives and staging, written to the deployment root by default.
+/prism-backup-*
+/.prism-backup-*
+/.prism-restore-*
 
 # Remote-panel loadtest secrets + reports
 loadtest/.env.loadtest
@@ -46,6 +54,7 @@ loadtest/results/
 *.egg-info/
 build/
 .pytest_cache/
+.testmondata*
 
 # Project Data
 # (The project database is currently outside the repo, but just in case)
@@ -68,3 +77,6 @@ deploy/certs/*
 # ecad-parse snapshot index cache (a stray one can appear if the CLI is run
 # with a relative root; never commit it)
 *.index-cache.json
+
+# SB2-21: vendor 3D models are not redistributed (see the fixture README)
+backend/tests/fixtures/system_builder/p2/vendor/

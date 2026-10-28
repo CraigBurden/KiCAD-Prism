@@ -5,11 +5,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from typing import Optional
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel, ConfigDict
 
 from app.api._helpers import get_project_for_role_or_404
+from app.core import policy
 from app.core.config import settings
 from app.core.security import AuthenticatedUser, get_current_user, require_viewer
 from app.services import comment_live_events
@@ -23,6 +26,28 @@ _BATCH_SIZE = 200
 _MAX_SOCKET_REPLAY = 1000
 _ACCESS_RECHECK_SECONDS = 30.0
 _SEND_TIMEOUT_SECONDS = 10.0
+
+
+class CommentLiveChange(BaseModel):
+    """One replayable change, as ``comment_live_events.changes_after`` projects it."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    cursor: int
+    commentId: str
+    scope: str
+    baseCommit: Optional[str]
+    compareCommit: Optional[str]
+    changeKind: str
+    createdAt: str
+
+
+class CommentChangesPage(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    cursor: int
+    changes: list[CommentLiveChange]
+    hasMore: bool
 
 
 def _read_batch(project_id: str, after: int, limit: int = _BATCH_SIZE) -> dict:
@@ -41,12 +66,7 @@ def _read_batch(project_id: str, after: int, limit: int = _BATCH_SIZE) -> dict:
 
 
 def _can_read_live(user: AuthenticatedUser) -> bool:
-    # Remote-symbol provider credentials are not project API credentials.
-    if user.auth_type == "kicad_provider":
-        return False
-    if user.auth_type == "session":
-        return True
-    return bool({"api:read", "*"}.intersection(user.scopes))
+    return policy.allows(user, "read")
 
 
 def _origin_allowed(websocket: WebSocket, user: AuthenticatedUser) -> bool:
@@ -71,7 +91,12 @@ def _origin_allowed(websocket: WebSocket, user: AuthenticatedUser) -> bool:
     return normalized in configured
 
 
-@router.get("/{project_id}/comments/changes")
+@router.get(
+    "/{project_id}/comments/changes",
+    response_model=CommentChangesPage,
+    response_model_exclude_unset=True,
+    summary="Replay a project's comment changes after a cursor",
+)
 async def get_comment_changes(
     project_id: str,
     after: int = Query(0, ge=0),

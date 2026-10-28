@@ -113,6 +113,12 @@ override them with a written note on the slot; once both slots are approved,
 Publish can proceed. Warnings do not block. KiCad native waivers in that commit
 count as cleared. Selected vendor packs must all be ready.
 
+A board 3D model whose bytes the build could not pin (an unreadable host file,
+or a missing `.wrl` KiCad may swap for a STEP model) is listed above the
+sign-off cards. Approving such a build, and publishing it, each need the box
+acknowledging those models ticked; the acknowledgement is recorded with the
+decision or the publish. Nothing else changes: the build is not blocked.
+
 After enqueue, Identity and Manufacturing are read-only snapshots. Change
 inputs only by starting a new release.
 

@@ -1,0 +1,12 @@
+{
+ "schema": "prism.parity.divergences.a0",
+ "member": "route-metrics",
+ "accepted": [
+  {
+   "id": "D7",
+   "summary": "A via adds every copper layer it spans (copperLayers order) to its net's usedLayers; today only its two named layers (decisions.md, Route metrics 2).",
+   "cases": ["*"],
+   "rule": "route-metrics/via-spans-used-layers"
+  }
+ ]
+}

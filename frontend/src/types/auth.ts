@@ -5,6 +5,8 @@ export interface User {
     email: string;
     picture?: string;
     role: UserRole;
+    /** Set while a temporary password must still be changed; the app shows only that form. */
+    must_change_password?: boolean;
 }
 
 export interface AuthConfig {
@@ -14,6 +16,7 @@ export interface AuthConfig {
     oidc_provider_name: string;
     password_auth_enabled?: boolean;
     workspace_name: string;
+    sim_studio_enabled?: boolean;
 }
 
 export interface PasswordLoginResult extends User {

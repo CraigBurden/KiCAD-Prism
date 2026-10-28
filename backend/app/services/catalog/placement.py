@@ -2,20 +2,27 @@
 
 A placement is always anchored to one representation (a symbol/footprint pair)
 on a released revision. Auxiliary 3D/SPICE assets ride along with whichever
-representation is selected.
+representation is selected, except 3D models embedded in the footprint: KiCad
+only writes a shipped model to its remote 3D folder, nothing references it
+once the footprint carries it, and every shipped asset counts against KiCad's
+one download budget.
 """
 
 from __future__ import annotations
 
 import base64
 import json
-from typing import Any
+from pathlib import Path
+from typing import Any, Callable
 
+from app.core.config import settings
+from app.core.errors import NotFound
 from app.services.catalog.asset_types import AUXILIARY_ASSET_TYPES
 from app.services.catalog.component_read_models import CatalogComponentReadModels
 from app.services.catalog.placement_payloads import materialize_asset
 from app.services.catalog.revision_kernel import CatalogRevisionKernel
 from app.services.catalog.signed_urls import CatalogAssetUrlSigner
+from app.services.catalog.step_quarantine import raise_if_asset_purged
 
 
 NOT_PLACEABLE_MESSAGE = "Component is not placeable because it is not released or required files are missing"
@@ -29,10 +36,13 @@ class CatalogPlacement:
         revision_kernel: CatalogRevisionKernel,
         read_models: CatalogComponentReadModels,
         signer: type[CatalogAssetUrlSigner] = CatalogAssetUrlSigner,
+        compress: Callable[[bytes], bytes] | None = None,
     ) -> None:
+        """``compress`` keeps each embedded model's compressed copy (``CompressedModelCopies.compress``)."""
         self._revision_kernel = revision_kernel
         self._read_models = read_models
         self._signer = signer
+        self._compress = compress
 
     def placement_assets(
         self,
@@ -66,6 +76,76 @@ class CatalogPlacement:
             raise ValueError("Selected representation references unavailable assets")
         return dict(row), assets
 
+    def _placement_payloads(
+        self, assets: list[dict[str, Any]], component: dict[str, Any]
+    ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+        """Materialize assets in order, leaving out models the footprint embeds."""
+        materialized = {
+            str(asset["id"]): materialize_asset(
+                asset, assets, component, stamp=True, embed_models=settings.REMOTE_PROVIDER_EMBED_3D_MODELS,
+                compress=self._compress,
+            )
+            for asset in assets
+            if asset["asset_type"] != "3dmodel"
+        }
+        embedded = {
+            model_id for asset in materialized.values() for model_id in asset.get("embedded_model_ids", [])
+        }
+        return [
+            (
+                raw_asset,
+                materialized.get(str(raw_asset["id"])) or materialize_asset(raw_asset, assets, component, stamp=True),
+            )
+            for raw_asset in assets
+            if str(raw_asset["id"]) not in embedded
+        ]
+
+    @staticmethod
+    def released_revisions(conn: Any, component_id: str) -> list[dict[str, Any]]:
+        """The component's revisions placement may serve, newest first: ever released and still released.
+
+        A revision archived after release is left out; drafts never appear.
+        """
+        rows = conn.execute(
+            """
+            SELECT revision.id, revision.version, min(record.created_at) AS released_at
+            FROM component_revisions revision
+            JOIN component_release_records record ON record.revision_id = revision.id
+            WHERE revision.component_id = %s AND revision.release_status = 'released'
+            GROUP BY revision.id, revision.version
+            ORDER BY revision.version DESC
+            """,
+            (component_id,),
+        ).fetchall()
+        return [
+            {"revision_id": str(row["id"]), "version": int(row["version"]), "released_at": str(row["released_at"])}
+            for row in rows
+        ]
+
+    def placeable_component(self, conn: Any, component_id: str, revision_id: str = "") -> dict[str, Any] | None:
+        """The released component payload placement serves (issue #698, D4).
+
+        Without ``revision_id``, the component's current released revision.
+        With it, that exact revision, when it belongs to the component, was
+        released and is not archived, and the component is active and still
+        released; anything else, a draft above all, is a typed 404
+        ``revision_not_released`` and never served. ``None`` means the
+        component itself is not placeable (unknown, inactive or unreleased).
+        """
+        if not revision_id:
+            return self._read_models.get_component(conn, component_id, include_inactive=False, released_only=True)
+        component, current = self._revision_kernel.active_revision_row(conn, component_id, released=True)
+        if not component or not current or not component["is_active"]:
+            return None
+        revision = self._revision_kernel.revision_row(conn, revision_id)
+        if (
+            not revision
+            or str(revision["component_id"]) != str(component["id"])
+            or revision_id not in {item["revision_id"] for item in self.released_revisions(conn, component_id)}
+        ):
+            raise NotFound("The component has no released revision with this id", code="revision_not_released")
+        return self._read_models.component_payload(conn, component, revision, released_view=True)
+
     @staticmethod
     def _require_placeable(component: dict[str, Any]) -> None:
         if not component["place_enabled"]:
@@ -81,8 +161,7 @@ class CatalogPlacement:
         self._require_placeable(component)
         representation, assets = self.placement_assets(conn, component["revision_id"], representation_id)
         manifest_assets = []
-        for raw_asset in assets:
-            asset = materialize_asset(raw_asset, assets, component)
+        for raw_asset, asset in self._placement_payloads(assets, component):
             manifest_assets.append(
                 {
                     "asset_type": asset["asset_type"],
@@ -121,8 +200,7 @@ class CatalogPlacement:
         self._require_placeable(component)
         representation, assets = self.placement_assets(conn, component["revision_id"], representation_id)
         bundle_entries = []
-        for raw_asset in assets:
-            asset = materialize_asset(raw_asset, assets, component)
+        for _, asset in self._placement_payloads(assets, component):
             bundle_entries.append(
                 {
                     "type": asset["asset_type"],
@@ -165,6 +243,8 @@ class CatalogPlacement:
         if not row:
             return None
         asset = dict(row)
+        if not Path(str(asset["canonical_path"])).is_file():
+            raise_if_asset_purged(conn, asset_id)
         effective_revision_id = revision_id
         if not effective_revision_id:
             link = conn.execute(
@@ -185,7 +265,10 @@ class CatalogPlacement:
                 component_row = self._revision_kernel.component_row(conn, str(revision["component_id"]))
                 if component_row:
                     component = self._read_models.component_payload(conn, component_row, revision)
-        return materialize_asset(asset, assets_for_revision, component)
+        return materialize_asset(
+            asset, assets_for_revision, component, stamp=True, embed_models=settings.REMOTE_PROVIDER_EMBED_3D_MODELS,
+            compress=self._compress,
+        )
 
 
 __all__ = ["NOT_PLACEABLE_MESSAGE", "CatalogPlacement"]

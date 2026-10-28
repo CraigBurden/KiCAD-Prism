@@ -1,0 +1,232 @@
+{
+  "schema": "prism.parity.fixtures.a0",
+  "fixtures": [
+    {
+      "id": "dv-case_fold",
+      "sourceRoot": "backend/tests/fixtures/design_variants/case_fold",
+      "project": "casefold.kicad_pro"
+    },
+    {
+      "id": "dv-kicad11_tokens",
+      "sourceRoot": "backend/tests/fixtures/design_variants/kicad11_tokens",
+      "project": "k11.kicad_pro"
+    },
+    {
+      "id": "dv-legacy_in_bom",
+      "sourceRoot": "backend/tests/fixtures/design_variants/legacy_in_bom",
+      "project": "legacy.kicad_pro"
+    },
+    {
+      "id": "dv-malformed",
+      "sourceRoot": "backend/tests/fixtures/design_variants/malformed",
+      "project": "broken.kicad_pro"
+    },
+    {
+      "id": "dv-no_variants",
+      "sourceRoot": "backend/tests/fixtures/design_variants/no_variants",
+      "project": "plain.kicad_pro"
+    },
+    {
+      "id": "dv-oracle",
+      "sourceRoot": "backend/tests/fixtures/design_variants/oracle",
+      "project": "variants_oracle.kicad_pro"
+    },
+    {
+      "id": "dv-oracle_rev2",
+      "sourceRoot": "backend/tests/fixtures/design_variants/oracle_rev2",
+      "project": "variants_oracle.kicad_pro"
+    },
+    {
+      "id": "dv-rule_area",
+      "sourceRoot": "backend/tests/fixtures/design_variants/rule_area",
+      "project": "rule_area.kicad_pro"
+    },
+    {
+      "id": "dv-sch_only",
+      "sourceRoot": "backend/tests/fixtures/design_variants/sch_only",
+      "project": "sch_only.kicad_pro"
+    },
+    {
+      "id": "rs-cynthion",
+      "sourceRoot": "fixtures/release-studio/cynthion",
+      "project": "cynthion.kicad_pro"
+    },
+    {
+      "id": "rs-synthetic",
+      "sourceRoot": "fixtures/release-studio/synthetic",
+      "project": "synthetic.kicad_pro"
+    },
+    {
+      "id": "rs-usb-pd",
+      "sourceRoot": "fixtures/release-studio/usb-pd",
+      "project": "USB-PD-Trigger-Board.kicad_pro"
+    },
+    {
+      "id": "sb-p2-ambiguous-F0",
+      "sourceRoot": "backend/tests/fixtures/system_builder/p2/sources/ambiguous/F0",
+      "project": "ambiguous.kicad_pro"
+    },
+    {
+      "id": "sb-p2-edge_a-F0",
+      "sourceRoot": "backend/tests/fixtures/system_builder/p2/sources/edge_a/F0",
+      "project": "edge_a.kicad_pro"
+    },
+    {
+      "id": "sb-p2-edge_b-F0",
+      "sourceRoot": "backend/tests/fixtures/system_builder/p2/sources/edge_b/F0",
+      "project": "edge_b.kicad_pro"
+    },
+    {
+      "id": "sb-p2-mezz_base-F0",
+      "sourceRoot": "backend/tests/fixtures/system_builder/p2/sources/mezz_base/F0",
+      "project": "mezz_base.kicad_pro"
+    },
+    {
+      "id": "sb-p2-mezz_top-F0",
+      "sourceRoot": "backend/tests/fixtures/system_builder/p2/sources/mezz_top/F0",
+      "project": "mezz_top.kicad_pro"
+    },
+    {
+      "id": "sb-p2-mezz_top-F1",
+      "sourceRoot": "backend/tests/fixtures/system_builder/p2/sources/mezz_top/F1",
+      "project": "mezz_top.kicad_pro"
+    },
+    {
+      "id": "sb-mini_obc-F0",
+      "sourceRoot": "backend/tests/fixtures/system_builder/sources/mini_obc/F0",
+      "project": "mini_obc.kicad_pro"
+    },
+    {
+      "id": "sb-mini_obc-F1",
+      "sourceRoot": "backend/tests/fixtures/system_builder/sources/mini_obc/F1",
+      "project": "mini_obc.kicad_pro"
+    },
+    {
+      "id": "sb-mini_obc-F2",
+      "sourceRoot": "backend/tests/fixtures/system_builder/sources/mini_obc/F2",
+      "project": "mini_obc.kicad_pro"
+    },
+    {
+      "id": "sb-mini_obc-F3",
+      "sourceRoot": "backend/tests/fixtures/system_builder/sources/mini_obc/F3",
+      "project": "mini_obc.kicad_pro"
+    },
+    {
+      "id": "sb-mini_obc-F4",
+      "sourceRoot": "backend/tests/fixtures/system_builder/sources/mini_obc/F4",
+      "project": "mini_obc.kicad_pro"
+    },
+    {
+      "id": "sb-mini_obc-F5",
+      "sourceRoot": "backend/tests/fixtures/system_builder/sources/mini_obc/F5",
+      "project": "mini_obc.kicad_pro"
+    },
+    {
+      "id": "sb-mini_obc-F6",
+      "sourceRoot": "backend/tests/fixtures/system_builder/sources/mini_obc/F6",
+      "project": "mini_obc.kicad_pro"
+    },
+    {
+      "id": "sb-mini_obc-F7",
+      "sourceRoot": "backend/tests/fixtures/system_builder/sources/mini_obc/F7",
+      "project": "mini_obc.kicad_pro"
+    },
+    {
+      "id": "sb-mini_obc-F8",
+      "sourceRoot": "backend/tests/fixtures/system_builder/sources/mini_obc/F8",
+      "project": "mini_obc.kicad_pro"
+    },
+    {
+      "id": "sb-mini_obc-F9",
+      "sourceRoot": "backend/tests/fixtures/system_builder/sources/mini_obc/F9",
+      "project": "mini_obc.kicad_pro"
+    },
+    {
+      "id": "sb-mini_obc-F11.1",
+      "sourceRoot": "backend/tests/fixtures/system_builder/sources/mini_obc/F11.1",
+      "project": "mini_obc.kicad_pro"
+    },
+    {
+      "id": "sb-mini_obc-F11.2",
+      "sourceRoot": "backend/tests/fixtures/system_builder/sources/mini_obc/F11.2",
+      "project": "mini_obc.kicad_pro"
+    },
+    {
+      "id": "sb-mini_payload-F0",
+      "sourceRoot": "backend/tests/fixtures/system_builder/sources/mini_payload/F0",
+      "project": "mini_payload.kicad_pro"
+    },
+    {
+      "id": "sb-mini_power-F0",
+      "sourceRoot": "backend/tests/fixtures/system_builder/sources/mini_power/F0",
+      "project": "mini_power.kicad_pro"
+    },
+    {
+      "id": "sb-mini_power-F10",
+      "sourceRoot": "backend/tests/fixtures/system_builder/sources/mini_power/F10",
+      "project": "mini_power.kicad_pro"
+    }
+  ],
+  "pairs": [
+    [
+      "sb-mini_obc-F0",
+      "sb-mini_obc-F1"
+    ],
+    [
+      "sb-mini_obc-F0",
+      "sb-mini_obc-F2"
+    ],
+    [
+      "sb-mini_obc-F0",
+      "sb-mini_obc-F3"
+    ],
+    [
+      "sb-mini_obc-F0",
+      "sb-mini_obc-F4"
+    ],
+    [
+      "sb-mini_obc-F0",
+      "sb-mini_obc-F5"
+    ],
+    [
+      "sb-mini_obc-F0",
+      "sb-mini_obc-F6"
+    ],
+    [
+      "sb-mini_obc-F0",
+      "sb-mini_obc-F7"
+    ],
+    [
+      "sb-mini_obc-F0",
+      "sb-mini_obc-F8"
+    ],
+    [
+      "sb-mini_obc-F0",
+      "sb-mini_obc-F9"
+    ],
+    [
+      "sb-mini_obc-F0",
+      "sb-mini_obc-F11.1"
+    ],
+    [
+      "sb-mini_obc-F0",
+      "sb-mini_obc-F11.2"
+    ],
+    [
+      "sb-mini_obc-F11.1",
+      "sb-mini_obc-F11.2"
+    ],
+    [
+      "sb-mini_power-F0",
+      "sb-mini_power-F10"
+    ],
+    [
+      "dv-oracle",
+      "dv-oracle_rev2"
+    ],
+    [
+      "sb-p2-mezz_top-F0",
+      "sb-p2-mezz_top-F1"
+    ]
+  ]
+}

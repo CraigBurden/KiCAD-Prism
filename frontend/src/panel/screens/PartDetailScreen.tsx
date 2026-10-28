@@ -125,6 +125,10 @@ export function PartDetailScreen({
   const placingRef = useRef(false);
   const placementControllerRef = useRef<AbortController | null>(null);
   const [representationId, setRepresentationId] = useState("");
+  // The released revision to place; "" is the current release. Keyed by part,
+  // so opening another part starts from its current release.
+  const [revisionChoice, setRevisionChoice] = useState({ componentId, revisionId: "" });
+  const revisionId = revisionChoice.componentId === componentId ? revisionChoice.revisionId : "";
 
   useEffect(() => () => placementControllerRef.current?.abort(), [componentId]);
 
@@ -137,7 +141,7 @@ export function PartDetailScreen({
     setShowAllParams(false);
     setPlacementError(null);
     const controller = new AbortController();
-    getComponent(componentId, controller.signal)
+    getComponent(componentId, controller.signal, "", revisionId)
       .then((detail) => {
         if (controller.signal.aborted) return;
         setLoad({ phase: "ready", component: detail });
@@ -161,7 +165,7 @@ export function PartDetailScreen({
         });
       });
     return () => controller.abort();
-  }, [componentId, retryNonce, prefetched, appendLog, onAuthRequired]);
+  }, [componentId, revisionId, retryNonce, prefetched, appendLog, onAuthRequired]);
 
   async function runPlacement(path: "manifest" | "inline") {
     const sessionId = getSessionId();
@@ -179,8 +183,8 @@ export function PartDetailScreen({
     setPlacementError(null);
     try {
       const payload = path === "manifest"
-        ? await getPartManifest(component.id, representationId, controller.signal)
-        : await getInlineBundle(component.id, representationId, controller.signal);
+        ? await getPartManifest(component.id, representationId, controller.signal, revisionId)
+        : await getInlineBundle(component.id, representationId, controller.signal, revisionId);
       if (controller.signal.aborted) return;
       if (sessionId !== getSessionId()) {
         throw new KiCadRpcError("pre_dispatch", "KiCad session changed while preparing placement. Try again in the current schematic.");
@@ -377,6 +381,29 @@ export function PartDetailScreen({
       {/* ── PREVIEW ────────────────────────────────────────────── */}
       {selectedRepresentation && (
         <Section label="Preview">
+          {(component.released_revisions?.length ?? 0) > 1 && (
+            <Select
+              value={revisionId || component.released_revisions![0].revision_id}
+              onValueChange={(value) =>
+                setRevisionChoice({
+                  componentId,
+                  revisionId: value === component.released_revisions![0].revision_id ? "" : value,
+                })
+              }
+            >
+              <SelectTrigger className="mb-2 h-8 text-xs" aria-label="Released revision">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {component.released_revisions!.map((revision, index) => (
+                  <SelectItem key={revision.revision_id} value={revision.revision_id}>
+                    Rev.{revision.version}
+                    {index === 0 ? " · Latest" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Select value={representationId} onValueChange={setRepresentationId}>
             <SelectTrigger className="mb-2 h-8 text-xs" aria-label="Representation">
               <SelectValue placeholder="Select a representation" />

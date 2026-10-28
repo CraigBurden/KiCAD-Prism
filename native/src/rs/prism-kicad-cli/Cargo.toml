@@ -1,0 +1,55 @@
+[package]
+name = "prism-kicad-cli"
+description = "prism-kicad: parse a KiCad revision once and write its design bundle (cli-spec.md)"
+version = "0.14.0"
+edition.workspace = true
+rust-version.workspace = true
+license = "Apache-2.0"
+authors = ["KiCAD Prism contributors"]
+repository = "https://github.com/krishna-swaroop/KiCAD-Prism"
+publish = false
+
+# The workspace lints, except that `unsafe_code` is `deny` instead of
+# `forbid`: the counting allocator, the signal handlers and `_exit` need it
+# (cli-spec.md §7.3–§7.4). Only `src/process.rs` allows it, item by item.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+allow_attributes_without_reason = "deny"
+cognitive_complexity = "deny"
+too_many_arguments = "deny"
+too_many_lines = "deny"
+
+[[bin]]
+name = "prism-kicad"
+path = "src/main.rs"
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
+
+[dependencies]
+prism-artwork = { path = "../prism-artwork" }
+prism-bundle = { path = "../prism-bundle" }
+prism-kicad-contracts = { path = "../prism-kicad-contracts" }
+prism-kicad-core = { path = "../prism-kicad-core" }
+prism-kicad-materialization-pack = { path = "../prism-kicad-materialization-pack" }
+prism-vendors = { path = "../prism-vendors" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+miniz_oxide.workspace = true

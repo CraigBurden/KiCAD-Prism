@@ -197,7 +197,8 @@ BUILTIN_METADATA_DESCRIPTORS: tuple[BuiltinMetadataDescriptor, ...] = (
     ),
 )
 
-CREATE_REQUEST_PASSTHROUGH_FIELDS = frozenset({"change_summary", "extra_fields"})
+# ``kind`` picks part or module (CONTRACTS_P2 §3.5); it is a component column, not metadata.
+CREATE_REQUEST_PASSTHROUGH_FIELDS = frozenset({"change_summary", "extra_fields", "kind"})
 UPDATE_REQUEST_PASSTHROUGH_FIELDS = frozenset(
     {"change_summary", "extra_fields", "expected_revision_id"}
 )

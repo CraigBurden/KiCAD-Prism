@@ -11,9 +11,9 @@ This playbook covers the sibling `../ecad-viewer` checkout, overridable with
 
 ## Preconditions
 
-Both build scripts require the commit in
+The build script requires the commit in
 `scripts/ecad-viewer-upstream.lock` to be an ancestor of the sibling checkout.
-They refuse relevant dirty source trees unless `ECAD_ALLOW_DIRTY=1` is set.
+It refuses relevant dirty source trees unless `ECAD_ALLOW_DIRTY=1` is set.
 That override is for local iteration only; do not commit artifacts whose
 provenance reports dirty input.
 
@@ -32,17 +32,8 @@ This updates:
 - `frontend/public/ecad-viewer.manifest.json`; and
 - the artifact digest in `frontend/index.html`.
 
-```bash
-./scripts/build-ecad-parser.sh
-```
-
-This updates:
-
-- `scripts/vendor/kicad-sexpr-parser.mjs`; and
-- `scripts/vendor/kicad-sexpr-parser.provenance.json`.
-
-Run both scripts when parser sources change because the browser viewer bundles
-its own parser copy. A viewer-only source change needs only the viewer build.
+Run the viewer build when parser sources change: the browser viewer bundles its
+own parser copy. A viewer-only source change needs the same build.
 
 ## Verify provenance
 

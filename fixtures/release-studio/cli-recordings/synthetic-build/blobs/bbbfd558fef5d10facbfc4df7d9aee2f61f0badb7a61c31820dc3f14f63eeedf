@@ -1,0 +1,74 @@
+{
+  "metadata": {
+    "date": "2026-10-23T01:17:50",
+    "generator": "KiCad 10.0.7",
+    "project": "synthetic",
+    "board_name": "synthetic"
+  },
+  "board": {
+    "has_outline": true,
+    "width": "30.0000 mm",
+    "height": "15.0000 mm",
+    "area": "450.00 mm²",
+    "front_component_density": "1.89",
+    "back_component_density": "1.89",
+    "front_copper_area": "13.687 mm²",
+    "back_copper_area": "10.765 mm²",
+    "min_track_clearance": "1.3500 mm",
+    "min_track_width": "0.2500 mm",
+    "min_drill_diameter": "1.0000 mm",
+    "board_thickness": "1.6000 mm",
+    "front_footprint_area": "8.507 mm²",
+    "back_footprint_area": "8.507 mm²",
+    "front_footprint_density": "1.89",
+    "back_footprint_density": "1.89"
+  },
+  "pads": {
+    "through_hole": 2,
+    "smd": 4,
+    "connector": 0,
+    "npth": 0,
+    "castellated": 0,
+    "press_fit": 0
+  },
+  "vias": {
+    "through": 0,
+    "blind": 0,
+    "buried": 0,
+    "micro": 0
+  },
+  "components": {
+    "tht": {
+      "front": 1,
+      "back": 0,
+      "total": 1
+    },
+    "smd": {
+      "front": 2,
+      "back": 0,
+      "total": 2
+    },
+    "unspecified": {
+      "front": 0,
+      "back": 0,
+      "total": 0
+    },
+    "total": {
+      "front": 3,
+      "back": 0,
+      "total": 3
+    }
+  },
+  "drill_holes": [
+    {
+      "count": 2,
+      "shape": "Round",
+      "x_size": "1.0000 mm",
+      "y_size": "1.0000 mm",
+      "plated": true,
+      "source": "Pad",
+      "start_layer": "F.Cu",
+      "stop_layer": "B.Cu"
+    }
+  ]
+}

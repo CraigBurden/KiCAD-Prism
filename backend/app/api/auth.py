@@ -10,12 +10,19 @@ generates all three, keeps them in a short-lived HttpOnly transaction cookie, an
 
 import asyncio
 import secrets
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from app.core.config import settings
 from app.core.roles import Role
-from app.core.security import AuthenticatedUser, get_current_user, guest_user, require_admin
+from app.core.security import (
+    AuthenticatedUser,
+    guest_user,
+    require_admin,
+    require_viewer,
+    require_viewer_allowing_password_change,
+)
 from app.core.session import (
     OIDC_TRANSACTION_COOKIE_NAME,
     SESSION_COOKIE_NAME,
@@ -83,6 +90,9 @@ class UserSession(BaseModel):
     name: str
     picture: str = ""
     role: Role
+    # Set while the account's temporary password must still be changed; the
+    # client shows only the change form until it is cleared.
+    must_change_password: bool = False
 
 
 class AuthConfig(BaseModel):
@@ -93,6 +103,8 @@ class AuthConfig(BaseModel):
     oidc_provider_name: str = ""
     password_auth_enabled: bool = False
     workspace_name: str
+    # Its routes 404 when off; the frontend asks here instead of probing one.
+    sim_studio_enabled: bool = False
 
 
 class ActiveSession(BaseModel):
@@ -104,12 +116,30 @@ class ActiveSession(BaseModel):
     client_ip: str = ""
 
 
+class AuthSuccessResponse(BaseModel):
+    """The answer to a session mutation that has nothing else to say."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    success: bool
+
+
+class RevokeSessionsResponse(BaseModel):
+    """How many sessions a revoke ended, and the account it targeted."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    revoked: int
+    email: Optional[str] = None
+
+
 def _build_user_session(user: ResolvedSessionUser | AuthenticatedUser) -> UserSession:
     return UserSession(
         email=user.email,
         name=user.name,
         picture=user.picture,
         role=user.role,
+        must_change_password=bool(getattr(user, "password_change_required", False)),
     )
 
 
@@ -202,6 +232,7 @@ async def get_auth_config():
         oidc_provider_name=settings.OIDC_PROVIDER_NAME.strip() or "SSO",
         password_auth_enabled=password_auth_enabled(),
         workspace_name=settings.WORKSPACE_NAME,
+        sim_studio_enabled=settings.PRISM_SIM_STUDIO_ENABLED,
     )
 
 
@@ -312,10 +343,15 @@ async def login_with_password(
     )
 
 
-@router.post("/password/change")
+@router.post(
+    "/password/change",
+    response_model=AuthSuccessResponse,
+    response_model_exclude_unset=True,
+    summary="Change the signed-in user's local password",
+)
 async def change_own_password(
     request: ChangePasswordRequest,
-    user: AuthenticatedUser = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_viewer_allowing_password_change),
 ):
     """Change the signed-in user's own local password."""
     if not password_auth_enabled():
@@ -326,12 +362,9 @@ async def change_own_password(
     if not password_credential_service.verify_password(user.email, request.current_password).ok:
         raise HTTPException(status_code=403, detail="Current password is incorrect")
 
-    try:
-        password_credential_service.set_password(
-            user.email, request.new_password, updated_by=user.email, must_change=False
-        )
-    except password_credential_service.PasswordPolicyError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    password_credential_service.set_password(
+        user.email, request.new_password, updated_by=user.email, must_change=False
+    )
     _revoke_account_sessions(
         user.email, reason="password_changed", keep_session_id=user.session_id
     )
@@ -339,18 +372,23 @@ async def change_own_password(
 
 
 @router.get("/me", response_model=UserSession)
-async def get_current_session_user(user: AuthenticatedUser = Depends(get_current_user)):
+async def get_current_session_user(user: AuthenticatedUser = Depends(require_viewer_allowing_password_change)):
     return _build_user_session(user)
 
 
 @router.get("/sessions", response_model=list[ActiveSession])
-async def list_my_sessions(user: AuthenticatedUser = Depends(get_current_user)):
+async def list_my_sessions(user: AuthenticatedUser = Depends(require_viewer)):
     """Every live browser session for the signed-in account."""
     return [ActiveSession(**item) for item in session_store_service.list_sessions(user.email)]
 
 
-@router.post("/sessions/revoke-others")
-async def revoke_other_sessions(user: AuthenticatedUser = Depends(get_current_user)):
+@router.post(
+    "/sessions/revoke-others",
+    response_model=RevokeSessionsResponse,
+    response_model_exclude_unset=True,
+    summary="Sign out everywhere except this browser",
+)
+async def revoke_other_sessions(user: AuthenticatedUser = Depends(require_viewer)):
     """Sign out everywhere except the browser making this request."""
     revoked = _revoke_account_sessions(
         user.email, reason="user_revoked_others", keep_session_id=user.session_id
@@ -358,14 +396,24 @@ async def revoke_other_sessions(user: AuthenticatedUser = Depends(get_current_us
     return {"revoked": revoked}
 
 
-@router.post("/sessions/revoke-user/{email}")
+@router.post(
+    "/sessions/revoke-user/{email}",
+    response_model=RevokeSessionsResponse,
+    response_model_exclude_unset=True,
+    summary="Terminate every session belonging to an account",
+)
 async def revoke_user_sessions(email: str, user: AuthenticatedUser = Depends(require_admin)):
     """Terminate every session belonging to an account. Used when access is withdrawn."""
     revoked = _revoke_account_sessions(email, reason=f"admin:{user.email}")
     return {"email": email.strip().lower(), "revoked": revoked}
 
 
-@router.post("/logout")
+@router.post(
+    "/logout",
+    response_model=AuthSuccessResponse,
+    response_model_exclude_unset=True,
+    summary="Revoke this browser's session",
+)
 async def logout(http_request: Request, response: Response):
     payload = decode_session_token(http_request.cookies.get(SESSION_COOKIE_NAME) or "")
     if payload:

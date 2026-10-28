@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import logging
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import MagicMock
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -21,25 +18,9 @@ from app.services.trackers.drafts import (  # noqa: E402
 from app.services.trackers.identity_service import validate_relative_return_to  # noqa: E402
 from app.services.trackers.publication_policy import PublicationPolicyService  # noqa: E402
 from app.services.trackers.reply_executor import _reply_attribution  # noqa: E402
+from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
 from app.services.trackers.store import issue_number_for_api  # noqa: E402
-
-try:
-    import psycopg
-    from psycopg.rows import dict_row
-except ImportError:  # pragma: no cover
-    psycopg = None  # type: ignore[assignment]
-    dict_row = None  # type: ignore[assignment]
-
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-
-
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
+from support.postgres import requires_scratch_postgres, scratch_schema  # noqa: E402
 
 
 class DraftEmailGuardTests(unittest.TestCase):
@@ -82,71 +63,20 @@ class ReturnToValidationTests(unittest.TestCase):
         self.assertEqual(validate_relative_return_to("https://evil.example/"), "/")
 
 
-@unittest.skipUnless(POSTGRES_URL and psycopg is not None, "TEST_POSTGRES_URL required")
+@requires_scratch_postgres("tracker persistence tests")
 class ObserveBeforeWriteTxnTests(unittest.TestCase):
     """R3-M10: observe_container must run before the settings write transaction."""
 
     def setUp(self) -> None:
-        self.schema = f"r3m10_{uuid.uuid4().hex[:10]}"
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row, autocommit=True)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self.conn.execute(
-            """
-            CREATE TABLE tracker_connectors (
-                id TEXT PRIMARY KEY,
-                provider TEXT NOT NULL,
-                instance_kind TEXT NOT NULL DEFAULT 'github.com',
-                display_name TEXT NOT NULL DEFAULT '',
-                base_url TEXT NOT NULL DEFAULT '',
-                credential_envelope TEXT,
-                bot_forge_user_id TEXT,
-                bot_login TEXT,
-                paused BOOLEAN NOT NULL DEFAULT FALSE,
-                paused_reason TEXT,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-            CREATE TABLE project_trackers (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL UNIQUE,
-                connector_id TEXT NOT NULL REFERENCES tracker_connectors(id),
-                container_kind TEXT NOT NULL DEFAULT 'repo',
-                container_path TEXT NOT NULL DEFAULT '',
-                remote_container_id TEXT NOT NULL DEFAULT '',
-                destination_generation INTEGER NOT NULL DEFAULT 1,
-                visibility TEXT NOT NULL DEFAULT 'unknown',
-                auto_min_severity TEXT NOT NULL DEFAULT 'minor',
-                auto_task_class BOOLEAN NOT NULL DEFAULT TRUE,
-                promote_min_role TEXT NOT NULL DEFAULT 'designer',
-                labels JSONB NOT NULL DEFAULT '{}'::jsonb
-            );
-            CREATE TABLE destination_acks (
-                id TEXT PRIMARY KEY,
-                connector_id TEXT NOT NULL,
-                remote_container_id TEXT NOT NULL,
-                observed_visibility TEXT NOT NULL,
-                acknowledged_by TEXT NOT NULL,
-                acknowledged_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                UNIQUE (connector_id, remote_container_id, observed_visibility)
-            );
-            CREATE TABLE tracker_audit (
-                id BIGSERIAL PRIMARY KEY,
-                actor_user_id TEXT,
-                action TEXT NOT NULL,
-                project_id TEXT,
-                connector_id TEXT,
-                detail JSONB NOT NULL DEFAULT '{}'::jsonb,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-            INSERT INTO tracker_connectors (id, provider) VALUES ('cn_1', 'github');
-            """
-        )
+        self.scratch = scratch_schema(self, "r3m10", then=(migrate_workspace_tracker_tables,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
+        self.conn.execute("INSERT INTO tracker_connectors (id, provider, instance_kind) VALUES ('cn_1', 'github', 'github.com')")
+        self.conn.commit()
         self.events: list[str] = []
 
         @contextmanager
         def connect():
-            with psycopg.connect(_dsn(), row_factory=dict_row) as conn:
-                conn.execute(f'SET search_path TO "{self.schema}", public')
+            with self.scratch.connection() as conn:
                 self.events.append("conn_open")
                 try:
                     yield conn
@@ -167,10 +97,6 @@ class ObserveBeforeWriteTxnTests(unittest.TestCase):
         connectors.observe_container.side_effect = observe
         connectors.get.return_value = {"id": "cn_1", "paused": False, "pausedReason": None}
         self.service = PublicationPolicyService(connect=connect, connector_service=connectors)
-
-    def tearDown(self) -> None:
-        self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-        self.conn.close()
 
     def test_observe_runs_between_read_and_write_connections(self) -> None:
         self.service.update_settings(

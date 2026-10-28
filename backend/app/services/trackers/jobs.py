@@ -23,11 +23,13 @@ from app.services.trackers.op_store import (
     RECOVERY_DISPATCH,
     OpStore,
 )
+from app.services.job_kinds import TRACKER_RESOURCE, JobKind
 from app.services.trackers.scheduler import (
     DISPATCH_KIND,
     OUTBOX_POLL_SECONDS,
     POLL_KIND,
     SWEEP_KIND,
+    TRACKER_PRIORITY,
     poll_interval_seconds,
     sweep_interval_seconds,
 )
@@ -35,14 +37,10 @@ from app.services.trackers.scheduler import (
 DispatchExecutor = Callable[[dict[str, Any]], str | None]
 
 QUARANTINE_FIRST_MINUTES = 1
+#: How long a skipped poll or sweep waits before the destination is due again.
+SKIPPED_CHECKPOINT_BACKOFF_SECONDS = 30 * 60
 
 logger = logging.getLogger(__name__)
-
-
-def register_tracker_job_handlers(register: Callable[[str, Callable], None]) -> None:
-    register(DISPATCH_KIND, run_tracker_dispatch_job)
-    register(POLL_KIND, run_tracker_poll_job)
-    register(SWEEP_KIND, run_tracker_sweep_job)
 
 
 def run_tracker_dispatch_job(context: JobContext) -> JobResult:
@@ -122,12 +120,23 @@ def _run_checkpoint_job(context: JobContext, *, kind: str) -> JobResult:
                 remote_container_id=container_id,
             )
             interval = sweep_interval_seconds(conn, connector_id, container_id)
+        if (result.details or {}).get("skipped"):
+            # Nothing ran (no provider, unknown or paused connector): wait long
+            # before asking again instead of being due on every scheduler scan.
+            interval = max(interval, SKIPPED_CHECKPOINT_BACKOFF_SECONDS)
+        # A run that did not move next_run_at itself (skips, and polls whose
+        # handler leaves it) must still push it past now, or the scheduler
+        # finds the destination due again within seconds.
         conn.execute(
             """
             UPDATE sync_checkpoints
             SET claimed_by = NULL,
                 lease_expires_at = NULL,
-                next_run_at = COALESCE(next_run_at, NOW() + (%s * INTERVAL '1 second'))
+                next_run_at = CASE
+                    WHEN next_run_at IS NULL OR next_run_at <= NOW()
+                        THEN NOW() + (%s * INTERVAL '1 second')
+                    ELSE next_run_at
+                END
             WHERE kind = %s AND scope_key = %s AND fence = %s
             """,
             (interval, kind, scope, int(claimed["fence"])),
@@ -469,3 +478,23 @@ def _comments_connect(context: JobContext):
     with database.connection() as conn:
         conn.execute("SET search_path TO comments, workspace, public")
         yield conn
+
+
+def _tracker_kind(name: str, handler: Callable[[JobContext], JobResult]) -> JobKind:
+    # A dedicated tracker_sync slot and a low priority, so tracker work cannot
+    # starve import or compare work.
+    return JobKind(
+        name,
+        handler,
+        resources={TRACKER_RESOURCE: 1},
+        priority=TRACKER_PRIORITY,
+        max_attempts=8,
+    )
+
+
+JOB_KINDS = (
+    _tracker_kind(DISPATCH_KIND, run_tracker_dispatch_job),
+    _tracker_kind(POLL_KIND, run_tracker_poll_job),
+    _tracker_kind(SWEEP_KIND, run_tracker_sweep_job),
+)
+TRACKER_JOB_KINDS_BY_NAME = {kind.name: kind for kind in JOB_KINDS}

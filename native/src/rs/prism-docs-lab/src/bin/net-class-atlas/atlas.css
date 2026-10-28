@@ -1,0 +1,99 @@
+/* The net-class atlas's rules, after the shared lab look.
+ *
+ * The drawing itself is inline SVG in millimetres; these rules only set the
+ * rendering mode, the halo that keeps designators readable over copper, and
+ * the pointer affordance on anything a click can focus.
+ */
+
+.atlas-drawing {
+  shape-rendering: geometricPrecision;
+}
+
+/* One sprite of body outlines, referenced by every drawing. */
+.atlas-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.net-group {
+  margin-top: 34px;
+}
+
+.group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 16px;
+  margin-top: 4px;
+}
+
+.group-head h3 {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -0.008em;
+}
+
+.group-meta {
+  margin: 0;
+  color: #6b6b70;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.zone-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: #6b6b70;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.zone-toggle input {
+  margin: 0;
+}
+
+/* A filled zone paints a faint fill while zones are on; with them off the
+ * same path shows its dashed edge, so the geometry is never duplicated. */
+.net-group[data-zones="on"] .zone-fill path {
+  stroke: none;
+}
+
+.net-group[data-zones="off"] .zone-fill path {
+  fill-opacity: 0;
+}
+
+.atlas-drawing .track,
+.atlas-drawing .via,
+.atlas-drawing .pad,
+.atlas-drawing .zone {
+  cursor: pointer;
+}
+
+.atlas-drawing .track,
+.atlas-drawing .zone,
+.atlas-drawing .pad,
+.atlas-drawing .via,
+.atlas-drawing .des {
+  transition: opacity 120ms ease;
+}
+
+.atlas-drawing text.des {
+  paint-order: stroke;
+  stroke: #ffffff;
+  stroke-width: 0.22;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.atlas-drawing .ghost .body {
+  opacity: 0.85;
+}
+
+.atlas-drawing .outline {
+  pointer-events: none;
+}

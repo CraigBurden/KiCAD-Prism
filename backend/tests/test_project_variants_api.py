@@ -1,9 +1,11 @@
-"""VAR-08 acceptance: the variant catalog HTTP surface.
+"""VAR-08 acceptance: the variant catalog HTTP surface (ADR §9.7 R1).
 
 Route handlers are called directly (the pattern ``test_release_studio_api.py``
 uses) so auth and response behavior are exercised without standing up OIDC.
-The fixture-backed cases go through the real discovery service; the error and
-cache cases stub it.
+The route now reads the design bundle only, so these tests stub the discovery
+service (its own mapping and parity live in ``test_variant_catalog_bundle.py``)
+and pin the HTTP surface: authorization, the frozen payload keys, ETags and the
+error mapping.
 """
 
 from __future__ import annotations
@@ -18,8 +20,10 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from app.api import project_variants as api
+from app.services.design_bundle import consumer
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "design_variants"
+MEMBER = "projections/semantic-index.json"
 
 
 class _User:
@@ -48,20 +52,41 @@ def _request(headers: dict[str, str] | None = None) -> Request:
     )
 
 
-def _row(directory: str, anchor: str):
+def _body(response) -> dict:
+    return json.loads(response.body)
+
+
+def _payload(directory: str, *, commit: str | None = None, key: str = "key-a") -> dict:
+    """The discovery answer a fixture-backed bundle would give."""
+
+    variants = {
+        "pcb_only": [
+            {"name": "Lite", "description": "Board header only", "sources": []},
+            {"name": "Extra", "description": "", "sources": []},
+        ],
+        "no_variants": [],
+        "malformed": [{"name": "Lite", "description": "", "sources": []}],
+        "oracle": [{"name": "Lite", "description": "", "sources": []}],
+    }[directory]
+    diagnostics = (
+        [{"code": "source-unparseable", "path": "broken.kicad_sch", "message": "Could not read"}]
+        if directory == "malformed"
+        else []
+    )
     return {
-        "id": "prj_fixture",
-        "name": directory,
-        "description": "",
-        "path": str(FIXTURES / directory),
-        "last_modified": "",
-        "relative_path": ".",
-        "project_file_rel": anchor,
+        "schema": "prism.project_variants_a0",
+        "projectId": "prj_fixture",
+        "commit": commit,
+        "sourceRevisionKey": key,
+        "variants": variants,
+        "diagnostics": diagnostics,
     }
 
 
-def _body(response) -> dict:
-    return json.loads(response.body)
+def _bundle_read(payload: dict):
+    opened = MagicMock()
+    opened.working_tree_dirty = False
+    return consumer.BundleRead(opened, {MEMBER: MagicMock(state="ready")})
 
 
 class VariantCatalogAuthorizationTests(unittest.TestCase):
@@ -85,47 +110,58 @@ class VariantCatalogAuthorizationTests(unittest.TestCase):
         lookup.assert_called_once_with("prj", "qa")
 
 
+class VariantCatalogSingleOpenTests(unittest.TestCase):
+    """The route opens the revision once: headers and discovery share the read."""
+
+    def test_the_read_is_passed_to_discovery(self) -> None:
+        payload = _payload("oracle")
+        read = _bundle_read(payload)
+        with patch.object(api, "get_project_for_role_or_404"), patch.object(
+            consumer, "bundle_read", return_value=read
+        ) as bundle_read, patch.object(
+            api.variant_catalog_service, "discover_variant_catalog", return_value=payload
+        ) as discover:
+            _run(api.get_project_variants("prj", _request(), None, _User()))
+        bundle_read.assert_called_once()
+        self.assertIs(discover.call_args.args[2], read)
+
+
 class VariantCatalogResponseTests(unittest.TestCase):
-    def _read(self, directory: str, anchor: str, *, commit: str | None = None, headers=None):
-        project = _Project(FIXTURES / directory, anchor)
-        with patch.object(
-            api, "get_project_for_role_or_404", return_value=project
+    def _read(self, directory: str, *, commit: str | None = None, headers=None):
+        payload = _payload(directory, commit=commit)
+        with patch.object(api, "get_project_for_role_or_404"), patch.object(
+            consumer, "bundle_read", return_value=_bundle_read(payload)
+        ), patch.object(
+            api.variant_catalog_service, "discover_variant_catalog", return_value=payload
         ):
-            return _run(
-                api.get_project_variants("prj", _request(headers), commit, _User())
-            )
+            return _run(api.get_project_variants("prj", _request(headers), commit, _User()))
 
     def test_pcb_only_returns_200_with_its_catalog(self) -> None:
-        response = self._read("pcb_only", "board_only.kicad_pcb")
+        response = self._read("pcb_only")
         self.assertEqual(response.status_code, 200)
         payload = _body(response)
-        self.assertEqual(
-            [entry["name"] for entry in payload["variants"]], ["Lite", "Extra"]
-        )
+        self.assertEqual([entry["name"] for entry in payload["variants"]], ["Lite", "Extra"])
         self.assertEqual(payload["variants"][0]["description"], "Board header only")
         self.assertIsNone(payload["commit"])
         self.assertEqual(response.headers["cache-control"], "private, no-cache")
         self.assertIn("etag", {key.lower() for key in response.headers.keys()})
 
     def test_an_empty_catalog_is_not_an_error(self) -> None:
-        response = self._read("no_variants", "plain.kicad_pro")
+        response = self._read("no_variants")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(_body(response)["variants"], [])
         self.assertEqual(_body(response)["diagnostics"], [])
 
     def test_a_malformed_source_is_reported_in_a_200(self) -> None:
-        response = self._read("malformed", "broken.kicad_pro")
+        response = self._read("malformed")
         self.assertEqual(response.status_code, 200)
         payload = _body(response)
-        self.assertEqual(
-            [entry["name"] for entry in payload["variants"]], ["Lite"]
-        )
+        self.assertEqual([entry["name"] for entry in payload["variants"]], ["Lite"])
         codes = [diagnostic["code"] for diagnostic in payload["diagnostics"]]
         self.assertIn("source-unparseable", codes)
 
     def test_the_payload_keeps_the_frozen_schema_keys(self) -> None:
-        response = self._read("oracle", "variants_oracle.kicad_pro")
-        payload = _body(response)
+        payload = _body(self._read("oracle"))
         self.assertEqual(payload["schema"], "prism.project_variants_a0")
         self.assertEqual(payload["projectId"], "prj_fixture")
         self.assertIn("sourceRevisionKey", payload)
@@ -136,25 +172,23 @@ class VariantCatalogResponseTests(unittest.TestCase):
 
 
 class VariantCatalogErrorTests(unittest.TestCase):
-    def test_an_unresolvable_ref_is_400(self) -> None:
+    def _read(self, error: Exception, commit: str | None = None):
         with patch.object(api, "get_project_for_role_or_404"), patch.object(
-            api.variant_catalog_service,
-            "discover_variant_catalog",
-            side_effect=ValueError("Commit not found: nope"),
+            consumer, "bundle_read", return_value=_bundle_read(_payload("oracle"))
+        ), patch.object(
+            api.variant_catalog_service, "discover_variant_catalog", side_effect=error
         ):
-            with self.assertRaises(HTTPException) as ctx:
-                _run(api.get_project_variants("prj", _request(), "nope", _User()))
+            return _run(api.get_project_variants("prj", _request(), commit, _User()))
+
+    def test_an_unresolvable_ref_is_400(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            self._read(ValueError("Commit not found: nope"), "nope")
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertEqual(ctx.exception.detail, "Could not read design variants for this revision")
 
     def test_a_runtime_failure_is_503(self) -> None:
-        with patch.object(api, "get_project_for_role_or_404"), patch.object(
-            api.variant_catalog_service,
-            "discover_variant_catalog",
-            side_effect=RuntimeError("git unavailable"),
-        ):
-            with self.assertRaises(HTTPException) as ctx:
-                _run(api.get_project_variants("prj", _request(), None, _User()))
+        with self.assertRaises(HTTPException) as ctx:
+            self._read(RuntimeError("git unavailable"))
         self.assertEqual(ctx.exception.status_code, 503)
 
 
@@ -170,6 +204,8 @@ class VariantCatalogCachingTests(unittest.TestCase):
 
     def _read(self, payload: dict, headers: dict[str, str] | None = None):
         with patch.object(api, "get_project_for_role_or_404"), patch.object(
+            consumer, "bundle_read", return_value=_bundle_read(payload)
+        ), patch.object(
             api.variant_catalog_service,
             "discover_variant_catalog",
             return_value=payload,
@@ -184,9 +220,7 @@ class VariantCatalogCachingTests(unittest.TestCase):
         self.assertEqual(response.headers["cache-control"], "private, no-cache")
         expected_etag = response.headers["etag"]
 
-        revalidated = self._read(
-            self.PAYLOAD, {"If-None-Match": expected_etag}
-        )
+        revalidated = self._read(self.PAYLOAD, {"If-None-Match": expected_etag})
         self.assertEqual(revalidated.status_code, 304)
         self.assertEqual(revalidated.body, b"")
         self.assertEqual(revalidated.headers["etag"], expected_etag)
@@ -198,8 +232,7 @@ class VariantCatalogCachingTests(unittest.TestCase):
         self.assertNotEqual(first.headers["etag"], second.headers["etag"])
 
     def test_moving_ref_must_revalidate(self):
-        with patch.object(api, "get_project_for_role_or_404"), patch.object(api.variant_catalog_service, "discover_variant_catalog", return_value=self.PAYLOAD):
-            response = _run(api.get_project_variants("prj", _request(), "HEAD", _User()))
+        response = self._read(self.PAYLOAD)
         self.assertEqual(response.headers["cache-control"], "private, no-cache")
 
     def test_working_tree_responses_must_revalidate(self) -> None:
@@ -212,21 +245,9 @@ class VariantCatalogCachingTests(unittest.TestCase):
         revalidated = self._read(payload, {"If-None-Match": etag})
         self.assertEqual(revalidated.status_code, 304)
 
-        changed = self._read(
-            {**payload, "sourceRevisionKey": "key-b"},
-            {"If-None-Match": etag},
-        )
+        changed = self._read({**payload, "sourceRevisionKey": "key-b"}, {"If-None-Match": etag})
         self.assertEqual(changed.status_code, 200)
         self.assertNotEqual(changed.headers["etag"], etag)
-
-
-class _Project:
-    """Only the fields the snapshot seam reads."""
-
-    def __init__(self, directory: Path, anchor: str) -> None:
-        self.id = "prj_fixture"
-        self.path = str(directory)
-        self.project_file = anchor
 
 
 if __name__ == "__main__":

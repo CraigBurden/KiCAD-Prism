@@ -1,0 +1,1394 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.design_compare.result:a1",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.design_compare.result.a1",
+            "description": "Document schema id."
+        },
+        "base": {
+            "$ref": "#/$defs/DesignCompareRevision",
+            "description": "The base (old) revision."
+        },
+        "head": {
+            "$ref": "#/$defs/DesignCompareRevision",
+            "description": "The head (new) revision."
+        },
+        "files": {
+            "$ref": "#/$defs/DesignCompareFiles",
+            "description": "The KiCad source files of both revisions."
+        },
+        "schematic": {
+            "$ref": "#/$defs/DesignCompareChanges",
+            "description": "The Schematic tab."
+        },
+        "pcb": {
+            "$ref": "#/$defs/DesignCompareChanges",
+            "description": "The PCB tab."
+        },
+        "bom": {
+            "$ref": "#/$defs/DesignCompareBom",
+            "description": "The BOM tab."
+        },
+        "stackup": {
+            "$ref": "#/$defs/DesignCompareStackup",
+            "description": "The Stackup tab."
+        },
+        "routeMetrics": {
+            "$ref": "#/$defs/DesignCompareRouteMetrics",
+            "description": "Route metrics of both revisions, for the PCB tab's routing review."
+        },
+        "projectDiff": {
+            "$ref": "#/$defs/KiCadProjectDiffBundleV1",
+            "description": "ecad-viewer's input: the native changes of both tabs, and the navigation from each change id."
+        },
+        "counts": {
+            "$ref": "#/$defs/DesignCompareCounts",
+            "description": "Change counts per tab."
+        }
+    },
+    "required": [
+        "schema",
+        "base",
+        "head",
+        "files",
+        "schematic",
+        "pcb",
+        "bom",
+        "stackup",
+        "routeMetrics",
+        "projectDiff",
+        "counts"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "Every Design Comparison tab except fabrication between two revisions\n(`prism-kicad compare -o`).",
+    "title": "Design compare result a1",
+    "$defs": {
+        "DesignCompareRevision": {
+            "type": "object",
+            "properties": {
+                "revisionKey": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "The revision key of the commit (revision-key.md)."
+                },
+                "bundleKey": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "The bundle key the revision was read from. Absent when it was read from its source tree."
+                },
+                "projectFile": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "The project file the revision was compared by (`config.project_file`)."
+                }
+            },
+            "required": [
+                "revisionKey",
+                "projectFile"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One revision of the comparison."
+        },
+        "DesignCompareFiles": {
+            "type": "object",
+            "properties": {
+                "base": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/DesignCompareSourceFile"
+                    },
+                    "description": "The base revision's `.kicad_sch`, `.kicad_pcb` and `.kicad_pro` files, sorted by `path` in code point order."
+                },
+                "head": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/DesignCompareSourceFile"
+                    },
+                    "description": "The head revision's files, in the same order."
+                }
+            },
+            "required": [
+                "base",
+                "head"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The KiCad source files of both revisions."
+        },
+        "DesignCompareChanges": {
+            "type": "object",
+            "properties": {
+                "changes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/DesignCompareChange"
+                    },
+                    "description": "The tab's changes, sorted by `id` in code point order."
+                }
+            },
+            "required": [
+                "changes"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The changes of one tab."
+        },
+        "DesignCompareBom": {
+            "type": "object",
+            "properties": {
+                "fields": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "The BOM columns shown, in display order."
+                },
+                "changes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/DesignCompareBomRow"
+                    },
+                    "description": "The BOM rows, sorted by `ref` in code point order."
+                },
+                "summary": {
+                    "$ref": "#/$defs/DesignCompareSummary",
+                    "description": "Row counts."
+                }
+            },
+            "required": [
+                "fields",
+                "changes",
+                "summary"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The BOM tab."
+        },
+        "DesignCompareStackup": {
+            "type": "object",
+            "properties": {
+                "present": {
+                    "type": "boolean",
+                    "description": "True when either revision has a stackup."
+                },
+                "changed": {
+                    "type": "boolean",
+                    "description": "True when the two revisions' stackups or settings differ."
+                },
+                "base": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/DesignCompareStackupLayer"
+                    },
+                    "description": "The base revision's forms, in stack order from front to back. Empty without a stackup."
+                },
+                "head": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/DesignCompareStackupLayer"
+                    },
+                    "description": "The head revision's forms, in stack order from front to back. Empty without a stackup."
+                },
+                "baseSettings": {
+                    "$ref": "#/$defs/DesignCompareStackupSettings",
+                    "description": "The base revision's settings."
+                },
+                "headSettings": {
+                    "$ref": "#/$defs/DesignCompareStackupSettings",
+                    "description": "The head revision's settings."
+                }
+            },
+            "required": [
+                "present",
+                "changed",
+                "base",
+                "head",
+                "baseSettings",
+                "headSettings"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The Stackup tab."
+        },
+        "DesignCompareRouteMetrics": {
+            "type": "object",
+            "properties": {
+                "base": {
+                    "$ref": "#/$defs/RecordDesignCompareRouteMetric",
+                    "description": "Keys are net names; the base revision's routed nets."
+                },
+                "head": {
+                    "$ref": "#/$defs/RecordDesignCompareRouteMetric",
+                    "description": "Keys are net names; the head revision's routed nets."
+                }
+            },
+            "required": [
+                "base",
+                "head"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Route metrics of both revisions."
+        },
+        "KiCadProjectDiffBundleV1": {
+            "type": "object",
+            "properties": {
+                "schema": {
+                    "type": "string",
+                    "const": "prism.kicad_project_diff_v1",
+                    "description": "Document schema id, in ecad-viewer's spelling."
+                },
+                "provider": {
+                    "type": "string",
+                    "const": "prism-semantic",
+                    "description": "Who produced the diff: `prism-semantic` for Prism."
+                },
+                "project": {
+                    "$ref": "#/$defs/KiCadProjectDiffProject",
+                    "description": "The native changes, per document."
+                },
+                "navigation": {
+                    "$ref": "#/$defs/RecordKiCadProjectDiffNavigation",
+                    "description": "Keys are review item ids (`DesignCompareChange.id`); each maps to the native changes ecad-viewer selects for it."
+                },
+                "diagnostics": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiCadProjectDiffDiagnostic"
+                    },
+                    "description": "Review items that resolved to no native object, in review order. Empty when there are none."
+                }
+            },
+            "required": [
+                "schema",
+                "provider",
+                "project",
+                "navigation",
+                "diagnostics"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "ecad-viewer's comparison input."
+        },
+        "DesignCompareCounts": {
+            "type": "object",
+            "properties": {
+                "schematic": {
+                    "$ref": "#/$defs/DesignCompareSummary",
+                    "description": "The Schematic tab's changes."
+                },
+                "pcb": {
+                    "$ref": "#/$defs/DesignCompareSummary",
+                    "description": "The PCB tab's changes."
+                },
+                "bom": {
+                    "$ref": "#/$defs/DesignCompareSummary",
+                    "description": "The BOM tab's rows."
+                }
+            },
+            "required": [
+                "schematic",
+                "pcb",
+                "bom"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Change counts per tab."
+        },
+        "Sha256Hex": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Lowercase hexadecimal SHA-256 digest: exactly 64 characters, no prefix such as `sha256:`."
+        },
+        "RepoPath": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*$",
+            "description": "Repository-relative POSIX path, exactly as `git ls-tree` names the entry:\n`/`-separated, case preserved, no leading `/`, no empty, `.` or `..`\nsegment, no backslash and no `:`. The same character rule as ArchivePath.\nIt is the only path type in bundle documents: a file has one spelling\nwhichever project in the repository refers to it, and a file outside the\nproject directory needs no `..`."
+        },
+        "DesignCompareSourceFile": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "The file's path relative to the project directory (amendment C2 D1)."
+                },
+                "filename": {
+                    "type": "string",
+                    "description": "The file's name."
+                }
+            },
+            "required": [
+                "path",
+                "filename"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One KiCad source file of a revision, as the file list and the overlay show it."
+        },
+        "DesignCompareChange": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "The change's id, stable for the same pair; the key of `projectDiff.navigation`."
+                },
+                "domain": {
+                    "$ref": "#/$defs/DesignCompareDomain",
+                    "description": "The tab the change belongs to."
+                },
+                "kind": {
+                    "$ref": "#/$defs/DesignCompareChangeKind",
+                    "description": "What the change does."
+                },
+                "category": {
+                    "$ref": "#/$defs/DesignCompareCategory",
+                    "description": "The review category."
+                },
+                "classification": {
+                    "$ref": "#/$defs/DesignCompareClassification",
+                    "description": "How prominently it is reviewed."
+                },
+                "label": {
+                    "type": "string",
+                    "description": "The review list's text for the change."
+                },
+                "objectKind": {
+                    "type": "string",
+                    "description": "The object's kind as the board-objects member names it, for example `footprint` or `sheet-pin`. Absent for a net-level change."
+                },
+                "reference": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The component's reference designator. Absent when the change is not about a component."
+                },
+                "net": {
+                    "$ref": "#/$defs/NetName",
+                    "description": "The net the change is about. Absent when it is not about a net."
+                },
+                "semanticId": {
+                    "type": "string",
+                    "description": "The identity that groups changes of one design entity (component, net or object) across tabs. Absent when the change has none."
+                },
+                "page": {
+                    "type": "string",
+                    "description": "The document the review list files the change under, relative to the project directory. Absent when the change has none (a project setting)."
+                },
+                "reasons": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/DesignCompareReason"
+                    },
+                    "description": "Why the object counts as changed, in classification order. Never empty."
+                },
+                "fields": {
+                    "$ref": "#/$defs/RecordDesignCompareFieldDelta",
+                    "description": "Keys are field display names (for example `Position`, `Net`, `Value`); each holds the changed field's old and new value. Empty when no field changed."
+                },
+                "details": {
+                    "$ref": "#/$defs/DesignCompareChangeDetails",
+                    "description": "Review evidence beyond the fields."
+                },
+                "base": {
+                    "$ref": "#/$defs/DesignCompareChangeSide",
+                    "description": "Where the object is in the base revision. Absent for an added object."
+                },
+                "head": {
+                    "$ref": "#/$defs/DesignCompareChangeSide",
+                    "description": "Where the object is in the head revision. Absent for a removed object."
+                }
+            },
+            "required": [
+                "id",
+                "domain",
+                "kind",
+                "category",
+                "classification",
+                "label",
+                "reasons",
+                "fields",
+                "details"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One change in the Schematic or PCB tab."
+        },
+        "DesignCompareBomRow": {
+            "type": "object",
+            "properties": {
+                "ref": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The reference designator."
+                },
+                "status": {
+                    "$ref": "#/$defs/DesignCompareBomStatus",
+                    "description": "The row's state."
+                },
+                "old": {
+                    "$ref": "#/$defs/RecordString",
+                    "description": "Keys are BOM column names; the base revision's text of each. Absent for an added row."
+                },
+                "new": {
+                    "$ref": "#/$defs/RecordString",
+                    "description": "Keys are BOM column names; the head revision's text of each. Absent for a removed row."
+                },
+                "diffs": {
+                    "$ref": "#/$defs/RecordDesignCompareBomFieldDiff",
+                    "description": "Keys are BOM column names; only the columns that differ. Absent for an added, removed or unchanged row."
+                }
+            },
+            "required": [
+                "ref",
+                "status"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One BOM row, keyed by reference designator."
+        },
+        "DesignCompareSummary": {
+            "type": "object",
+            "properties": {
+                "added": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Added entries."
+                },
+                "removed": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Removed entries."
+                },
+                "changed": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Changed entries."
+                }
+            },
+            "required": [
+                "added",
+                "removed",
+                "changed"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Added, removed and changed counts."
+        },
+        "DesignCompareStackupLayer": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The layer's name."
+                },
+                "type": {
+                    "type": "string",
+                    "description": "The layer's KiCad type, for example `copper` or `prepreg`. Absent when the board writes none."
+                },
+                "thicknessNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "The layer's thickness. Absent when the board writes none or writes 0."
+                },
+                "material": {
+                    "type": "string",
+                    "description": "The layer's material. Absent when the board writes none."
+                },
+                "color": {
+                    "type": "string",
+                    "description": "The layer's colour. Absent when the board writes none."
+                },
+                "epsilonR": {
+                    "type": "number",
+                    "description": "The relative permittivity. Absent when the board writes none."
+                },
+                "lossTangent": {
+                    "type": "number",
+                    "description": "The loss tangent. Absent when the board writes none."
+                }
+            },
+            "required": [
+                "name"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One stackup form, as the Stackup tab shows it (`field-maps/stackup.md` DC rules: sub-layers folded to forms)."
+        },
+        "DesignCompareStackupSettings": {
+            "type": "object",
+            "properties": {
+                "copperFinish": {
+                    "type": "string",
+                    "description": "The copper finish. Absent when the board writes none."
+                },
+                "dielectricConstraints": {
+                    "type": "boolean",
+                    "description": "Whether impedance-controlled dielectric constraints are on. Absent when the board has no stackup."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One revision's stackup settings."
+        },
+        "RecordDesignCompareRouteMetric": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/DesignCompareRouteMetric"
+            }
+        },
+        "KiCadProjectDiffProject": {
+            "type": "object",
+            "properties": {
+                "documents": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiCadProjectDiffDocument"
+                    },
+                    "description": "One entry per document with at least one change, sorted by `path` in code point order."
+                }
+            },
+            "required": [
+                "documents"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The project part of the diff."
+        },
+        "RecordKiCadProjectDiffNavigation": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/KiCadProjectDiffNavigation"
+            }
+        },
+        "KiCadProjectDiffDiagnostic": {
+            "type": "object",
+            "properties": {
+                "changeId": {
+                    "type": "string",
+                    "description": "The review item's id (`DesignCompareChange.id`)."
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Why, in ecad-viewer's vocabulary, for example `missing-source-id`."
+                }
+            },
+            "required": [
+                "changeId",
+                "reason"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A review item no native object could be found for."
+        },
+        "DesignCompareDomain": {
+            "type": "string",
+            "enum": [
+                "schematic",
+                "pcb"
+            ],
+            "description": "The tab a change belongs to."
+        },
+        "DesignCompareChangeKind": {
+            "type": "string",
+            "enum": [
+                "added",
+                "removed",
+                "changed"
+            ],
+            "description": "What a change does, in the review's vocabulary."
+        },
+        "DesignCompareCategory": {
+            "type": "string",
+            "enum": [
+                "rules",
+                "components",
+                "nets",
+                "board",
+                "zones",
+                "graphics",
+                "symbols",
+                "sheets",
+                "text",
+                "other"
+            ],
+            "description": "The review category of a change (`frontend/src/lib/diff-grouping`)."
+        },
+        "DesignCompareClassification": {
+            "type": "string",
+            "enum": [
+                "primary",
+                "secondary"
+            ],
+            "description": "How prominently a change is reviewed."
+        },
+        "Refdes": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Reference designator as KiCad resolves it for one symbol instance or\nfootprint, for example `R1`, `U3`, `#PWR01` or `R?`. Always a string. A\ncontract states whether it includes virtual (`#`) and unannotated (`?`)\nreferences."
+        },
+        "NetName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "KiCad full net name as KiCad resolves it, including the sheet path prefix\nof a local net (`/Power/VBUS`), a global name (`GND`) or a generated name\n(`Net-(R1-Pad2)`, `unconnected-(U1-PA0-Pad3)`). \"No net\" is expressed by\nomitting the field, never by an empty name."
+        },
+        "DesignCompareReason": {
+            "type": "string",
+            "enum": [
+                "object-added",
+                "object-removed",
+                "symbol-fields-changed",
+                "instance-replaced",
+                "instance-count-changed",
+                "sheet-changed",
+                "net-renamed",
+                "connectivity-changed",
+                "label-count-changed",
+                "bus-membership-changed",
+                "moved",
+                "rotated",
+                "mirrored",
+                "layer-changed",
+                "net-changed",
+                "renamed",
+                "lib-changed",
+                "dnp-changed",
+                "re-pathed",
+                "properties-changed",
+                "content-changed"
+            ],
+            "description": "Why an object counts as changed. Several may apply."
+        },
+        "RecordDesignCompareFieldDelta": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/DesignCompareFieldDelta"
+            }
+        },
+        "DesignCompareChangeDetails": {
+            "type": "object",
+            "properties": {
+                "reviewOnly": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "True when the change has no object ecad-viewer can paint (for example a project setting). Absent means false."
+                },
+                "connectivity": {
+                    "$ref": "#/$defs/DesignCompareConnectivity",
+                    "description": "A net's terminal changes. Absent for a change that is not a net."
+                },
+                "instanceCount": {
+                    "$ref": "#/$defs/DesignCompareCountDelta",
+                    "description": "The number of instances of a symbol. Absent when it did not change."
+                },
+                "labelInstances": {
+                    "$ref": "#/$defs/DesignCompareCountDelta",
+                    "description": "The number of labels of a net. Absent when it did not change."
+                },
+                "sheetChange": {
+                    "$ref": "#/$defs/DesignCompareSheetDelta",
+                    "description": "The sheet the object is on. Absent when it did not change."
+                },
+                "targets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/DesignCompareTarget"
+                    },
+                    "description": "The objects ecad-viewer highlights for the change: base-side targets first, then head-side, each in the order the change's evidence lists them (field map, \"Targets\"). One entry per object and sheet instance. Absent when there are none, as for a change with `reviewOnly`."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Review evidence of a change beyond its fields."
+        },
+        "DesignCompareChangeSide": {
+            "type": "object",
+            "properties": {
+                "sourceId": {
+                    "type": "string",
+                    "description": "The object's native identity in this revision: its UUID, or for a net, the source id of its first labelled item."
+                },
+                "parentSourceId": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "The parent object's UUID (a pad's footprint, a pin's symbol). Absent for a top-level object."
+                },
+                "documentPath": {
+                    "type": "string",
+                    "description": "The document the object is in, relative to the project directory."
+                },
+                "layer": {
+                    "$ref": "#/$defs/LayerName",
+                    "description": "The object's layer as written. Absent for an object without one."
+                },
+                "layers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/LayerName"
+                    },
+                    "description": "Every layer the object occupies in this revision, sorted in code point order. Empty for a schematic object."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The object's position. Absent for an object without one (a net, a zone)."
+                },
+                "reference": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The object's reference designator in this revision. Absent when it has none."
+                },
+                "net": {
+                    "$ref": "#/$defs/NetName",
+                    "description": "The object's net in this revision. Absent when it has none."
+                }
+            },
+            "required": [
+                "sourceId",
+                "documentPath",
+                "layers"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One side of a changed object: where it is in that revision."
+        },
+        "DesignCompareBomStatus": {
+            "type": "string",
+            "enum": [
+                "added",
+                "removed",
+                "changed",
+                "unchanged"
+            ],
+            "description": "The state of one BOM row."
+        },
+        "RecordString": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "type": "string"
+            }
+        },
+        "RecordDesignCompareBomFieldDiff": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/DesignCompareBomFieldDiff"
+            }
+        },
+        "Count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A count of things: a non-negative safe integer."
+        },
+        "Nanometres": {
+            "type": "integer",
+            "description": "Length or coordinate in integer nanometres, KiCad's internal board unit.\nConverted from the file's decimal millimetres as KiCad's own parser does:\nthe double product value_mm * 1e6, rounded half away from zero. A single\ncoordinate or dimension fits KiCad's 32-bit range; sums (for example a\nnet's total track length) may not, hence a safe integer (|n| < 2^53)."
+        },
+        "DesignCompareRouteMetric": {
+            "type": "object",
+            "properties": {
+                "routeLengthNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "The total centreline length of the net's tracks and arcs."
+                },
+                "viaCount": {
+                    "$ref": "#/$defs/Count",
+                    "description": "The net's vias."
+                },
+                "usedLayers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/LayerName"
+                    },
+                    "description": "Every copper layer the net occupies, sorted in code point order."
+                },
+                "viaBarrelLengthNm": {
+                    "$ref": "#/$defs/NonNegativeNanometres",
+                    "description": "The summed via barrel length. Absent when it is unreliable (a via span the stackup cannot measure)."
+                }
+            },
+            "required": [
+                "routeLengthNm",
+                "viaCount",
+                "usedLayers"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One net's routing in one revision (`field-maps/route-metrics.md` C2 rules)."
+        },
+        "KiCadProjectDiffDocument": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "The document's path, relative to the project directory (amendment C2 D1)."
+                },
+                "docType": {
+                    "$ref": "#/$defs/KiCadProjectDiffDocType",
+                    "description": "The document's file type."
+                },
+                "changes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiCadProjectDiffItemChange"
+                    },
+                    "description": "The document's native changes, in review order."
+                }
+            },
+            "required": [
+                "path",
+                "docType",
+                "changes"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One KiCad document's native changes."
+        },
+        "KiCadProjectDiffNavigation": {
+            "type": "object",
+            "properties": {
+                "documentPath": {
+                    "type": "string",
+                    "description": "The first document's path."
+                },
+                "changeId": {
+                    "type": "string",
+                    "description": "The first native change id in the first document."
+                },
+                "changeIds": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Every native change id in the first document, in review order."
+                },
+                "documents": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiCadProjectDiffNavigationDocument"
+                    },
+                    "description": "One entry per document, in review order. Absent when the review item touches one document."
+                }
+            },
+            "required": [
+                "documentPath",
+                "changeId"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Where one review item's native changes sit: its first document, and every document when there is more than one."
+        },
+        "DesignCompareFieldDelta": {
+            "type": "object",
+            "properties": {
+                "old": {
+                    "$ref": "#/$defs/BoardObjectsReviewValue",
+                    "description": "The base revision's value: a text, number or flag; a list in the order the object writes it; or a table whose keys are KiCad's setting keys, in code point order. Absent when the base has none."
+                },
+                "new": {
+                    "$ref": "#/$defs/BoardObjectsReviewValue",
+                    "description": "The head revision's value, encoded as `old` is (lists in the order the object writes them; table keys are KiCad's setting keys, in code point order). Absent when the head has none."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One side's old and new value of a changed field."
+        },
+        "DesignCompareConnectivity": {
+            "type": "object",
+            "properties": {
+                "addedTerminals": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Terminals (`<reference>.<pin>`) only on the head side, sorted in code point order."
+                },
+                "removedTerminals": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Terminals only on the base side, sorted in code point order."
+                }
+            },
+            "required": [
+                "addedTerminals",
+                "removedTerminals"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Terminals a net gained and lost."
+        },
+        "DesignCompareCountDelta": {
+            "type": "object",
+            "properties": {
+                "old": {
+                    "$ref": "#/$defs/Count",
+                    "description": "The base revision's count."
+                },
+                "new": {
+                    "$ref": "#/$defs/Count",
+                    "description": "The head revision's count."
+                }
+            },
+            "required": [
+                "old",
+                "new"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A count on both sides."
+        },
+        "DesignCompareSheetDelta": {
+            "type": "object",
+            "properties": {
+                "old": {
+                    "type": "string",
+                    "description": "The base revision's sheet path. Absent when the base has none."
+                },
+                "new": {
+                    "type": "string",
+                    "description": "The head revision's sheet path. Absent when the head has none."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A sheet on both sides."
+        },
+        "DesignCompareTarget": {
+            "type": "object",
+            "properties": {
+                "side": {
+                    "$ref": "#/$defs/DesignCompareSide",
+                    "description": "The pane the object is drawn in: `base` for the base revision's object, `head` for the head's."
+                },
+                "sourceId": {
+                    "type": "string",
+                    "description": "The object's native identity in that revision: its UUID, or for a terminal its pin's UUID (its symbol's when the pin has none)."
+                },
+                "kind": {
+                    "type": "string",
+                    "description": "The object's kind as the board-objects member names it, for example `pin` or `sheet-pin`. Absent when the target is only a role (a net's terminal with no pin object of its own)."
+                },
+                "role": {
+                    "$ref": "#/$defs/DesignCompareTargetRole",
+                    "description": "How the object is drawn. Absent when it has no role beyond its `kind`."
+                },
+                "documentPath": {
+                    "type": "string",
+                    "description": "The document the object is in, relative to the project directory. Absent when it is not known."
+                },
+                "at": {
+                    "$ref": "#/$defs/PointNm",
+                    "description": "The object's position. Absent for an object without one."
+                },
+                "sheetPath": {
+                    "type": "string",
+                    "description": "The sheet instance path of a schematic object (`/` for the root sheet). Absent on the board, and for a schematic object whose instance is not known."
+                },
+                "reference": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The component reference designator the object belongs to. Absent when it belongs to none."
+                }
+            },
+            "required": [
+                "side",
+                "sourceId"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One object ecad-viewer highlights for a change. The review list reads the targets' kinds, roles, documents, positions and references; `projectDiff` is built from the same targets."
+        },
+        "KiCadUuid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "KiCad object UUID in the canonical form KiCad writes (`KIID::AsString`):\nlowercase hexadecimal, 8-4-4-4-12. Copied from the file, never generated\nor re-cased."
+        },
+        "LayerName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "KiCad canonical layer name as the board file's `(layers …)` table spells\nit, for example `F.Cu`, `In1.Cu`, `B.Mask`, `Edge.Cuts` or `User.1`. Never\nthe user-assigned layer name, which a contract carries in a separate\noptional field. Never a wildcard set such as `*.Cu` or `F&B.Cu`."
+        },
+        "PointNm": {
+            "type": "object",
+            "properties": {
+                "xNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "X coordinate in nanometres, +x to the right."
+                },
+                "yNm": {
+                    "$ref": "#/$defs/Nanometres",
+                    "description": "Y coordinate in nanometres, +y down."
+                }
+            },
+            "required": [
+                "xNm",
+                "yNm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A point in nanometres in KiCad's board frame: +x to the right, +y down, as\nin the file and never flipped. The field holding the point states whether\nit is board-absolute or footprint-local. For camelCase (projection)\ndocuments only."
+        },
+        "DesignCompareBomFieldDiff": {
+            "type": "object",
+            "properties": {
+                "old": {
+                    "type": "string",
+                    "description": "The base revision's text."
+                },
+                "new": {
+                    "type": "string",
+                    "description": "The head revision's text."
+                }
+            },
+            "required": [
+                "old",
+                "new"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One field of a changed BOM row."
+        },
+        "NonNegativeNanometres": {
+            "type": "integer",
+            "description": "A Nanometres value that is never negative: a thickness, width, diameter or length.",
+            "minimum": 0
+        },
+        "KiCadProjectDiffDocType": {
+            "type": "string",
+            "enum": [
+                "kicad_sch",
+                "kicad_pcb"
+            ],
+            "description": "The KiCad file type of one document of the diff."
+        },
+        "KiCadProjectDiffItemChange": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "The object's native identity: its KIID path, or its UUID when it has no path."
+                },
+                "typeName": {
+                    "type": "string",
+                    "description": "KiCad's C++ type name of the object, for example `SCH_SYMBOL`, `PCB_TRACK` or `ZONE`; `EDA_ITEM` when no specific type applies."
+                },
+                "kind": {
+                    "$ref": "#/$defs/KiCadProjectDiffChangeKind",
+                    "description": "What the change does to the object."
+                },
+                "sourceSide": {
+                    "$ref": "#/$defs/KiCadProjectDiffSourceSide",
+                    "description": "The revision pane the object is painted in."
+                },
+                "properties": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiCadProjectDiffProperty"
+                    },
+                    "description": "The properties that differ, sorted by `name` in code point order. Empty for a child change."
+                },
+                "bbox": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    },
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "description": "Bounds `[x0, y0, x1, y1]`, in that order, in KiCad document millimetres. Absent in Prism's output; native KiCad diffs carry it."
+                },
+                "refdes": {
+                    "type": "string",
+                    "description": "The reference designator, or the net name for a net-level change. Absent when the change has neither."
+                },
+                "retainReference": {
+                    "type": "boolean",
+                    "const": true,
+                    "description": "True when the reference pane keeps the object visible although the change belongs to the comparison. Absent means false."
+                },
+                "children": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiCadProjectDiffItemChange"
+                    },
+                    "description": "Further objects of the same review item in this document, in review order. Empty when there are none."
+                }
+            },
+            "required": [
+                "id",
+                "typeName",
+                "kind",
+                "properties",
+                "children"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One changed KiCad object ecad-viewer resolves against its own parsed scene\nand highlights. ecad-viewer measures the geometry itself, so `bbox` is\nabsent in Prism's output."
+        },
+        "KiCadProjectDiffNavigationDocument": {
+            "type": "object",
+            "properties": {
+                "documentPath": {
+                    "type": "string",
+                    "description": "The document's path, as in `KiCadProjectDiffDocument.path`."
+                },
+                "changeId": {
+                    "type": "string",
+                    "description": "The first native change id of the review item in this document."
+                },
+                "changeIds": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Every native change id of the review item in this document, in review order."
+                }
+            },
+            "required": [
+                "documentPath",
+                "changeId",
+                "changeIds"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Where one review item's native changes sit in one document."
+        },
+        "BoardObjectsReviewValue": {
+            "anyOf": [
+                {
+                    "type": "string",
+                    "description": "A text."
+                },
+                {
+                    "type": "number",
+                    "description": "A number as today's index writes it."
+                },
+                {
+                    "type": "boolean",
+                    "description": "A flag."
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "A list of texts, in the order today's index writes them."
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    },
+                    "description": "A list of numbers, in the order today's index writes them."
+                },
+                {
+                    "$ref": "#/$defs/BoardObjectsReviewTable",
+                    "description": "One table of settings (for example a teardrop parameter set)."
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BoardObjectsReviewTable"
+                    },
+                    "description": "A list of tables, in the order today's index writes them."
+                }
+            ],
+            "description": "One review-field value, as Design Comparison shows it: the value today's\nindex writes, unconverted (lengths stay the millimetres the file writes,\nflags stay booleans, `Size` stays a `w × h` text). A presentation value,\nnot a typed fact: typed lengths of this member are the `…Nm` fields. A\nvalue of any other shape is written as its canonical JSON text (field\nmap)."
+        },
+        "DesignCompareSide": {
+            "type": "string",
+            "enum": [
+                "base",
+                "head"
+            ],
+            "description": "The pane a target is drawn in."
+        },
+        "DesignCompareTargetRole": {
+            "type": "string",
+            "enum": [
+                "component",
+                "wire",
+                "bus",
+                "bus-entry",
+                "label",
+                "junction",
+                "terminal",
+                "sheet",
+                "sheet-pin",
+                "symbol",
+                "no-connect",
+                "graphic",
+                "footprint",
+                "pad",
+                "track",
+                "arc",
+                "via",
+                "zone",
+                "footprint-graphic",
+                "footprint-text",
+                "image",
+                "table",
+                "group",
+                "net-class",
+                "net-class-assignment"
+            ],
+            "description": "How a target is drawn and reviewed: the object's own kind, or the part it plays in the change (a net's `terminal`, a component's `component`)."
+        },
+        "KiCadProjectDiffChangeKind": {
+            "type": "string",
+            "enum": [
+                "added",
+                "removed",
+                "modified",
+                "collision",
+                "duplicate_uuid"
+            ],
+            "description": "What a native change does to its object, in ecad-viewer's vocabulary."
+        },
+        "KiCadProjectDiffSourceSide": {
+            "type": "string",
+            "enum": [
+                "reference",
+                "comparison"
+            ],
+            "description": "The revision pane a native change is painted in."
+        },
+        "KiCadProjectDiffProperty": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The property's display name, for example `Position` or `Net`."
+                },
+                "before": {
+                    "$ref": "#/$defs/KiCadProjectDiffValue",
+                    "description": "The reference revision's value."
+                },
+                "after": {
+                    "$ref": "#/$defs/KiCadProjectDiffValue",
+                    "description": "The comparison revision's value."
+                }
+            },
+            "required": [
+                "name",
+                "before",
+                "after"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One property that differs between the two revisions of a native change."
+        },
+        "BoardObjectsReviewTable": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/BoardObjectsReviewScalar"
+            },
+            "description": "A flat table of settings; keys are KiCad's setting keys as written, serialized in code point order."
+        },
+        "KiCadProjectDiffValue": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "$ref": "#/$defs/KiCadProjectDiffValueType",
+                    "description": "How `v` is encoded."
+                },
+                "v": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/KiCadProjectDiffScalar"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The value; `null` exactly when `type` is `null` (ecad-viewer's encoding)."
+                },
+                "label": {
+                    "type": "string",
+                    "description": "A display label ecad-viewer shows instead of `v`. Absent when `v` is shown as is."
+                }
+            },
+            "required": [
+                "type"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One side's value of a property: its encoding and the value."
+        },
+        "BoardObjectsReviewScalar": {
+            "anyOf": [
+                {
+                    "type": "string",
+                    "description": "A text."
+                },
+                {
+                    "type": "number",
+                    "description": "A number."
+                },
+                {
+                    "type": "boolean",
+                    "description": "A flag."
+                }
+            ],
+            "description": "One scalar in a settings table."
+        },
+        "KiCadProjectDiffValueType": {
+            "type": "string",
+            "enum": [
+                "null",
+                "bool",
+                "int",
+                "double",
+                "string"
+            ],
+            "description": "The encoding of one property value, after KiCad's PROJECT_DIFF."
+        },
+        "KiCadProjectDiffScalar": {
+            "anyOf": [
+                {
+                    "type": "string",
+                    "description": "A text."
+                },
+                {
+                    "type": "number",
+                    "description": "A number."
+                },
+                {
+                    "type": "boolean",
+                    "description": "A flag."
+                }
+            ],
+            "description": "A property value: a text, a number or a flag."
+        }
+    }
+}

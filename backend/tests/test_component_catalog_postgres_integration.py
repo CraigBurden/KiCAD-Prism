@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import sys
 import tempfile
 import unittest
@@ -18,31 +17,28 @@ import sqlite3
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
+import zstandard
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.services.catalog import placement_payloads  # noqa: E402
+from app.services.catalog.preview_files import read_preview  # noqa: E402
 from app.services.catalog.asset_imports import CatalogAssetImports  # noqa: E402
 from app.services.catalog.asset_registry import CatalogAssetRegistry  # noqa: E402
 from app.services.catalog.postgres_runtime import CatalogPostgresConnection, PostgresCatalogRuntime  # noqa: E402
 from app.services.catalog.inventory_csv import CatalogInventoryCsv  # noqa: E402
 from app.services.catalog.preview_pipeline import CatalogPreviewPipeline  # noqa: E402
 from app.services.catalog.preview_renderer import CatalogPreviewRenderer  # noqa: E402
-from app.services.catalog_schema_migrations import (  # noqa: E402
-    MIGRATIONS,
-    pending_catalog_migrations,
-)
-from app.services.component_catalog_domain import (  # noqa: E402
-    PREVIEW_PIPELINE_VERSION,
-    PREVIEW_STATUS_READY,
-)
+from app.services.catalog_schema_migrations import CATALOG_LEDGER, MIGRATIONS  # noqa: E402
+from app.services.catalog.preview_pipeline import PREVIEW_PIPELINE_VERSION  # noqa: E402
+from app.services.catalog.preview_renderer import PREVIEW_STATUS_READY  # noqa: E402
 from app.services.component_catalog_service_postgres import (  # noqa: E402
-    POSTGRES_SCHEMA_VERSION,
     ComponentCatalogPostgresService,
 )
+from support.postgres import CATALOG_URL, requires_scratch_postgres  # noqa: E402
 
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 
 UUID_TEXT = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
@@ -92,11 +88,11 @@ FIXTURE_FOOTPRINT_PREVIEW_FINGERPRINT = _fixture_preview_identity("footprint")[
 COMPONENT_PAYLOAD_KEYS = (
     "id", "slug", "external_source", "external_id", "external_workflow_source",
     "external_workflow_id", "external_workflow_url", "external_url", "external_payload",
-    "external_updated_at", "sync_status", "sync_error", "source", "identity_kind", "name",
+    "external_updated_at", "sync_status", "sync_error", "source", "identity_kind", "kind", "name",
     "value", "manufacturer", "mpn", "description", "package_name", "category",
     "datasheet_url", "vendor", "vendor_part_number", "mass_g", "rqjc_c_w",
     "rqjc_top_c_w", "temp_max_c", "temp_min_c", "power_dissipation_w", "rate",
-    "sap_code", "keywords", "extra_fields", "availability_state", "missing_assets",
+    "sap_code", "keywords", "extra_fields", "interface", "source_ref", "availability_state", "missing_assets",
     "place_enabled", "local_inventory", "stock_known", "stock_quantity", "stock_uom",
     "inventory_status", "supply", "serial_number", "lot_number", "pedigree",
     "last_synced_at", "is_active", "revision_id", "revision", "version",
@@ -165,29 +161,7 @@ def _normalize_contract_bytes(value: bytes) -> bytes:
     )
 
 
-def _database_identity(url: str) -> tuple[str, str, int | None, str]:
-    parsed = urlsplit(url)
-    return (
-        parsed.username or "",
-        (parsed.hostname or "").lower(),
-        parsed.port,
-        parsed.path.lstrip("/"),
-    )
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _database_identity(POSTGRES_URL) == _database_identity(APPLICATION_POSTGRES_URL)
-)
-
-
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for PostgreSQL integration tests")
-@unittest.skipIf(
-    SHARED_APPLICATION_DATABASE,
-    "Component catalog integration tests require a dedicated PostgreSQL database; "
-    "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL",
-)
+@requires_scratch_postgres("PostgreSQL integration tests")
 class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -195,7 +169,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.metadata_field_ids: list[str] = []
         self.service = ComponentCatalogPostgresService(
             store_root=Path(self.tempdir.name) / "components",
-            database_url=POSTGRES_URL,
+            database_url=CATALOG_URL,
         )
         self.service.initialize()
 
@@ -222,6 +196,20 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             self.assertFalse(bool((component or {}).get("is_active")))
         self.service.close()
         self.tempdir.cleanup()
+
+    def test_harness_fields_are_seeded_and_kept_out_of_the_dbl_export(self) -> None:
+        """System Builder §16.1: migration 15's ``harness`` group, which KiCad's DBL leaves out."""
+
+        fields = {field["key"]: field for field in self.service.list_metadata_fields()}
+        role = fields["harness_role"]
+        self.assertEqual((role["group"], role["type"], role["storage_kind"]), ("harness", "enum", "extra"))
+        self.assertIn("heat-shrink", role["enum_values"])
+        self.assertTrue(role["built_in"])
+        self.assertEqual(fields["harness_od_mm"]["unit"], "mm")
+        exported = Path(self.service.export_kicad_dbl_bundle()["export_root"])
+        config = "".join(path.read_text(encoding="utf-8") for path in exported.glob("*.kicad_dbl"))
+        self.assertTrue(config)
+        self.assertNotIn("harness_", config)
 
     def _component(self, suffix: str = "") -> dict:
         token = suffix or uuid.uuid4().hex[:10]
@@ -257,11 +245,11 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         def generate_footprint(_asset: object, _run: object) -> tuple[str, bytes]:
             return PREVIEW_STATUS_READY, FIXTURE_PREVIEW_SVG
 
-        def preview_identity(_runtime: object, kind: str) -> dict[str, str]:
+        def preview_identity(kind: str) -> dict[str, str]:
             return _fixture_preview_identity(kind)
 
         def preserve_symbol_upload(
-            _runtime: object,
+            _kicad: object,
             _upload_name: str,
             payload: bytes,
         ) -> bytes:
@@ -323,7 +311,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             actor="system:import_database_library",
         )
         imported_id = str(imported["id"])
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             conn.execute(
                 "UPDATE components SET source = 'import', external_source = %s, external_id = %s WHERE id = %s",
                 ("cern-database-library", "cern:CERN", imported_id),
@@ -336,7 +324,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         reset_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(reset_module)
 
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             component_count, _, _ = reset_module._delete_cern_imports(conn, dry_run=True)
             self.assertEqual(component_count, 1)
             component_count, orphan_count, _ = reset_module._delete_cern_imports(conn, dry_run=False)
@@ -345,7 +333,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(orphan_count, 0)
         self.assertIsNone(self.service.get_component(imported_id))
         self.assertIsNotNone(self.service.get_component(str(manual["id"])))
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             with self.assertRaisesRegex(Exception, "immutable catalog evidence"):
                 conn.execute("DELETE FROM components WHERE id = %s", (manual["id"],))
             conn.rollback()
@@ -385,6 +373,45 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(corrected["identity_kind"], "mpn")
         self.assertEqual(corrected["mpn"], f"REAL-{token}")
 
+    def test_metadata_batch_stages_a_provisional_part_without_an_mpn(self) -> None:
+        # Provisional parts have no manufacturer part number by definition; the
+        # single-component editor exempts them, and bulk edit must too.
+        token = uuid.uuid4().hex[:8]
+        provisional = self.service.create_manual_component(
+            name=f"IPN-BULK-{token}",
+            value="provisional",
+            description="Missing manufacturer MPN",
+            datasheet="https://example.com/provisional.pdf",
+            manufacturer="Prism Provisional",
+            manufacturer_part_number="",
+            identity_kind="provisional_ipn",
+            identity_source="fixture",
+            source_internal_part_number=f"IPN-BULK-{token}",
+            actor="author@example.com",
+        )
+        self.component_ids.append(str(provisional["id"]))
+        batch = self.service.stage_metadata_batch(
+            [
+                {
+                    "component_id": provisional["id"],
+                    "expected_revision_id": provisional["revision_id"],
+                    "patch": {"description": "Corrected in bulk"},
+                }
+            ],
+            source="grid",
+            actor="designer@example.com",
+            change_summary="Bulk-edit a provisional part",
+        )
+        self.assertEqual(batch["valid_items"], 1, batch)
+        applied = self.service.apply_metadata_batch(batch["id"], actor="designer@example.com")
+        self.assertEqual(applied["applied"], 1)
+        updated = self.service.get_component(provisional["id"])
+        assert updated is not None
+        self.assertEqual(
+            (updated["identity_kind"], updated["description"]),
+            ("provisional_ipn", "Corrected in bulk"),
+        )
+
     def test_inventory_distinguishes_unknown_zero_and_error(self) -> None:
         component = self._component("inventory-" + uuid.uuid4().hex[:8])
         self.assertFalse(component["stock_known"])
@@ -397,7 +424,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         assert zero is not None
         self.assertTrue(zero["stock_known"])
         self.assertEqual(zero["stock_quantity"], 0)
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             conn.execute(
                 "UPDATE inventory_levels SET fetch_status = 'error' WHERE component_id = %s",
                 (component["id"],),
@@ -418,7 +445,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                 expected_revision_id=component["revision_id"],
                 expected_manifest_hash=component["manifest_hash"],
             )
-        runtime = PostgresCatalogRuntime(database_url=POSTGRES_URL)
+        runtime = PostgresCatalogRuntime(database_url=CATALOG_URL)
         locations = [
             ("inventree", "a", 2, "pcs", "available", "ok", "2026-01-02T00:00:00.5Z"),
             ("inventree", "b", 3, "pcs", "reserved", "error", "2026-01-02T01:00:00+02:00"),
@@ -607,6 +634,93 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(len(self.service.list_component_revisions(component["id"])), 2)
         self.assertTrue(self.service.verify_component_audit_chain(component["id"])["valid"])
 
+    def test_health_reports_released_revision_with_missing_files(self) -> None:
+        self._install_deterministic_preview_renderer()
+        component = self._component("health-" + uuid.uuid4().hex[:8])
+        self.service.import_symbol_library(
+            component["id"],
+            upload_name="R_Health.kicad_sym",
+            payload=b'''(kicad_symbol_lib (version 20231120) (generator "test")
+              (symbol "R_Health"
+                (property "Reference" "R" (at 0 0 0) (effects (font (size 1.27 1.27))))
+                (property "Value" "10k" (at 0 0 0) (effects (font (size 1.27 1.27))))
+              )
+            )''',
+            target_library="Prism_Test",
+            selected_symbol="R_Health",
+            actor="designer@example.com",
+        )
+        self.service.import_footprint(
+            component["id"],
+            upload_name="R_Health.kicad_mod",
+            payload=b'(footprint "R_Health" (version 20240108) (generator "test"))',
+            target_library="Prism_Test",
+            selected_footprint="R_Health",
+            actor="designer@example.com",
+        )
+        with_model = self.service.attach_auxiliary_asset(
+            component["id"],
+            asset_type="3dmodel",
+            upload_name="R_Health.step",
+            payload=b"ISO-10303-21;END-ISO-10303-21;",
+            target_library="Prism_Test",
+            actor="designer@example.com",
+        )["component"]
+        self.service.set_release_status(component["id"], "in_progress", actor="designer@example.com")
+        self.service.set_release_status(component["id"], "qa_review", actor="designer@example.com")
+        approved = self.service.set_release_status(
+            component["id"],
+            "done",
+            actor="qa@example.com",
+            actor_role="qa",
+            expected_revision_id=with_model["revision_id"],
+            expected_manifest_hash=with_model["manifest_hash"],
+        )
+        released = self.service.set_release_status(
+            component["id"],
+            "released",
+            actor="designer@example.com",
+            actor_role="designer",
+            expected_revision_id=approved["revision_id"],
+            expected_manifest_hash=approved["manifest_hash"],
+        )
+        self.assertEqual(released["release_status"], "released")
+
+        released_step = next(asset for asset in released["assets"] if asset["asset_type"] == "3dmodel")
+
+        # A draft head that no longer links the released STEP must not hide it.
+        self.service.attach_auxiliary_asset(
+            component["id"],
+            asset_type="3dmodel",
+            upload_name="R_Health_Draft.step",
+            payload=b"ISO-10303-21;DRAFT;END-ISO-10303-21;",
+            target_library="Prism_Test",
+            actor="designer@example.com",
+        )
+        head = self.service.get_component(component["id"]) or {}
+        draft = self.service.detach_asset_by_id(
+            component["id"],
+            released_step["id"],
+            expected_revision_id=head["revision_id"],
+            actor="designer@example.com",
+        )["component"]
+        self.assertNotEqual(draft["revision_id"], released["revision_id"])
+        self.assertNotIn(released_step["id"], [asset["id"] for asset in draft["assets"]])
+
+        # The disk check is opt-in; the default report never stats asset files.
+        self.assertIsNone(self.service.catalog_health()["released_assets_missing_on_disk"])
+        self.assertEqual(self.service.catalog_health(check_released_files=True)["released_assets_missing_on_disk"], 0)
+
+        store = Path(self.tempdir.name)
+        (released_step_file,) = [path for path in store.rglob("*.step") if b"DRAFT" not in path.read_bytes()]
+        released_step_file.unlink()
+        self.assertEqual(self.service.catalog_health(check_released_files=True)["released_assets_missing_on_disk"], 1)
+
+        # The count is per component, not per missing file.
+        (footprint_file,) = list(store.rglob("*.kicad_mod"))
+        footprint_file.unlink()
+        self.assertEqual(self.service.catalog_health(check_released_files=True)["released_assets_missing_on_disk"], 1)
+
     def test_stale_asset_upload_and_link_do_not_advance_head(self) -> None:
         component = self._component("asset-rev-" + uuid.uuid4().hex[:8])
         self._import_symbol(str(self._component("asset-donor-" + uuid.uuid4().hex[:8])["id"]), "DonorSym")
@@ -763,18 +877,18 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(updated["extra_fields"][field["key"]], "50")
         self.assertEqual(updated["value"], "12k")
 
-        # Initialization is a version lookup after the first successful v6 migration.
+        # The baseline is ledger step 0; a later start finds nothing pending.
         self.service.initialize()
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
-            version = conn.execute(
-                "SELECT 1 AS present FROM catalog_schema_migrations WHERE version = %s",
-                (POSTGRES_SCHEMA_VERSION,),
+        with self.service.connection() as conn:
+            baseline = conn.execute(
+                "SELECT name FROM catalog_schema_versions WHERE version = 0"
             ).fetchone()
-        self.assertIsNotNone(version)
+            self.assertEqual(CATALOG_LEDGER.pending(conn), [])
+        self.assertEqual(str(baseline["name"]), "baseline")
 
     def test_component_head_projection_and_streaming_csv_follow_current_revision(self) -> None:
         component = self._component("head-" + uuid.uuid4().hex[:8])
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             head = conn.execute(
                 "SELECT revision_id, value FROM component_heads WHERE component_id = %s",
                 (component["id"],),
@@ -788,7 +902,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             actor="editor@example.com",
             expected_revision_id=component["revision_id"],
         )
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             head = conn.execute(
                 "SELECT revision_id, value FROM component_heads WHERE component_id = %s",
                 (component["id"],),
@@ -866,7 +980,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(
             _contract_digest(imported_symbol),
-            "93e52eb5141723ec2a987ae9de938907923747cf1918a8e8528b69d6982e35e0",
+            "6c3b17c9d7a8a64543946db5617816f4b7aec3cef86956571e440f7ad4583562",
             {
                 "preview_status": [item.get("status") for item in imported_symbol["previews"]],
                 "preview_paths": [
@@ -882,7 +996,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(tuple(imported_footprint), COMPONENT_PAYLOAD_KEYS)
         self.assertEqual(
             _contract_digest(imported_footprint),
-            "ae8eeb5b599f1a8135cff4228878960d1ed2d137db8b49127feea53d7e687820",
+            "02087755b225e854f98fecc4c564b9c02c00a0f46e47fd3e4a8e15ec64c4ba18",
         )
         with_model = self.service.attach_auxiliary_asset(
             component["id"],
@@ -938,7 +1052,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(tuple(released), COMPONENT_PAYLOAD_KEYS)
         self.assertEqual(
             _contract_digest(released),
-            "ecb19c09822c12c5ed0ab9249f7e42c57dea9576154b871f1e4c4a6a03ba670f",
+            "367962ef16d37c090efb18ac9e37e286c55e276ce114e9a3ec2bf070fe0b1c45",
         )
         self.assertEqual(released["identity_kind"], "mpn")
         self.assertEqual(released["mpn"], component["mpn"])
@@ -976,13 +1090,9 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                     else FIXTURE_FOOTPRINT_PREVIEW_FINGERPRINT
                 ),
             )
-            backing = Path(preview["file_path"])
-            self.assertTrue(backing.is_file(), preview["file_path"])
-            self.assertEqual(backing.read_bytes(), FIXTURE_PREVIEW_SVG)
-            self.assertEqual(
-                hashlib.sha256(backing.read_bytes()).hexdigest(),
-                preview["sha256"],
-            )
+            stored = read_preview(Path(preview["file_path"]))
+            self.assertEqual(stored, FIXTURE_PREVIEW_SVG, preview["file_path"])
+            self.assertEqual(hashlib.sha256(stored).hexdigest(), preview["sha256"])
             bucket = "symbols" if preview["kind"] == "symbol" else "footprints"
             self.assertEqual(
                 _normalize_contract(preview["file_path"], ("previews", "file_path")),
@@ -1074,6 +1184,9 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             [entry["type"] for entry in inline_entries],
             ["symbol", "footprint", "3dmodel", "spice"],
         )
+        inline_symbol = base64.b64decode(inline_entries[0]["content"]).decode("utf-8")
+        self.assertIn(f'(property "Prism_Component" "{component["id"]}"', inline_symbol)
+        self.assertIn(f'(property "Prism_Revision" "{released["released_revision_id"]}"', inline_symbol)
         for entry in inline_entries:
             self.assertEqual(
                 hashlib.sha256(base64.b64decode(entry["content"])).hexdigest(),
@@ -1147,10 +1260,17 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             for path in first_root.rglob("*")
             if path.is_file()
         }
+        # Earlier tests in a shared database leave released models of their
+        # own; only this component's model is compared.
+        own_model_prefixes = {
+            f"3DModels/{asset['sha256'][:16]}/" for asset in released["assets"] if asset["asset_type"] == "3dmodel"
+        }
+        exported_model_paths = {name for name in first_files if name.startswith("3DModels/")}
+        own_model_paths = {name for name in exported_model_paths if name[: len("3DModels/") + 17] in own_model_prefixes}
         normalized_dbl_files = {
             FIXTURE_TOKEN.sub("assets-<token>", name): _normalize_contract_bytes(payload)
             for name, payload in first_files.items()
-            if name != "Prism.sqlite"
+            if name != "Prism.sqlite" and (name not in exported_model_paths or name in own_model_paths)
         }
         self.assertEqual(
             {
@@ -1158,10 +1278,11 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                 for name, payload in sorted(normalized_dbl_files.items())
             },
             {
+                "3DModels/1e561b8e3c745b4b/R_Test.step": "1e561b8e3c745b4b8582275549e0efad5be2e0b610b9bbb1064ed52e8a7a9435",
                 "PcbLib/Prism_Test.pretty/R_Test.kicad_mod": "8d4ef2234c867094a30e793fdbff4975a78a98742ac72825b5fef2c2c5355461",
                 "Prism_Linux.kicad_dbl": "86cacbfb2c4f192082191bf6cfd4a386cb89672ffb4747ebea6cd538c379064d",
                 "Prism_Windows.kicad_dbl": "5f8b5b8128abd1fd8021eac341c104b152f407a179a5df6c2e6c6c8efd20ad14",
-                "SchLib/Prism_PG-R-assets-<token>_Prism_Test_R_Test.kicad_sym": "f005b31dc8b9553ea528ad253896bab79c9c69ea1e1dac0a683bbcc4dc8d9fbe",
+                "SchLib/Prism_PG-R-assets-<token>_Prism_Test_R_Test.kicad_sym": "744cb38e7b6297ef1bfa6e2e3f9825998c9be6f8339d0e5363da34b6f6a07c44",
                 "fp-lib-table": "149d573ae28f732acb912b6707b02f0851c7c250d3f698b6e7a92269e2cc3c86",
                 "sym-lib-table": "a97a151e180b2945dbd6a81a3cbc00d4a7edcb17488f371d5fe24f43a1805fbf",
             },
@@ -1230,6 +1351,22 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                 dbl_conn.execute('SELECT COUNT(*) FROM "Uncategorized"').fetchone(),
                 (1,),
             )
+        # The exported symbol must name the footprint the bundle registers.
+        exported_symbol = next(
+            payload.decode("utf-8")
+            for name, payload in first_files.items()
+            if name.startswith("SchLib/")
+        )
+        self.assertIn('(property "Footprint" "Prism_Test:R_Test"', exported_symbol)
+        self.assertEqual(dbl_row[-1], "Prism_Test:R_Test")
+        self.assertIn("PcbLib/Prism_Test.pretty/R_Test.kicad_mod", first_files)
+        # Earlier tests in a shared database may leave release records whose
+        # files went with their temporary stores; only this component counts.
+        self.assertEqual(len(own_model_paths), 1)
+        self.assertEqual(first_dbl["model_count"], len(exported_model_paths))
+        self.assertEqual(
+            [item for item in first_dbl["missing_models"] if item["component_id"] == component["id"]], []
+        )
         second_dbl = self.service.export_kicad_dbl_bundle()
         second_root = Path(second_dbl["export_root"])
         second_files = {
@@ -1242,6 +1379,153 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             {name: hashlib.sha256(payload).hexdigest() for name, payload in first_files.items()},
             {name: hashlib.sha256(payload).hexdigest() for name, payload in second_files.items()},
         )
+        # A deactivated component leaves the DBL, but boards placed from its
+        # release still reference the model, so the model stays.
+        [model_path] = own_model_paths
+        self.assertTrue(
+            self.service.deactivate_component(component["id"], actor="designer@example.com", reason="obsolete")
+        )
+        self.component_ids.remove(str(component["id"]))
+        third_dbl = self.service.export_kicad_dbl_bundle()
+        third_root = Path(third_dbl["export_root"])
+        self.assertNotIn(
+            "PcbLib/Prism_Test.pretty/R_Test.kicad_mod",
+            {path.relative_to(third_root).as_posix() for path in third_root.rglob("*")},
+        )
+        self.assertEqual((third_root / model_path).read_bytes(), first_files[model_path])
+        self.assertEqual(
+            third_dbl["model_count"],
+            sum(1 for path in (third_root / "3DModels").rglob("*") if path.is_file()),
+        )
+
+    def test_placed_footprint_embeds_the_model_of_each_revision(self) -> None:
+        self._install_deterministic_preview_renderer()
+        component = self._component("embed-" + uuid.uuid4().hex[:8])
+        footprint = self.service.import_footprint(
+            component["id"],
+            upload_name="R_Embed.kicad_mod",
+            payload=(
+                b'(footprint "R_Embed" (version 20240108) (generator "test")\n'
+                b'  (model "${KICAD8_3DMODEL_DIR}/R_Embed.step")\n)\n'
+            ),
+            target_library="Prism_Embed",
+            selected_footprint="R_Embed",
+            actor="designer@example.com",
+        )["component"]
+        footprint_id = next(a["id"] for a in footprint["assets"] if a["asset_type"] == "footprint")
+        # Real STEP files compress well; a model is embedded only when that
+        # does not grow the placement, which tiny models cannot satisfy.
+        models = [
+            b"ISO-10303-21;" + tag + b";\n" + b"#1=CARTESIAN_POINT('',(0.,0.,0.));\n" * 200 + b"END-ISO-10303-21;\n"
+            for tag in (b"rev1", b"rev2")
+        ]
+        revision_ids = []
+        for model in models:
+            # Each revision replaces the model with a same-named, different file.
+            self.service.detach_asset(component["id"], "3dmodel", actor="designer@example.com")
+            revision_ids.append(
+                self.service.attach_auxiliary_asset(
+                    component["id"],
+                    asset_type="3dmodel",
+                    upload_name="R_Embed.step",
+                    payload=model,
+                    target_library="Prism_Embed",
+                    actor="designer@example.com",
+                )["component"]["revision_id"]
+            )
+
+        def embedded(revision_id: str) -> tuple[str, bytes]:
+            asset = self.service.get_asset_by_id(footprint_id, revision_id=revision_id)
+            assert asset is not None
+            text = asset["payload"].decode("utf-8")
+            name = re.search(r'\(model "kicad-embed://([^"]+)"', text).group(1)
+            data = re.search(r"\(data \|(.*?)\|", text, re.S).group(1)
+            return name, zstandard.ZstdDecompressor().decompress(base64.b64decode(re.sub(r"\s", "", data)))
+
+        first, second = embedded(revision_ids[0]), embedded(revision_ids[1])
+        self.assertNotEqual(first[0], second[0])
+        self.assertEqual(
+            [hashlib.sha256(first[1]).hexdigest(), hashlib.sha256(second[1]).hexdigest()],
+            [hashlib.sha256(model).hexdigest() for model in models],
+        )
+        self.assertEqual(embedded(revision_ids[0]), first)
+        # Each embedded model's compressed copy is kept in the store and reused.
+        for model in models:
+            kept = list((self.service.runtime.store_root / "embedded-models").rglob(
+                f"{hashlib.sha256(model).hexdigest()}.zst"
+            ))
+            self.assertEqual(len(kept), 1)
+            self.assertEqual(zstandard.ZstdDecompressor().decompress(kept[0].read_bytes()), model)
+
+        self.service.import_symbol_library(
+            component["id"],
+            upload_name="R_Embed.kicad_sym",
+            payload=b'''(kicad_symbol_lib (version 20231120) (generator "test")
+              (symbol "R_Embed"
+                (property "Reference" "R" (at 0 0 0) (effects (font (size 1.27 1.27))))
+                (property "Value" "R_Embed" (at 0 0 0) (effects (font (size 1.27 1.27))))
+              )
+            )''',
+            target_library="Prism_Embed",
+            selected_symbol="R_Embed",
+            actor="designer@example.com",
+        )
+        head = self.service.get_component(component["id"])
+        assert head is not None
+        self.service.set_release_status(component["id"], "in_progress", actor="designer@example.com")
+        self.service.set_release_status(component["id"], "qa_review", actor="designer@example.com")
+        approved = self.service.set_release_status(
+            component["id"], "done", actor="qa@example.com", actor_role="qa",
+            expected_revision_id=head["revision_id"], expected_manifest_hash=head["manifest_hash"],
+        )
+        self.service.set_release_status(
+            component["id"], "released", actor="designer@example.com", actor_role="designer",
+            expected_revision_id=approved["revision_id"], expected_manifest_hash=approved["manifest_hash"],
+        )
+
+        # The footprint carries the model, so the 3dmodel asset is not shipped.
+        manifest = self.service.build_manifest(component["id"], "https://prism.example")
+        inline = self.service.build_inline_bundle(component["id"])
+        assert manifest is not None and inline is not None
+        inline_entries = json.loads(base64.b64decode(inline["data"]))
+        self.assertEqual(sorted(a["asset_type"] for a in manifest["assets"]), ["footprint", "symbol"])
+        self.assertEqual(sorted(e["type"] for e in inline_entries), ["footprint", "symbol"])
+        footprint_entry = next(e for e in inline_entries if e["type"] == "footprint")
+        self.assertIn(b"kicad-embed://" + second[0].encode(), base64.b64decode(footprint_entry["content"]))
+        self.assertEqual(
+            next(a["sha256"] for a in manifest["assets"] if a["asset_type"] == "footprint"),
+            footprint_entry["checksum"],
+        )
+
+        # A model that falls back to the external path is still shipped.
+        with patch("app.core.config.settings.REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES", 0):
+            fallback = self.service.build_manifest(component["id"], "https://prism.example")
+        assert fallback is not None
+        self.assertEqual(
+            sorted(a["asset_type"] for a in fallback["assets"]), ["3dmodel", "footprint", "symbol"]
+        )
+
+        # With embedding turned off the placement ships every model, as before.
+        with patch("app.core.config.settings.REMOTE_PROVIDER_EMBED_3D_MODELS", False):
+            off = self.service.build_manifest(component["id"], "https://prism.example")
+            off_footprint = self.service.get_asset_by_id(footprint_id, revision_id=revision_ids[1])
+        assert off is not None and off_footprint is not None
+        self.assertEqual(sorted(a["asset_type"] for a in off["assets"]), ["3dmodel", "footprint", "symbol"])
+        self.assertNotIn(b"kicad-embed://", off_footprint["payload"])
+        self.assertIn(b"/remote_3d/R_Embed.step", off_footprint["payload"])
+
+        # A model whose stored file is gone leaves the footprint placeable with
+        # the external path; the model's own download reports the loss.
+        model_url = next(a["download_url"] for a in off["assets"] if a["asset_type"] == "3dmodel")
+        model_id = urlsplit(model_url).path.rsplit("/", 1)[-1]
+        model_asset = self.service.get_asset_by_id(model_id, revision_id=revision_ids[1])
+        assert model_asset is not None
+        Path(str(model_asset["canonical_path"])).unlink()
+        placement_payloads.clear_embedded_footprint_cache()
+        with self.assertLogs("app.services.catalog.placement_payloads", "WARNING"):
+            purged_footprint = self.service.get_asset_by_id(footprint_id, revision_id=revision_ids[1])
+        assert purged_footprint is not None
+        self.assertNotIn(b"kicad-embed://", purged_footprint["payload"])
 
     def test_non_default_representation_drives_manifest_and_inline_pair(self) -> None:
         component = self._component("representations-" + uuid.uuid4().hex[:8])
@@ -1315,7 +1599,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
     def test_database_guards_and_widened_portable_types(self) -> None:
         component = self._component("guards-" + uuid.uuid4().hex[:8])
         with self.assertRaises(Exception):
-            with self.service._connect() as conn:  # type: ignore[attr-defined]
+            with self.service.connection() as conn:
                 conn.execute(
                     "UPDATE component_revisions SET description = %s WHERE id = %s",
                     ("tampered", component["revision_id"]),
@@ -1335,26 +1619,26 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             target_library="Guard",
             actor="author@example.com",
         )["component"]
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             asset = conn.execute(
                 "SELECT asset_id FROM revision_assets WHERE revision_id = %s LIMIT 1",
                 (attached["revision_id"],),
             ).fetchone()
         assert asset is not None
         with self.assertRaises(Exception):
-            with self.service._connect() as conn:  # type: ignore[attr-defined]
+            with self.service.connection() as conn:
                 conn.execute(
                     "DELETE FROM revision_assets WHERE revision_id = %s AND asset_id = %s",
                     (attached["revision_id"], asset["asset_id"]),
                 )
                 conn.commit()
         with self.assertRaises(Exception):
-            with self.service._connect() as conn:  # type: ignore[attr-defined]
+            with self.service.connection() as conn:
                 conn.execute("UPDATE assets SET sha256 = %s WHERE id = %s", ("0" * 64, asset["asset_id"]))
                 conn.commit()
 
         preview_id = str(uuid.uuid4())
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             conn.execute(
                 """
                 INSERT INTO asset_preview_versions (
@@ -1368,14 +1652,14 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             )
             conn.commit()
         with self.assertRaises(Exception):
-            with self.service._connect() as conn:  # type: ignore[attr-defined]
+            with self.service.connection() as conn:
                 conn.execute(
                     "UPDATE asset_preview_versions SET sha256 = %s WHERE id = %s",
                     ("b" * 64, preview_id),
                 )
                 conn.commit()
         with self.assertRaises(Exception):
-            with self.service._connect() as conn:  # type: ignore[attr-defined]
+            with self.service.connection() as conn:
                 conn.execute(
                     """
                     INSERT INTO revision_previews (revision_id, asset_id, kind, preview_id, created_at)
@@ -1385,7 +1669,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                 )
                 conn.commit()
 
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             types = {
                 (str(row["table_name"]), str(row["column_name"])): str(row["data_type"])
                 for row in conn.execute(
@@ -1429,18 +1713,18 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         """
         component = self._component("upgrade-" + uuid.uuid4().hex[:8])
 
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             conn.execute("DROP TABLE IF EXISTS catalog_schema_versions")
-            conn.execute("DELETE FROM catalog_schema_migrations")
+            conn.execute("DROP TABLE IF EXISTS catalog_schema_migrations")
             conn.commit()
 
         upgraded = ComponentCatalogPostgresService(
             store_root=Path(self.tempdir.name) / "components",
-            database_url=POSTGRES_URL,
+            database_url=CATALOG_URL,
         )
         upgraded.initialize()
 
-        with upgraded._connect() as conn:  # type: ignore[attr-defined]
+        with upgraded.connection() as conn:
             ledger = [
                 (int(row["version"]), str(row["name"]))
                 for row in conn.execute(
@@ -1448,14 +1732,11 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                 ).fetchall()
             ]
             self.assertEqual(ledger, [(version, name) for version, name, _ in MIGRATIONS])
-            self.assertEqual(pending_catalog_migrations(conn), [])
-            # An older Prism treats this row as a hard precondition, so the
-            # newer build has to leave it in place for a rollback to work.
-            legacy = conn.execute(
-                "SELECT version FROM catalog_schema_migrations WHERE version = %s",
-                (POSTGRES_SCHEMA_VERSION,),
-            ).fetchone()
-            self.assertIsNotNone(legacy)
+            self.assertEqual(CATALOG_LEDGER.pending(conn), [])
+            # D8: the catalog is forward-only. The legacy version row an older
+            # Prism required is no longer written, so a rollback is unsupported.
+            legacy = conn.execute("SELECT to_regclass('catalog_schema_migrations') AS relation").fetchone()
+            self.assertIsNone(legacy["relation"])
 
         survivor = upgraded.get_component(component["id"])
         self.assertIsNotNone(survivor)
@@ -1463,16 +1744,16 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
 
     def test_repeated_startup_does_not_rewrite_widened_columns(self) -> None:
         """Replaying the column widening rewrites whole tables for nothing."""
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
-            self.assertEqual(pending_catalog_migrations(conn), [])
+        with self.service.connection() as conn:
+            self.assertEqual(CATALOG_LEDGER.pending(conn), [])
 
         restarted = ComponentCatalogPostgresService(
             store_root=Path(self.tempdir.name) / "components",
-            database_url=POSTGRES_URL,
+            database_url=CATALOG_URL,
         )
         restarted.initialize()
 
-        with restarted._connect() as conn:  # type: ignore[attr-defined]
+        with restarted.connection() as conn:
             applied = conn.execute(
                 "SELECT count(*) AS total FROM catalog_schema_versions"
             ).fetchone()
@@ -1480,18 +1761,18 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
 
     def test_populated_pre_epoch_two_catalog_is_refused_with_reset_guidance(self) -> None:
         self._component("epoch-" + uuid.uuid4().hex[:8])
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             conn.execute("DELETE FROM catalog_meta WHERE key = 'catalog_schema_epoch'")
             conn.commit()
         incompatible = ComponentCatalogPostgresService(
             store_root=Path(self.tempdir.name) / "components",
-            database_url=POSTGRES_URL,
+            database_url=CATALOG_URL,
         )
         try:
             with self.assertRaisesRegex(RuntimeError, "catalog-only reset"):
                 incompatible.initialize()
         finally:
-            with self.service._connect() as conn:  # type: ignore[attr-defined]
+            with self.service.connection() as conn:
                 conn.execute(
                     "INSERT INTO catalog_meta(key, value) VALUES ('catalog_schema_epoch', '2') "
                     "ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value"

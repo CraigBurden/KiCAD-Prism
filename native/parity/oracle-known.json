@@ -1,0 +1,20 @@
+{
+ "schema": "prism.parity.oracle_known.a0",
+ "known": [
+  {
+   "case": "*",
+   "check": "netlist-net-names",
+   "reason": "Same nets, same nodes, other spelling. The oracle reads KiCad's XML netlist, which unescapes net names (NETLIST_EXPORTER_XML: UnescapeString unless GNL_OPT_KICAD), so it shows Net-(U3-ADJ/NC) where KiCad's connection graph and its s-expression netlist name the net Net-(U3-ADJ{slash}NC), as the goldens do. Since crate_version 0.12.0 the goldens also name an unconnected pin's net with its pin name, unconnected-(R1-~-Pad1), as KiCad 10.0.6 does (semantic-index divergence D1)."
+  },
+  {
+   "case": "dv-kicad11_tokens",
+   "check": "netlist",
+   "reason": "KiCad 10.0.6 refuses the KiCad 11 tokens this fixture exists to carry (backend/tests/fixtures/design_variants/README.md, F5): 'Failed to load schematic'."
+  },
+  {
+   "case": "dv-kicad11_tokens",
+   "check": "stats",
+   "reason": "KiCad 10.0.6 refuses the KiCad 11 tokens on the board too (design_variants F5)."
+  }
+ ]
+}

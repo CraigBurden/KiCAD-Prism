@@ -43,6 +43,33 @@ export interface CommentLocation {
     bounds?: [number, number, number, number];
 }
 
+/** ``plain`` bodies predate rich comments and render verbatim. */
+export type CommentContentFormat = "plain" | "md";
+
+export interface CommentAttachment {
+    id: string;
+    filename: string;
+    mediaType: string;
+    size: number;
+    state?: "pending" | "attached";
+    width?: number;
+    height?: number;
+    /** Present only on the upload response. */
+    url?: string;
+}
+
+/** A fixed set; the server carries names and the client owns the glyphs. */
+export type CommentReactionName = "thumbs_up" | "eyes" | "check" | "question" | "heart" | "tada";
+
+export interface CommentReaction {
+    reaction: CommentReactionName;
+    count: number;
+    /** Display names, in the order people reacted. */
+    users: string[];
+    /** Whether the current reader is one of them. */
+    mine?: boolean;
+}
+
 export interface ReplySync {
     /** ``unsynced_local``: saved in Prism only; ``confirmed``: posted on the issue. */
     state: string;
@@ -51,11 +78,30 @@ export interface ReplySync {
     externalUrl?: string | null;
 }
 
+/** How the author reached Prism; ``agent`` is an MCP client acting for a signed-in user. */
+export type CommentAuthorKind =
+    | "user"
+    | "agent"
+    | "service"
+    | "guest"
+    | "legacy"
+    | "remote"
+    | "system";
+
 export interface CommentReply {
     id?: string;
     author: string;
+    authorKind?: CommentAuthorKind;
+    authorClientId?: string | null;
+    authorClientName?: string | null;
     timestamp: string;
     content: string;
+    contentFormat?: CommentContentFormat;
+    attachments?: CommentAttachment[];
+    reactions?: CommentReaction[];
+    /** Latest content edit; absent while the text is as first posted. */
+    editedAt?: string;
+    revision?: number;
     /** ``remote`` replies were imported from the linked issue. */
     origin?: "prism" | "remote" | string;
     sync?: ReplySync | null;
@@ -65,11 +111,19 @@ export interface CommentReply {
 export interface Comment {
     id: string;
     author: string;
+    authorKind?: CommentAuthorKind;
+    authorClientId?: string | null;
+    authorClientName?: string | null;
     timestamp: string;
     status: CommentStatus;
     context: CommentContext;
     location: CommentLocation;
     content: string;
+    contentFormat?: CommentContentFormat;
+    attachments?: CommentAttachment[];
+    reactions?: CommentReaction[];
+    /** Latest content edit; absent while the text is as first posted. */
+    editedAt?: string;
     replies: CommentReply[];
     elementRef?: string;
     elementType?: string;
@@ -101,9 +155,10 @@ export interface Comment {
     revision?: number;
     permissions?: { canReply?: boolean; canEdit?: boolean; canDelete?: boolean; canResolve?: boolean;
         canPublish?: boolean; canRetry?: boolean };
-    anchor?: { state: string; commit?: string | null; source?: string | null };
+    anchor?: { state: string; commit?: string | null; source?: string | null;
+        designKey?: string | null; sourceRevisionKey?: string | null };
     anchorResolution?:
-        | { state: "candidate"; binding: {
+        | { state: "candidate"; sameDesign?: boolean; binding: {
             commit: string;
             elementId?: string | null;
             location: CommentLocation;

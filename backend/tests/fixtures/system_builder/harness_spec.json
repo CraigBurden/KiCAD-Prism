@@ -1,0 +1,26 @@
+{
+ "schema": "prism.harness_spec.v1",
+ "_comment": "SB2-40 / D-P2-35: the frozen harness geometry numbers (CONTRACTS_P2 §17.5). Both placement-library halves must equal this file.",
+ "bootMm": 10.0,
+ "housingDepthMm": 8.0,
+ "breakoutLiftMm": 10.0,
+ "chordErrorMm": 0.2,
+ "catmullRomAlpha": 0.5,
+ "minBendRadiusFactor": 6.0,
+ "bendRelaxIterations": 8,
+ "packingFactor": 1.2,
+ "ringSegments": 12,
+ "breakoutBlendMm": 5.0,
+ "lengthAllowance": 0.10,
+ "lengthMismatchTolerance": 0.15,
+ "boardCollisionMarginMm": 1.0,
+ "defaultGaugeAwg": "24",
+ "wireSpec": {
+  "name": "M22759/16 (SAE AS22759/16): ETFE insulated, 600 V, medium weight, tin-coated copper, 150 °C",
+  "source": "NASA NEPP wire page AS22759/16, finished wire diameter table (https://nepp.nasa.gov/npsl/Wire/22759/22759_16.htm), cross-checked with AWC's M22759/16-24 and /16-20 pages; inches × 25.4",
+  "outsideDiameterMm": {
+   "24": 1.143, "22": 1.3208, "20": 1.524, "18": 1.8034, "16": 2.0066, "14": 2.3622, "12": 2.8956,
+   "10": 3.5306, "8": 5.0546, "6": 6.35, "4": 7.9248, "2": 9.8552, "1": 10.9474, "0": 12.1666, "00": 13.8684
+  }
+ }
+}

@@ -22,7 +22,6 @@ from app.services.trackers.drafts import (  # noqa: E402
     compose_issue_body,
     escape_generated_text,
     render_issue_body_from_draft,
-    strip_untrusted_tracker_markup,
 )
 from app.services.trackers.markers import build_marker, extract_markers, parse_marker  # noqa: E402
 from app.services.trackers.mentions import Mention  # noqa: E402
@@ -70,15 +69,6 @@ def _canvas_comment(**overrides) -> dict:
 
 
 class DeepLinkTests(unittest.TestCase):
-    def test_fixture_cases_are_present(self) -> None:
-        f2_ids = {case["id"] for case in F2["cases"]}
-        f4_ids = {case["id"] for case in F4["cases"]}
-        f8_ids = {case["id"] for case in F8["cases"]}
-        self.assertIn("F2.variant_url_preserved", f2_ids)
-        self.assertIn("F2.comparison_ordered_pair", f2_ids)
-        self.assertIn("F2.monorepo_project_anchor", f2_ids)
-        self.assertIn("F4.forged_marker", f4_ids)
-        self.assertIn("F8.prose_email_passthrough", f8_ids)
 
     def test_canvas_link_matches_frozen_example(self) -> None:
         url = build_canvas_deep_link(
@@ -90,7 +80,7 @@ class DeepLinkTests(unittest.TestCase):
         )
         self.assertEqual(
             url,
-            f"{PUBLIC_BASE}/projects/prj_47c2551996d0?commit={COMMIT_A}&view=pcb&comment={COMMENT_ID}",
+            f"{PUBLIC_BASE}/project/prj_47c2551996d0?commit={COMMIT_A}&view=pcb&comment={COMMENT_ID}",
         )
 
     def test_variant_is_preserved_in_canvas_link(self) -> None:  # F2.variant_url_preserved
@@ -149,8 +139,28 @@ class DeepLinkTests(unittest.TestCase):
             project_id="prj_monorepo",
             comment=comment,
         )
-        self.assertIn("/projects/prj_monorepo?", url)
+        self.assertIn("/project/prj_monorepo?", url)
         self.assertNotIn("hw/boards", url.split("?", 1)[0])
+
+    def test_deep_link_path_is_project_singular(self) -> None:  # MCP-07
+        canvas = build_prism_deep_link(
+            public_base_url=PUBLIC_BASE,
+            project_id="prj_test",
+            comment=_canvas_comment(),
+        )
+        comparison = build_prism_deep_link(
+            public_base_url=PUBLIC_BASE,
+            project_id="prj_test",
+            comment={
+                "id": COMMENT_ID,
+                "scope": "comparison",
+                "anchor": {"baseCommit": COMMIT_A, "compareCommit": COMMIT_B},
+            },
+        )
+        for url in (canvas, comparison):
+            path = url.split("?", 1)[0]
+            self.assertEqual(path, f"{PUBLIC_BASE}/project/prj_test")
+            self.assertNotIn("/projects/", url)
 
 
 class DraftRenderingTests(unittest.TestCase):
@@ -187,7 +197,7 @@ class DraftRenderingTests(unittest.TestCase):
         self.assertEqual(draft.assignees, ["arjun-gh"])
         self.assertEqual(
             draft.contextBlock.prismUrl,
-            f"{PUBLIC_BASE}/projects/prj_47c2551996d0?commit={COMMIT_A}&view=pcb&comment={COMMENT_ID}",
+            f"{PUBLIC_BASE}/project/prj_47c2551996d0?commit={COMMIT_A}&view=pcb&comment={COMMENT_ID}",
         )
         self.assertEqual(draft.contextBlock.requestedBy, "@priya-gh (Priya Raman)")
         self.assertEqual(

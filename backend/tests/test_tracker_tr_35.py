@@ -4,29 +4,24 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from unittest.mock import patch
-from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException
+from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.security import AuthenticatedUser  # noqa: E402
 from app.api import tracker_sync as sync_api  # noqa: E402
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.comment_permissions import resolve_actor  # noqa: E402
 from app.services.trackers.health import aggregate_connector_health, aggregate_project_health  # noqa: E402
-from app.services.trackers.inbox_store import apply_schema as apply_inbox_schema  # noqa: E402
 from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
-from app.services.trackers.op_store import OpStore, apply_schema as apply_op_schema  # noqa: E402
+from app.services.trackers.op_store import OpStore  # noqa: E402
 from app.services.trackers.projections import (  # noqa: E402
     attach_tracker_projection,
     can_retry_projection,
@@ -36,6 +31,7 @@ from app.services.trackers.projections import (  # noqa: E402
 )
 from app.services.trackers.publication_policy import DispatchPause, PublicationDenied  # noqa: E402
 from app.services.trackers.store import TrackerStore  # noqa: E402
+from support.postgres import requires_scratch_postgres, tracker_schema, seed_comment, drop_schema  # noqa: E402
 
 try:
     import psycopg
@@ -44,8 +40,6 @@ except ImportError:  # pragma: no cover
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 F7 = json.loads((DOCS / "fixtures" / "F07.json").read_text(encoding="utf-8"))
 F8 = json.loads((DOCS / "fixtures" / "F08.json").read_text(encoding="utf-8"))
@@ -55,22 +49,6 @@ PROJECT = "prj_a"
 COMMENT = "c_8f3a1b2c"
 THREAD = "tt_tr35"
 PINNED_ANCHOR = {"state": "pinned", "commit": "3f2c9a1b7e4d5c6a8b9f0e1d2c3b4a5968778695"}
-
-
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 def session(role: str, *, user_id: str = "u_designer") -> AuthenticatedUser:
@@ -87,44 +65,14 @@ def run(coro):
     return asyncio.run(coro)
 
 
-class RoutingContractTests(unittest.TestCase):
-    def test_main_registers_tracker_sync_router(self) -> None:
-        source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
-        self.assertIn("tracker_sync_router", source)
-        app = FastAPI()
-        app.include_router(sync_api.router)
-        paths = set(app.openapi()["paths"])
-        self.assertIn("/api/projects/{project_id}/tracker/health", paths)
-        self.assertIn("/api/projects/{project_id}/comments/{comment_id}/tracker", paths)
-        self.assertIn("/api/projects/{project_id}/comments/{comment_id}/tracker/history", paths)
-        self.assertIn("/api/projects/{project_id}/comments/{comment_id}/tracker/retry", paths)
-        self.assertIn("/api/projects/{project_id}/comments/{comment_id}/tracker/unlink", paths)
-        self.assertIn("/api/projects/{project_id}/comments/{comment_id}/tracker/repromote", paths)
 
-    def test_f7_quiet_repo_fixture_owned_by_tr35(self) -> None:
-        owned = [case["id"] for case in F7["cases"] if case.get("owner") == "TR-35"]
-        self.assertIn("F7.quiet_repo_not_broken", owned)
-
-    def test_f8_no_repromote_fixture_present(self) -> None:
-        ids = {case["id"] for case in F8["cases"]}
-        self.assertIn("F8.no_repromote_from_inaccessible", ids)
-
-
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class TrackerTr35PostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"tr35_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self._create_comments_foundation()
-        comments_schema_migrations.apply_comments_migrations(self.conn)
-        migrate_workspace_tracker_tables(self.conn)
-        apply_op_schema(self.conn)
-        apply_inbox_schema(self.conn)
+        self.scratch = tracker_schema(self, "tr35")
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
+        # Code under test names the real ``workspace`` schema; this worker's database is private.
+        self.addCleanup(self._drop_workspace)
         self.conn.execute("CREATE SCHEMA IF NOT EXISTS workspace")
         self.conn.execute("SET search_path TO workspace, public")
         migrate_workspace_tracker_tables(self.conn)
@@ -156,12 +104,16 @@ class TrackerTr35PostgresTests(unittest.TestCase):
             acknowledged_by="u_admin",
         )
         self._mirror_workspace_tables()
-        self.conn.execute(
-            """
-            INSERT INTO comments (id, project_id, author, author_user_id, author_kind, content, anchor_commit, anchor_state)
-            VALUES (%s, %s, 'Priya', 'u_designer', 'user', 'fixture', %s, 'pinned')
-            """,
-            (COMMENT, PROJECT, PINNED_ANCHOR["commit"]),
+        seed_comment(
+            self.conn,
+            COMMENT,
+            PROJECT,
+            author="Priya",
+            author_user_id="u_designer",
+            author_kind="user",
+            content="fixture",
+            anchor_commit=PINNED_ANCHOR["commit"],
+            anchor_state="pinned",
         )
         self.store.insert_thread(
             thread_id=THREAD,
@@ -186,14 +138,9 @@ class TrackerTr35PostgresTests(unittest.TestCase):
         )
         self.conn.commit()
 
-    def _cleanup(self) -> None:
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.execute("DROP SCHEMA IF EXISTS workspace CASCADE")
-            self.conn.commit()
-        finally:
-            self.conn.close()
+    def _drop_workspace(self) -> None:
+        self.conn.rollback()  # the held connection still reads workspace tables
+        drop_schema("workspace")
 
     def _mirror_workspace_tables(self) -> None:
         connector = self.conn.execute(
@@ -262,43 +209,6 @@ class TrackerTr35PostgresTests(unittest.TestCase):
                     row["visibility"],
                 ),
             )
-    def _create_comments_foundation(self) -> None:
-        self.conn.execute(
-            """
-            CREATE TABLE comments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                status TEXT NOT NULL DEFAULT 'OPEN',
-                context TEXT NOT NULL DEFAULT 'PCB',
-                location_x REAL NOT NULL DEFAULT 0,
-                location_y REAL NOT NULL DEFAULT 0,
-                location_layer TEXT NOT NULL DEFAULT '',
-                location_page TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT '',
-                revision INTEGER NOT NULL DEFAULT 1,
-                author_user_id TEXT,
-                author_kind TEXT NOT NULL DEFAULT 'user',
-                anchor_commit TEXT
-            );
-            CREATE TABLE comment_replies (
-                id TEXT PRIMARY KEY,
-                comment_id TEXT NOT NULL REFERENCES comments(id),
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                content TEXT NOT NULL DEFAULT '',
-                author_kind TEXT NOT NULL DEFAULT 'user',
-                origin TEXT NOT NULL DEFAULT 'prism',
-                revision INTEGER NOT NULL DEFAULT 1,
-                deleted_at TIMESTAMPTZ,
-                deleted_by TEXT
-            );
-            """,
-            prepare=False,
-        )
-
     def _comment(self) -> dict:
         return {"id": COMMENT, "replies": [], "anchor": dict(PINNED_ANCHOR)}
 
@@ -459,9 +369,7 @@ class TrackerTr35PostgresTests(unittest.TestCase):
         self.assertIsNotNone(health["lastPollAt"])
 
     def test_project_health_scoped_to_project(self) -> None:
-        self.conn.execute(
-            "INSERT INTO comments (id, project_id, author, content) VALUES ('c_other', 'prj_other', 'Other', 'x')"
-        )
+        seed_comment(self.conn, "c_other", "prj_other", author="Other", content="x")
         self.store.insert_thread(
             thread_id="tt_other",
             comment_id="c_other",

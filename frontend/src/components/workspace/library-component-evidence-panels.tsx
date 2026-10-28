@@ -7,6 +7,7 @@ import {
   Columns2,
   ExternalLink,
   FileDiff,
+  GitCompareArrows,
   History,
   Layers3,
   Link2,
@@ -20,9 +21,10 @@ import {
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { WORKFLOW_BADGE_VARIANT } from "@/lib/catalog-badges";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { fetchJson } from "@/lib/api";
+import { catalogPreviewUrl as previewUrl, getComponentValidation } from "./catalog-client";
 import { allowedWorkflowTransitions, workflowStage } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
@@ -96,7 +98,6 @@ const FIELD_LABELS: Record<string, string> = {
 type VisualDiffMode = "side-by-side" | "overlay";
 type DiffPreviewEvidence = CatalogRevisionDiffAsset["previews"][number];
 
-const previewUrl = (previewId: string) => `/api/catalog/previews/${encodeURIComponent(previewId)}`;
 
 function OverlayDifference({
   before,
@@ -268,7 +269,7 @@ function RevisionDiffView({ diff }: { diff: CatalogRevisionDiff }) {
         </Button>
       </div>
 
-      <PanelCard title="Metadata diff" description="Fields are compared from immutable revision snapshots.">
+      <PanelCard title="Metadata diff">
         {metadata.length ? (
           <div className="overflow-x-auto">
             <div className="min-w-2xl">
@@ -284,12 +285,11 @@ function RevisionDiffView({ diff }: { diff: CatalogRevisionDiff }) {
               ))}
             </div>
           </div>
-        ) : <EmptyState icon={CheckCircle2} title="No metadata changes" detail="These revisions contain identical metadata." />}
+        ) : <EmptyState icon={CheckCircle2} title="No metadata changes" />}
       </PanelCard>
 
       <PanelCard
         title="Symbol and footprint diff"
-        description="Pan, zoom, and swipe between revision-bound previews. 3D and SPICE assets remain versioned in the Assets tab."
         action={(
           <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Visual diff display mode">
             <Button size="sm" variant={visualMode === "side-by-side" ? "secondary" : "ghost"} aria-pressed={visualMode === "side-by-side"} onClick={() => setVisualMode("side-by-side")}><Columns2 className="h-3.5 w-3.5" /> Side by side</Button>
@@ -312,7 +312,7 @@ function RevisionDiffView({ diff }: { diff: CatalogRevisionDiff }) {
               </div>
             ))}
           </div>
-        ) : <EmptyState icon={CheckCircle2} title="No asset changes" detail="All attached files have the same content hashes." />}
+        ) : <EmptyState icon={CheckCircle2} title="No asset changes" />}
       </PanelCard>
     </div>
   );
@@ -342,29 +342,38 @@ export function RevisionsPanel({
       <PanelCard
         className="xl:col-span-1"
         title="Revision history"
-        description={`${revisions.length} immutable revision${revisions.length === 1 ? "" : "s"}.`}
         action={activeRevisionId !== currentRevisionId ? <Button size="sm" variant="outline" onClick={onCurrent}>Current</Button> : undefined}
       >
-        <div className="space-y-2">
+        <div className="-m-3">
           {revisions.map((revision) => {
             const isActive = revision.id === activeRevisionId;
             const isCurrent = revision.id === currentRevisionId;
+            const summary = revision.change_summary || humanize(revision.change_kind);
+            const compare = !isCurrent
+              ? { label: `Compare v${revision.version} with current`, run: () => onCompare(revision.id, currentRevisionId) }
+              : revision.parent_revision_id
+                ? { label: `Compare v${revision.version} with its parent`, run: () => onCompare(revision.parent_revision_id, revision.id) }
+                : null;
             return (
-              <div key={revision.id} className={cn("border p-3", isActive && "border-primary bg-primary/5")}>
-                <div className="flex min-w-0 items-center justify-between gap-2">
-                  <p className="truncate text-sm font-medium">v{revision.version}</p>
-                  <div className="flex shrink-0 gap-1">
-                    {isCurrent ? <Badge>Current</Badge> : null}
-                    <Badge variant="outline">{WORKFLOW_LABELS[revision.release_status]}</Badge>
-                  </div>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">{formatDate(revision.created_at)}</p>
-                <p className="mt-2 text-xs">{revision.change_summary || humanize(revision.change_kind)}</p>
-                <p className="mt-1 truncate text-xs text-muted-foreground">{revision.created_by || "Unknown actor"}</p>
-                <div className="mt-3 flex gap-2">
-                  <Button size="sm" variant={isActive ? "secondary" : "outline"} onClick={() => onView(revision.id)}>View</Button>
-                  {revision.id !== currentRevisionId ? <Button size="sm" variant="ghost" onClick={() => onCompare(revision.id, currentRevisionId)}>Compare current</Button> : revision.parent_revision_id ? <Button size="sm" variant="ghost" onClick={() => onCompare(revision.parent_revision_id, revision.id)}>Compare parent</Button> : null}
-                </div>
+              <div key={revision.id} className={cn("flex h-9 items-center gap-1 border-b pr-1 last:border-b-0", isActive ? "bg-muted shadow-[inset_2px_0_0_hsl(var(--primary))]" : "hover:bg-muted/40")}>
+                <button
+                  type="button"
+                  className="flex h-full min-w-0 flex-1 items-center gap-2 pl-3 text-left text-xs"
+                  aria-label={`View v${revision.version}`}
+                  aria-current={isActive ? "true" : undefined}
+                  title={`${formatDate(revision.created_at)} · ${revision.created_by || "Unknown"} · ${summary}`}
+                  onClick={() => onView(revision.id)}
+                >
+                  <span className="w-8 shrink-0 font-medium tabular-nums">v{revision.version}</span>
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground">{summary}</span>
+                  {isCurrent ? <Badge className="h-4 shrink-0 px-1 text-[10px]">Current</Badge> : null}
+                  <Badge variant={WORKFLOW_BADGE_VARIANT[revision.release_status]} className="h-4 shrink-0 px-1 text-[10px]">{WORKFLOW_LABELS[revision.release_status]}</Badge>
+                </button>
+                {compare ? (
+                  <Button size="icon-sm" variant="ghost" className="size-7 shrink-0" aria-label={compare.label} title={compare.label} onClick={compare.run}>
+                    <GitCompareArrows className="h-3.5 w-3.5" />
+                  </Button>
+                ) : <span className="size-7 shrink-0" />}
               </div>
             );
           })}
@@ -373,7 +382,7 @@ export function RevisionsPanel({
 
       <div className="xl:col-span-3">
         {diffLoading ? <LoadingState label="Calculating revision diff…" /> : diff ? <RevisionDiffView diff={diff} /> : (
-          <EmptyState icon={FileDiff} title="Choose a comparison" detail="Compare a historical revision with the current revision, or compare the current revision with its parent." />
+          <EmptyState icon={FileDiff} title="Choose a comparison" />
         )}
       </div>
     </div>
@@ -392,7 +401,7 @@ function ReleaseRecordsPanel({
   title?: string;
 }) {
   return (
-    <PanelCard title={title} description="Immutable publication records bind the released files to approval and policy evidence.">
+    <PanelCard title={title}>
       {releases.length ? (
         <div className="space-y-3">
           {releases.map((release) => {
@@ -461,7 +470,7 @@ function ReleaseRecordsPanel({
             );
           })}
         </div>
-      ) : <EmptyState icon={PackageCheck} title="No publication records" detail="A release record will be created when an approved revision is published." />}
+      ) : <EmptyState icon={PackageCheck} title="No publication records" />}
     </PanelCard>
   );
 }
@@ -487,10 +496,7 @@ function KlcValidationEvidence({ component, historical }: { component: CatalogCo
     const controller = new AbortController();
     setLoading(true);
     setError("");
-    void fetchJson<CatalogComponentValidationEvidence>(
-      `/api/catalog/components/${encodeURIComponent(component.id)}/validation`,
-      { signal: controller.signal },
-    ).then((response) => {
+    void getComponentValidation(component.id, controller.signal).then((response) => {
       if (!controller.signal.aborted) setEvidence(response);
     }).catch((reason: unknown) => {
       if (reason instanceof DOMException && reason.name === "AbortError") return;
@@ -519,7 +525,7 @@ function KlcValidationEvidence({ component, historical }: { component: CatalogCo
 
       <div className="mt-3 space-y-3 border-t pt-3">
         {historical ? (
-          <p className="border bg-muted/30 p-3 text-xs text-muted-foreground">Detailed KLC reports are currently available for the active revision. This historical revision retains its validation summary above.</p>
+          <p className="text-xs text-muted-foreground" title="Detailed reports are kept for the active revision only">Summary only</p>
         ) : loading ? (
           <p className="inline-flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading validation evidence…</p>
         ) : error ? (
@@ -560,10 +566,10 @@ function KlcValidationEvidence({ component, historical }: { component: CatalogCo
                   ))}
                 </div>
               </div>
-            ) : <p className="mt-3 text-xs text-muted-foreground">No normalized findings were recorded for this run. Download the reports for checker output.</p>}
+            ) : <p className="mt-2 text-xs text-muted-foreground">No findings</p>}
           </article>
         )) : (
-          <p className="border border-dashed p-3 text-xs text-muted-foreground">No KLC run has been recorded for this revision yet. Run validation from the Assets tab.</p>
+          <p className="text-xs text-muted-foreground" title="Run KLC from the Assets tab">Not run</p>
         )}
       </div>
     </details>
@@ -606,12 +612,12 @@ export function ReleaseReviewPanel({
       {historical ? (
         <div className="flex items-start gap-3 border bg-muted/30 p-3 text-sm">
           <History className="mt-0.5 h-4 w-4 text-muted-foreground" />
-          <div><p className="font-medium">Historical revision is read-only</p><p className="text-xs text-muted-foreground">Return to the current revision to perform a workflow transition.</p></div>
+          <p className="font-medium" title="Return to the current revision to change its workflow">Historical revision · read only</p>
         </div>
       ) : null}
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <PanelCard title="Release readiness" description="Evidence is evaluated against the exact revision under review.">
+        <PanelCard title="Release readiness">
           <div className="divide-y divide-border">
             {checks.map((check) => (
               check.label === "KLC validation" ? <KlcValidationEvidence key={check.label} component={component} historical={historical} /> : (
@@ -624,7 +630,7 @@ export function ReleaseReviewPanel({
           </div>
         </PanelCard>
 
-        <PanelCard title="Decision" description="Every approval, rejection, override, and release is recorded separately from the audit log.">
+        <PanelCard title="Decision">
           <div className="space-y-4">
             <DefinitionRows rows={[
               { label: "Current stage", value: WORKFLOW_LABELS[workflowStage(component)] },
@@ -641,16 +647,16 @@ export function ReleaseReviewPanel({
                   </Button>
                 ))}
               </div>
-            ) : <p className="text-xs text-muted-foreground">No transitions are available for your role from this stage.</p>}
+            ) : <p className="text-xs text-muted-foreground">No actions for your role</p>}
           </div>
         </PanelCard>
       </div>
 
-      <PanelCard title="Changes under review" description={component.parent_revision_id ? `Diff from parent to v${component.revision}.` : "The initial revision has no parent comparison."}>
-        {diffLoading ? <LoadingState label="Loading review evidence…" /> : diff ? <RevisionDiffView diff={diff} /> : <EmptyState icon={FileDiff} title="No parent revision" detail="This is the first immutable revision for the component." />}
+      <PanelCard title="Changes under review">
+        {diffLoading ? <LoadingState label="Loading review evidence…" /> : diff ? <RevisionDiffView diff={diff} /> : <EmptyState icon={FileDiff} title="No parent revision" />}
       </PanelCard>
 
-      <PanelCard title="Structured review record" description="Review decisions remain queryable without parsing generic activity logs.">
+      <PanelCard title="Structured review record">
         {activeReviews.length ? (
           <div className="divide-y divide-border">
             {activeReviews.map((review) => (
@@ -664,7 +670,7 @@ export function ReleaseReviewPanel({
               </div>
             ))}
           </div>
-        ) : <EmptyState icon={UserRoundCheck} title="No decisions yet" detail="The first review action for this revision will appear here." />}
+        ) : <EmptyState icon={UserRoundCheck} title="No decisions yet" />}
       </PanelCard>
 
       <ReleaseRecordsPanel releases={releases} reviews={reviews} />
@@ -683,7 +689,7 @@ export function WhereUsedPanel({ usage, projects }: { usage: CatalogComponentUsa
         <MetricCard label="Pinned revisions" value={usage.length} detail="Commit-specific usage records" />
         <MetricCard label="References" value={referenceCount} detail="Resolved schematic instances" />
       </div>
-      <PanelCard title="Project usage" description="Every record is pinned to the source commit used during import.">
+      <PanelCard title="Project usage">
         {usage.length ? (
           <div className="divide-y divide-border">
             {usage.map((entry) => (
@@ -704,10 +710,27 @@ export function WhereUsedPanel({ usage, projects }: { usage: CatalogComponentUsa
               </div>
             ))}
           </div>
-        ) : <EmptyState icon={Link2} title="No known usage" detail="Project imports will add commit-pinned references here. Absence is not proof that the part is unused outside Prism." />}
+        ) : <EmptyState icon={Link2} title="No known usage" />}
       </PanelCard>
     </div>
   );
+}
+
+// Only hash and sequence failures name an event; the other reasons name a
+// revision or asset record, or no record at all.
+function auditFailureDetail(verification: CatalogAuditVerification) {
+  switch (verification.reason) {
+    case "missing_audit_events":
+      return "No audit events recorded";
+    case "audit_head_mismatch":
+      return `Audit head does not match the anchored head: ${verification.anchored_head_hash || "none"}`;
+    case "revision_manifest_mismatch":
+      return `Revision manifest mismatch: ${verification.first_invalid_revision_id ?? ""}`;
+    case "asset_content_mismatch":
+      return `Asset file missing or changed: ${verification.first_invalid_asset_id ?? ""}`;
+    default:
+      return `First invalid event: ${verification.first_invalid_event_id}`;
+  }
 }
 
 export function AuditPanel({
@@ -730,13 +753,13 @@ export function AuditPanel({
             <p className="font-medium">{verification?.valid === false ? "Audit chain verification failed" : "Audit chain verified"}</p>
             <Badge variant={verification?.valid === false ? "destructive" : "outline"}>{verification?.verified_count ?? 0}/{verification?.event_count ?? events.length} events</Badge>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">{verification?.valid === false ? `First invalid event: ${verification.first_invalid_event_id}` : `Head SHA-256 ${verification?.head_hash || "No events"}`}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{verification?.valid === false ? auditFailureDetail(verification) : `Head SHA-256 ${verification?.head_hash || "No events"}`}</p>
         </div>
       </div>
 
       <ReleaseRecordsPanel releases={releases} reviews={reviews} title="Immutable release ledger" />
 
-      <PanelCard title="Tamper-evident activity" description="Each event includes the previous event hash, actor, exact revision, and structured details.">
+      <PanelCard title="Tamper-evident activity">
         {events.length ? (
           <ol className="space-y-0">
             {events.map((event, index) => {
@@ -761,7 +784,7 @@ export function AuditPanel({
               );
             })}
           </ol>
-        ) : <EmptyState icon={History} title="No audit events" detail="Finalized revisions and workflow changes will appear here." />}
+        ) : <EmptyState icon={History} title="No audit events" />}
       </PanelCard>
     </div>
   );

@@ -1,0 +1,791 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.bundle.manifest:a3",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.bundle.manifest.a3",
+            "description": "Schema id of this document. a1 had `schema: \"prism.bundle.manifest\"` plus `version: \"a1\"`; a2 added the stages; a3 adds `read_set`."
+        },
+        "generator": {
+            "$ref": "urn:prism:schema:prism.cli.version:a0",
+            "description": "The generator id: the `prism-kicad version` document, verbatim (ADR §5). Replaces a1's `created_by`, `design`, `materializer` and `kicad_cli_version`."
+        },
+        "revision_key": {
+            "$ref": "#/$defs/Sha256Hex",
+            "description": "The design revision key the bundle was built for (`RevisionKeyRecordA1.revision_key`, ADR §5), as the backend passed it with `--revision-key`; `<revision_key>` in the store path. Absent only for a bundle built without one (local and test builds, cli-spec.md §5.2.2); the backend always passes it. The archive may also serve other revision keys whose tree leaves `read_set` and the source members unchanged, through the backend's alias table (revision-key.md §10, ADR amendment K2 §3.6); this field always names the key it was built for, and a reader takes the revision it asked for from its request, never from here."
+        },
+        "bundle_key": {
+            "$ref": "#/$defs/Sha256Hex",
+            "description": "The bundle key, `SHA-256(\"prism.bundle_key.a0\" 0x00 revision_key 0x00 generator_bytes)` (cli-spec.md §5.1.4). Present exactly when `revision_key` is. Readers check it against the key they asked for."
+        },
+        "config": {
+            "$ref": "urn:prism:schema:prism.revision_key.effective_config:a1",
+            "description": "The effective project configuration the build used: the `--config` document (the one the revision key hashed), or, without `--config`, the default the CLI derived by KiCad's rule (`<stem>.kicad_sch` and `<stem>.kicad_pcb` beside the project file, no excluded directories). Its `project_file`, `root_schematic` and `board` name the files the bundle is about; their members are `sources/` followed by those paths. Replaces a1's `source_board`."
+        },
+        "board_id": {
+            "$ref": "#/$defs/BundleManifestBoardId",
+            "description": "Id of the bundle's one board in Simulation Studio references; always `main`. a1 field, unchanged."
+        },
+        "stages": {
+            "$ref": "#/$defs/BundleManifestStages",
+            "description": "Status and results of each stage."
+        },
+        "read_set": {
+            "$ref": "#/$defs/BundleManifestReadSet",
+            "description": "What stage parse looked at besides the source members (ADR amendment K2 §3.4)."
+        },
+        "members": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/BundleManifestMember"
+            },
+            "minItems": 1,
+            "description": "Every member except `bundle.json`, sorted by path in code point order (UTF-8 byte order); the archive's entries follow `bundle.json` in this order."
+        }
+    },
+    "required": [
+        "schema",
+        "generator",
+        "config",
+        "board_id",
+        "stages",
+        "read_set",
+        "members"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "`bundle.json`: the manifest of one design bundle, the first member of the\n`.prism` archive and the only one it does not list. It records what was\nbuilt (generator id, revision key, bundle key, effective configuration),\nthe state of every stage, and the role, stage, schema id, size and SHA-256\nof every other member. It is rewritten, with\nthe archive, at the end of each stage. It contains no wall-clock time,\nduration, host path, user or machine name.",
+    "title": "Bundle manifest a3",
+    "$defs": {
+        "Sha256Hex": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Lowercase hexadecimal SHA-256 digest: exactly 64 characters, no prefix such as `sha256:`."
+        },
+        "BundleManifestBoardId": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,79}$",
+            "description": "Id of a board inside a bundle, used by Simulation Studio in every\nreference (`board_id:refdes.pad`, `board_id:net`). The pattern is a1's\n`Slug` (sim: `contracts/contracts/common.tsp:7-9`). A bundle holds one\nboard and a2 producers always write `main` (sim:\n`src/prism-bundle/src/build.rs:34`)."
+        },
+        "BundleManifestStages": {
+            "type": "object",
+            "properties": {
+                "parse": {
+                    "$ref": "#/$defs/BundleManifestParseStage",
+                    "description": "Stage parse."
+                },
+                "board": {
+                    "$ref": "#/$defs/BundleManifestBoardStage",
+                    "description": "Stage board."
+                },
+                "models": {
+                    "$ref": "#/$defs/BundleManifestModelsStage",
+                    "description": "Stage models."
+                }
+            },
+            "required": [
+                "parse",
+                "board",
+                "models"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One record per stage of ADR §4.4. Readers use them to know which members exist, which will come and which never will (`bundle-format.md` §3.3)."
+        },
+        "BundleManifestReadSet": {
+            "type": "object",
+            "properties": {
+                "probes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BundleManifestProbe"
+                    },
+                    "description": "Every probe, sorted by `path` in code point order, without duplicates."
+                },
+                "listings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BundleManifestListing"
+                    },
+                    "description": "Every listing, sorted by `directory`, then by `suffixes` (compared element by element), without duplicates."
+                },
+                "gitlinks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BundleManifestGitlink"
+                    },
+                    "description": "Every gitlink a source member, probe or listing reached into, sorted by `path`, without duplicates."
+                }
+            },
+            "required": [
+                "probes",
+                "listings",
+                "gitlinks"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "What stage parse looked at besides the files it read, which are the\nsource members (ADR amendment K2 §3.3–§3.4). A stored bundle serves another\nrevision key of the same project, configuration and generator when every\nsource member's key entry, every probe and every listing is the same in\nthat key's tree (`prism-kicad bundle reuse`, cli-spec.md §5.10). Written at\nthe end of stage parse and copied unchanged by later stages."
+        },
+        "BundleManifestMember": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "$ref": "#/$defs/ArchivePath",
+                    "description": "Archive path, unique within the bundle. Its form is fixed by `role` (`bundle-format.md` §2)."
+                },
+                "role": {
+                    "$ref": "#/$defs/BundleManifestMemberRole",
+                    "description": "What the member is."
+                },
+                "stage": {
+                    "$ref": "#/$defs/BundleManifestStage",
+                    "description": "The stage that wrote the member: always the stage of its role."
+                },
+                "sha256": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "SHA-256 of the member's uncompressed bytes."
+                },
+                "bytes": {
+                    "$ref": "#/$defs/ByteCount",
+                    "description": "Size of the member's uncompressed bytes."
+                },
+                "member_schema": {
+                    "$ref": "#/$defs/SchemaId",
+                    "description": "Schema id of a structured member: present exactly when `role` is\n`design`, `materialization` or `projection`, and then equal both to the\n`schema` value inside the member and to the id `generator.member_schemas`\ngives for this path (for example `kicad_monkey.design.a0`,\n`kicad_monkey.materialization.a0`, `prism.stackup.a0`). Absent for every\nother role. Readers validate a JSON member against the JSON Schema\nregistered under this id, when there is one."
+                },
+                "source": {
+                    "$ref": "#/$defs/BundleManifestSourceEntry",
+                    "description": "The revision-key entry of a source member. Present exactly when `role` is a `source-*` role."
+                }
+            },
+            "required": [
+                "path",
+                "role",
+                "stage",
+                "sha256",
+                "bytes"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One archive member other than `bundle.json` itself, which is never listed and never hashed by the manifest."
+        },
+        "BundleManifestParseStage": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "$ref": "#/$defs/BundleManifestStageStatus",
+                    "description": "`complete`, `partial` or `failed`; never `pending` or `skipped`, because an archive is first written at the end of this stage."
+                },
+                "error": {
+                    "$ref": "#/$defs/CliFinding",
+                    "description": "The content error that stopped the stage, with the source location when known (for example code `source-unparseable` at `sources/<sheet>.kicad_sch`, line and column; codes in cli-spec.md §8). Present exactly when `status` is `failed`. The CLI's build result repeats it verbatim (`CliStageState.error`)."
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/Warning"
+                    },
+                    "description": "Non-fatal findings of the parse and of the projection producers, sorted by code, then message, in code point order; no two entries are equal."
+                },
+                "failed_members": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BundleManifestMemberFailure"
+                    },
+                    "description": "Derived members of the stage (`design.json`, projections) whose producer failed on this project (codes `design-build-failed`, `projection-failed`), sorted by path in code point order. Non-empty exactly when `status` is `partial`."
+                }
+            },
+            "required": [
+                "status",
+                "warnings",
+                "failed_members"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Stage parse: the source members, `design.json` and every projection."
+        },
+        "BundleManifestBoardStage": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "$ref": "#/$defs/BundleManifestStageStatus",
+                    "description": "`pending`, `complete`, `partial` (the materializer failed; the refilled board, if any, stays) or `skipped`."
+                },
+                "skip_reason": {
+                    "$ref": "#/$defs/BundleManifestSkipReason",
+                    "description": "Why the stage never runs. Present exactly when `status` is `skipped`."
+                },
+                "error": {
+                    "$ref": "#/$defs/CliFinding",
+                    "description": "The content error that stopped the stage, with its location when known. Present exactly when `status` is `failed`. The CLI's build result repeats it verbatim (`CliStageState.error`)."
+                },
+                "fill_provenance": {
+                    "$ref": "#/$defs/BundleManifestFillProvenance",
+                    "description": "Where the materialized board's zone fills came from: `saved` exactly when `config.zone_fills` is `saved`, else `refilled`. Present exactly when `status` is `complete` or `partial`."
+                },
+                "fill_check": {
+                    "$ref": "#/$defs/BundleManifestFillCheck",
+                    "description": "The committed board's saved fills compared with the refill. Present exactly when the `materialization` member is present and `fill_provenance` is `refilled`. A refill is always made by `generator.refill_procedure` with a KiCad of `generator.kicad_version`'s major.minor; with saved fills no refill and no comparison run (cli-spec.md §5.2.3)."
+                },
+                "cross_check": {
+                    "$ref": "#/$defs/BundleManifestCrossCheck",
+                    "description": "The binding table checked against `design.json`. Present exactly when the `materialization` member is present."
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/Warning"
+                    },
+                    "description": "Non-fatal findings of the stage (`stale-saved-fills`, `kicad-default-stackup`, and `saved-fills-used` exactly when `fill_provenance` is `saved`), sorted by code, then message, in code point order; no two entries are equal. The cross-check's own findings are only in `cross_check`."
+                },
+                "failed_members": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BundleManifestMemberFailure"
+                    },
+                    "description": "Members of the stage whose producer failed on this project, sorted by path in code point order; only `materialization/board.kmpack` (code `materialization-failed`) can be listed, and the refilled board, if any, stays. Non-empty exactly when `status` is `partial`."
+                }
+            },
+            "required": [
+                "status",
+                "warnings",
+                "failed_members"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Stage board: the zone refill (unless the config says saved fills), the materialization and the cross-check."
+        },
+        "BundleManifestModelsStage": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "$ref": "#/$defs/BundleManifestStageStatus",
+                    "description": "`pending`, `complete` or `skipped`: the stage only checks, canonicalizes and copies files the backend produced, so it has no content failure in a2 (cli-spec.md §5.2.4)."
+                },
+                "skip_reason": {
+                    "$ref": "#/$defs/BundleManifestSkipReason",
+                    "description": "Why the stage never runs. Present exactly when `status` is `skipped`."
+                },
+                "error": {
+                    "$ref": "#/$defs/CliFinding",
+                    "description": "The content error that stopped the stage. Present exactly when `status` is `failed`, which stage models does not reach in a2; present in the model so the three stage records share one shape."
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/Warning"
+                    },
+                    "description": "Non-fatal findings of the stage, sorted by code, then message, in code point order; no two entries are equal."
+                },
+                "failed_members": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BundleManifestMemberFailure"
+                    },
+                    "description": "Members of the stage whose producer failed on this project, sorted by path in code point order. Always empty in a2 (see `status`); present so all three stage records share `status`, `skip_reason`, `error`, `warnings` and `failed_members`, which K's readiness code reads generically."
+                }
+            },
+            "required": [
+                "status",
+                "warnings",
+                "failed_members"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Stage models: the KiCad component GLB."
+        },
+        "BundleManifestProbe": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "The repository path asked about."
+                },
+                "present": {
+                    "type": "boolean",
+                    "description": "Whether the path was in the source set."
+                }
+            },
+            "required": [
+                "path",
+                "present"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A path stage parse asked about without reading it: a `read` that found no\nsuch file in the source set, or an existence test (ADR amendment K2 §3.1)."
+        },
+        "BundleManifestListing": {
+            "type": "object",
+            "properties": {
+                "directory": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/RepoPath"
+                        },
+                        {
+                            "type": "string",
+                            "const": ""
+                        }
+                    ],
+                    "description": "The directory listed: a repository path, or `\"\"` for the repository root. A path is under it when it starts with `directory` + `/`."
+                },
+                "suffixes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BundleManifestListingSuffix"
+                    },
+                    "description": "The suffixes, sorted in code point order, without duplicates; empty for every name."
+                },
+                "paths": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/RepoPath"
+                    },
+                    "description": "The paths the listing returned, sorted in code point order."
+                }
+            },
+            "required": [
+                "directory",
+                "suffixes",
+                "paths"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One directory listing stage parse made: the source-set paths under\n`directory`, at any depth, whose name, lowered in ASCII, ends with one of\n`suffixes` (any name when `suffixes` is empty)."
+        },
+        "BundleManifestGitlink": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "The gitlink entry's repository path."
+                },
+                "commit": {
+                    "$ref": "#/$defs/GitObjectId",
+                    "description": "The commit the gitlink records, as in the revision key's entry."
+                }
+            },
+            "required": [
+                "path",
+                "commit"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A submodule stage parse looked into: a source member inside it, or a probe\nor listing that reaches into it. Its commit pins every file below it, so\nthe read set holds below `path` exactly when the commit is the same."
+        },
+        "ArchivePath": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*$",
+            "description": "Path of a member inside a `.prism` bundle archive: `/`-separated, relative,\nno empty, `.` or `..` segment, no leading or trailing `/`, no backslash and\nno `:`. The same rule as manifest a1's ArchivePath and prism-bundle's\n`check_member_name`, without lookaround."
+        },
+        "BundleManifestMemberRole": {
+            "type": "string",
+            "enum": [
+                "source-project",
+                "source-schematic",
+                "source-board",
+                "source-design-rules",
+                "source-worksheet",
+                "source-jobset",
+                "source-library-table",
+                "source-symbol-library",
+                "source-footprint",
+                "source-3d-model",
+                "source-prism-settings",
+                "design",
+                "projection",
+                "refilled-board",
+                "materialization",
+                "component-models",
+                "assembly-hlr"
+            ],
+            "description": "What a member is. Every member has exactly one role, and the role fixes\nthe stage that writes it and the form of its archive path\n(`bundle-format.md` §2). A source member's role is its category in the\nrevision key's source selection (`RevisionKeySourceCategory`,\nrevision-key-a1.tsp), mapped one to one as listed below. Files inside an\nexpanded gitlink take the role the same rules give their name. Symlinks and\ngitlinks themselves are never members (cli-spec.md §9.1)."
+        },
+        "BundleManifestStage": {
+            "type": "string",
+            "enum": [
+                "parse",
+                "board",
+                "models"
+            ],
+            "description": "A stage of the design-bundle job (ADR §4.4), in pipeline order. Each stage runs only after the one before it (`bundle-format.md` §3)."
+        },
+        "ByteCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A size in bytes: a non-negative safe integer."
+        },
+        "SchemaId": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+\\.[av][0-9]+$",
+            "description": "Id of a JSON document schema, `<family>.<name>.<version>`: for example\n`prism.stackup.a0`, `prism.bundle.manifest.a2`, `prism.system_interface.v1`\nor `kicad_monkey.design.a0`. Lowercase, dot-separated, ending in the\nversion (`a<N>` while pre-stable, `v<N>` once stable)."
+        },
+        "BundleManifestSourceEntry": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "The file's repository path: the member's `path` without the leading `sources/`."
+                },
+                "kind": {
+                    "$ref": "#/$defs/RevisionKeyEntryKind",
+                    "description": "The entry kind, `regular` or `executable` (symlinks and gitlinks are never members)."
+                },
+                "object_id": {
+                    "$ref": "#/$defs/GitObjectId",
+                    "description": "The blob id git records for the file, in the repository's object format. For a Git LFS file it is the committed pointer's blob id, as in the key, while the member holds the hydrated bytes."
+                },
+                "gitlink": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "For a file inside a submodule: the path of the key's gitlink entry that\npins it, and `object_id` is the file's blob id in the commit that gitlink\nrecords. Absent otherwise, and then `path`, `kind` and `object_id` equal\none entry of the key (`RevisionKeyRecordA1.entries`)."
+                },
+                "upgraded_from_version": {
+                    "type": "integer",
+                    "description": "The `(version …)` of the committed file when K upgraded it to the worker\nKiCad's format before stage parse (bundle-format.md §2.2): the member\nthen holds KiCad's upgrade of the blob `object_id` names. Absent when the\nfile was used as committed."
+                }
+            },
+            "required": [
+                "path",
+                "kind",
+                "object_id"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The revision-key entry a source member comes from (revision-key.md §12,\nQ3). `sources/**` holds the closure the build read, and each of its\nmembers names the key entry that pins its bytes."
+        },
+        "BundleManifestStageStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "complete",
+                "partial",
+                "failed",
+                "skipped"
+            ],
+            "description": "Where a stage stands in this archive. `pending` is the only non-final\nvalue. Once a stage of a stored bundle is final, its record and its members\nnever change for that bundle key: the backend never re-runs a final stage\n(the CLI could, and would rebuild the same bytes, cli-spec.md §5.2.1).\n`bundle-format.md` §3.1 lists which statuses each stage can reach."
+        },
+        "CliFinding": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/$defs/DiagnosticCode",
+                    "description": "Stable code (cli-spec.md §8) that tools and tests match on."
+                },
+                "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "One-sentence explanation for people. It never contains a host path; its wording may change between versions."
+                },
+                "location": {
+                    "$ref": "#/$defs/CliLocation",
+                    "description": "Where the finding is, when known."
+                }
+            },
+            "required": [
+                "code",
+                "message"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A finding with a stable code, a message for people and an optional location."
+        },
+        "Warning": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/$defs/DiagnosticCode",
+                    "description": "Stable code that tools and tests match on."
+                },
+                "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "One-sentence explanation for people; its wording may change between versions."
+                }
+            },
+            "required": [
+                "code",
+                "message"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A finding with a stable code and a human-readable message. Whether it is a\nwarning or an error is given by the array that holds it. Field names are\nthe same in snake_case and camelCase documents."
+        },
+        "BundleManifestMemberFailure": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "$ref": "#/$defs/ArchivePath",
+                    "description": "Archive path the member would have had. It is not in `members`."
+                },
+                "code": {
+                    "$ref": "#/$defs/DiagnosticCode",
+                    "description": "Stable code of the failure, for example `projection-failed` (`bundle-format.md` §3.2)."
+                },
+                "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "One-sentence explanation for people; its wording may change between generators. It never contains a host path."
+                }
+            },
+            "required": [
+                "path",
+                "code",
+                "message"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A member that applies to this project but whose producer failed on the project's content."
+        },
+        "BundleManifestSkipReason": {
+            "type": "string",
+            "enum": [
+                "no-board",
+                "earlier-stage-failed"
+            ],
+            "description": "Why a stage is skipped. The values are the CLI's `CliSkipReason` (`cli-a0.tsp`)."
+        },
+        "BundleManifestFillProvenance": {
+            "type": "string",
+            "enum": [
+                "refilled",
+                "saved"
+            ],
+            "description": "Where the zone fills of the materialized board came from. The value\nfollows `config.zone_fills`, which is in the revision key, so a bundle key\nhas exactly one (cli-spec.md §5.2.3). a1's `fill_provenance` values\n(sim: `contracts/contracts/bundle.tsp:41-47`), unchanged."
+        },
+        "BundleManifestFillCheck": {
+            "type": "object",
+            "properties": {
+                "saved_operations": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Zone-fill operations materialized from the committed board's saved fills."
+                },
+                "refilled_operations": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Zone-fill operations materialized from the refilled board."
+                },
+                "differing_operations": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Zone-fill operations present in one board and not the other."
+                },
+                "stale": {
+                    "type": "boolean",
+                    "description": "True exactly when `differing_operations` is not 0; stage board then also has the warning `stale-saved-fills`."
+                }
+            },
+            "required": [
+                "saved_operations",
+                "refilled_operations",
+                "differing_operations",
+                "stale"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Saved zone fills compared with a fresh refill. a1 model, unchanged (sim: `src/prism-bundle/src/build.rs:248-268`)."
+        },
+        "BundleManifestCrossCheck": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "$ref": "#/$defs/BundleManifestCrossCheckStatus",
+                    "description": "Overall result."
+                },
+                "components_compared": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Reference designators present on both the board and the design."
+                },
+                "pads_compared": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Pads on a net that were compared with their pins."
+                },
+                "nets_compared": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Distinct board nets on the compared pads."
+                },
+                "mappings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/BundleManifestCrossCheckMapping"
+                    },
+                    "description": "Accepted renames, sorted by kind, then board, then design, in code point order; no two entries are equal."
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/Warning"
+                    },
+                    "description": "Findings that do not gate simulation (codes `pin-missing-from-board`, `board-only-component`, `board-net-not-in-schematic`, `schematic-net-not-on-board`), sorted by code, then message, in code point order; no two entries are equal."
+                },
+                "errors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/Warning"
+                    },
+                    "description": "Findings that gate simulation (codes `component-missing-from-schematic`, `component-missing-from-board`, `pad-missing-from-schematic`, `net-mismatch`), sorted by code, then message, in code point order; no two entries are equal. Non-empty exactly when `status` is `failed`."
+                }
+            },
+            "required": [
+                "status",
+                "components_compared",
+                "pads_compared",
+                "nets_compared",
+                "mappings",
+                "warnings",
+                "errors"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The binding table of the materialization checked against `design.json`:\nreference designators, pad numbers and the net of every pad (sim:\n`src/prism-bundle/src/crosscheck.rs:1-45`). It never stops the build;\n`failed` and `skipped` gate simulation only (ref:\n`backend/app/services/project_bundle.py:149-161`, sim:\n`src/sim-worker/src/main.rs:101-122`)."
+        },
+        "RepoPath": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*$",
+            "description": "Repository-relative POSIX path, exactly as `git ls-tree` names the entry:\n`/`-separated, case preserved, no leading `/`, no empty, `.` or `..`\nsegment, no backslash and no `:`. The same character rule as ArchivePath.\nIt is the only path type in bundle documents: a file has one spelling\nwhichever project in the repository refers to it, and a file outside the\nproject directory needs no `..`."
+        },
+        "BundleManifestListingSuffix": {
+            "type": "string",
+            "pattern": "^\\.[a-z0-9._-]{1,63}$",
+            "description": "A suffix a listing selected by, as the revision key's name rules write\none: a lowercase ASCII name ending that starts with `.` (revision-key.md\n§5.2)."
+        },
+        "GitObjectId": {
+            "type": "string",
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+            "description": "Git object id in lowercase hexadecimal: 40 characters in a SHA-1\nrepository, 64 in a SHA-256 repository. Used for commit ids and blob ids."
+        },
+        "RevisionKeyEntryKind": {
+            "type": "string",
+            "enum": [
+                "regular",
+                "executable",
+                "symlink",
+                "gitlink"
+            ],
+            "description": "Kind of a source-set entry, fixed by its git tree mode and object type. The\nhashed framing spells each kind as git does (revision-key.md, \"Hashing\")."
+        },
+        "DiagnosticCode": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+            "description": "Stable machine-readable code of a finding, in lowercase kebab-case, for\nexample `stale-saved-fills` or `net-mismatch`. A code never changes meaning\nonce published; a new meaning gets a new code."
+        },
+        "CliLocation": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "$ref": "#/$defs/ArchivePath",
+                    "description": "The file, named by the path it has as a bundle member, whether or not a\nbundle has been written yet: `sources/<RepoPath>` for a source file,\n`refilled/<board file name>` for the `--refilled-board` input (refill mode only),\n`viewer/models/components.glb` for the `--models-glb` input,\nthe member path itself for a member of an existing bundle. Absent when the finding\nis about an argument file that is not a member (`--config`) or about no\nfile at all."
+                },
+                "line": {
+                    "$ref": "#/$defs/CliOneBased",
+                    "description": "One-based line of the finding in a text file."
+                },
+                "column": {
+                    "$ref": "#/$defs/CliOneBased",
+                    "description": "One-based column, counted in Unicode scalar values, on `line`."
+                },
+                "offset": {
+                    "$ref": "#/$defs/ByteCount",
+                    "description": "Zero-based byte offset of the finding from the start of the file."
+                },
+                "pointer": {
+                    "$ref": "#/$defs/CliJsonPointer",
+                    "description": "JSON Pointer to the value in a JSON file (a `.kicad_pro`, `--config`, or a JSON member)."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "UUID of the KiCad object the finding is about, as written in the file."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Where a finding is. Every field is optional; a field is present only when\nit is known. The field names are single words so the model can move to\ncommon.tsp unchanged and serve camelCase documents too."
+        },
+        "Count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A count of things: a non-negative safe integer."
+        },
+        "BundleManifestCrossCheckStatus": {
+            "type": "string",
+            "enum": [
+                "passed",
+                "passed-with-warnings",
+                "failed",
+                "skipped"
+            ],
+            "description": "Overall result of the cross-check. a1 values, unchanged (sim: `src/prism-bundle/src/crosscheck.rs:143-155`)."
+        },
+        "BundleManifestCrossCheckMapping": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "$ref": "#/$defs/BundleManifestCrossCheckMappingKind",
+                    "description": "Why the names are accepted as equal."
+                },
+                "board": {
+                    "$ref": "#/$defs/NetName",
+                    "description": "The net's name in the materialized board."
+                },
+                "design": {
+                    "$ref": "#/$defs/NetName",
+                    "description": "The net's name in `design.json`."
+                }
+            },
+            "required": [
+                "kind",
+                "board",
+                "design"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Two net names the cross-check accepted as the same net."
+        },
+        "CliOneBased": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "A one-based line or column number."
+        },
+        "CliJsonPointer": {
+            "type": "string",
+            "pattern": "^(/([^~/]|~[01])*)*$",
+            "description": "A JSON Pointer (RFC 6901) into a JSON file: empty for the whole document,\notherwise `/`-separated reference tokens with `~0` for `~` and `~1` for `/`."
+        },
+        "KiCadUuid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "KiCad object UUID in the canonical form KiCad writes (`KIID::AsString`):\nlowercase hexadecimal, 8-4-4-4-12. Copied from the file, never generated\nor re-cased."
+        },
+        "BundleManifestCrossCheckMappingKind": {
+            "type": "string",
+            "enum": [
+                "single-pin-net-name",
+                "same-pins-net-name",
+                "split-net"
+            ],
+            "description": "Why the cross-check accepted two different net names as one net (sim: `src/prism-bundle/src/crosscheck.rs:29-42`)."
+        },
+        "NetName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "KiCad full net name as KiCad resolves it, including the sheet path prefix\nof a local net (`/Power/VBUS`), a global name (`GND`) or a generated name\n(`Net-(R1-Pad2)`, `unconnected-(U1-PA0-Pad3)`). \"No net\" is expressed by\nomitting the field, never by an empty name."
+        }
+    }
+}

@@ -7,6 +7,9 @@ services:
     container_name: kicad-prism-postgres
     restart: unless-stopped
     shm_size: 256mb
+    # Loaded so the ops get_slow_queries diagnostic can read query timings
+    # (ADR §11, D25). Removing it only makes that tool report available=false.
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=top"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-kicad_prism}
       POSTGRES_USER: ${POSTGRES_USER:-kicad_prism}
@@ -129,8 +132,8 @@ services:
       frontend:
         condition: service_healthy
     ports:
-      - "80:80"
-      - "443:443"
+      - "${PRISM_CADDY_HTTP_PORT:-80}:80"
+      - "${PRISM_CADDY_HTTPS_PORT:-443}:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./certs:/certs:ro

@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -16,14 +14,13 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.trackers.contracts import Destination  # noqa: E402
 from app.services.trackers.errors import ProviderError  # noqa: E402
 from app.services.trackers.github_auth import GitHubAppAuth, GitHubAppCredentials  # noqa: E402
 from app.services.trackers.github_issues import GitHubIssueAdapter  # noqa: E402
 from app.services.trackers.github_recovery import (  # noqa: E402
     RecoveryKind,
-    make_issue_page_fetcher,
+    RecoveryCandidate,
     next_quarantine_at,
     quarantine_delay_minutes,
     recover_create_issue,
@@ -32,15 +29,14 @@ from app.services.trackers.github_recovery import (  # noqa: E402
     scan_issue_pages,
 )
 from app.services.trackers.http import TrackerHttp  # noqa: E402
-from app.services.trackers.inbox_store import InboxStore, apply_schema as apply_inbox_schema  # noqa: E402
+from app.services.trackers.inbox_store import InboxStore  # noqa: E402
 from app.services.trackers.markers import (  # noqa: E402
     build_marker,
     extract_markers,
     parse_marker,
     validate_marker,
 )
-from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
-from app.services.trackers.op_store import OpStore, apply_schema as apply_op_schema  # noqa: E402
+from app.services.trackers.op_store import OpStore  # noqa: E402
 from app.services.trackers.scheduler import (  # noqa: E402
     DISPATCH_KIND,
     hints_applier_mounted,
@@ -49,6 +45,7 @@ from app.services.trackers.scheduler import (  # noqa: E402
     schedule_due_tracker_jobs,
 )
 from app.services.trackers.store import TrackerStore  # noqa: E402
+from support.postgres import requires_scratch_postgres, tracker_schema, seed_comment  # noqa: E402
 
 try:
     import psycopg
@@ -61,8 +58,6 @@ DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 F4 = json.loads((DOCS / "fixtures" / "F04.json").read_text(encoding="utf-8"))
 F5 = json.loads((DOCS / "fixtures" / "F05.json").read_text(encoding="utf-8"))
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 API = "https://api.github.com"
 REPO = "acme/openswitch"
 DEST = Destination(
@@ -83,22 +78,6 @@ MARKER = build_marker(
     comment_id=COMMENT_ID,
     op_id=OP_ID,
 )
-def _identity(url: str):
-    from urllib.parse import urlsplit
-
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 class _Raw:
@@ -145,14 +124,20 @@ def _issue_payload(*, number=412, issue_id=198400412, body=None, user_id=BOT_ID,
     }
 
 
+def _candidate(**kwargs) -> RecoveryCandidate:  # noqa: ANN003
+    """The recovery view of ``_issue_payload`` an adapter's issue pages yield."""
+
+    item = _issue_payload(**kwargs)
+    return RecoveryCandidate(
+        external_id=str(item["id"]),
+        number=item["number"],
+        url=item["html_url"],
+        body=item["body"],
+        author_id=str(item["user"]["id"]),
+    )
+
+
 class MarkerTests(unittest.TestCase):
-    def test_fixture_cases_are_present(self) -> None:
-        ids = {case["id"] for case in F4["cases"]}
-        self.assertIn("F4.copied_marker", ids)
-        self.assertIn("F4.forged_marker", ids)
-        f5_ids = {case["id"] for case in F5["cases"]}
-        self.assertIn("F5.incomplete_scan_no_advance", f5_ids)
-        self.assertIn("F5.labels_removed_before_scan", f5_ids)
 
     def test_build_parse_and_validate_round_trip(self) -> None:
         text = build_marker(
@@ -222,7 +207,7 @@ class RecoveryScanTests(unittest.TestCase):
     def test_labels_removed_issue_is_still_found(self) -> None:  # F5.labels_removed_before_scan
         pages = {
             None: (
-                [_issue_payload(number=412, labels=[])],
+                [_candidate(number=412, labels=[])],
                 None,
             )
         }
@@ -245,7 +230,7 @@ class RecoveryScanTests(unittest.TestCase):
     def test_copied_marker_issue_is_ignored_with_audit(self) -> None:  # F4.copied_marker
         pages = {
             None: (
-                [_issue_payload(number=500, issue_id=500, user_id=HUMAN_ID, body=f"copied\n{MARKER}")],
+                [_candidate(number=500, issue_id=500, user_id=HUMAN_ID, body=f"copied\n{MARKER}")],
                 None,
             )
         }
@@ -276,7 +261,7 @@ class RecoveryScanTests(unittest.TestCase):
         def fetch(cursor):  # noqa: ANN001
             calls["n"] += 1
             if cursor is None:
-                return ([_issue_payload(number=1, issue_id=1, body="no marker")], "page-2")
+                return ([_candidate(number=1, issue_id=1, body="no marker")], "page-2")
             raise ProviderError("transient", "upstream 502", status=502)
 
         outcome = scan_issue_pages(
@@ -295,8 +280,8 @@ class RecoveryScanTests(unittest.TestCase):
         pages = {
             None: (
                 [
-                    _issue_payload(number=412, issue_id=412, body=f"a\n{MARKER}"),
-                    _issue_payload(number=413, issue_id=413, body=f"b\n{MARKER}"),
+                    _candidate(number=412, issue_id=412, body=f"a\n{MARKER}"),
+                    _candidate(number=413, issue_id=413, body=f"b\n{MARKER}"),
                 ],
                 None,
             )
@@ -324,7 +309,7 @@ class RecoveryScanTests(unittest.TestCase):
         )
         self.assertEqual(first.kind, RecoveryKind.NOT_FOUND)
         second = scan_issue_pages(
-            lambda _cursor: ([_issue_payload()], None),
+            lambda _cursor: ([_candidate()], None),
             marker_text=MARKER,
             connector_id=DEST.connectorId,
             container_id=DEST.remoteContainerId,
@@ -417,7 +402,7 @@ class GitHubAdapterRecoveryTests(unittest.TestCase):
             op,
             dest=DEST,
             comment_id=COMMENT_ID,
-            fetch_page=make_issue_page_fetcher(adapter, DEST, since="2026-09-20T14:50:00Z"),
+            fetch_page=adapter.recovery_issue_pages(DEST, since="2026-09-20T14:50:00Z"),
             bot_user_id=BOT_ID,
         )
         self.assertEqual(outcome.kind, RecoveryKind.FOUND)
@@ -453,60 +438,17 @@ class FakeJobs:
         return job
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class RecoveryPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
         reset_scheduler_throttle()
         mount_hints_applier(True)
-        self.schema = f"tr18_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self.conn.execute(
-            """
-            CREATE TABLE comments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                status TEXT NOT NULL DEFAULT 'OPEN',
-                context TEXT NOT NULL DEFAULT 'PCB',
-                location_x REAL NOT NULL DEFAULT 0,
-                location_y REAL NOT NULL DEFAULT 0,
-                location_layer TEXT NOT NULL DEFAULT '',
-                location_page TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT ''
-            );
-            CREATE TABLE comment_replies (
-                id TEXT PRIMARY KEY,
-                comment_id TEXT NOT NULL REFERENCES comments(id),
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                content TEXT NOT NULL DEFAULT ''
-            );
-            """,
-            prepare=False,
-        )
-        comments_schema_migrations.apply_comments_migrations(self.conn)
-        migrate_workspace_tracker_tables(self.conn)
-        apply_op_schema(self.conn)
-        apply_inbox_schema(self.conn)
-        self.conn.commit()
+        self.scratch = tracker_schema(self, "tr18")
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
         self.store = TrackerStore(self.conn)
         self.ops = OpStore(self.conn)
         self.inbox = InboxStore(self.conn)
         self.jobs = FakeJobs()
-
-    def _cleanup(self) -> None:
-        try:
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
 
     @staticmethod
     @contextmanager
@@ -530,10 +472,7 @@ class RecoveryPostgresTests(unittest.TestCase):
             remote_container_id=DEST.remoteContainerId,
             generation=1,
         )
-        self.conn.execute(
-            "INSERT INTO comments(id, project_id, author, content) VALUES (%s,%s,%s,%s)",
-            (COMMENT_ID, "proj_1", "Priya", "stub"),
-        )
+        seed_comment(self.conn, COMMENT_ID, "proj_1", author="Priya", content="stub")
         self.store.insert_thread(
             thread_id="thr_1",
             comment_id=COMMENT_ID,

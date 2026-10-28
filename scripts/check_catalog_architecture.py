@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 """Check the catalog decomposition guardrails.
 
-This is intentionally a small, dependency-free static check.  PR 1 does not
-move catalog behavior yet; it makes the two contracts that make later moves
-safe observable instead:
+This is intentionally a small, dependency-free static check.  It makes the two
+contracts that make catalog moves safe observable:
 
 * code added below ``app.services.catalog`` cannot import the legacy catalog
   facades or domain module; and
 * private catalog members used outside their implementation modules are
   tracked by a stable path/symbol/count ratchet.
 
-The same command also enforces the production-module line policy.  The
-oversized modules that predate this check are grandfathered in the JSON
-baseline at their current line count.  A grandfathered file may shrink, but
-never grow.
+The production-module line policy is a separate gate,
+``scripts/check_module_size.py``; both keep their ratchets in
+``scripts/catalog_architecture_baseline.json`` (``architecture_baseline.py``).
 
 Usage::
 
@@ -21,10 +19,9 @@ Usage::
     python3 scripts/check_catalog_architecture.py --update-baseline
 
 ``--update-baseline`` is deliberately explicit.  It records only private-use
-reductions/removals and lower or removed ceilings for already-grandfathered
-modules.  New or increased private uses, import-boundary violations, newly
-oversized modules, and module growth beyond an existing ceiling are refused;
-the option is not part of the normal CI command.
+reductions/removals and leaves the module-line ceilings as they are.  New or
+increased private uses and import-boundary violations are refused; the option
+is not part of the normal CI command.
 """
 
 from __future__ import annotations
@@ -33,17 +30,22 @@ import argparse
 import ast
 from collections import Counter
 from dataclasses import dataclass, field
-import json
-import os
 from pathlib import Path
-import subprocess
 import sys
 from typing import Iterable, Iterator, Mapping, Sequence
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from architecture_baseline import (  # noqa: E402
+    BASELINE_FILENAME,
+    describe_path,
+    load_baseline,
+    load_baseline_at_ref,
+    write_baseline,
+)
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-BASELINE_FILENAME = "catalog_architecture_baseline.json"
-DEFAULT_BASELINE_PATH = Path(__file__).resolve().with_name(BASELINE_FILENAME)
 
 LEGACY_CATALOG_MODULES = frozenset(
     {
@@ -53,9 +55,6 @@ LEGACY_CATALOG_MODULES = frozenset(
     }
 )
 CATALOG_PACKAGE = "app.services.catalog"
-MAX_PRODUCTION_MODULE_LINES = 1200
-MAX_CATALOG_FACADE_LINES = 500
-BASELINE_VERSION = 1
 
 
 def _is_private_name(name: str) -> bool:
@@ -683,270 +682,17 @@ def private_catalog_uses(
     ]
 
 
-def _is_excluded_from_size_check(path: Path) -> bool:
-    parts = set(path.parts)
-    if parts & {"tests", "fixtures", "generated", "__pycache__", "vendor"}:
-        return True
-    name = path.name.lower()
-    return (
-        name.startswith(("test_", "generated_"))
-        or name.endswith(("_test.py", "_generated.py", ".generated.py"))
-    )
-
-
-def _production_python_files(repo_root: Path) -> Iterator[Path]:
-    roots = (repo_root / "backend" / "app", repo_root / "scripts")
-    paths: list[Path] = []
-    for root in roots:
-        if not root.is_dir():
-            continue
-        paths.extend(path for path in root.rglob("*.py") if not _is_excluded_from_size_check(path))
-    yield from sorted(set(paths), key=lambda item: item.as_posix())
-
-
-def _catalog_facade_path(path: Path, repo_root: Path) -> bool:
-    try:
-        relative = path.resolve().relative_to(
-            (repo_root / "backend" / "app" / "services" / "catalog").resolve()
-        )
-    except ValueError:
-        return False
-    return any(token in path.stem.casefold() for token in ("facade", "composition", "orchestrator"))
-
-
-def module_line_counts(repo_root: Path = REPO_ROOT) -> dict[str, int]:
-    """Return physical line counts for production Python modules."""
-
-    return {
-        _path_key(path, repo_root): len(path.read_text(encoding="utf-8").splitlines())
-        for path in _production_python_files(repo_root)
-    }
-
-
-def module_size_failures(
-    repo_root: Path = REPO_ROOT,
-    ceilings: Mapping[str, int] | None = None,
-) -> list[str]:
-    """Return actionable failures for the production-module line policy."""
-
-    ceilings = ceilings or {}
-    failures: list[str] = []
-    for relative, line_count in module_line_counts(repo_root).items():
-        path = repo_root / relative
-        if _catalog_facade_path(path, repo_root):
-            limit = MAX_CATALOG_FACADE_LINES
-            label = "catalog facade/composition/orchestrator limit"
-        else:
-            limit = int(ceilings.get(relative, MAX_PRODUCTION_MODULE_LINES))
-            label = "grandfather ceiling" if relative in ceilings else "production-module limit"
-        if line_count > limit:
-            failures.append(f"{relative}: {line_count} physical lines exceeds {label} of {limit}")
-    return failures
-
-
-def module_size_update_failures(
-    repo_root: Path,
-    ceilings: Mapping[str, int],
-) -> list[str]:
-    """Return only failures that make a baseline update unsafe.
-
-    Update mode may lower or remove ceilings that already exist, but it may not
-    add a ceiling for a new oversized module.  Existing ceiling growth and the
-    stricter catalog facade limit remain hard failures even in update mode.
-    """
-
-    failures: list[str] = []
-    for relative, line_count in module_line_counts(repo_root).items():
-        path = repo_root / relative
-        if _catalog_facade_path(path, repo_root):
-            limit = MAX_CATALOG_FACADE_LINES
-            label = "catalog facade/composition/orchestrator limit"
-        elif relative in ceilings:
-            limit = int(ceilings[relative])
-            label = "grandfather ceiling"
-        elif line_count > MAX_PRODUCTION_MODULE_LINES:
-            failures.append(
-                f"{relative}: {line_count} physical lines would require a new "
-                f"grandfather ceiling; --update-baseline refuses new oversized modules"
-            )
-            continue
-        else:
-            continue
-        if line_count > limit:
-            failures.append(f"{relative}: {line_count} physical lines exceeds {label} of {limit}")
-    return failures
-
-
-def update_module_ceilings(
-    line_counts: Mapping[str, int],
-    baseline_ceilings: Mapping[str, int],
-) -> dict[str, int]:
-    """Lower or remove existing ceilings without adding new ones.
-
-    The caller must first reject ``module_size_update_failures``.  Keeping this
-    transformation pure makes the no-growth policy straightforward to test and
-    ensures a failed update can never be made safe by rewriting a ceiling.
-    """
-
-    updated: dict[str, int] = {}
-    for relative in sorted(baseline_ceilings):
-        line_count = line_counts.get(relative)
-        if line_count is None or line_count <= MAX_PRODUCTION_MODULE_LINES:
-            continue
-        updated[relative] = min(int(baseline_ceilings[relative]), line_count)
-    return updated
-
-
-def _private_use_records(value: object) -> list[PrivateUse]:
-    """Read the current and a couple of early baseline spellings."""
-
-    if isinstance(value, Mapping):
-        raw = value.get("private_catalog_uses", value.get("private_uses", []))
-        if isinstance(raw, Mapping):
-            records: list[PrivateUse] = []
-            for key, count in raw.items():
-                if isinstance(key, str) and "::" in key:
-                    path, symbol = key.split("::", 1)
-                    records.append(PrivateUse(path, symbol, int(count)))
-            return records
-    else:
-        raw = value
-    if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes, bytearray)):
-        raise ValueError("private_catalog_uses must be a list of {path, symbol, count} records")
-    records = []
-    for index, item in enumerate(raw):
-        if not isinstance(item, Mapping):
-            raise ValueError(f"private_catalog_uses[{index}] must be an object")
-        try:
-            path = str(item["path"])
-            symbol = str(item["symbol"])
-            count = int(item["count"])
-        except (KeyError, TypeError, ValueError) as exc:
-            raise ValueError(
-                f"private_catalog_uses[{index}] requires path, symbol, and integer count"
-            ) from exc
-        if not path or not symbol or count < 0:
-            raise ValueError(f"private_catalog_uses[{index}] has invalid path, symbol, or count")
-        records.append(PrivateUse(path, symbol, count))
-    return records
-
-
-def _ceilings(value: object) -> dict[str, int]:
-    if not isinstance(value, Mapping):
-        return {}
-    raw = value.get("module_line_ceilings", value.get("size_ceilings", {}))
-    if not isinstance(raw, Mapping):
-        raise ValueError("module_line_ceilings must be an object")
-    result: dict[str, int] = {}
-    for path, ceiling in raw.items():
-        try:
-            parsed = int(ceiling)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"module_line_ceilings[{path!r}] must be an integer") from exc
-        if not isinstance(path, str) or not path or parsed <= 0:
-            raise ValueError(f"module_line_ceilings[{path!r}] has an invalid ceiling")
-        result[path] = parsed
-    return result
-
-
-def load_baseline(path: Path = DEFAULT_BASELINE_PATH) -> tuple[dict[tuple[str, str], int], dict[str, int]]:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"Unable to read architecture baseline {path}: {exc}") from exc
-    return _parse_baseline_payload(payload, str(path))
-
-
-def _parse_baseline_payload(
-    payload: object,
-    source: str,
-) -> tuple[dict[tuple[str, str], int], dict[str, int]]:
-    """Parse one baseline payload shared by disk and git-ref loading."""
-
-    if not isinstance(payload, Mapping):
-        raise ValueError(f"Architecture baseline {source} must be a JSON object")
-    records = _private_use_records(payload)
-    private: dict[tuple[str, str], int] = {}
-    for record in records:
-        key = (record.path, record.symbol)
-        if key in private:
-            raise ValueError(
-                f"Architecture baseline {source} repeats private-use key "
-                f"{record.path}::{record.symbol}"
-            )
-        private[key] = record.count
-    return private, _ceilings(payload)
-
-
-def load_baseline_at_ref(
-    repo_root: Path,
-    base_ref: str,
-    baseline_path: Path,
-) -> tuple[dict[tuple[str, str], int], dict[str, int]] | None:
-    """Load ``baseline_path`` from a validated git ref.
-
-    A missing baseline at the base ref is the expected bootstrap case for the
-    first PR that introduces this guard.  It returns ``None`` so the caller can
-    report that the comparison was skipped.  An unknown ref or malformed file
-    is an error and never silently disables the comparison.
-    """
-
-    base_ref = str(base_ref).strip()
-    if not base_ref or any(character in base_ref for character in "\r\n"):
-        raise ValueError("--base-ref must be a non-empty git ref without newlines")
-    try:
-        relative = baseline_path.resolve().relative_to(repo_root.resolve()).as_posix()
-    except ValueError as exc:
-        raise ValueError("--baseline must be inside --repo-root when --base-ref is used") from exc
-
-    verified = subprocess.run(
-        ["git", "rev-parse", "--verify", f"{base_ref}^{{commit}}"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if verified.returncode != 0:
-        detail = verified.stderr.strip() or verified.stdout.strip() or "unknown git ref"
-        raise ValueError(f"Unable to resolve architecture baseline base ref {base_ref!r}: {detail}")
-
-    show = subprocess.run(
-        ["git", "show", f"{base_ref}:{relative}"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if show.returncode != 0:
-        detail = show.stderr.strip()
-        missing_markers = ("does not exist", "exists on disk, but not in", "path '" + relative)
-        if any(marker in detail for marker in missing_markers):
-            return None
-        raise ValueError(
-            f"Unable to read architecture baseline {relative} at git ref {base_ref!r}: "
-            f"{detail or 'git show failed'}"
-        )
-    try:
-        payload = json.loads(show.stdout)
-    except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"Architecture baseline {relative} at git ref {base_ref!r} is not valid JSON: {exc}"
-        ) from exc
-    return _parse_baseline_payload(payload, f"{base_ref}:{relative}")
-
-
 def baseline_monotonic_failures(
     head_private: Mapping[tuple[str, str], int],
-    head_ceilings: Mapping[str, int],
     base_private: Mapping[tuple[str, str], int],
-    base_ceilings: Mapping[str, int],
 ) -> list[str]:
-    """Reject baseline additions/growth relative to a trusted base ref.
+    """Reject private-use baseline additions/growth relative to a trusted base ref.
 
     The ordinary source-vs-baseline ratchet protects the current checkout.  A
     second comparison protects the ratchet file itself: a change may lower or
-    remove an existing entry, but it cannot add an entry or raise its count or
-    ceiling to make newly introduced source look grandfathered.
+    remove an existing entry, but it cannot add an entry or raise its count to
+    make newly introduced source look grandfathered.  The module-line ceilings
+    in the same file are ``check_module_size.py``'s.
     """
 
     failures: list[str] = []
@@ -962,17 +708,6 @@ def baseline_monotonic_failures(
             failures.append(
                 f"baseline increases private catalog use {path}::{symbol}: "
                 f"base {base_private[key]}, head {head_private[key]}"
-            )
-    for path in sorted(set(head_ceilings) - set(base_ceilings)):
-        failures.append(
-            f"baseline adds module-line ceiling {path} "
-            f"(head ceiling {head_ceilings[path]}, base ref has no ceiling)"
-        )
-    for path in sorted(set(head_ceilings) & set(base_ceilings)):
-        if int(head_ceilings[path]) > int(base_ceilings[path]):
-            failures.append(
-                f"baseline increases module-line ceiling {path}: "
-                f"base {base_ceilings[path]}, head {head_ceilings[path]}"
             )
     return failures
 
@@ -1041,34 +776,6 @@ def private_update_failures(
     return failures
 
 
-def _serializable_baseline(
-    private: Mapping[tuple[str, str], int],
-    ceilings: Mapping[str, int],
-) -> dict[str, object]:
-    return {
-        "version": BASELINE_VERSION,
-        "private_catalog_uses": [
-            {"path": path, "symbol": symbol, "count": private[(path, symbol)]}
-            for path, symbol in sorted(private)
-        ],
-        "module_line_ceilings": {path: ceilings[path] for path in sorted(ceilings)},
-    }
-
-
-def write_baseline(
-    path: Path,
-    private: Mapping[tuple[str, str], int],
-    ceilings: Mapping[str, int],
-) -> None:
-    """Write a deterministic baseline using an atomic same-directory replace."""
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(_serializable_baseline(private, ceilings), indent=2, sort_keys=False) + "\n"
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary.write_text(payload, encoding="utf-8")
-    temporary.replace(path)
-
-
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=Path, default=REPO_ROOT)
@@ -1076,10 +783,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--update-baseline",
         action="store_true",
-        help=(
-            "record private-use reductions/removals and lower/remove existing "
-            "oversized-module ceilings"
-        ),
+        help="record private-use reductions/removals",
     )
     parser.add_argument(
         "--base-ref",
@@ -1089,7 +793,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         help=(
             "compare the checked-in baseline with this trusted git ref; "
-            "new or increased private uses/ceilings are refused"
+            "new or increased private uses are refused"
         ),
     )
     return parser.parse_args(argv)
@@ -1116,18 +820,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if base_baseline is None:
             print(
                 f"Catalog architecture baseline monotonic comparison skipped: "
-                f"{baseline_path.relative_to(repo_root) if baseline_path.is_relative_to(repo_root) else baseline_path} "
+                f"{describe_path(baseline_path, repo_root)} "
                 f"does not exist at base ref {args.base_ref!r} (bootstrap)",
                 file=sys.stderr,
             )
         else:
-            base_private, base_ceilings = base_baseline
-            baseline_change_failures = baseline_monotonic_failures(
-                baseline_private,
-                baseline_ceilings,
-                base_private,
-                base_ceilings,
-            )
+            base_private, _base_ceilings = base_baseline
+            baseline_change_failures = baseline_monotonic_failures(baseline_private, base_private)
 
     import_failures = catalog_import_violations(repo_root)
     for failure in import_failures:
@@ -1137,51 +836,39 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     current_uses = private_catalog_uses(repo_root)
     current_private = {(item.path, item.symbol): item.count for item in current_uses}
-    size_failures = module_size_failures(repo_root, baseline_ceilings)
 
     if args.update_baseline:
         unsafe_private_failures = private_update_failures(current_uses, baseline_private)
-        unsafe_size_failures = module_size_update_failures(repo_root, baseline_ceilings)
-        if import_failures or unsafe_private_failures or unsafe_size_failures or baseline_change_failures:
+        if import_failures or unsafe_private_failures or baseline_change_failures:
             failures.extend(unsafe_private_failures)
-            failures.extend(unsafe_size_failures)
             failures.extend(baseline_change_failures)
             print(
                 "Refusing to update catalog architecture baseline: update mode "
-                "records only reductions/removals and lower or removed existing ceilings.",
+                "records only private-use reductions/removals.",
                 file=sys.stderr,
             )
             for failure in failures:
                 print(f"  - {failure}", file=sys.stderr)
             return 1
-        updated_ceilings = update_module_ceilings(
-            module_line_counts(repo_root), baseline_ceilings
-        )
-        write_baseline(baseline_path, current_private, updated_ceilings)
+        write_baseline(baseline_path, current_private, baseline_ceilings)
         print(
-            f"Catalog architecture baseline safely updated: {len(current_private)} private-use keys, "
-            f"{len(updated_ceilings)} grandfathered ceilings (reductions/removals only) -> "
-            f"{baseline_path.relative_to(repo_root) if baseline_path.is_relative_to(repo_root) else baseline_path}"
+            f"Catalog architecture baseline safely updated: {len(current_private)} private-use keys "
+            f"(reductions/removals only) -> {describe_path(baseline_path, repo_root)}"
         )
         return 0
 
     failures.extend(baseline_change_failures)
     failures.extend(ratchet_failures(current_uses, baseline_private))
-    failures.extend(size_failures)
     if failures:
         print(f"Catalog architecture check failed ({len(failures)} issue(s)):", file=sys.stderr)
         for failure in failures:
             print(f"  - {failure}", file=sys.stderr)
         return 1
 
-    line_counts = module_line_counts(repo_root)
-    grandfathered = sum(1 for path in baseline_ceilings if path in line_counts)
     print(
         "Catalog architecture OK: "
         f"{len(import_failures)} legacy-import violations, "
-        f"{len(current_uses)} private-use keys, "
-        f"{len(line_counts)} production modules checked, "
-        f"{grandfathered} grandfathered ceilings"
+        f"{len(current_uses)} private-use keys"
     )
     return 0
 

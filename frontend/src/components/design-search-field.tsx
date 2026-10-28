@@ -32,7 +32,12 @@ type DesignSearchFieldProps = {
     currentPage?: string | null;
     loading?: boolean;
     active?: boolean;
-    onPick: (hit: DesignSearchHit) => void;
+    /** `additive`: Shift+Enter or Shift-click (the System 3D tab adds the net to its highlighted set). */
+    onPick: (hit: DesignSearchHit, options?: { additive: boolean }) => void;
+    /** Replaces the one-index search (the System 3D tab searches every board). */
+    search?: (query: string) => DesignSearchHit[];
+    /** Render in place instead of in the visualizer header's search slot. */
+    inline?: boolean;
 };
 
 function ShortcutCaps({ combo }: { combo: string }) {
@@ -68,6 +73,8 @@ export function DesignSearchField({
     loading = false,
     active = true,
     onPick,
+    search,
+    inline = false,
 }: DesignSearchFieldProps) {
     const listId = useId();
     const rootRef = useRef<HTMLDivElement>(null);
@@ -80,11 +87,13 @@ export function DesignSearchField({
 
     const hits = useMemo(
         () =>
-            searchDesignEntities(semanticIndex, query, {
-                currentPage,
-                components: components ?? undefined,
-            }),
-        [components, currentPage, query, semanticIndex],
+            search
+                ? search(query)
+                : searchDesignEntities(semanticIndex, query, {
+                    currentPage,
+                    components: components ?? undefined,
+                }),
+        [components, currentPage, query, search, semanticIndex],
     );
     // A hit list that has shrunk past the highlight takes the highlight back to
     // the top during render, rather than after a commit that showed the wrong
@@ -139,8 +148,8 @@ export function DesignSearchField({
     }, [activeIndex, hits, open]);
 
     const pick = useCallback(
-        (hit: DesignSearchHit) => {
-            onPick(hit);
+        (hit: DesignSearchHit, additive = false) => {
+            onPick(hit, { additive });
             setOpen(false);
         },
         [onPick],
@@ -175,7 +184,7 @@ export function DesignSearchField({
             const hit = hits[activeIndex];
             if (!hit) return;
             event.preventDefault();
-            pick(hit);
+            pick(hit, event.shiftKey);
             return;
         }
         if (event.key === "Escape") {
@@ -194,7 +203,7 @@ export function DesignSearchField({
         }
     };
 
-    if (!slot) return null;
+    if (!slot && !inline) return null;
 
     const trimmed = query.trim();
     const showShortcuts = !trimmed;
@@ -203,7 +212,7 @@ export function DesignSearchField({
     const showEmpty = open && !loading && trimmed.length > 0 && hits.length === 0;
     const showHits = open && !loading && hits.length > 0;
 
-    return createPortal(
+    const field = (
         <div ref={rootRef} className="relative w-full">
             <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -253,7 +262,11 @@ export function DesignSearchField({
                     id={listId}
                     role="listbox"
                     aria-label="Design search results"
-                    className="absolute inset-x-0 top-full z-50 mt-1 max-h-80 overflow-y-auto border border-border bg-popover text-popover-foreground shadow-md"
+                    className={cn(
+                        "absolute inset-x-0 top-full z-50 mt-1 max-h-80 overflow-y-auto border border-border bg-popover text-popover-foreground shadow-md",
+                        // Inline (the System 3D tab), hits carry board names: give them room past a narrow field.
+                        inline && "right-auto min-w-full w-[28rem] max-w-[calc(100vw-2rem)]",
+                    )}
                 >
                     {showLoading ? (
                         <p className="px-3 py-6 text-center text-sm text-muted-foreground">Loading design index…</p>
@@ -277,9 +290,9 @@ export function DesignSearchField({
                     ) : null}
                 </div>
             ) : null}
-        </div>,
-        slot,
+        </div>
     );
+    return inline || !slot ? field : createPortal(field, slot);
 }
 
 function ResultList({
@@ -292,7 +305,7 @@ function ResultList({
     listId: string;
     hits: DesignSearchHit[];
     activeIndex: number;
-    onPick: (hit: DesignSearchHit) => void;
+    onPick: (hit: DesignSearchHit, additive: boolean) => void;
     onHover: (index: number) => void;
 }) {
     let lastKind: DesignSearchHit["kind"] | null = null;
@@ -324,7 +337,7 @@ function ResultList({
                             )}
                             onMouseMove={() => onHover(index)}
                             onMouseDown={(event) => event.preventDefault()}
-                            onClick={() => onPick(hit)}
+                            onClick={(event) => onPick(hit, event.shiftKey)}
                         >
                             <span className="min-w-0 flex-1 truncate text-foreground">{hit.title}</span>
                             {hit.subtitle ? (

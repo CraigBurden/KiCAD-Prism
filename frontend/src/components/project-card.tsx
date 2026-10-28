@@ -6,6 +6,7 @@ import { CalendarDays, Box, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import React from "react";
 import { cn } from "@/lib/utils";
+import { projectLastUpdated } from "@/lib/project-dates";
 
 interface ProjectCardProps {
     project: Project;
@@ -94,7 +95,7 @@ export function ProjectCard({
                         <h3 className="font-medium text-sm truncate">
                             {highlightMatch(displayName, searchQuery)}
                         </h3>
-                        <p className="text-xs text-muted-foreground">{project.last_modified}</p>
+                        <p className="text-xs text-muted-foreground">{projectLastUpdated(project)}</p>
                     </div>
                 </div>
             </Card>
@@ -180,7 +181,7 @@ export function ProjectCard({
                 dense ? "p-3 pt-0" : "p-4 pt-0",
             )}>
                 <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">Updated {project.last_modified}</span>
+                <span className="truncate">Updated {projectLastUpdated(project)}</span>
             </CardFooter>
         </Card>
     );

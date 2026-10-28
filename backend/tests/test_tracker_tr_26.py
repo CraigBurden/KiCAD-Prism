@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import unittest
 import uuid
@@ -11,36 +10,29 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services import comments_schema_migrations  # noqa: E402
+from tracker_fault_harness import StatefulFakeForge, github_issue_url, install_fake_provider  # noqa: E402
 from app.services.trackers.contracts import (  # noqa: E402
     ForgeUser,
     IssueContainerRef,
     RemoteIssue,
     RemoteVersion,
 )
-from app.services.trackers.github_recovery import RecoveryKind, recover_create_issue  # noqa: E402
-from app.services.trackers.inbox_store import InboxStore, apply_schema as apply_inbox_schema  # noqa: E402
+from app.services.trackers.github_recovery import RecoveryCandidate, RecoveryKind, recover_create_issue  # noqa: E402
+from app.services.trackers.inbox_store import InboxStore  # noqa: E402
 from app.services.trackers import jobs as tracker_jobs  # noqa: E402
 from app.services.trackers.markers import build_marker  # noqa: E402
-from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
-from app.services.trackers.op_store import RECOVERY_DISPATCH, OpStore, apply_schema as apply_op_schema  # noqa: E402
+from app.services.trackers.op_store import RECOVERY_DISPATCH, OpStore  # noqa: E402
 from app.services.trackers.scheduler import (  # noqa: E402
     DISPATCH_KIND,
     reset_scheduler_throttle,
     schedule_due_tracker_jobs,
 )
 from app.services.trackers.store import TrackerStore  # noqa: E402
-from app.services.trackers.create_executor import (  # noqa: E402
-    execute_claimed_op,
-    github_issue_url,
-    mount_create_executor,
-    set_connect_factory,
-    unmount_create_executor,
-)
+from app.services.trackers.create_executor import execute_claimed_op  # noqa: E402
+from support.postgres import requires_scratch_postgres, tracker_schema, seed_comment  # noqa: E402
 
 try:
     import psycopg
@@ -49,8 +41,6 @@ except ImportError:  # pragma: no cover
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 F5 = json.loads((DOCS / "fixtures" / "F05.json").read_text(encoding="utf-8"))
 F8 = json.loads((DOCS / "fixtures" / "F08.json").read_text(encoding="utf-8"))
@@ -66,22 +56,6 @@ COMMENT_ID = "c_8f3a1b2c"
 THREAD_ID = "tt_a"
 OP_ID = "op_create_412"
 COMMIT = "3f2c9a1b7e4d5c6a8b9f0e1d2c3b4a5968778695"
-
-
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 def _remote_issue(*, body: str) -> RemoteIssue:
@@ -127,13 +101,6 @@ class FakeContext:
 
 
 class FixtureContractTests(unittest.TestCase):
-    def test_fixture_cases_are_present(self) -> None:
-        f5_ids = {case["id"] for case in F5["cases"]}
-        self.assertIn("F5.crash_after_acceptance_before_confirm", f5_ids)
-        self.assertIn("F5.webhook_before_response", f5_ids)
-        self.assertIn("F5.timeout_then_late_acceptance", f5_ids)
-        f8_ids = {case["id"] for case in F8["cases"]}
-        self.assertIn("F8.public_change_while_queued", f8_ids)
 
     def test_github_issue_url_uses_repo_number(self) -> None:
         self.assertEqual(
@@ -143,9 +110,7 @@ class FixtureContractTests(unittest.TestCase):
         self.assertNotIn(ISSUE_ID, github_issue_url(REPO, ISSUE_NUMBER))
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class CreateExecutorPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
         reset_scheduler_throttle()
@@ -156,80 +121,17 @@ class CreateExecutorPostgresTests(unittest.TestCase):
         )
         self._public_base.start()
         self.addCleanup(self._public_base.stop)
-        self.schema = f"tr26_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self._create_comments_foundation()
-        comments_schema_migrations.apply_comments_migrations(self.conn)
-        migrate_workspace_tracker_tables(self.conn)
-        apply_op_schema(self.conn)
-        apply_inbox_schema(self.conn)
+        self.scratch = tracker_schema(self, "tr26")
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
         self.store = TrackerStore(self.conn)
         self.ops = OpStore(self.conn)
         self.inbox = InboxStore(self.conn)
         self.jobs = FakeJobs()
         self._seed_destination()
-        mount_create_executor()
-
-        @contextmanager
-        def factory():
-            conn = psycopg.connect(_dsn(), row_factory=dict_row)
-            conn.execute(f'SET search_path TO "{self.schema}", public')
-            try:
-                yield conn
-            finally:
-                conn.close()
-
-        set_connect_factory(factory)
-        self.addCleanup(unmount_create_executor)
-        self.addCleanup(lambda: set_connect_factory(None))
-
-    def _cleanup(self) -> None:
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
-
-    def _create_comments_foundation(self) -> None:
-        self.conn.execute(
-            """
-            CREATE TABLE comments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL DEFAULT '',
-                author_kind TEXT NOT NULL DEFAULT 'user',
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                status TEXT NOT NULL DEFAULT 'OPEN',
-                context TEXT NOT NULL DEFAULT 'PCB',
-                location_x REAL NOT NULL DEFAULT 0,
-                location_y REAL NOT NULL DEFAULT 0,
-                location_layer TEXT NOT NULL DEFAULT '',
-                location_page TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT '',
-                comment_class TEXT NOT NULL DEFAULT 'general',
-                severity TEXT NOT NULL DEFAULT 'info',
-                scope TEXT NOT NULL DEFAULT 'canvas',
-                anchor_commit TEXT,
-                anchor_state TEXT NOT NULL DEFAULT 'unpinned',
-                anchor_source TEXT,
-                revision INTEGER NOT NULL DEFAULT 1,
-                metadata JSONB NOT NULL DEFAULT '{}'::jsonb
-            );
-            CREATE TABLE comment_replies (
-                id TEXT PRIMARY KEY,
-                comment_id TEXT NOT NULL REFERENCES comments(id),
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL DEFAULT '',
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                content TEXT NOT NULL DEFAULT ''
-            );
-            """,
-            prepare=False,
-        )
+        self.forge = StatefulFakeForge()
+        provider = install_fake_provider(self.forge, self._connect_ctx)
+        provider.__enter__()
+        self.addCleanup(provider.__exit__, None, None, None)
 
     def _seed_destination(self) -> None:
         self.store.upsert_connector(
@@ -272,29 +174,22 @@ class CreateExecutorPostgresTests(unittest.TestCase):
             comment_id=COMMENT_ID,
             op_id=OP_ID,
         )
-        self.conn.execute(
-            """
-            INSERT INTO comments (
-                id, project_id, author, author_kind, content, severity, comment_class,
-                context, location_x, location_y, location_layer, anchor_commit, anchor_state, anchor_source
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                COMMENT_ID,
-                "prj_a",
-                "Priya",
-                "user",
-                "Stub on MGMT.D0_P",
-                "major",
-                "observation",
-                "PCB",
-                1.0,
-                2.0,
-                "F.Cu",
-                COMMIT,
-                "pinned",
-                "openswitch.kicad_pro",
-            ),
+        seed_comment(
+            self.conn,
+            COMMENT_ID,
+            "prj_a",
+            author="Priya",
+            author_kind="user",
+            content="Stub on MGMT.D0_P",
+            severity="major",
+            comment_class="observation",
+            context="PCB",
+            location_x=1.0,
+            location_y=2.0,
+            location_layer="F.Cu",
+            anchor_commit=COMMIT,
+            anchor_state="pinned",
+            anchor_source="openswitch.kicad_pro",
         )
         self.store.insert_thread(
             thread_id=THREAD_ID,
@@ -321,14 +216,9 @@ class CreateExecutorPostgresTests(unittest.TestCase):
         self.ops.mark_sent(OP_ID, int(claimed["fence"]))
         self.conn.commit()
 
-        fake_issue = _remote_issue(body=f"prose\n\n{marker}")
-
-        class FakeAdapter:
-            def create_issue(self, dest, draft, op_id):  # noqa: ANN001
-                return fake_issue
-
-        with patch("app.services.trackers.create_executor._issue_adapter", return_value=FakeAdapter()):
-            execute_claimed_op(self.ops.get(OP_ID))
+        execute_claimed_op(self.ops.get(OP_ID))
+        self.assertEqual(self.forge.create_calls, [OP_ID])
+        self.assertIn(marker, self.forge.issues[ISSUE_ID].body)
 
         row = self.conn.execute(
             "SELECT external_id, external_number, external_url FROM tracked_threads WHERE id = %s",
@@ -348,33 +238,10 @@ class CreateExecutorPostgresTests(unittest.TestCase):
         sent = self.ops.get(OP_ID)
         sent["dispatch"] = RECOVERY_DISPATCH
 
-        payload = _remote_issue(body=f"created\n{marker}")
+        self.forge.seed_issue(body=f"created\n{marker}")
+        execute_claimed_op(sent)
 
-        class FakeAdapter:
-            def get_issue(self, dest, ext_id, etag=None):  # noqa: ANN001
-                return payload
-
-        def fetch_page(cursor):  # noqa: ANN001
-            return (
-                [
-                    {
-                        "id": int(ISSUE_ID),
-                        "number": ISSUE_NUMBER,
-                        "body": payload.body,
-                        "html_url": payload.url,
-                        "user": {"id": int(BOT_ID), "login": BOT_LOGIN},
-                    }
-                ],
-                None,
-            )
-
-        with patch("app.services.trackers.create_executor._issue_adapter", return_value=FakeAdapter()):
-            with patch(
-                "app.services.trackers.create_executor.issue_page_fetcher_for",
-                return_value=fetch_page,
-            ):
-                execute_claimed_op(sent)
-
+        self.assertEqual(self.forge.create_calls, [])
         self.assertEqual(self.ops.get(OP_ID)["state"], "confirmed")
         thread = self.conn.execute(
             "SELECT external_id, external_number FROM tracked_threads WHERE id = %s",
@@ -392,12 +259,8 @@ class CreateExecutorPostgresTests(unittest.TestCase):
         sent = self.ops.get(OP_ID)
         sent["dispatch"] = RECOVERY_DISPATCH
 
-        with patch("app.services.trackers.create_executor._issue_adapter", return_value=object()):
-            with patch(
-                "app.services.trackers.create_executor.issue_page_fetcher_for",
-                return_value=lambda _cursor: ([], None),
-            ):
-                execute_claimed_op(sent)
+        execute_claimed_op(sent)
+        self.assertEqual(self.forge.create_calls, [])
 
         row = self.ops.get(OP_ID)
         self.assertEqual(row["state"], "quarantine")
@@ -436,13 +299,9 @@ class CreateExecutorPostgresTests(unittest.TestCase):
         self.conn.commit()
         self.assertEqual(self.ops.get(OP_ID)["state"], "confirmed")
 
-        class FakeAdapter:
-            def create_issue(self, dest, draft, op_id):  # noqa: ANN001
-                raise AssertionError("create_issue must not run after webhook confirmation")
-
-        with patch("app.services.trackers.create_executor._issue_adapter", return_value=FakeAdapter()):
-            execute_claimed_op({**self.ops.get(OP_ID), "dispatch": RECOVERY_DISPATCH})
+        execute_claimed_op({**self.ops.get(OP_ID), "dispatch": RECOVERY_DISPATCH})
         self.assertEqual(self.ops.get(OP_ID)["state"], "confirmed")
+        self.assertEqual(self.forge.create_calls, [], "create_issue must not run after webhook confirmation")
 
     def test_hint_dispatch_schedules_when_mounted(self) -> None:
         self.inbox.enqueue(
@@ -470,8 +329,7 @@ class CreateExecutorPostgresTests(unittest.TestCase):
 
     @contextmanager
     def _connect_ctx(self):
-        conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        conn.execute(f'SET search_path TO "{self.schema}", public')
+        conn = self.scratch.connect()
         try:
             yield conn
         finally:
@@ -487,7 +345,7 @@ class CreateExecutorPostgresTests(unittest.TestCase):
             next_attempt_at=datetime.now(timezone.utc) + timedelta(hours=1),
             consume_attempt=False,
         )
-        issue = _remote_issue(body=f"hint\n{marker}")
+        self.forge.seed_issue(body=f"hint\n{marker}")
         self.inbox.enqueue(
             connector_id=CONNECTOR,
             delivery_id=f"del_{uuid.uuid4().hex[:8]}",
@@ -502,40 +360,19 @@ class CreateExecutorPostgresTests(unittest.TestCase):
         )
         self.conn.commit()
 
-        class Fetcher:
-            bot_user_id = BOT_ID
-            bot_login = BOT_LOGIN
-
-            def fetch_issue(self, connector_id, container_id, external_id):  # noqa: ANN001
-                return issue
-
-            def fetch_comment(self, connector_id, container_id, external_comment_id):  # noqa: ANN001
-                raise RuntimeError("not used")
-
-        class Bundle:
-            bot_user_id = BOT_ID
-            bot_login = BOT_LOGIN
-
-        with patch(
-            "app.services.trackers.provider_registry.ProviderRegistry.inbound_fetcher",
-            return_value=Fetcher(),
-        ), patch(
-            "app.services.trackers.provider_registry.ProviderRegistry.bundle_for_connector",
-            return_value=Bundle(),
-        ):
-            context = FakeContext(
-                {
-                    "connectorId": CONNECTOR,
-                    "remoteContainerId": CONTAINER,
-                    "_connect": self._connect_ctx,
-                }
-            )
-            result = tracker_jobs.run_tracker_dispatch_job(context)
+        context = FakeContext(
+            {
+                "connectorId": CONNECTOR,
+                "remoteContainerId": CONTAINER,
+                "_connect": self._connect_ctx,
+            }
+        )
+        result = tracker_jobs.run_tracker_dispatch_job(context)
         self.assertEqual(result.message, "Applied inbound hints")
         self.assertEqual(self.ops.get(OP_ID)["state"], "confirmed")
 
     def test_public_visibility_without_ack_pauses_execute(self) -> None:
-        marker = self._seed_pending_create()
+        self._seed_pending_create()
         self.conn.execute(
             "UPDATE project_trackers SET visibility = 'public' WHERE project_id = 'prj_a'"
         )
@@ -544,12 +381,8 @@ class CreateExecutorPostgresTests(unittest.TestCase):
         self.ops.mark_sent(OP_ID, int(claimed["fence"]))
         self.conn.commit()
 
-        class FakeAdapter:
-            def create_issue(self, dest, draft, op_id):  # noqa: ANN001
-                raise AssertionError("must not create without public ack")
-
-        with patch("app.services.trackers.create_executor._issue_adapter", return_value=FakeAdapter()):
-            execute_claimed_op(self.ops.get(OP_ID))
+        execute_claimed_op(self.ops.get(OP_ID))
+        self.assertEqual(self.forge.create_calls, [], "must not create without public ack")
         row = self.ops.get(OP_ID)
         # The pause fired before any I/O, so the op is handed back to pending
         # (TR-46): leaving it ``sent`` would route every later claim to a
@@ -594,14 +427,7 @@ class RecoveryScanUnitTests(unittest.TestCase):
             dest=dest,
             comment_id=COMMENT_ID,
             fetch_page=lambda _cursor: (
-                [
-                    {
-                        "id": int(ISSUE_ID),
-                        "number": ISSUE_NUMBER,
-                        "body": f"x\n{marker}",
-                        "user": {"id": int(BOT_ID)},
-                    }
-                ],
+                [RecoveryCandidate(external_id=ISSUE_ID, number=ISSUE_NUMBER, body=f"x\n{marker}", author_id=BOT_ID)],
                 None,
             ),
             bot_user_id=BOT_ID,

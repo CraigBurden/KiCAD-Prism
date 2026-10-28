@@ -27,10 +27,8 @@ import argparse
 import json
 import os
 import re
-import shutil
 import sys
 import time
-import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -43,15 +41,16 @@ for candidate in (REPO_ROOT / "backend", REPO_ROOT):
         sys.path.insert(0, str(candidate))
         break
 
-from app.services.catalog.metadata_normalization import metadata_keywords, metadata_search_document  # noqa: E402
+from app.services.catalog.field_rules import missing_builtin_fields  # noqa: E402
+from app.services.catalog.metadata_normalization import normalize_metadata  # noqa: E402
 
 ComponentCatalogService: Any = None
+build_import_writer: Any = None
 _discover_footprint_name_in_text: Any = None
 _sanitize_name: Any = None
-_slugify: Any = None
 _utc_now_iso: Any = None
 
-REVISION_MANIFEST_A3 = "prism.revision_manifest_a3"
+IMPORT_ACTOR = "system:import_footprint_library"
 MAX_REPORTED_ERRORS = 100
 MODEL_EXTENSIONS = {".step", ".stp", ".wrl"}
 
@@ -89,9 +88,9 @@ DESCR_PACKAGE_RE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9+]*)\s*,\s*(\d+)\s*-?\s*L
 
 def _load_catalog_runtime() -> None:
     global ComponentCatalogService
+    global build_import_writer
     global _discover_footprint_name_in_text
     global _sanitize_name
-    global _slugify
     global _utc_now_iso
 
     try:
@@ -101,9 +100,12 @@ def _load_catalog_runtime() -> None:
         from app.services.component_catalog_service_postgres import (  # noqa: PLC0415
             ComponentCatalogPostgresService,
         )
+        from app.services.catalog.collaborators import (  # noqa: PLC0415
+            build_library_import_writer as loaded_import_writer,
+        )
+        from app.services.catalog.locking import PostgresCatalogLocks  # noqa: PLC0415
         from app.services.catalog.normalization import (  # noqa: PLC0415
             sanitize_name as loaded_sanitize_name,
-            slugify as loaded_slugify,
             utc_now_iso as loaded_utc_now_iso,
         )
     except ModuleNotFoundError as exc:
@@ -113,9 +115,11 @@ def _load_catalog_runtime() -> None:
         ) from exc
 
     ComponentCatalogService = ComponentCatalogPostgresService
+
+    def build_import_writer(runtime: Any) -> Any:
+        return loaded_import_writer(runtime, catalog_locks=PostgresCatalogLocks())
     _discover_footprint_name_in_text = loaded_discover_footprint_name
     _sanitize_name = loaded_sanitize_name
-    _slugify = loaded_slugify
     _utc_now_iso = loaded_utc_now_iso
 
 
@@ -132,6 +136,8 @@ class ImportStats:
     previews_failed: int = 0
     skipped_files: int = 0
     errors: list[str] = field(default_factory=list)
+    # Footprints skipped for a blank required field (no placeholders): {"footprint", "missing"}.
+    skipped_missing_fields: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -348,241 +354,48 @@ def _collect_plans(
         if wanted and raw_library.casefold() not in wanted:
             continue
         try:
-            plans.append(
-                _build_plan(
-                    footprint_file,
-                    footprints_root,
-                    model_index=model_index,
-                    mpn_mode=mpn_mode,
-                    strip_prefix=strip_prefix,
-                    default_manufacturer=default_manufacturer,
-                    default_vendor=default_vendor,
-                )
+            plan = _build_plan(
+                footprint_file,
+                footprints_root,
+                model_index=model_index,
+                mpn_mode=mpn_mode,
+                strip_prefix=strip_prefix,
+                default_manufacturer=default_manufacturer,
+                default_vendor=default_vendor,
             )
         except Exception as exc:  # noqa: BLE001
             stats.skipped_files += 1
             _record_error(stats, f"{footprint_file}: {exc}")
+            continue
+        missing = missing_builtin_fields(plan.metadata)
+        if missing:
+            stats.skipped_files += 1
+            stats.skipped_missing_fields.append({"footprint": plan.relative_path, "missing": missing})
+        else:
+            plans.append(plan)
         if limit and len(plans) >= limit:
             break
     return plans
-
-
-def _runtime_path(local_path: Path, local_store_root: Path, runtime_store_root: Path | None) -> str:
-    if runtime_store_root is None:
-        return str(local_path.resolve())
-    relative = local_path.resolve().relative_to(local_store_root.resolve())
-    return str((runtime_store_root / relative).as_posix())
 
 
 def _same_bytes(path: Path, payload: bytes) -> bool:
     return path.is_file() and path.read_bytes() == payload
 
 
-def _write_or_copy(destination: Path, source: Path, *, overwrite: bool) -> Path:
-    destination.parent.mkdir(parents=True, exist_ok=True)
+def _write_or_copy(service: Any, destination: Path, source: Path, *, overwrite: bool) -> Path:
     payload = source.read_bytes()
-    if destination.exists():
-        if _same_bytes(destination, payload):
-            return destination
-        if not overwrite:
-            raise ValueError(f"Canonical asset conflict at {destination}")
-    shutil.copy2(source, destination)
-    return destination
-
-
-def _register_asset(
-    service: Any,
-    conn: Any,
-    *,
-    asset_type: str,
-    canonical_path: Path,
-    target_library: str,
-    target_name: str,
-    source_group: str,
-    runtime_store_root: Path | None,
-) -> dict[str, Any]:
-    local_path = canonical_path.resolve()
-    asset = service.asset_registry.register_asset(
-        service.runtime,
-        conn,
-        asset_type=asset_type,
-        canonical_path=local_path,
-        target_library=target_library,
-        target_name=target_name,
-        source_group=source_group,
-    )
-    runtime_canonical_path = _runtime_path(local_path, service.store_root, runtime_store_root)
-    if str(asset["canonical_path"]) != runtime_canonical_path:
-        conn.execute(
-            "UPDATE assets SET canonical_path = %s WHERE id = %s",
-            (runtime_canonical_path, asset["id"]),
-        )
-        asset = dict(asset)
-        asset["canonical_path"] = runtime_canonical_path
-    return asset
-
-
-def _enable_catalog_migration(conn: Any) -> None:
-    conn.execute("SET LOCAL prism.catalog_migration = 'on'")
-
-
-def _begin_import_transaction(conn: Any) -> None:
-    # SET LOCAL is scoped to the transaction, so this must be reissued after every
-    # commit or the immutability guards on revision_previews reject the next batch.
-    _enable_catalog_migration(conn)
-
-
-def _find_existing_component(conn: Any, mpn: str, package_name: str) -> str | None:
-    row = conn.execute(
-        """
-        SELECT c.id
-        FROM components c
-        JOIN component_revisions cr ON cr.id = c.current_revision_id
-        WHERE cr.mpn = %s AND cr.package_name = %s
-        LIMIT 1
-        """,
-        (mpn, package_name),
-    ).fetchone()
-    return str(row["id"]) if row else None
-
-
-def _unique_slug(conn: Any, used_slugs: set[str], base: str) -> str:
-    slug = _slugify(base or "component")
-    candidate = slug
-    counter = 2
-    while True:
-        if candidate not in used_slugs:
-            row = conn.execute("SELECT 1 FROM components WHERE slug = %s LIMIT 1", (candidate,)).fetchone()
-            if not row:
-                used_slugs.add(candidate)
-                return candidate
-            used_slugs.add(candidate)
-        candidate = f"{slug}-{counter}"
-        counter += 1
-
-
-def _insert_component(
-    service: Any,
-    conn: Any,
-    *,
-    metadata: dict[str, Any],
-    slug: str,
-    now: str,
-) -> tuple[str, str]:
-    component_id = str(uuid.uuid4())
-    revision_id = str(uuid.uuid4())
-    conn.execute(
-        """
-        INSERT INTO components (
-            id, slug, identity_kind, identity_source, normalized_manufacturer,
-            normalized_part_number, source, external_source, external_id, is_active, current_revision_id,
-            released_revision_id, created_at, updated_at
-        )
-        VALUES (%s, %s, %s, '', %s, %s, 'import', '', '', 1, %s, '', %s, %s)
-        """,
-        (
-            component_id, slug, metadata["identity_kind"],
-            metadata["normalized_manufacturer"], metadata["normalized_part_number"],
-            revision_id, now, now,
-        ),
-    )
-    conn.execute(
-        """
-        INSERT INTO component_revisions (
-            id, component_id, version, parent_revision_id, change_kind, change_summary, created_by,
-            manifest_hash, manifest_schema, release_status, name, value, description, datasheet_url,
-            manufacturer, mpn, normalized_manufacturer, normalized_mpn, mpn_source,
-            category, package_name, vendor, vendor_part_number, mass_g,
-            rqjc_c_w, rqjc_top_c_w, temp_max_c, temp_min_c, power_dissipation_w, rate, sap_code,
-            summary, keywords, extra_fields, search_document, created_at, updated_at
-        )
-        VALUES (
-            %s, %s, 1, '', 'import', 'Imported from footprint library', 'system:import_footprint_library',
-            '', %s, 'open', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s
-        )
-        """,
-        (
-            revision_id,
-            component_id,
-            REVISION_MANIFEST_A3,
-            metadata["name"],
-            metadata["value"],
-            metadata["description"],
-            metadata["datasheet_url"],
-            metadata["manufacturer"],
-            metadata["mpn"],
-            metadata["normalized_manufacturer"],
-            metadata["normalized_mpn"],
-            metadata["mpn_source"],
-            metadata["category"],
-            metadata["package_name"],
-            metadata["vendor"],
-            metadata["vendor_part_number"],
-            metadata["mass_g"],
-            metadata["rqjc_c_w"],
-            metadata["rqjc_top_c_w"],
-            metadata["temp_max_c"],
-            metadata["temp_min_c"],
-            metadata["power_dissipation_w"],
-            metadata["rate"],
-            metadata["sap_code"],
-            metadata["summary"],
-            json.dumps(metadata_keywords(metadata), separators=(",", ":")),
-            json.dumps(metadata["extra_fields"], sort_keys=True, separators=(",", ":")),
-            metadata_search_document(metadata),
-            now,
-            now,
-        ),
-    )
-    return component_id, revision_id
-
-
-def _link_asset(conn: Any, revision_id: str, asset: dict[str, Any], *, required: bool, now: str) -> None:
-    conn.execute(
-        """
-        INSERT INTO revision_assets (revision_id, asset_type, asset_id, required, created_at, updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s)
-        ON CONFLICT (revision_id, asset_id)
-        DO UPDATE SET required = excluded.required, updated_at = excluded.updated_at
-        """,
-        (revision_id, asset["asset_type"], asset["id"], 1 if required else 0, now, now),
-    )
-
-
-def _bind_preview(conn: Any, revision_id: str, asset_id: str, preview: dict[str, Any], now: str) -> None:
-    """Bind a generated preview to the revision on both preview tables.
-
-    `revision_preview_outputs` is what the catalog UI reads, but the
-    `remote_component_heads` projection resolves `footprint_preview_id` from
-    `revision_previews`. Writing only one leaves the preview missing from either
-    the workspace or the KiCad Remote Symbol Panel.
-    """
-    preview_id = str(preview["id"])
-    kind = str(preview["kind"])
-    conn.execute(
-        """
-        INSERT INTO revision_preview_outputs (revision_id, asset_id, kind, preview_id, generated_at)
-        VALUES (%s, %s, %s, %s, %s)
-        ON CONFLICT (revision_id, asset_id, kind)
-        DO UPDATE SET preview_id = excluded.preview_id, generated_at = excluded.generated_at
-        """,
-        (revision_id, asset_id, kind, preview_id, now),
-    )
-    conn.execute(
-        """
-        INSERT INTO revision_previews (revision_id, asset_id, kind, preview_id, created_at)
-        VALUES (%s, %s, %s, %s, %s)
-        ON CONFLICT (revision_id, asset_id, kind) DO NOTHING
-        """,
-        (revision_id, asset_id, kind, preview_id, now),
-    )
+    if destination.exists() and not _same_bytes(destination, payload) and not overwrite:
+        raise ValueError(f"Canonical asset conflict at {destination}")
+    # Never rewrite an existing canonical file: revisions already linked to it keep
+    # their bytes, and changed content goes to an immutable revisions/<sha256>/ path.
+    return service.asset_files.write_canonical_file(service.runtime, destination, payload)
 
 
 def _import_plans(
     plans: list[FootprintPlan],
     *,
     service: Any,
+    writer: Any,
     conn: Any,
     stats: ImportStats,
     runtime_store_root: Path | None,
@@ -591,9 +404,8 @@ def _import_plans(
     release_imported: bool,
     commit_batch: int,
 ) -> None:
-    used_slugs: set[str] = set()
     # The registered asset is kept next to the local file that was written for it:
-    # _register_asset may rewrite canonical_path to the runtime mount or to an
+    # register_asset may rewrite canonical_path to the runtime mount or to an
     # immutable revisions path, and preview generation has to read a real local file.
     footprint_assets: dict[tuple[str, str], tuple[dict[str, Any], Path]] = {}
     model_assets: dict[Path, dict[str, Any]] = {}
@@ -607,7 +419,7 @@ def _import_plans(
         if pending <= 0:
             return
         conn.commit()
-        _begin_import_transaction(conn)
+        writer.begin_batch(conn)
         pending = 0
         elapsed = max(time.perf_counter() - started, 0.001)
         print(
@@ -620,17 +432,21 @@ def _import_plans(
     def recover() -> None:
         nonlocal pending
         conn.rollback()
-        _begin_import_transaction(conn)
+        writer.begin_batch(conn)
         pending = 0
         footprint_assets.clear()
         model_assets.clear()
 
     for plan in plans:
         try:
-            metadata = plan.metadata
-            existing = _find_existing_component(conn, metadata["mpn"], metadata["package_name"])
-            if existing:
+            metadata = normalize_metadata(plan.metadata)
+            if writer.identity_holder(conn, metadata):
                 stats.components_skipped_existing += 1
+                continue
+            # Custom required fields live in the catalog, so they are checked here rather than at plan time.
+            if missing := writer.missing_custom_fields(conn, metadata):
+                stats.skipped_files += 1
+                stats.skipped_missing_fields.append({"footprint": plan.relative_path, "missing": missing})
                 continue
 
             now = _utc_now_iso()
@@ -638,9 +454,8 @@ def _import_plans(
             cached = footprint_assets.get(footprint_key)
             if cached is None:
                 destination = service.asset_files.footprint_destination(service.runtime, *footprint_key)
-                local_footprint = _write_or_copy(destination, plan.source_path, overwrite=overwrite_assets)
-                footprint_asset = _register_asset(
-                    service,
+                local_footprint = _write_or_copy(service, destination, plan.source_path, overwrite=overwrite_assets)
+                footprint_asset = writer.register_asset(
                     conn,
                     asset_type="footprint",
                     canonical_path=local_footprint,
@@ -661,9 +476,8 @@ def _import_plans(
                     destination = service.asset_files.aux_destination(
                         service.runtime, "3dmodel", plan.target_library, plan.model_path.name
                     )
-                    canonical = _write_or_copy(destination, plan.model_path, overwrite=overwrite_assets)
-                    model_asset = _register_asset(
-                        service,
+                    canonical = _write_or_copy(service, destination, plan.model_path, overwrite=overwrite_assets)
+                    model_asset = writer.register_asset(
                         conn,
                         asset_type="3dmodel",
                         canonical_path=canonical,
@@ -682,29 +496,30 @@ def _import_plans(
                     f"{plan.model_reference}",
                 )
 
-            slug_base = f"{metadata['mpn']} {metadata['package_name']}".strip() or plan.target_name
-            slug = _unique_slug(conn, used_slugs, slug_base)
-            component_id, revision_id = _insert_component(
-                service, conn, metadata=metadata, slug=slug, now=now
+            component_id, revision_id = writer.insert_component(
+                conn,
+                metadata,
+                slug_base=f"{metadata['mpn']} {metadata['package_name']}".strip() or plan.target_name,
+                now=now,
+                actor=IMPORT_ACTOR,
+                change_summary="Imported from footprint library",
             )
             stats.components_created += 1
 
-            _link_asset(conn, revision_id, footprint_asset, required=True, now=now)
+            writer.link_asset(conn, revision_id, footprint_asset, required=True, now=now)
             if model_asset is not None:
-                _link_asset(conn, revision_id, model_asset, required=False, now=now)
-            conn.execute(
-                """
-                INSERT INTO revision_representations (
-                    id, revision_id, label, symbol_asset_id, footprint_asset_id, is_default,
-                    display_order, source_internal_part_number, provenance_json, created_at, updated_at
-                ) VALUES (%s, %s, %s, NULL, %s, 1, 0, %s, %s, %s, %s)
-                """,
-                (
-                    str(uuid.uuid4()), revision_id, plan.target_name, footprint_asset["id"],
-                    metadata["name"],
-                    json.dumps({"source": plan.relative_path}, sort_keys=True, separators=(",", ":")),
-                    now, now,
-                ),
+                writer.link_asset(conn, revision_id, model_asset, required=False, now=now)
+            writer.add_representation(
+                conn,
+                revision_id,
+                label=plan.target_name,
+                symbol_asset_id=None,
+                footprint_asset_id=footprint_asset["id"],
+                is_default=True,
+                display_order=0,
+                source_internal_part_number=metadata["name"],
+                provenance={"source": plan.relative_path},
+                now=now,
             )
 
             if generate_previews:
@@ -713,7 +528,7 @@ def _import_plans(
                 previews = service.previews.ensure_asset_previews(conn, service.runtime, preview_asset)
                 preview = previews[0] if previews else {}
                 if preview and str(preview.get("status") or "") == "ready" and preview.get("id"):
-                    _bind_preview(conn, revision_id, str(footprint_asset["id"]), preview, now)
+                    writer.bind_preview(conn, revision_id, str(footprint_asset["id"]), preview, now)
                     stats.previews_generated += 1
                 else:
                     stats.previews_failed += 1
@@ -723,22 +538,13 @@ def _import_plans(
                         f"{(preview or {}).get('generation_error') or 'no preview produced'}",
                     )
 
-            manifest_hash = service.revisions.revision_manifest_hash(conn, revision_id)
-            conn.execute(
-                "UPDATE component_revisions SET manifest_hash = %s, updated_at = %s WHERE id = %s",
-                (manifest_hash, now, revision_id),
-            )
-            service.revisions.append_audit_event(
+            writer.seal(
                 conn,
                 component_id=component_id,
                 revision_id=revision_id,
-                event_type="component.created",
-                actor="system:import_footprint_library",
-                details={
-                    "change_kind": "import",
-                    "change_summary": "Imported incomplete footprint-only representation",
-                    "manifest_hash": manifest_hash,
-                },
+                now=now,
+                actor=IMPORT_ACTOR,
+                change_summary="Imported incomplete footprint-only representation",
             )
             _ = release_imported
 
@@ -778,7 +584,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "full: use the whole file name as the MPN and leave package_name to the other fallbacks."
         ),
     )
-    parser.add_argument("--overwrite-assets", action="store_true", help="Overwrite canonical asset files when content differs.")
+    parser.add_argument("--overwrite-assets", action="store_true", help="Store changed asset content as a new immutable file instead of refusing.")
     parser.add_argument("--no-previews", action="store_true", help="Skip footprint SVG preview generation. Much faster; previews can be backfilled later.")
     parser.add_argument("--no-release", action="store_true", help="Deprecated: footprint-only epoch-2 imports are always draft-only.")
     parser.add_argument("--dry-run", action="store_true", help="Resolve footprints and report what would be imported without writing anything.")
@@ -842,12 +648,14 @@ def main() -> int:
                     stats.models_unresolved += 1
         else:
             service.initialize()
+            writer = build_import_writer(service.runtime)
             conn_context = service.connection()
             conn = conn_context.__enter__()
-            _begin_import_transaction(conn)
+            writer.begin_batch(conn)
             _import_plans(
                 plans,
                 service=service,
+                writer=writer,
                 conn=conn,
                 stats=stats,
                 runtime_store_root=args.runtime_store_root,
@@ -880,7 +688,7 @@ def main() -> int:
         args.report_json.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     print(json.dumps(report, indent=2))
-    return 1 if fatal_error or (args.strict and stats.errors) else 0
+    return 1 if fatal_error or (args.strict and (stats.errors or stats.skipped_missing_fields)) else 0
 
 
 if __name__ == "__main__":

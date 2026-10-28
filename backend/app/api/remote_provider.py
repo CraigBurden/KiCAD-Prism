@@ -9,8 +9,11 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
+from app.api import remote_provider_models as models
+from app.api._helpers import preview_file_response
+from app.core.errors import value_errors_as
 from app.core.security import AuthenticatedUser, require_remote_symbol_reader
-from app.services import provider_auth_service
+from app.services import provider_auth_service, provider_revisions
 from app.services.component_catalog_service import catalog_service
 from app.services.public_url_service import resolve_public_base_url
 
@@ -23,7 +26,18 @@ def _provider_origin(request: Request) -> str:
     return resolve_public_base_url(request)
 
 
-def _component_payload(component: dict, origin: str, representation_id: str = "") -> dict:
+PROVIDER_VERSION = "0.4.0"
+
+
+def _placement_query(representation_id: str, revision_id: str) -> str:
+    """``?representation=…&revision=…`` with only the parts that are set."""
+    parameters = [
+        f"{name}={value}" for name, value in (("representation", representation_id), ("revision", revision_id)) if value
+    ]
+    return f"?{'&'.join(parameters)}" if parameters else ""
+
+
+def _component_payload(component: dict, origin: str, representation_id: str = "", revision_id: str = "") -> dict:
     preview_map = {
         preview["kind"]: f"{origin}/api/remote-provider/previews/{preview['id']}"
         for preview in component["previews"]
@@ -87,13 +101,14 @@ def _component_payload(component: dict, origin: str, representation_id: str = ""
         "preview_status": preview_status,
         "symbol_preview_url": symbol.get("preview_url", "") if symbol else preview_map.get("symbol", ""),
         "footprint_preview_url": footprint.get("preview_url", "") if footprint else preview_map.get("footprint", ""),
+        "revision_id": component.get("revision_id", ""),
         "manifest_url": (
             f"{origin}/api/remote-provider/parts/{component['id']}"
-            + (f"?representation={effective['id']}" if effective else "")
+            + _placement_query(effective["id"] if effective else "", revision_id)
         ),
         "inline_url": (
             f"{origin}/api/remote-provider/components/{component['id']}/inline"
-            + (f"?representation={effective['id']}" if effective else "")
+            + _placement_query(effective["id"] if effective else "", revision_id)
         ),
     }
 
@@ -116,7 +131,7 @@ async def provider_metadata(request: Request):
     auth_metadata = {"type": "none"}
     metadata = {
         "provider_name": "KiCAD Prism Remote Symbols",
-        "provider_version": "0.3.0",
+        "provider_version": PROVIDER_VERSION,
         "api_base_url": base_url,
         "panel_url": f"{base_url}/remote-provider/panel",
         "auth": auth_metadata,
@@ -238,7 +253,11 @@ async def provider_static_asset(asset_name: str, request: Request):
     )
 
 
-@router.get("/api/remote-provider/search")
+@router.get(
+    "/api/remote-provider/search",
+    response_model=models.ComponentPage,
+    summary="Search the released components KiCad may place",
+)
 async def search_components(
     request: Request,
     q: str = Query(default=""),
@@ -277,7 +296,11 @@ async def search_components(
     }, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
 
 
-@router.get("/api/remote-provider/categories")
+@router.get(
+    "/api/remote-provider/categories",
+    response_model=models.CategoryList,
+    summary="List the released components' categories",
+)
 async def list_categories(
     request: Request,
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
@@ -294,7 +317,11 @@ async def list_categories(
     )
 
 
-@router.get("/api/remote-provider/components-by-category")
+@router.get(
+    "/api/remote-provider/components-by-category",
+    response_model=models.ComponentPage,
+    summary="List the released components in one category",
+)
 async def components_by_category(
     request: Request,
     category: str = Query(...),
@@ -332,66 +359,89 @@ async def components_by_category(
         "page_size": result["page_size"],
     }, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
 
-@router.get("/api/remote-provider/components/{component_id}")
+@router.get(
+    "/api/remote-provider/components/{component_id}",
+    response_model=models.ComponentDetail,
+    summary="The released component, with the revisions placement may serve",
+)
 async def get_component(
     component_id: str,
     request: Request,
     representation: str = Query(default=""),
+    revision: str = Query(default=""),
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
+    """The released component; ``revision`` selects one of its ``released_revisions`` (0.4.0)."""
     _ = user
-    component = await asyncio.to_thread(
-        catalog_service.get_component,
-        component_id,
-        include_inactive=False,
-        released_only=True,
-    )
+    component = await asyncio.to_thread(provider_revisions.released_component, component_id, revision)
     if not component:
         raise HTTPException(status_code=404, detail="Component not found")
-    try:
-        return _component_payload(component, _provider_origin(request), representation)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    released = await asyncio.to_thread(provider_revisions.released_revisions, component_id)
+    with value_errors_as(400):
+        payload = _component_payload(component, _provider_origin(request), representation, revision)
+    return {**payload, "released_revisions": released}
 
 
-@router.get("/api/remote-provider/parts/{part_id}")
+@router.get(
+    "/api/remote-provider/parts/{part_id}",
+    response_model=models.PartManifest,
+    summary="The signed asset manifest KiCad uses to place a part",
+)
 async def get_part_manifest(
     part_id: str,
     request: Request,
     representation: str = Query(default=""),
+    revision: str = Query(default=""),
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
     _ = user
-    try:
+    with value_errors_as(400):
         manifest = await asyncio.to_thread(
-            catalog_service.build_manifest, part_id, _provider_origin(request), representation
+            catalog_service.build_manifest, part_id, _provider_origin(request), representation, revision
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not manifest:
         raise HTTPException(status_code=404, detail="Component not found")
     return JSONResponse(manifest)
 
 
-@router.get("/api/remote-provider/components/{component_id}/inline")
+@router.get(
+    "/api/remote-provider/components/{component_id}/inline",
+    response_model=models.InlineBundle,
+    summary="The component's library files in KiCad's inline bundle",
+)
 async def get_inline_component(
     component_id: str,
     representation: str = Query(default=""),
+    revision: str = Query(default=""),
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
     _ = user
-    try:
+    with value_errors_as(400):
         bundle = await asyncio.to_thread(
-            catalog_service.build_inline_bundle, component_id, representation
+            catalog_service.build_inline_bundle, component_id, representation, revision
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not bundle:
         raise HTTPException(status_code=404, detail="Component not found")
     return JSONResponse(bundle)
 
 
-@router.get("/api/remote-provider/assets/{asset_id}")
+@router.get(
+    "/api/remote-provider/assets/{asset_id}",
+    response_class=Response,
+    summary="Download one signed asset for placement",
+    responses={
+        200: {
+            "content": {
+                "application/x-kicad-symbol": {},
+                "application/x-kicad-footprint": {},
+                "model/step": {},
+                "application/x-spice": {},
+                "application/octet-stream": {},
+            },
+            "description": "The asset's bytes.",
+        }
+    },
+)
 async def download_asset(
     asset_id: str,
     rev: str = Query(...),
@@ -422,7 +472,23 @@ async def download_asset(
     )
 
 
-@router.get("/api/remote-provider/assets/{asset_id}/content")
+@router.get(
+    "/api/remote-provider/assets/{asset_id}/content",
+    response_class=FileResponse,
+    summary="Serve an asset's stored library file to the panel",
+    responses={
+        200: {
+            "content": {
+                "application/x-kicad-symbol": {},
+                "application/x-kicad-footprint": {},
+                "model/step": {},
+                "application/x-spice": {},
+                "application/octet-stream": {},
+            },
+            "description": "The library file as stored.",
+        }
+    },
+)
 async def get_asset_content(
     asset_id: str,
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
@@ -448,9 +514,20 @@ async def get_asset_content(
     )
 
 
-@router.get("/api/remote-provider/previews/{preview_id}")
+@router.get(
+    "/api/remote-provider/previews/{preview_id}",
+    response_class=FileResponse,
+    summary="Download a rendered symbol or footprint preview",
+    responses={
+        200: {
+            "content": {"image/png": {}, "image/svg+xml": {}},
+            "description": "The preview image.",
+        }
+    },
+)
 async def download_preview(
     preview_id: str,
+    request: Request,
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
     _ = user
@@ -459,8 +536,9 @@ async def download_preview(
         raise HTTPException(status_code=404, detail="Preview not found")
     if preview.status != "ready" or not preview.file_path:
         raise HTTPException(status_code=404, detail="Preview is not available")
-    return FileResponse(
-        preview.file_path,
-        media_type=preview.content_type,
-        headers={"Cache-Control": "public, max-age=3600, immutable"},
+    return preview_file_response(
+        request,
+        Path(preview.file_path),
+        preview.content_type,
+        {"Cache-Control": "public, max-age=3600, immutable"},
     )

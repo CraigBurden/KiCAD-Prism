@@ -1,0 +1,289 @@
+{
+  "schema": "prism.project.a0",
+  "projectFile": "USB-PD-Trigger-Board.kicad_pro",
+  "projectName": "USB-PD-Trigger-Board",
+  "textVariables": {
+    "MODELS": "${KIPRJMOD}/packages3D"
+  },
+  "netClasses": [
+    {
+      "name": "Default",
+      "trackWidthNm": 200000,
+      "clearanceNm": 200000,
+      "diffPairWidthNm": 200000,
+      "diffPairGapNm": 250000,
+      "viaDiameterNm": 600000,
+      "viaDrillNm": 300000
+    },
+    {
+      "name": "GND"
+    }
+  ],
+  "documents": [
+    {
+      "path": "Subsheets/Output-Connector.kicad_sch",
+      "kind": "schematic",
+      "formatVersion": 20250114,
+      "generator": "eeschema",
+      "generatorVersion": "9.0",
+      "titleBlock": {
+        "date": "2026-01-22",
+        "comments": []
+      },
+      "expandedTitleBlock": {
+        "date": "2026-01-22",
+        "comments": []
+      },
+      "properties": {}
+    },
+    {
+      "path": "USB-PD-Trigger-Board.kicad_pcb",
+      "kind": "board",
+      "formatVersion": 20241229,
+      "generator": "pcbnew",
+      "generatorVersion": "9.0",
+      "titleBlock": {
+        "title": "${PROJECTNAME}",
+        "rev": "${VERSION}",
+        "comments": [
+          {
+            "number": 2,
+            "text": "Board file ${FILENAME}"
+          }
+        ]
+      },
+      "expandedTitleBlock": {
+        "title": "USB-PD-Trigger-Board",
+        "rev": "E.1.0.0",
+        "comments": [
+          {
+            "number": 2,
+            "text": "Board file USB-PD-Trigger-Board.kicad_pcb"
+          }
+        ]
+      },
+      "properties": {
+        "VERSION": "E.1.0.0"
+      }
+    },
+    {
+      "path": "USB-PD-Trigger-Board.kicad_sch",
+      "kind": "root-schematic",
+      "formatVersion": 20250114,
+      "generator": "eeschema",
+      "generatorVersion": "9.0",
+      "titleBlock": {
+        "title": "USB-PD Trigger Board",
+        "date": "2026-01-22",
+        "rev": "E.1.0.0",
+        "comments": [
+          {
+            "number": 1,
+            "text": "Krishna Swaroop Dhulipalla"
+          }
+        ]
+      },
+      "expandedTitleBlock": {
+        "title": "USB-PD Trigger Board",
+        "date": "2026-01-22",
+        "rev": "E.1.0.0",
+        "comments": [
+          {
+            "number": 1,
+            "text": "Krishna Swaroop Dhulipalla"
+          }
+        ]
+      },
+      "properties": {}
+    }
+  ],
+  "references": [
+    {
+      "kind": "model-3d",
+      "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+      "raw": "${KICAD9_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.step",
+      "variables": [
+        "KICAD9_3DMODEL_DIR"
+      ],
+      "target": {
+        "kind": "kicad-library",
+        "variable": "KICAD9_3DMODEL_DIR",
+        "library": "model-3d",
+        "relativePath": "Capacitor_SMD.3dshapes/C_0603_1608Metric.step"
+      }
+    },
+    {
+      "kind": "model-3d",
+      "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+      "raw": "${KIPRJMOD}/../shared-models/SOT-23.step",
+      "variables": [
+        "KIPRJMOD"
+      ],
+      "target": {
+        "kind": "outside-repository",
+        "path": "../shared-models/SOT-23.step",
+        "base": "project-variable"
+      }
+    },
+    {
+      "kind": "model-3d",
+      "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+      "raw": "${KIPRJMOD}/packages3D/CYPD3177-24LQXQT.stp",
+      "variables": [
+        "KIPRJMOD"
+      ],
+      "target": {
+        "kind": "repository",
+        "path": "packages3D/CYPD3177-24LQXQT.stp",
+        "base": "project-variable",
+        "inSources": true
+      }
+    },
+    {
+      "kind": "model-3d",
+      "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+      "raw": "${MODELS}/796638-2.step",
+      "variables": [
+        "KIPRJMOD",
+        "MODELS"
+      ],
+      "target": {
+        "kind": "repository",
+        "path": "packages3D/796638-2.step",
+        "base": "project-variable",
+        "inSources": true
+      }
+    },
+    {
+      "kind": "model-3d",
+      "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+      "raw": "kicad-embed://BSL308PE.stp",
+      "variables": [],
+      "target": {
+        "kind": "embedded",
+        "name": "BSL308PE.stp",
+        "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+        "footprintUuid": "8ea1ed23-3f8f-42ce-8c56-16f2acc6ed03",
+        "fileType": "model"
+      }
+    },
+    {
+      "kind": "model-3d",
+      "documentPath": "USB-PD-Trigger-Board.kicad_pcb",
+      "raw": "~/kicad/models/D_SOD-123.step",
+      "variables": [],
+      "target": {
+        "kind": "unresolved",
+        "reason": "home-relative"
+      }
+    },
+    {
+      "kind": "drawing-sheet",
+      "documentPath": "USB-PD-Trigger-Board.kicad_pro",
+      "field": "/schematic/page_layout_descr_file",
+      "raw": "kicad-embed://Schematic-Page-Template.kicad_wks",
+      "variables": [],
+      "target": {
+        "kind": "embedded",
+        "name": "Schematic-Page-Template.kicad_wks",
+        "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+        "fileType": "worksheet"
+      }
+    },
+    {
+      "kind": "drawing-sheet",
+      "documentPath": "USB-PD-Trigger-Board.kicad_pro",
+      "field": "/pcbnew/page_layout_descr_file",
+      "raw": "sheets/Board.kicad_wks",
+      "variables": [],
+      "target": {
+        "kind": "repository",
+        "path": "sheets/Board.kicad_wks",
+        "base": "project-directory",
+        "inSources": false
+      }
+    },
+    {
+      "kind": "sheet-file",
+      "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+      "sheetUuid": "5eb27ce9-6d8e-40a9-9f6d-8f14c5f68638",
+      "sheetName": "Output Connector",
+      "raw": "Subsheets/Output-Connector.kicad_sch",
+      "variables": [],
+      "target": {
+        "kind": "repository",
+        "path": "Subsheets/Output-Connector.kicad_sch",
+        "base": "document-directory",
+        "inSources": true
+      }
+    },
+    {
+      "kind": "text-path",
+      "documentPath": "USB-PD-Trigger-Board.kicad_sch",
+      "field": "Datasheet",
+      "raw": "${KIPRJMOD}/datasheets/CYPD3177.pdf",
+      "variables": [
+        "KIPRJMOD"
+      ],
+      "target": {
+        "kind": "repository",
+        "path": "datasheets/CYPD3177.pdf",
+        "base": "project-variable",
+        "inSources": false
+      }
+    },
+    {
+      "kind": "footprint-library",
+      "documentPath": "fp-lib-table",
+      "libraryName": "Team",
+      "raw": "${TEAM_LIBS}/Team.pretty",
+      "variables": [],
+      "target": {
+        "kind": "unresolved",
+        "reason": "undefined-variable",
+        "variable": "TEAM_LIBS"
+      }
+    },
+    {
+      "kind": "footprint-library",
+      "documentPath": "fp-lib-table",
+      "libraryName": "Host",
+      "raw": "/opt/libs/Host.pretty",
+      "variables": [],
+      "target": {
+        "kind": "absolute",
+        "path": "/opt/libs/Host.pretty"
+      }
+    },
+    {
+      "kind": "symbol-library",
+      "documentPath": "sym-lib-table",
+      "libraryName": "Device",
+      "raw": "${KICAD10_SYMBOL_DIR}/Device.kicad_sym",
+      "variables": [
+        "KICAD10_SYMBOL_DIR"
+      ],
+      "target": {
+        "kind": "kicad-library",
+        "variable": "KICAD10_SYMBOL_DIR",
+        "library": "symbol",
+        "relativePath": "Device.kicad_sym"
+      }
+    },
+    {
+      "kind": "text-path",
+      "documentPath": "sym-lib-table",
+      "field": "descr",
+      "raw": "${KIPRJMOD}/docs/libraries.md",
+      "variables": [
+        "KIPRJMOD"
+      ],
+      "target": {
+        "kind": "repository",
+        "path": "docs/libraries.md",
+        "base": "project-variable",
+        "inSources": false
+      }
+    }
+  ]
+}

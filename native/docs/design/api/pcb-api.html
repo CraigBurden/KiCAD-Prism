@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en" data-doc-status="accepted">
+<head>
+  <meta charset="utf-8">
+  <title>KiCad Monkey PCB API</title>
+</head>
+<body>
+  <h1>PCB And Footprint API</h1>
+
+  <section
+    data-interface="KiCadPcb"
+    data-rack-stratum="L0_foundation"
+    data-test-file="tests/L0_foundation/test_L0_036_pcb_footprint_api_cleanup.py"
+    data-test-target="test_pcb_object_query_properties_and_ir_entrypoint"
+  >
+    <h2>KiCadPcb</h2>
+    <h3>Rationale</h3>
+    <p>
+      Board-level tools need a stable facade for object query, property cleanup,
+      mutation, serialization, and IR-backed board SVG generation.
+    </p>
+    <h3>Purpose</h3>
+    <p>
+      Own the PCB OOP model and provide common object, property, and IR methods
+      without exposing parser internals.
+    </p>
+    <p>
+      `KiCadPcb.get_bounds()` is a source-model contract. Board graphical
+      shapes use KiCad-style geometry bounds, including stroke-width expansion,
+      and are tested separately from renderer viewBox behavior. PCB SVG output
+      remains canonical through the plotter IR renderer; `KiCadPcb.to_svg()`
+      delegates to that path rather than maintaining a second direct renderer.
+    </p>
+    <h3>Cost Model</h3>
+    <p>
+      <code>KiCadPcb.from_file</code>, <code>KiCadPcb(path)</code>,
+      <code>KiCadPcb.to_ir()</code>, and <code>KiCadPcb.to_svg()</code> are
+      full-model paths. User-facing read-path and render-cost guidance is
+      canonical in <a href="../../guides/project-workflows.html">Project
+      Workflows And Read-Path Selection</a>.
+    </p>
+    <h3>Construction Model</h3>
+    <p>
+      Existing code may use <code>KiCadPcb(path)</code> to parse a file or
+      <code>KiCadPcb()</code> as an empty parser/model container.
+      <code>from_file</code> is the named loader. <code>KiCadPcb.new()</code>
+      is reserved for a blank KiCad-openable board with default document state,
+      including the standard layer stack and setup block.
+    </p>
+    <h3>Test Requirements</h3>
+    <p>
+      Tests must cover board property mutation, object add/remove, read-only
+      object queries, the public board IR entrypoint, graphical source-model
+      bounds, layer-filtered board bounds, and IR-backed SVG wrapper behavior.
+      Numerical bounds parity should be proven with analytic cases and a direct
+      KiCad bbox oracle when the patched CLI is available. Blank-board creation
+      tests must prove <code>KiCadPcb.new()</code> emits a valid default layer
+      stack rather than the lower-level empty container.
+    </p>
+    <h3>Working Definition</h3>
+    <p>
+      A PCB facade is public when downstream tools can inspect and modify board
+      content through the model before rendering or writing.
+    </p>
+  </section>
+
+  <section
+    data-interface="PcbLayerFlashResolver"
+    data-rack-stratum="L0_foundation"
+    data-test-file="tests/L0_foundation/test_L0_020_pcb_to_ir.py"
+    data-test-target="test_pth_resolver_uses_exact_pad_layers_and_geometric_connectivity"
+  >
+    <h2>PcbLayerFlashResolver</h2>
+    <h3>Rationale</h3>
+    <p>
+      KiCad stores a pad or via's physical copper span separately from the
+      subset of layers on which its copper land is actually flashed.
+      Board-level consumers need one shared interpretation of those policies.
+    </p>
+    <h3>Purpose</h3>
+    <p>
+      Resolve <code>remove_unused_layers</code>,
+      <code>keep_end_layers</code>, <code>start_end_only</code>, forced zone
+      connections, and direct same-net geometry against a complete board.
+      Physical drill spans remain available independently from effective
+      copper-flash layers.
+    </p>
+    <h3>Test Requirements</h3>
+    <p>
+      Tests must cover exact pad membership, via spans, endpoint retention,
+      forced zone layers, same-footprint exclusions, physical-hole
+      connectivity, drill offsets, and Python/Rust parity on persistent corpus
+      boards including Yoshi.
+    </p>
+    <h3>Working Definition</h3>
+    <p>
+      The resolver is public when plotter IR, SVG, bounds, zone, manufacturing,
+      and downstream Cruncher consumers can share KiCad-equivalent effective
+      copper layers without shortening or hiding physical drills.
+    </p>
+  </section>
+
+  <section
+    data-interface="KiCadPcbProjection"
+    data-rack-stratum="L0_foundation"
+    data-test-file="tests/L0_foundation/test_L0_042_pcb_projection.py"
+    data-test-target="test_pcb_projection_hydrates_same_domain_object_types"
+  >
+    <h2>KiCadPcbProjection</h2>
+    <h3>Rationale</h3>
+    <p>
+      Large boards need fast source-aware access to selected PCB sub-objects
+      without paying the cost of a complete board parse for every workflow.
+    </p>
+    <h3>Purpose</h3>
+    <p>
+      Project selected board forms into the same domain object classes returned
+      by `KiCadPcb`, while preserving exact source spans for diagnostics and
+      repair tooling.
+    </p>
+    <p>
+      Projection may cache immutable source-derived indexes, including
+      line-column lookups, direct child spans, and PCB net lookup tables, to
+      avoid repeated scans on large boards. These caches are private
+      acceleration details; projected objects, source metadata, and unresolved
+      net fallback behavior remain the public contract.
+    </p>
+    <h3>Cost Model</h3>
+    <p>
+      A projection created from a file reads and scans the source text, then
+      hydrates only the requested object families. The projection facade is the
+      supported file-level PCB inventory API; measured tradeoffs and net-table
+      caveats are canonical in <a href="../../guides/project-workflows.html">
+      Project Workflows And Read-Path Selection</a>.
+    </p>
+    <h3>Test Requirements</h3>
+    <p>
+      Tests must prove projected footprints, vias, tracks, graphics, layers,
+      pads, and model references hydrate as normal domain objects and match full
+      parser counts on real corpus boards.
+    </p>
+    <p>
+      Tests must also prove nested pad/model source spans retain exact offsets,
+      line/column values, source text, and reparsed S-expression content, and
+      that KiCad v10 name-only net references remain unresolved-by-ordinal when
+      no top-level net table exists.
+    </p>
+    <h3>Working Definition</h3>
+    <p>
+      A PCB projection facade is public when callers can use projected objects
+      like full-parser objects and can recover source spans for those objects.
+    </p>
+  </section>
+
+  <section
+    data-interface="ProjectedSource"
+    data-rack-stratum="L0_foundation"
+    data-test-file="tests/L0_foundation/test_L0_042_pcb_projection.py"
+    data-test-target="test_pcb_projection_preserves_source_metadata"
+  >
+    <h2>ProjectedSource</h2>
+    <h3>Rationale</h3>
+    <p>
+      Projection callers need exact source ownership for object diagnostics,
+      comparisons, and targeted rewrite tools.
+    </p>
+    <h3>Purpose</h3>
+    <p>
+      Carry the exact selected form span and optional parent span associated
+      with one projected domain object.
+    </p>
+    <h3>Test Requirements</h3>
+    <p>
+      Tests must prove source metadata can return exact object text and parse
+      back to the selected KiCad S-expression form.
+    </p>
+    <h3>Working Definition</h3>
+    <p>
+      Source metadata is public when projected objects can be mapped back to
+      their file text without requiring a full board parse.
+    </p>
+  </section>
+
+  <section
+    data-interface="PcbModelReference"
+    data-rack-stratum="L0_foundation"
+    data-test-file="tests/L0_foundation/test_L0_042_pcb_projection.py"
+    data-test-target="test_pcb_projection_reports_nested_model_references"
+  >
+    <h2>PcbModelReference</h2>
+    <h3>Rationale</h3>
+    <p>
+      3D model health checks need parent footprint context and source spans for
+      nested model forms.
+    </p>
+    <h3>Purpose</h3>
+    <p>
+      Represent one footprint-owned model reference with the hydrated model
+      object, parent footprint, and source span context.
+    </p>
+    <h3>Test Requirements</h3>
+    <p>
+      Tests must prove model references expose parent reference/value data,
+      model path data, and nested model source spans.
+    </p>
+    <h3>Working Definition</h3>
+    <p>
+      A model reference inventory record is public when project health and
+      library extraction tools can inspect model usage without custom scanners.
+    </p>
+  </section>
+
+  <section
+    data-interface="KiCadFootprint"
+    data-rack-stratum="L0_foundation"
+    data-test-file="tests/L0_foundation/test_L0_036_pcb_footprint_api_cleanup.py"
+    data-test-target="test_standalone_footprint_object_query_properties_and_ir_entrypoint"
+  >
+    <h2>KiCadFootprint</h2>
+    <h3>Rationale</h3>
+    <p>
+      Standalone `.kicad_mod` files are edited and rendered independently of a
+      board, so they need their own facade.
+    </p>
+    <h3>Purpose</h3>
+    <p>
+      Represent one standalone footprint file with object query, property
+      mutation, serialization, and footprint IR conversion.
+    </p>
+    <h3>Test Requirements</h3>
+    <p>
+      Tests must cover reference/value helpers, object add/remove, property
+      queries, and standalone footprint IR output.
+    </p>
+    <h3>Working Definition</h3>
+    <p>
+      A standalone footprint facade is public when callers can use the same
+      query and property style as board-embedded footprints.
+    </p>
+  </section>
+
+  <section
+    data-interface="Footprint"
+    data-rack-stratum="L0_foundation"
+    data-test-file="tests/L0_foundation/test_L0_036_pcb_footprint_api_cleanup.py"
+    data-test-target="test_embedded_footprint_object_query_properties_and_ir_entrypoint"
+  >
+    <h2>Footprint</h2>
+    <h3>Rationale</h3>
+    <p>
+      Board workflows often mutate placed footprint properties and graphics
+      before generating SVG, netlist, or assembly views.
+    </p>
+    <h3>Purpose</h3>
+    <p>
+      Represent a board-embedded footprint with object query, named property
+      helpers, and PCB-footprint IR conversion.
+    </p>
+    <h3>Test Requirements</h3>
+    <p>
+      Tests must cover property mutation, embedded object queries, object
+      add/remove, and footprint-record IR output.
+    </p>
+    <h3>Working Definition</h3>
+    <p>
+      An embedded footprint is public when board callers can manipulate it
+      through the same facade style as standalone footprint files.
+    </p>
+  </section>
+</body>
+</html>

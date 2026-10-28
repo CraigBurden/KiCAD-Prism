@@ -1,333 +1,209 @@
-"""Source-aware design-variant catalog discovery (VAR-07).
+"""The design-variant catalog from a project revision's design bundle (VAR-07).
 
-The catalog is the union of four source sets, in the order frozen in the
-design-variant contract packet v1.0 section 2.1:
+A revision's catalog is the bundle's ``projections/semantic-index.json``
+member: its ``assembly.catalog`` is the ordered catalog and its own diagnostics
+are the catalog's diagnostics. The member is produced by ``prism-kicad`` from
+the parsed design, so this module never reads KiCad design text (WP-X).
 
-1. the ``.kicad_pro`` registry (``schematic.variants``), in file order;
-2. board-header names from ``(variants …)``, in file order;
-3. names in schematic symbol- and sheet-instance variant records, in hierarchy
-   walk order then file order;
-4. names in footprint variant records, in board file order.
+The catalog's order and fold rules are frozen in the design-variant contract
+packet v1.0 section 2.1: the project registry first, then board-header names,
+then schematic instance names in hierarchy walk order, then footprint variant
+names. Board-side names fold case-insensitively into the first matching entry,
+with a ``catalog-name-case-mismatch`` diagnostic; schematic names stay distinct
+because KiCad's schematic variant names are case-sensitive. A microstructure
+that cannot be read keeps its ``source-unparseable`` diagnostic while the rest
+of the catalog still answers.
 
-Board-side names (2 and 4) fold case-insensitively into the first matching
-catalog entry with a ``catalog-name-case-mismatch`` diagnostic; schematic names
-stay distinct (KiCad's schematic variant names are case-sensitive). An
-unreadable source or malformed relevant record is skipped with a
-``source-unparseable`` diagnostic: readable sources still produce a catalog.
-Metadata-free files take a fast path; discovery is not whole-file validation.
-
-Discovery reads text with a structural, quote-aware S-expression scanner,
-so quoted strings and escaped quotes never confuse the form walk, and it reads
-the revision through ``project_source_snapshot`` so a commit never leaks
-working-tree names. No kicad-monkey call and no private ``projects.py`` helper
-is involved; the API layer supplies a role-validated project.
+The API consumer (``project_variants``), the semantic index and Release Studio
+all read this bundle member. A member that is still building raises
+``DesignDataPending`` and one that failed ``DesignDataFailed`` from
+``design_bundle.errors``; there is no source-text fallback.
 """
 
 from __future__ import annotations
 
-import json
-from copy import deepcopy
-from functools import lru_cache
-from types import SimpleNamespace
-from pathlib import Path
 from typing import Any, Optional
 
-from app.services.variant_source_scan import scan_source
-from app.services.project_source_snapshot import (
-    ProjectSourceSnapshot,
-    project_revision_identity,
-    project_source_snapshot,
-    source_files,
-)
+from app.services import project_revision
+from app.services.variant_catalog_cache import CatalogResultCache
 
 SCHEMA = "prism.project_variants_a0"
 
-SOURCE_PROJECT = "project"
-SOURCE_PCB = "pcb"
-SOURCE_SCHEMATIC = "schematic"
-SOURCE_FOOTPRINT = "footprint"
+#: The shaped catalog, keyed by bundle key + member SHA-256 + project directory.
+#: A member's bytes are immutable and its SHA-256 names them, so an entry can
+#: only be reused for exactly the bytes it was built from. The project directory
+#: is part of the answer (diagnostic paths are project-relative), so it is part
+#: of the key too. The cache is bounded and shared by the API and Release
+#: Studio; see ``variant_catalog_cache`` for its limits and copy semantics.
+_CATALOG_CACHE = CatalogResultCache()
 
-CASE_MISMATCH_CODE = "catalog-name-case-mismatch"
-SOURCE_UNPARSEABLE_CODE = "source-unparseable"
+#: The semantic index member a bundled catalog answers from (bundle-format.md §2).
+SEMANTIC_INDEX_MEMBER = "projections/semantic-index.json"
 
-def _read_text(path: Path) -> Optional[str]:
-    try:
-        return path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+#: Today's catalog-diagnostic keys, in the order the bundle's producer inserts
+#: them, so a bundle-derived diagnostic serializes with the same key order.
+_CATALOG_DIAGNOSTIC_KEYS = ("code", "severity", "source", "path", "message", "detail")
+
+
+def _project_relative(path: str, project_dir: str) -> str:
+    """A bundle ``RepoPath`` in today's project-relative spelling (D9).
+
+    The bundle spells paths relative to its source root (the repository root,
+    conventions §8); today's catalog spells them relative to the project
+    directory. A path outside the project directory keeps today's bare-name
+    fallback (``_relative``).
+    """
+
+    if project_dir and path.startswith(project_dir + "/"):
+        return path[len(project_dir) + 1:]
+    if project_dir:
+        return path.rsplit("/", 1)[-1]
+    return path
+
+
+def _catalog_diagnostic(diagnostic: Any, project_dir: str) -> dict[str, Any]:
+    """One catalog diagnostic from the bundle, in today's key order and paths."""
+
+    shaped = {
+        key: diagnostic[key]
+        for key in _CATALOG_DIAGNOSTIC_KEYS
+        if key in diagnostic
+    }
+    if "path" in shaped:
+        shaped["path"] = _project_relative(str(shaped["path"]), project_dir)
+    return shaped
+
+
+def _catalog_body_from_assembly(assembly: Any, project_dir: str) -> dict[str, Any]:
+    """Today's catalog body (``variants`` + ``diagnostics``) from an ``assembly``.
+
+    ``assembly`` is the bundle member's ``assembly`` block (ADR §9.6): its
+    ``catalog`` is today's ``variants`` in catalog order, and the catalog's own
+    diagnostics are the members of ``assembly.diagnostics`` that carry a
+    ``source`` — only the catalog builder writes that key, so the resolver's
+    diagnostics (``source-state-mismatch`` and friends) stay out. Values are
+    copied out so the caller never shares or mutates the parsed member.
+    """
+
+    variants = [
+        {
+            "name": entry["name"],
+            "description": entry["description"],
+            "sources": list(entry["sources"]),
+        }
+        for entry in (assembly.get("catalog") or [])
+    ]
+    diagnostics = [
+        _catalog_diagnostic(diagnostic, project_dir)
+        for diagnostic in (assembly.get("diagnostics") or [])
+        if "source" in diagnostic
+    ]
+    return {"variants": variants, "diagnostics": diagnostics}
+
+
+def _cache_key(read: Any) -> Optional[tuple[str, str]]:
+    """``(bundle key, member SHA-256)`` for a ready read, or ``None`` when unknown.
+
+    Test doubles and a revision served outside a stored archive have no bundle
+    key; they simply never touch the cache.
+    """
+
+    opened = getattr(read, "opened", None)
+    bundle_key = getattr(opened, "bundle_key", None)
+    archive = getattr(opened, "archive", None)
+    member = archive.member(SEMANTIC_INDEX_MEMBER) if archive is not None else None
+    if not bundle_key or member is None:
         return None
+    return (str(bundle_key), str(member["sha256"]))
 
 
-class _CatalogBuilder:
-    """Ordered catalog plus diagnostics, with the packet's fold rules."""
+def _catalog_body_from_bundle(project: Any, resolved_commit: str, read: Any = None) -> dict[str, Any]:
+    """The bundle's catalog body for a commit.
 
-    def __init__(self) -> None:
-        self._entries: list[dict[str, Any]] = []
-        self._diagnostics: list[dict[str, Any]] = []
-        self._case_folds: set[tuple[str, str]] = set()
+    ``bundle_read`` raises ``DesignDataPending`` while the member builds (it
+    queues the job) and ``DesignDataFailed`` when it cannot be built; a final
+    non-member (a project with no semantic index) has no variants. ``read`` is
+    an already-opened ``BundleRead``, so a caller that needed the same revision
+    for its response headers opens the bundle once.
 
-    def add_project_name(self, name: str, description: Optional[str]) -> None:
-        exact = self._exact(name)
-        if exact is not None:
-            _add_source(exact, SOURCE_PROJECT)
-            _merge_description(exact, description)
-            return
-        self._entries.append(
-            {
-                "name": name,
-                "description": description,
-                "sources": [SOURCE_PROJECT],
-            }
+    A ready member is inflated, hashed and parsed once per (bundle key, member
+    SHA-256, project directory): later calls are served from the bounded
+    cache in ``variant_catalog_cache``.
+    """
+
+    from app.services.design_bundle.consumer import bundle_read
+
+    # Bundles are keyed by project id; a caller with only a checkout path
+    # has no bundle to read.
+    project_id = str(getattr(project, "id", "") or "")
+    if not project_id:
+        raise ValueError("A project id is required to read the variant catalog")
+    if read is None:
+        read = bundle_read(
+            "SEMANTIC_INDEX",
+            project_id,
+            resolved_commit,
+            [SEMANTIC_INDEX_MEMBER],
         )
-
-    def add_board_name(
-        self,
-        name: str,
-        description: Optional[str],
-        source: str,
-        kind: str,
-    ) -> None:
-        # Board-side names always resolve against the first catalog entry with
-        # that spelling, even when a later entry matches exactly: the native
-        # board map is a single case-insensitive key space (case_fold fixture).
-        folded = self._folded(name)
-        if folded is not None:
-            _add_source(folded, source)
-            _merge_description(folded, description)
-            if str(folded["name"]) != name:
-                self._case_mismatch(kind, name, str(folded["name"]))
-            return
-        self._entries.append(
-            {"name": name, "description": description, "sources": [source]}
-        )
-
-    def add_schematic_name(self, name: str) -> None:
-        exact = self._exact(name)
-        if exact is not None:
-            _add_source(exact, SOURCE_SCHEMATIC)
-            return
-        self._entries.append(
-            {"name": name, "description": None, "sources": [SOURCE_SCHEMATIC]}
-        )
-
-    def source_unparseable(self, source: str, path: str) -> None:
-        self._diagnostics.append(
-            {
-                "code": SOURCE_UNPARSEABLE_CODE,
-                "severity": "error",
-                "source": source,
-                "path": path,
-                "message": f"Could not read {path} as a KiCad source.",
-            }
-        )
-
-    def _case_mismatch(self, kind: str, found: str, folded_into: str) -> None:
-        key = (found, folded_into)
-        if key in self._case_folds:
-            return
-        self._case_folds.add(key)
-        self._diagnostics.append(
-            {
-                "code": CASE_MISMATCH_CODE,
-                "severity": "warning",
-                "source": SOURCE_PCB,
-                "message": f'{kind} name "{found}" folded into "{folded_into}".',
-                "detail": {"found": found, "folded_into": folded_into},
-            }
-        )
-
-    def _exact(self, name: str) -> Optional[dict[str, Any]]:
-        return next((entry for entry in self._entries if entry["name"] == name), None)
-
-    def _folded(self, name: str) -> Optional[dict[str, Any]]:
-        folded = name.lower()
-        return next(
-            (
-                entry
-                for entry in self._entries
-                if str(entry["name"]).lower() == folded
-            ),
-            None,
-        )
-
-    def variants(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "name": entry["name"],
-                "description": entry["description"],
-                "sources": entry["sources"],
-            }
-            for entry in self._entries
-        ]
-
-    def diagnostics(self) -> list[dict[str, Any]]:
-        return list(self._diagnostics)
-
-
-def _add_source(entry: dict[str, Any], source: str) -> None:
-    sources: list[str] = entry["sources"]
-    if source not in sources:
-        sources.append(source)
-
-
-def _merge_description(entry: dict[str, Any], description: Optional[str]) -> None:
-    if entry["description"] is None and description is not None:
-        entry["description"] = description
-
-
-def _project_registry_entries(project_file: Path) -> tuple[list[dict[str, Any]], bool]:
-    """``(entries, readable)`` for ``$.schematic.variants`` (packet N10)."""
-
+    if not read.ready(SEMANTIC_INDEX_MEMBER):
+        return {"variants": [], "diagnostics": []}
+    project_dir = project_revision.locate(project).relative_path
+    key = _cache_key(read)
+    if key is not None:
+        cached = _CATALOG_CACHE.get((*key, project_dir))
+        if cached is not None:
+            return cached
     try:
-        raw = json.loads(project_file.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return [], False
-    if not isinstance(raw, dict):
-        return [], False
-    schematic = raw.get("schematic")
-    if schematic is None:
-        return [], True
-    if not isinstance(schematic, dict):
-        return [], False
-    variants = schematic.get("variants")
-    if variants is None:
-        return [], True
-    if not isinstance(variants, list):
-        return [], False
+        document = read.json(SEMANTIC_INDEX_MEMBER)
+    except Exception as error:  # noqa: BLE001 - a corrupt member is a typed failure
+        from app.services.design_bundle.errors import DesignDataFailed
 
-    entries: list[dict[str, Any]] = []
-    for item in variants:
-        if not isinstance(item, dict):
-            continue
-        name = item.get("name")
-        if not isinstance(name, str) or name in ("", "< Default >"):
-            continue
-        description = item.get("description")
-        entries.append(
-            {
-                "name": name,
-                "description": description if isinstance(description, str) else None,
-            }
-        )
-    return entries, True
+        raise DesignDataFailed([SEMANTIC_INDEX_MEMBER], f"the member could not be read: {error}") from error
+    assembly = document.get("assembly") if isinstance(document, dict) else None
+    if not isinstance(assembly, dict):
+        return {"variants": [], "diagnostics": []}
+    body = _catalog_body_from_assembly(assembly, project_dir)
+    if key is not None:
+        _CATALOG_CACHE.put((*key, project_dir), body)
+    return body
 
 
-def _board_records(
-    text: str,
-) -> tuple[list[tuple[str, Optional[str]]], list[str], bool]:
-    """``(header entries, footprint record names, readable)`` for a board."""
+def reset_variant_catalog_cache() -> None:
+    """Drop every cached catalog result (tests, and an explicit operator reset)."""
 
-    records = scan_source(text, "kicad_pcb")
-    return list(records.header), list(records.names), records.readable
+    _CATALOG_CACHE.clear()
 
 
-def _schematic_record_names(text: str) -> tuple[list[str], bool]:
-    records = scan_source(text, "kicad_sch")
-    return list(records.names), records.readable
+def variant_catalog_cache_stats() -> dict[str, int]:
+    """Entries, accounted bytes, and hit/miss counters of the catalog cache."""
+
+    return _CATALOG_CACHE.stats()
 
 
-def _relative(snapshot: ProjectSourceSnapshot, path: Path) -> str:
-    try:
-        return path.resolve().relative_to(snapshot.root).as_posix()
-    except ValueError:
-        return path.name
-
-
-def discover_variant_catalog(
-    project: Any, commit: Optional[str] = None
-) -> dict[str, Any]:
+def discover_variant_catalog(project: Any, commit: Optional[str] = None, read: Any = None) -> dict[str, Any]:
     """Discover the variant catalog for one project revision.
 
     ``project`` must already have passed the caller's role check; this service
-    performs no authorization. ``commit`` is any ref accepted by the semantic
-    index (resolved to a SHA here), or ``None`` for the working tree.
+    performs no authorization. ``commit`` is any ref accepted by the design
+    bundle, resolved to a SHA here, or ``None`` for the checkout's ``HEAD``.
+    ``read`` is an already-opened ``BundleRead`` for the same revision (the API
+    opens it for its response headers); it also supplies the resolved commit.
+
+    The bundle member is the only source (ADR §9.7 R1 and X). A member that is
+    still building raises the typed pending answer; there is no source scan.
     """
 
-    source_revision_key, resolved_commit = project_revision_identity(project, commit)
-    result = deepcopy(_discover_cached(
-        str(project.path), getattr(project, "project_file", None),
-        source_revision_key, resolved_commit,
-    ))
+    location = project_revision.locate(project)
+    opened_commit = getattr(getattr(read, "opened", None), "commit", None) if read is not None else None
+    resolved_commit = (
+        str(opened_commit)
+        if opened_commit
+        else project_revision.resolve_commit(location, commit or "HEAD")
+    )
     return {
         "schema": SCHEMA,
         "projectId": str(getattr(project, "id", "")),
         "commit": resolved_commit,
-        "sourceRevisionKey": source_revision_key,
-        **result,
+        "sourceRevisionKey": resolved_commit,
+        **_catalog_body_from_bundle(project, resolved_commit, read),
     }
-
-
-@lru_cache(maxsize=128)
-def _discover_cached(path: str, anchor: str | None,
-                     source_revision_key: str, resolved_commit: str | None) -> dict[str, Any]:
-    project = SimpleNamespace(path=path, project_file=anchor)
-    with project_source_snapshot(project, resolved_commit) as snapshot:
-        result = discover_snapshot_catalog(snapshot)
-    if resolved_commit is None and project_revision_identity(project)[0] != source_revision_key:
-        raise RuntimeError("Project sources changed during variant discovery; retry")
-    return result
-
-
-def discover_snapshot_catalog(snapshot: ProjectSourceSnapshot) -> dict[str, Any]:
-    """Read an existing source snapshot without revision lookup or caching.
-
-    The semantic-index builder already owns its revision and parsed source
-    lifetime. Do not re-hash that tree or cache its temporary checkout path.
-    """
-    builder = _CatalogBuilder()
-    board, schematic = source_files(snapshot)
-
-    if snapshot.project_file.suffix.lower() == ".kicad_pro":
-        registry_entries, registry_readable = _project_registry_entries(
-            snapshot.project_file
-        )
-        if not registry_readable:
-            builder.source_unparseable(
-                SOURCE_PROJECT, _relative(snapshot, snapshot.project_file)
-            )
-        for entry in registry_entries:
-            builder.add_project_name(entry["name"], entry["description"])
-
-    header_entries: list[tuple[str, Optional[str]]] = []
-    footprint_names: list[str] = []
-    if board is not None:
-        board_text = _read_text(board)
-        if board_text is None:
-            builder.source_unparseable(SOURCE_PCB, _relative(snapshot, board))
-        else:
-            header_entries, footprint_names, board_readable = _board_records(
-                board_text
-            )
-            if not board_readable:
-                builder.source_unparseable(
-                    SOURCE_PCB, _relative(snapshot, board)
-                )
-
-    for name, description in header_entries:
-        builder.add_board_name(name, description, SOURCE_PCB, "Board header")
-
-    if schematic is not None:
-        pending = [schematic]
-        visited: set[Path] = set()
-        while pending:
-            path = pending.pop().resolve()
-            if path in visited:
-                continue
-            visited.add(path)
-            # Source files must stay within the project snapshot. Never
-            # follow a file-authored path into the host filesystem.
-            if not path.is_relative_to(snapshot.root):
-                builder.source_unparseable(SOURCE_SCHEMATIC, path.name)
-                continue
-            text = _read_text(path)
-            records = scan_source(text, "kicad_sch") if text is not None else None
-            if records is None or not records.readable:
-                builder.source_unparseable(SOURCE_SCHEMATIC, _relative(snapshot, path))
-                continue
-            for name in records.names:
-                builder.add_schematic_name(name)
-            pending.extend(reversed([path.parent / name for name in records.sheets]))
-
-    for name in footprint_names:
-        builder.add_board_name(name, None, SOURCE_FOOTPRINT, "Footprint record")
-
-    return {"variants": builder.variants(), "diagnostics": builder.diagnostics()}

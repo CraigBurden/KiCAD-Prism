@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { FolderInput, FolderPlus, Image, LayoutGrid, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings } from "lucide-react";
+import { CircuitBoard, FolderInput, FolderPlus, Image, LayoutGrid, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings } from "lucide-react";
 import { toast } from "sonner";
 
 import type { User } from "@/types/auth";
@@ -13,7 +13,9 @@ import { canManageProjects as roleCanManageProjects, canOpenLibraryManager } fro
 import { settingsTabFromParam } from "@/lib/settings-tabs";
 import { registerPaletteCommands, type PaletteCommand } from "@/lib/command-registry";
 import { fetchApi, readApiError } from "@/lib/api";
-import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
+import { isAbortError, throwIfJobFailed, type PrismJobStatus } from "@/lib/jobs";
+import { useJobWatcher } from "@/hooks/use-job-watcher";
+import { WorkspaceSectionHeading } from "./workspace/workspace-section-heading";
 import { WorkspaceBreadcrumbs } from "./workspace/workspace-breadcrumbs";
 import { WorkspaceGalleryView } from "./workspace/workspace-gallery-view";
 import { WorkspaceListView } from "./workspace/workspace-list-view";
@@ -58,6 +60,23 @@ interface WorkspaceProps {
 // Closes over nothing in the component.
 const getProjectDisplayName = (project: Project) => project.display_name || project.name;
 
+// A render can queue behind other work on the worker pool. Past this long with
+// no progress the toast stops waiting; the render may still land later.
+const THUMBNAIL_STALL_MS = 10 * 60_000;
+
+/** Wait for thumbnail renders, then throw the first failure. */
+async function awaitThumbnailJobs(
+  watchJob: ReturnType<typeof useJobWatcher>,
+  jobIds: string[],
+): Promise<void> {
+  const jobs: PrismJobStatus[] = [];
+  for (const jobId of jobIds) {
+    // react-doctor-disable-next-line async-await-in-loop - one poller at a time on purpose: the renders were queued together, so the next is underway when one settles
+    jobs.push(await watchJob(jobId, { stallTimeoutMs: THUMBNAIL_STALL_MS }));
+  }
+  jobs.forEach((job) => throwIfJobFailed(job, "Failed to render thumbnail"));
+}
+
 // react-doctor-disable-next-line no-giant-component - multi-surface shell whose modals and tabs share session state
 export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const navigate = useNavigate();
@@ -97,6 +116,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   // Paging belongs to the list being paged. Carrying that scope on the value
   // replaces both a reset effect and the clamp effect chained behind it.
   const [pageState, setPageState] = useState({ scope: "", page: 1 });
+  const watchJob = useJobWatcher();
   const canManageProjects = roleCanManageProjects(user?.role);
   // Everyone has personal settings (connected accounts, password); the
   // dialog itself hides workspace pages from non-admins.
@@ -416,14 +436,15 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       // The render runs on a worker rather than in the request, so the result
       // arrives with the job rather than with this response.
       const { job_id: jobId } = (await response.json()) as { job_id?: string };
-      if (jobId) {
-        const job = await watchPrismJob(jobId);
-        throwIfJobFailed(job, "Failed to render thumbnail");
-      }
+      if (jobId) await awaitThumbnailJobs(watchJob, [jobId]);
 
       toast.success("Thumbnail rendered", { id: toastId });
       await refresh();
     } catch (err) {
+      if (isAbortError(err)) {
+        toast.dismiss(toastId);
+        return;
+      }
       toast.error(err instanceof Error ? err.message : "Failed to render thumbnail", { id: toastId });
     }
   };
@@ -451,9 +472,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       }
 
       const payload = (await response.json()) as { job_ids?: string[]; count?: number };
-      const jobIds = payload.job_ids ?? [];
-      const jobs = await Promise.all(jobIds.map((jobId) => watchPrismJob(jobId)));
-      jobs.forEach((job) => throwIfJobFailed(job, "Failed to render thumbnail"));
+      await awaitThumbnailJobs(watchJob, payload.job_ids ?? []);
 
       toast.success(`Rendered ${payload.count ?? count} thumbnail${(payload.count ?? count) === 1 ? "" : "s"}`, {
         id: toastId,
@@ -461,6 +480,10 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       setBulkSelectedProjectIds(new Set());
       await refresh();
     } catch (err) {
+      if (isAbortError(err)) {
+        toast.dismiss(toastId);
+        return;
+      }
       toast.error(err instanceof Error ? err.message : "Failed to render thumbnails", { id: toastId });
     } finally {
       setIsRegeneratingThumbnails(false);
@@ -514,14 +537,15 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       // Nothing had been rendered for this project yet, so the server queued
       // the render this is reverting to.
       const { job_id: jobId } = (await response.json()) as { job_id?: string | null };
-      if (jobId) {
-        const job = await watchPrismJob(jobId);
-        throwIfJobFailed(job, "Failed to render thumbnail");
-      }
+      if (jobId) await awaitThumbnailJobs(watchJob, [jobId]);
 
       toast.success("Using the rendered board image", { id: toastId });
       await refresh();
     } catch (err) {
+      if (isAbortError(err)) {
+        toast.dismiss(toastId);
+        return;
+      }
       toast.error(err instanceof Error ? err.message : "Failed to restore the rendered image", { id: toastId });
     }
   };
@@ -529,6 +553,74 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   if (error) {
     return <div className="flex h-64 items-center justify-center rounded-xl border text-destructive">{error}</div>;
   }
+
+
+  const projectsToolbar = (
+    <>
+<>
+                          {canManageProjects && listProjects.length > 0 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-[11px]"
+                              onClick={toggleVisibleProjectSelection}
+                            >
+                              {allVisibleProjectsSelected ? "Clear selection" : `Select visible (${listProjects.length})`}
+                            </Button>
+                          )}
+                          {canManageProjects && selectedVisibleProjects.length > 0 && (
+                            <>
+                              <Button
+                                size="sm"
+                                className="h-7 px-2 text-[11px]"
+                                onClick={() => setProjectsToMove(selectedVisibleProjects)}
+                              >
+                                <FolderInput className="mr-1.5 h-3.5 w-3.5" />
+                                Move selected ({selectedVisibleProjects.length})
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-[11px]"
+                                disabled={isRegeneratingThumbnails}
+                                onClick={() => void handleRegenerateThumbnails(selectedVisibleProjects)}
+                              >
+                                <Image className="mr-1.5 h-3.5 w-3.5" />
+                                Regenerate thumbnails ({selectedVisibleProjects.length})
+                              </Button>
+                            </>
+                          )}
+                        </>
+{totalPages > 1 && (
+<>
+<span className="text-[11px] text-muted-foreground">{pageLabel}</span>
+<div className="flex items-center gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-[11px]"
+                            disabled={currentPage <= 1}
+                            onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                          >
+                            Previous
+                          </Button>
+                          <span className="px-1 text-[11px] text-muted-foreground">
+                            Page {currentPage} of {totalPages}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-[11px]"
+                            disabled={currentPage >= totalPages}
+                            onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                          >
+                            Next
+                          </Button>
+                        </div>
+</>
+)}
+    </>
+  );
 
   return (
     <>
@@ -591,12 +683,11 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                   <WorkspaceBreadcrumbs
                     isSearching={isSearching}
                     breadcrumbs={breadcrumbs}
-                    viewMode={viewMode}
                     onGoRoot={() => setFolderInUrl(null)}
                     onSelectFolder={(folderId) => setFolderInUrl(folderId)}
                   />
 
-                  <div className="relative mt-6 min-h-0 flex-1 overflow-hidden">
+                  <div className={`relative min-h-0 flex-1 overflow-hidden ${breadcrumbs.length > 0 && !isSearching ? "mt-4" : ""}`}>
                     <div
                       className={`h-full overflow-y-auto pr-1 ${
                         selectedProject !== null
@@ -604,70 +695,10 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                           : ""
                       }`}
                     >
-                      <div className="mb-4 flex items-center justify-between rounded-lg border bg-card/30 px-3 py-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-xs text-muted-foreground">
-                            {pageLabel}
-                          </p>
-                          {canManageProjects && listProjects.length > 0 && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-[11px]"
-                              onClick={toggleVisibleProjectSelection}
-                            >
-                              {allVisibleProjectsSelected ? "Clear selection" : `Select visible (${listProjects.length})`}
-                            </Button>
-                          )}
-                          {canManageProjects && selectedVisibleProjects.length > 0 && (
-                            <>
-                              <Button
-                                size="sm"
-                                className="h-7 px-2 text-[11px]"
-                                onClick={() => setProjectsToMove(selectedVisibleProjects)}
-                              >
-                                <FolderInput className="mr-1.5 h-3.5 w-3.5" />
-                                Move selected ({selectedVisibleProjects.length})
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-[11px]"
-                                disabled={isRegeneratingThumbnails}
-                                onClick={() => void handleRegenerateThumbnails(selectedVisibleProjects)}
-                              >
-                                <Image className="mr-1.5 h-3.5 w-3.5" />
-                                Regenerate thumbnails ({selectedVisibleProjects.length})
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-[11px]"
-                            disabled={currentPage <= 1}
-                            onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                          >
-                            Previous
-                          </Button>
-                          <span className="px-1 text-[11px] text-muted-foreground">
-                            Page {currentPage} of {totalPages}
-                          </span>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-[11px]"
-                            disabled={currentPage >= totalPages}
-                            onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-                          >
-                            Next
-                          </Button>
-                        </div>
-                      </div>
                       {viewMode === "gallery" ? (
                         <WorkspaceGalleryView
+                          projectsToolbar={projectsToolbar}
+                          projectCount={allListProjects.length}
                           searchQuery={searchQuery}
                           isSearching={isSearching}
                           searchResults={listProjects}
@@ -690,6 +721,8 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                           canManageProjects={canManageProjects}
                         />
                       ) : (
+                        <div className="space-y-3">
+                          <WorkspaceSectionHeading icon={CircuitBoard} title="Folders and boards">{projectsToolbar}</WorkspaceSectionHeading>
                         <WorkspaceListView
                           isSearching={isSearching}
                           selectedProjectId={selectedProjectId}
@@ -710,6 +743,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                           onRegenerateThumbnail={handleRegenerateThumbnail}
                           canManageProjects={canManageProjects}
                         />
+                        </div>
                       )}
                     </div>
 

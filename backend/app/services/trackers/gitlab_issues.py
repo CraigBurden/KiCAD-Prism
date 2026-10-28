@@ -18,6 +18,7 @@ Maps GitLab REST v4 issues onto the frozen tracker DTOs, mirroring
 from __future__ import annotations
 
 import re
+import uuid
 from typing import Any, Mapping, Optional, Sequence
 from urllib.parse import quote
 
@@ -25,26 +26,24 @@ from app.services.trackers.capabilities import ProviderCapabilities
 from app.services.trackers.contracts import (
     Container,
     Destination,
-    ForbiddenRead,
     ForgeUser,
-    GoneConfirmed,
     IssueDraft,
     IssuePatch,
     IssueRead,
-    Moved,
     RemoteAssignee,
     RemoteChange,
     RemoteEvent,
     RemoteIssue,
     RemoteVersion,
-    UncertainAbsence,
     UpdateCursor,
     assert_no_owner_repo,
 )
 from app.services.trackers.errors import ProviderError
+from app.services.trackers.github_recovery import IssuePage, IssuePageFetcher, RecoveryCandidate
+from app.services.trackers.forge_client import ForgeClient, read_outcome
 from app.services.trackers.github_updates import parse_iso8601
 from app.services.trackers.gitlab_auth import GitLabBotAuth, _visibility
-from app.services.trackers.http import ForgeHttpResponse, TrackerHttp
+from app.services.trackers.http import TrackerHttp
 
 # Fresh poll checkpoints start here and are never sent as ``updated_after``.
 DEFAULT_SINCE = "1970-01-01T00:00:00Z"
@@ -68,6 +67,7 @@ class GitLabIssueAdapter:
     ) -> None:
         self.auth = auth
         self.http = http or auth.http
+        self.client = ForgeClient(self.http, auth.bot_headers, forge="GitLab", noun="issue")
         self.bot_user_id = (bot_user_id or "").strip()
         self.bot_login = (bot_login or "").strip()
 
@@ -77,8 +77,8 @@ class GitLabIssueAdapter:
     # --- containers -----------------------------------------------------------
 
     def get_container(self, dest: Destination) -> Container:
-        payload = self._json_object(
-            self._request("GET", self._project_url(dest), params={"license": "false", "statistics": "false"})
+        payload = self.client.json_object(
+            self.client.request("GET", self._project_url(dest), params={"license": "false", "statistics": "false"})
         )
         container = Container(
             remoteContainerId=str(payload.get("id") or dest.remoteContainerId),
@@ -95,8 +95,8 @@ class GitLabIssueAdapter:
         payload: dict[str, Any] = {"title": draft.title, "description": _compose_body(draft)}
         if draft.labels:
             payload["labels"] = ",".join(draft.labels)
-        response = self._request("POST", self._project_url(dest, "/issues"), json_body=payload)
-        issue = self._issue_from(self._json_object(response), dest)
+        response = self.client.request("POST", self._project_url(dest, "/issues"), json_body=payload)
+        issue = self._issue_from(self.client.json_object(response), dest)
         if draft.assignees:
             assigned = self._try_assign(dest, issue, draft.assignees)
             if assigned is not None:
@@ -123,10 +123,10 @@ class GitLabIssueAdapter:
     def get_issue(self, dest: Destination, ext_id: str, etag: Optional[str] = None) -> IssueRead:
         del etag
         try:
-            response = self._request("GET", self._issue_url(dest, ext_id))
+            response = self.client.request("GET", self._issue_url(dest, ext_id))
         except ProviderError as exc:
-            return _read_from_error(exc)
-        return self._issue_from(self._json_object(response), dest)
+            return read_outcome(exc)
+        return self._issue_from(self.client.json_object(response), dest)
 
     def update_issue(self, dest: Destination, ext_id: str, patch: IssuePatch) -> RemoteIssue:
         body: dict[str, Any] = {}
@@ -136,16 +136,16 @@ class GitLabIssueAdapter:
             body["description"] = patch.proseBlock
         if patch.labels is not None:
             body["labels"] = ",".join(patch.labels)
-        response = self._request("PUT", self._issue_url(dest, ext_id), json_body=body)
-        return self._issue_from(self._json_object(response), dest)
+        response = self.client.request("PUT", self._issue_url(dest, ext_id), json_body=body)
+        return self._issue_from(self.client.json_object(response), dest)
 
     def set_state(self, dest: Destination, ext_id: str, state: str, note: str) -> RemoteIssue:
         del note
         if state not in {"open", "closed"}:
             raise ProviderError("invalid_request", "Issue state must be open or closed.")
         event = "close" if state == "closed" else "reopen"
-        response = self._request("PUT", self._issue_url(dest, ext_id), json_body={"state_event": event})
-        return self._issue_from(self._json_object(response), dest)
+        response = self.client.request("PUT", self._issue_url(dest, ext_id), json_body={"state_event": event})
+        return self._issue_from(self.client.json_object(response), dest)
 
     def list_updates(
         self, dest: Destination, since_cursor: UpdateCursor
@@ -154,10 +154,10 @@ class GitLabIssueAdapter:
         if since_cursor.since and since_cursor.since > DEFAULT_SINCE:
             params["updated_after"] = since_cursor.since
         url = since_cursor.page or self._project_url(dest, "/issues")
-        response = self._request("GET", url, params=None if since_cursor.page else params)
+        response = self.client.request("GET", url, params=None if since_cursor.page else params)
         changes: list[RemoteChange] = []
         latest = since_cursor.since
-        for item in self._json_list(response):
+        for item in self.client.json_list(response):
             if not isinstance(item, dict):
                 continue
             updated = str(item.get("updated_at") or "")
@@ -180,9 +180,9 @@ class GitLabIssueAdapter:
         url: Optional[str] = self._issue_url(dest, ext_id, "/resource_state_events")
         params: dict[str, Any] | None = {"per_page": 100}
         while url:
-            response = self._request("GET", url, params=params)
+            response = self.client.request("GET", url, params=params)
             params = None
-            for item in self._json_list(response):
+            for item in self.client.json_list(response):
                 if not isinstance(item, dict):
                     continue
                 user = item.get("user")
@@ -210,7 +210,43 @@ class GitLabIssueAdapter:
 
     # --- recovery -------------------------------------------------------------
 
-    def bot_issue_query(self, dest: Destination, *, since: Optional[str] = None) -> tuple[str, dict[str, Any]]:
+    def recovery_issue_pages(self, dest: Destination, *, since: Optional[str] = None) -> IssuePageFetcher:
+        """Pages of issues the bot authored, oldest update first, as recovery candidates.
+
+        The cursor is GitLab's next-page URL, so a scan can resume or restart.
+        """
+
+        first_url, params = self._bot_issue_query(dest, since=since)
+
+        def fetch(cursor: Optional[str]) -> IssuePage:
+            response = self.client.request("GET", cursor or first_url, params=None if cursor else params)
+            items = [
+                RecoveryCandidate(
+                    external_id=str(item.get("id") or ""),
+                    number=int(item["iid"]) if item.get("iid") is not None else None,
+                    url=str(item.get("web_url") or "") or None,
+                    body=str(item.get("description") or ""),
+                    author_id=str((item.get("author") or {}).get("id") or ""),
+                )
+                for item in self.client.json_list(response)
+                if isinstance(item, dict)
+            ]
+            return items, response.next_page()
+
+        return fetch
+
+    def bot_issue_pages(self, dest: Destination, *, since: Optional[str] = None):
+        """Yield pages of issues the bot authored, oldest update first."""
+
+        url: Optional[str]
+        url, params = self._bot_issue_query(dest, since=since)
+        while url:
+            response = self.client.request("GET", url, params=params)
+            params = None
+            yield [item for item in self.client.json_list(response) if isinstance(item, dict)]
+            url = response.next_page()
+
+    def _bot_issue_query(self, dest: Destination, *, since: Optional[str] = None) -> tuple[str, Optional[dict[str, Any]]]:
         """First-page URL and parameters for issues the bot authored, oldest update first."""
 
         params: dict[str, Any] = {"scope": "all", "order_by": "updated_at", "sort": "asc", "per_page": 100}
@@ -222,16 +258,6 @@ class GitLabIssueAdapter:
             params["updated_after"] = since
         return self._project_url(dest, "/issues"), params
 
-    def bot_issue_pages(self, dest: Destination, *, since: Optional[str] = None):
-        """Yield pages of issues the bot authored, oldest update first."""
-
-        url, params = self.bot_issue_query(dest, since=since)
-        while url:
-            response = self._request("GET", url, params=params)
-            params = None
-            yield [item for item in self._json_list(response) if isinstance(item, dict)]
-            url = response.next_page()
-
     # --- helpers --------------------------------------------------------------
 
     def _try_assign(self, dest: Destination, issue: RemoteIssue, logins: Sequence[str]) -> Optional[RemoteIssue]:
@@ -239,7 +265,7 @@ class GitLabIssueAdapter:
         if not ids:
             return None
         try:
-            response = self._request(
+            response = self.client.request(
                 "PUT",
                 self._issue_url(dest, str(issue.number)),
                 json_body={"assignee_ids": ids[: self.capabilities().maxAssignees or 1]},
@@ -247,19 +273,19 @@ class GitLabIssueAdapter:
         except ProviderError:
             # Assignment never fails issue creation.
             return None
-        return self._issue_from(self._json_object(response), dest)
+        return self._issue_from(self.client.json_object(response), dest)
 
     def _member_id(self, dest: Destination, forge_login: str) -> Optional[int]:
         login = (forge_login or "").strip()
         if not login:
             return None
         try:
-            response = self._request("GET", self._project_url(dest, "/members/all"), params={"query": login})
+            response = self.client.request("GET", self._project_url(dest, "/members/all"), params={"query": login})
         except ProviderError as exc:
             if exc.class_ in {"not_found_uncertain", "forbidden", "gone_confirmed"}:
                 return None
             raise
-        for member in self._json_list(response):
+        for member in self.client.json_list(response):
             if isinstance(member, dict) and str(member.get("username") or "").casefold() == login.casefold():
                 # Guests cannot be assigned issues.
                 if int(member.get("access_level") or 0) >= 20 and member.get("id") is not None:
@@ -297,6 +323,31 @@ class GitLabIssueAdapter:
         assert_no_owner_repo(issue)
         return issue
 
+    def upload_file(self, dest: Destination, filename: str, data: bytes, media_type: str) -> str:
+        """Host a comment attachment in the project; returns the Markdown URL.
+
+        GitLab resolves the returned project-relative ``/uploads/...`` path
+        inside issue descriptions and notes of the same project.
+        """
+        boundary = f"prism-{uuid.uuid4().hex}"
+        safe_name = filename.replace('"', "").replace("\r", "").replace("\n", "") or "attachment"
+        body = b"".join([
+            f"--{boundary}\r\n".encode(),
+            f'Content-Disposition: form-data; name="file"; filename="{safe_name}"\r\n'.encode(),
+            f"Content-Type: {media_type}\r\n\r\n".encode(),
+            data,
+            f"\r\n--{boundary}--\r\n".encode(),
+        ])
+        headers = {**self.auth.bot_headers(), "Content-Type": f"multipart/form-data; boundary={boundary}"}
+        response = self.http.outcome(
+            self.http.request("POST", self._project_url(dest, "/uploads"), headers=headers, data=body)
+        )
+        payload = self.client.json_object(response)
+        url = str(payload.get("url") or "")
+        if not url:
+            raise ProviderError("transient", "GitLab accepted the upload but returned no URL.")
+        return url
+
     def _authored_by_bot(self, payload: Mapping[str, Any]) -> bool:
         author = payload.get("author") if isinstance(payload.get("author"), dict) else {}
         if self.bot_user_id and str(author.get("id") or "") != self.bot_user_id:
@@ -314,32 +365,6 @@ class GitLabIssueAdapter:
             raise ProviderError("invalid_request", "GitLab issues are addressed by their numeric iid.")
         return self._project_url(dest, f"/issues/{ref}{suffix}")
 
-    def _request(
-        self,
-        method: str,
-        url: str,
-        *,
-        json_body: dict[str, Any] | None = None,
-        params: dict[str, Any] | None = None,
-    ) -> ForgeHttpResponse:
-        response = self.http.request(
-            method, url, headers=self.auth.bot_headers(), json_body=json_body, params=params
-        )
-        return self.http.outcome(response)
-
-    def _json_object(self, response: ForgeHttpResponse) -> dict[str, Any]:
-        payload = response.json() if response.content else {}
-        if not isinstance(payload, dict):
-            raise ProviderError("transient", "GitLab returned a non-object issue payload.")
-        return payload
-
-    def _json_list(self, response: ForgeHttpResponse) -> list[Any]:
-        payload = response.json() if response.content else []
-        if not isinstance(payload, list):
-            raise ProviderError("transient", "GitLab returned a non-list payload.")
-        return payload
-
-
 def project_ref(dest: Destination) -> str:
     """Numeric project id, or the URL-encoded path while the id is pending."""
 
@@ -352,17 +377,6 @@ def project_ref(dest: Destination) -> str:
         raise ProviderError("invalid_request", "GitLab destination path must be group/project.")
     return quote(path, safe="")
 
-
-def _read_from_error(exc: ProviderError) -> IssueRead:
-    if exc.class_ == "not_found_uncertain":
-        return UncertainAbsence(status=exc.status or 404)
-    if exc.class_ == "gone_confirmed":
-        return GoneConfirmed(status=exc.status or 410)
-    if exc.class_ == "moved":
-        return Moved(new_ref=exc.new_ref or "", new_container_id=None)
-    if exc.class_ == "forbidden":
-        return ForbiddenRead(status=exc.status or 403)
-    raise exc
 
 
 def _compose_body(draft: IssueDraft) -> str:

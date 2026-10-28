@@ -1,24 +1,27 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { fetchJson } from "@/lib/api";
 import type { ProjectComponentImportProposal } from "@/types/catalog";
+import { listImportProposals } from "./catalog-client";
 
 export function isAbortError(reason: unknown): boolean {
   return (reason instanceof DOMException || reason instanceof Error) && reason.name === "AbortError";
 }
 
-export function useImportSessionProposals(selectedSessionId: string) {
+/**
+ * The proposals of the selected import session. They are read again whenever
+ * the session's `status` changes: the poll that sees a scan finish also stops
+ * the poll, which aborts that tick's own proposals read, so the finished list
+ * would otherwise never load.
+ */
+export function useImportSessionProposals(selectedSessionId: string, status?: string) {
   const [proposalsBySessionId, setProposalsBySessionId] = useState<
     Record<string, ProjectComponentImportProposal[]>
   >({});
 
   const loadProposals = useCallback(async (sessionId: string, signal?: AbortSignal) => {
     if (!sessionId) return;
-    const response = await fetchJson<{ items: ProjectComponentImportProposal[] }>(
-      `/api/catalog/import-sessions/${sessionId}/proposals`,
-      { signal },
-    );
+    const response = await listImportProposals(sessionId, signal);
     if (signal?.aborted) return;
     // Write under the requested session, never the currently selected one, so a
     // late response from A cannot replace B's visible list.
@@ -33,49 +36,10 @@ export function useImportSessionProposals(selectedSessionId: string) {
       toast.error(error instanceof Error ? error.message : "Failed to load import proposals");
     });
     return () => controller.abort();
-  }, [loadProposals, selectedSessionId]);
+  }, [loadProposals, selectedSessionId, status]);
 
   return {
     proposals: proposalsBySessionId[selectedSessionId] ?? [],
     loadProposals,
   };
-}
-
-export function useNonOverlappingPoll(
-  enabled: boolean,
-  tick: (signal: AbortSignal) => Promise<void>,
-  intervalMs = 2000,
-) {
-  useEffect(() => {
-    if (!enabled) return;
-    const controller = new AbortController();
-    let inFlight = false;
-    let lastFailure = "";
-    const run = async () => {
-      if (inFlight || controller.signal.aborted) return;
-      inFlight = true;
-      try {
-        await tick(controller.signal);
-        lastFailure = "";
-      } catch (error) {
-        if (controller.signal.aborted || isAbortError(error)) return;
-        const notice = error instanceof Error ? error.message : "Failed to refresh import sessions";
-        // One toast per outage, not one per 2s tick, so a 30s restart does not
-        // stack fifteen identical errors. A later success clears the episode.
-        if (notice !== lastFailure) {
-          lastFailure = notice;
-          toast.error(notice);
-        }
-      } finally {
-        inFlight = false;
-      }
-    };
-    const timer = window.setInterval(() => {
-      void run();
-    }, intervalMs);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
-  }, [enabled, intervalMs, tick]);
 }

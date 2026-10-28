@@ -15,6 +15,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from .render import CADDY_SITES_DIR
+
 SECRET_FILES = frozenset({".env"})
 
 
@@ -80,6 +82,11 @@ def apply(root: Path, files: dict[str, str], *, dry_run: bool = False) -> tuple[
             problem = restrict_permissions(target)
             if problem:
                 warnings.append(problem)
+
+    if "generated/Caddyfile" in files:
+        # Mounted into Caddy for operator sites. Created here so Docker does
+        # not create it as root on first start.
+        (root / CADDY_SITES_DIR).mkdir(exist_ok=True)
 
     return backup, warnings
 

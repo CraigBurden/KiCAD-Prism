@@ -1,8 +1,9 @@
 # Backend Dockerfile
 ARG KICAD_MONKEY_VARIANT=kicad-monkey-upstream
-ARG NODE_VERSION=22.23.2
+ARG NODE_VERSION=24.22.0
 ARG PYTHON_VERSION=3.12.13
-ARG RUST_VERSION=1.95.0
+# native/ pins its own toolchain (native/rust-toolchain.toml).
+ARG NATIVE_RUST_VERSION=1.98.0
 ARG UV_VERSION=0.12.5
 
 # KiCad CLI runtime. Release/source defaults are reproducible and AMD64-only.
@@ -19,45 +20,32 @@ RUN npm ci
 COPY frontend/ .
 RUN npm run build:panel
 
-FROM --platform=${KICAD_BASE_PLATFORM} rust:${RUST_VERSION}-bookworm AS prism-kicad-native-builder
-ARG TARGETARCH
-ARG GEOMETER_SDK_TAG=v2026-09-19
-ARG GEOMETER_SDK_VERSION=2026.9.19
-ARG GEOMETER_SDK_LINUX_AMD64_SHA256=ff2ef8615c5868de346b5e695bdea207fa5e379bb63e3f95148896ccdd0d8faa
-ARG GEOMETER_SDK_LINUX_ARM64_SHA256=c0f92e5f11c254940d2e1bcce44af777db21bf6c46bd17a724aa3df5413684d1
-WORKDIR /build/prism-kicad-native
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    unzip \
-    && rm -rf /var/lib/apt/lists/*
-RUN case "${TARGETARCH}" in \
-      amd64) sdk_arch=x64; sdk_sha="${GEOMETER_SDK_LINUX_AMD64_SHA256}" ;; \
-      arm64) sdk_arch=arm64; sdk_sha="${GEOMETER_SDK_LINUX_ARM64_SHA256}" ;; \
-      *) echo "Unsupported Geometer SDK architecture: ${TARGETARCH}" >&2; exit 1 ;; \
-    esac \
-    && sdk_archive="geometer-sdk-${GEOMETER_SDK_VERSION}-linux-${sdk_arch}.zip" \
-    && curl --fail --location --retry 3 \
-      "https://github.com/wavenumber-eng/geometer/releases/download/${GEOMETER_SDK_TAG}/${sdk_archive}" \
-      --output "/tmp/${sdk_archive}" \
-    && echo "${sdk_sha}  /tmp/${sdk_archive}" | sha256sum --check - \
-    && unzip -q "/tmp/${sdk_archive}" -d /opt/geometer-sdk \
-    && rm "/tmp/${sdk_archive}"
-ENV GEOMETER_SDK_DIR=/opt/geometer-sdk
-COPY kicad-prism-viewer/native/prism-kicad-native/Cargo.toml \
-    kicad-prism-viewer/native/prism-kicad-native/Cargo.lock \
-    kicad-prism-viewer/native/prism-kicad-native/rust-toolchain.toml \
-    kicad-prism-viewer/native/prism-kicad-native/build.rs ./
-COPY kicad-prism-viewer/native/prism-kicad-native/src ./src
-RUN rustup component add rustfmt clippy
+# prism-kicad, Prism's KiCad parser and design-bundle CLI (native/, ADR §4.1).
+# Only the binary is built here; native/'s tests and lints run in CI's
+# native-workspace job when native/ changes (ADR §11 G10). The cache mounts
+# keep the crates and the build between image builds.
+#
+# geometer-client is vendored under native/third_party/ (ADR amendment C3), so
+# loading the workspace clones nothing. The check fails the build unless every
+# (crate, version) it builds was already locked.
+FROM --platform=${KICAD_BASE_PLATFORM} rust:${NATIVE_RUST_VERSION}-bookworm AS prism-kicad-builder
+WORKDIR /build/native
+COPY native/Cargo.toml native/Cargo.lock native/rust-toolchain.toml native/clippy.toml ./
+COPY native/.cargo ./.cargo
+COPY native/src/rs ./src/rs
+COPY native/assets ./assets
+COPY native/third_party ./third_party
+RUN cp Cargo.lock /tmp/Cargo.lock.locked
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/build/prism-kicad-native/target \
-    cargo fmt --check \
-    && cargo test --release --locked \
-    && cargo clippy --release --locked -- -D warnings \
-    && cargo build --release --locked \
-    && cp target/release/prism-kicad-native /tmp/prism-kicad-native
+    --mount=type=cache,target=/build/native/target \
+    cargo build --release -p prism-kicad-cli \
+    && awk '/^name = /{n=$3} /^version = /{print n, $3}' /tmp/Cargo.lock.locked | sort -u > /tmp/locked.pairs \
+    && awk '/^name = /{n=$3} /^version = /{print n, $3}' Cargo.lock | sort -u > /tmp/built.pairs \
+    && if [ -n "$(comm -13 /tmp/locked.pairs /tmp/built.pairs)" ]; then \
+         echo "a crate is not at its locked version:" >&2; comm -13 /tmp/locked.pairs /tmp/built.pairs >&2; exit 1; \
+       fi \
+    && cp target/release/prism-kicad /tmp/prism-kicad
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 
@@ -83,21 +71,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-venv \
     git \
+    git-lfs \
     openssh-client \
-    g++ \
-    cmake \
-    make \
     curl \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=uv-bin /uv /uvx /usr/local/bin/
-
-# Reuse the pinned Node runtime for the isolated WebGPU asset compiler.
-COPY --from=remote-provider-panel /usr/local/bin/node /usr/local/bin/node
-COPY --from=remote-provider-panel /usr/local/lib/node_modules /usr/local/lib/node_modules
-RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
-    && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
 # Optional KiCad Library Convention checker used by the component catalog health view.
 RUN git clone --depth 1 https://gitlab.com/kicad/libraries/kicad-library-utils.git /opt/kicad-library-utils \
@@ -110,47 +90,73 @@ WORKDIR /app
 
 ENV UV_NO_CACHE=1
 # Pin the interpreter rather than inheriting the base image's system Python.
-# The KiCad 10.0.4 base ships 3.13; Prism's dependency set -- kicad-monkey and
-# kicad-cruncher in particular -- is validated on 3.12, so the venv selects it
-# explicitly and a base-image Python bump cannot silently move it.
+# The KiCad 10.0.4 base ships 3.13; Prism's dependency set -- kicad-monkey in
+# particular -- is validated on 3.12, so the venv selects it explicitly and a
+# base-image Python bump cannot silently move it.
 RUN uv python install ${PYTHON_VERSION} \
     && uv venv /app/venv --python ${PYTHON_VERSION}
 ENV PATH="/app/venv/bin:$PATH"
-ENV PRISM_SEMANTIC_VIEWER_REPO=/opt/kicad-prism-viewer
-ENV PYTHONPATH=/opt/kicad-prism-viewer
-ENV PRISM_CLIPPER2_LIBRARY=/usr/local/lib/libprism_clipper2.so
-ENV PRISM_KICAD_NATIVE_PATH=/usr/local/bin/prism-kicad-native
+# glibc gives each thread its own malloc arena and rarely returns their memory;
+# two arenas keep a long-lived API or worker process near its working set.
+ENV MALLOC_ARENA_MAX=2
 
-# API, workers, Release Studio, and the semantic viewer share one fully resolved
-# runtime. Installing two independently resolved files into this venv was the
-# source of Monkey/Cruncher drift between CI, hosts, and images.
+# API, workers and Release Studio share one fully resolved runtime.
 COPY requirements/runtime.lock /app/requirements/runtime.lock
-COPY .python-version .node-version /app/
+COPY .python-version /app/
 COPY scripts/verify_dependency_identity.py /app/scripts/verify_dependency_identity.py
 RUN uv pip sync --python /app/venv/bin/python /app/requirements/runtime.lock \
     && python /app/scripts/verify_dependency_identity.py --python-only
 
-COPY kicad-prism-viewer/package*.json /opt/kicad-prism-viewer/
-# The universal lock carries Sharp's optional binaries for every supported
-# platform; npm selects the image architecture during the clean install.
-# A second unversioned `npm install sharp` used to move the image beyond the
-# reviewed lock and is deliberately forbidden.
-RUN cd /opt/kicad-prism-viewer && npm ci --include=optional
+# The Geometer runtime prism-kicad launches for the assembly HLR member (ADR
+# amendment C3 §2 item 4). Pinned to the release the vendored geometer-client
+# accepts (native/third_party/geometer-client, 2026.9.19 / ABI 20260919) and
+# checked against the sha256s of that release's inventory.
+ARG GEOMETER_RELEASE_TAG=v2026-09-19
+ARG GEOMETER_SHA256_AMD64=5d7beb6823254c754583f1222b54c278bd11ff8d47181c9a0462b6ed205cddc7
+ARG GEOMETER_SHA256_ARM64=e6e46deab795817c11feee2ade5a97bb7070876992fe8c5c916f3b5268d020b6
+RUN set -eu; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) asset=native-linux-x64.zip; sum=${GEOMETER_SHA256_AMD64} ;; \
+      arm64) asset=native-linux-arm64.zip; sum=${GEOMETER_SHA256_ARM64} ;; \
+      *) echo "no Geometer runtime for $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/geometer.zip \
+      "https://github.com/wavenumber-eng/geometer/releases/download/${GEOMETER_RELEASE_TAG}/${asset}"; \
+    echo "${sum}  /tmp/geometer.zip" | sha256sum -c -; \
+    mkdir -p /opt/geometer; \
+    python -m zipfile -e /tmp/geometer.zip /opt/geometer; \
+    rm /tmp/geometer.zip; \
+    chmod 0755 /opt/geometer/geometer; \
+    /opt/geometer/geometer --version | grep -q 'abi 20260919'
+ENV GEOMETER_EXECUTABLE=/opt/geometer/geometer
 
-COPY kicad-prism-viewer /opt/kicad-prism-viewer
-COPY scripts/build-prism-clipper2.sh /app/scripts/build-prism-clipper2.sh
-RUN PRISM_VIEWER_ROOT=/opt/kicad-prism-viewer /app/scripts/build-prism-clipper2.sh \
-    && ARCH="$(uname -m)" \
-    && case "$ARCH" in aarch64|arm64) CLIPPER_ARCH=arm64 ;; *) CLIPPER_ARCH=x86_64 ;; esac \
-    && cp "/opt/kicad-prism-viewer/native/prism-clipper2/linux-${CLIPPER_ARCH}/libprism_clipper2.so" \
-        /usr/local/lib/libprism_clipper2.so
-RUN cd /opt/kicad-prism-viewer && npm run build
+# Simulation Studio engines: the prism-sim-studio release pinned in
+# backend/sim-engines.lock.json (tag and sha256 per platform), installed where
+# PRISM_SIM_BIN_DIR points. The release is private, so the build reads a token
+# from the BuildKit secret `prism_sim_release_token`; without one the engines
+# are left out and Simulation Studio (opt-in) cannot run.
+COPY backend/sim-engines.lock.json /tmp/sim-engines/sim-engines.lock.json
+COPY scripts/fetch_sim_engines.py /tmp/sim-engines/fetch_sim_engines.py
+RUN --mount=type=secret,id=prism_sim_release_token,required=false \
+    case "$(dpkg --print-architecture)" in \
+      amd64) sim_platform=linux-x64 ;; arm64) sim_platform=linux-arm64 ;; *) sim_platform=unsupported ;; \
+    esac \
+    && python /tmp/sim-engines/fetch_sim_engines.py --optional \
+        --lock /tmp/sim-engines/sim-engines.lock.json --platform "$sim_platform" \
+        --token-file /run/secrets/prism_sim_release_token --dest /opt/prism-sim/bin \
+    && rm -rf /tmp/sim-engines
 
+# backend/ carries the application. scripts/ holds the operator CLIs run inside the
+# container (catalog imports, benchmark sessions); nothing at runtime reads it.
 COPY backend/ .
 COPY scripts/ scripts/
-COPY --from=prism-kicad-native-builder \
-    /tmp/prism-kicad-native \
-    /usr/local/bin/prism-kicad-native
+# The design-bundle reader validates members against native/'s committed JSON
+# Schema (app/services/design_bundle/schemas.py looks for it under /app/native).
+COPY native/contracts/generated/schema /app/native/contracts/generated/schema
+# `prism-kicad artwork --config` reads the native configurations, so Release
+# Studio's bundle path ships them at the path app.release_studio resolves.
+COPY native/src/rs/prism-artwork/configs /app/native/src/rs/prism-artwork/configs
+COPY --from=prism-kicad-builder /tmp/prism-kicad /usr/local/bin/prism-kicad
 COPY --from=remote-provider-panel /panel/dist/remote_provider/ /app/app/static/remote_provider/
 
 # Stable on-disk identity for toolchain_digest / live CI. Written late so the
@@ -165,25 +171,20 @@ EXPOSE 8000
 # Run the application. Keep workers configurable because each worker runs startup hooks.
 CMD ["sh", "-c", "/app/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-4}"]
 
-# The default image keeps the release pair from requirements/runtime.lock.
+# The default image keeps the release lock from requirements/runtime.lock.
 FROM prism-runtime AS kicad-monkey-upstream
-ENV PRISM_KICAD_MONKEY_SOURCE=pypi-release
 
 # Opt-in development target. The named context is supplied only by
 # docker-compose.local-kicad-monkey.yml, so normal deployments do not need a
 # sibling kicad-monkey checkout.
 FROM prism-runtime AS kicad-monkey-local
-# Modern upstream owns Monkey and Cruncher in one monorepo. A local development
-# image replaces both together from that checkout; mixing a local Monkey with
-# whichever Cruncher happened to be newest on PyPI is forbidden.
-ARG LOCAL_WN_GEOMETER_VERSION=2026.9.11
+# A local development image replaces the published kicad-monkey with a sibling
+# checkout's working tree. kicad-cruncher is gone with C3 F4c; the monorepo's
+# cruncher package is no longer installed.
 RUN --mount=from=kicad_toolchain,source=/,target=/tmp/kicad-toolchain,ro \
-    test -f /tmp/kicad-toolchain/packages/kicad_cruncher/pyproject.toml \
-    && uv pip install --no-cache-dir --reinstall \
-        "wn-geometer==${LOCAL_WN_GEOMETER_VERSION}" \
+    test -f /tmp/kicad-toolchain/pyproject.toml \
     && uv pip install --no-cache-dir --no-deps --reinstall \
         /tmp/kicad-toolchain \
-        /tmp/kicad-toolchain/packages/kicad_cruncher \
     && uv pip check --python /app/venv/bin/python \
     && python - <<'PY'
 import pathlib, sys, kicad_monkey
@@ -194,7 +195,6 @@ for name in sorted(p.name for p in mounted.glob("*.py")):
         sys.exit(f"local working tree not installed: {name} is missing from {installed}")
 print(f"kicad-monkey {kicad_monkey.__version__} installed from the mounted working tree")
 PY
-ENV PRISM_KICAD_MONKEY_SOURCE=local-monorepo
 
 FROM ${KICAD_MONKEY_VARIANT} AS final
 ARG PRISM_RELEASE=development

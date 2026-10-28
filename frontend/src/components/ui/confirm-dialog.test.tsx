@@ -33,3 +33,25 @@ describe("useConfirmTarget", () => {
     expect(result.current.open).toBe(true);
   });
 });
+
+describe("ConfirmDialog layering", () => {
+  it("lifts the dialog and its backdrop above a floating layer", async () => {
+    const { render, screen } = await import("@testing-library/react");
+    const { ConfirmDialog } = await import("./confirm-dialog");
+    render(
+      <ConfirmDialog
+        open
+        onOpenChange={() => undefined}
+        title="Delete comment"
+        description="Gone for good."
+        confirmLabel="Delete"
+        layerClassName="z-[130]"
+        onConfirm={() => undefined}
+      />,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Delete comment" });
+    expect(dialog.className).toContain("z-[130]");
+    const overlay = document.querySelector("[data-state=open].bg-black\\/80");
+    expect(overlay?.className).toContain("z-[130]");
+  });
+});

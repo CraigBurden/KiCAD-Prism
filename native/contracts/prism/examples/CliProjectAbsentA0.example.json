@@ -1,0 +1,6 @@
+{
+  "schema": "prism.cli.project_absent.a0",
+  "code": "project-absent",
+  "command": "revision-key",
+  "project_file": "Missing.kicad_pro"
+}

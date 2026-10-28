@@ -1,0 +1,230 @@
+{
+ "schema": "prism.system_interface.v1",
+ "hasPcb": true,
+ "boardThicknessMm": 1.6,
+ "boardOutlineMm": {
+  "minMm": [
+   0.0,
+   -40.0
+  ],
+  "maxMm": [
+   60.0,
+   0.0
+  ],
+  "source": "edge_cuts"
+ },
+ "components": [
+  {
+   "portKey": "/24228da7-a8aa-5834-8a10-410868a0cbe9/d66c2670-2683-5191-8990-241af92e2ac8",
+   "memberKeys": [
+    "/24228da7-a8aa-5834-8a10-410868a0cbe9/d66c2670-2683-5191-8990-241af92e2ac8"
+   ],
+   "reference": "R1",
+   "libId": "Device:R",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "value": "10k",
+   "mpn": null,
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     5.0,
+     -5.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "R_0603_1608Metric",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       4.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       6.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.5,
+      1.0
+     ],
+     "maxMm": [
+      1.5,
+      1.0
+     ]
+    },
+    "model": {
+     "path": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  },
+  {
+   "portKey": "/24228da7-a8aa-5834-8a10-410868a0cbe9/fe94f0c8-d13f-551b-b291-9841938acf71",
+   "memberKeys": [
+    "/24228da7-a8aa-5834-8a10-410868a0cbe9/fe94f0c8-d13f-551b-b291-9841938acf71"
+   ],
+   "reference": "R2",
+   "libId": "Device:R",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "value": "22k",
+   "mpn": null,
+   "dnp": false,
+   "candidate": false,
+   "candidateReason": "none",
+   "pins": [
+    {
+     "pad": "1",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    },
+    {
+     "pad": "2",
+     "nets": [],
+     "pcbNets": [],
+     "pinNames": [
+      "~"
+     ],
+     "pinTypes": [
+      "passive"
+     ],
+     "powerNet": false
+    }
+   ],
+   "geometry": {
+    "side": "top",
+    "positionMm": [
+     10.0,
+     -5.0
+    ],
+    "rotationDeg": 0.0,
+    "footprintName": "R_0603_1608Metric",
+    "pads": [
+     {
+      "pad": "1",
+      "positionMm": [
+       9.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     },
+     {
+      "pad": "2",
+      "positionMm": [
+       11.0,
+       -5.0
+      ],
+      "sizeMm": [
+       0.8,
+       0.9
+      ],
+      "shape": "rect",
+      "tht": false
+     }
+    ],
+    "courtyard": {
+     "minMm": [
+      -1.5,
+      1.0
+     ],
+     "maxMm": [
+      1.5,
+      1.0
+     ]
+    },
+    "model": {
+     "path": "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+     "offsetMm": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "rotationDeg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  }
+ ],
+ "diagnostics": [],
+ "digest": "sha256:6a3adcebcf1a2a1c1cb101cb6a4a0de5735124330ddba315d7e4b543eb5d3e79"
+}

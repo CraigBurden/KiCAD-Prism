@@ -19,6 +19,24 @@ MPN_SOURCE_MANUFACTURER = "manufacturer"
 MPN_SOURCE_PROVISIONAL_IPN = "provisional_ipn"
 
 
+def custom_field_key(name: object) -> str:
+    """Canonical storage key for a custom metadata field name or label."""
+    return re.sub(r"[^a-z0-9_]+", "_", str(name).strip().casefold()).strip("_")
+
+
+# Hidden properties that record which catalog revision a placed symbol came
+# from. Both names are reserved: no custom field may take them, a project
+# import treats them as instance context, and when stamping, catalog fields
+# and properties already in the stored symbol with these names are replaced.
+PLACEMENT_STAMP_FIELDS = ("Prism_Component", "Prism_Revision")
+_STAMP_FIELD_KEYS = frozenset(custom_field_key(name) for name in PLACEMENT_STAMP_FIELDS)
+
+
+def is_reserved_stamp_key(name: object) -> bool:
+    """Whether ``name`` is a stamp name under custom-field key canonicalization."""
+    return custom_field_key(name) in _STAMP_FIELD_KEYS
+
+
 def dedupe(values: Iterable[str]) -> list[str]:
     seen: set[str] = set()
     ordered: list[str] = []
@@ -108,9 +126,7 @@ def normalize_metadata(payload: dict[str, Any]) -> dict[str, Any]:
         else normalized["source_internal_part_number"]
     )
     normalized["mpn_source"] = (
-        MPN_SOURCE_MANUFACTURER
-        if identity_kind == IDENTITY_KIND_MPN
-        else MPN_SOURCE_PROVISIONAL_IPN
+        MPN_SOURCE_MANUFACTURER if identity_kind == IDENTITY_KIND_MPN else MPN_SOURCE_PROVISIONAL_IPN
     )
     raw_extra_fields = payload.get("extra_fields") or payload.get("fields") or {}
     normalized["extra_fields"] = {
@@ -126,8 +142,11 @@ __all__ = [
     "IDENTITY_KIND_PROVISIONAL_IPN",
     "MPN_SOURCE_MANUFACTURER",
     "MPN_SOURCE_PROVISIONAL_IPN",
+    "PLACEMENT_STAMP_FIELDS",
+    "custom_field_key",
     "dedupe",
     "fts_query",
+    "is_reserved_stamp_key",
     "metadata_keywords",
     "metadata_search_document",
     "normalize_identity_value",

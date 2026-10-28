@@ -1,0 +1,531 @@
+{
+ "schema": "prism.semantic_index.a1",
+ "sourceRevisionKey": "dfb1a8de937158b2f6f39fc08a3f457c2869c5f920ab97eebc1362c3a5b664a2",
+ "components": [
+  {
+   "componentUid": "cmp:89e843f754d3779c87ad",
+   "reference": "J1",
+   "value": "Conn_Custom_2x05",
+   "footprint": "PrismFixture:Conn_Custom_2x05",
+   "libraryRef": "PrismFixture:Conn_Custom_2x05",
+   "fields": {
+    "Value": "Conn_Custom_2x05",
+    "DNP": "No",
+    "In BOM": "Yes",
+    "Description": "Conn_Custom_2x05",
+    "Datasheet": "",
+    "Manufacturer": "",
+    "Manufacturer Part Number": "",
+    "Vendor": "",
+    "Vendor Part Number": "",
+    "Footprint": "PrismFixture:Conn_Custom_2x05",
+    "Mass (g)": "",
+    "RQjC (C/W)": "",
+    "RQjC_top (C/W)": "",
+    "Temp_max (C)": "",
+    "Temp_min (C)": "",
+    "Power Dissipation (W)": "",
+    "Rate": "",
+    "Sheetfile": "ambiguous.kicad_sch",
+    "Sheetname": "ambiguous",
+    "_source_cad": "kicad",
+    "kicad_dnp": "false",
+    "kicad_in_bom": "true",
+    "kicad_instance_uuid": "72af98b8-8f94-515a-b8ad-c2500955df2f",
+    "kicad_libsource_lib": "PrismFixture",
+    "kicad_libsource_part": "Conn_Custom_2x05",
+    "kicad_on_board": "true",
+    "kicad_sheet_path_names": "/",
+    "kicad_sheet_path_uuids": "/",
+    "Reference": "J1"
+   },
+   "schematicRefs": [
+    {
+     "sheetInstancePath": "/",
+     "page": "/",
+     "symbolUuid": "72af98b8-8f94-515a-b8ad-c2500955df2f",
+     "occurrenceId": "/3864e78d-5fe5-51cb-8013-c70e7368c94c/72af98b8-8f94-515a-b8ad-c2500955df2f"
+    }
+   ],
+   "pcbRefs": [
+    {
+     "footprintUuid": "728727d3-9906-542d-b89f-c0d27a8d505a"
+    }
+   ],
+   "webgpuRefs": []
+  }
+ ],
+ "nets": [
+  {
+   "netUid": "net:40ffb604d658a0f6ac14",
+   "name": "/X1",
+   "netClass": "Default",
+   "aliases": [],
+   "sourceSheets": [
+    "/"
+   ],
+   "schematicRefs": [
+    {
+     "sheetInstancePath": "/3864e78d-5fe5-51cb-8013-c70e7368c94c",
+     "sheetPath": "/",
+     "page": "ambiguous.kicad_sch",
+     "wireUuids": [],
+     "labelUuids": [
+      "0f83003c-8992-5cc9-9d56-01bf61355edf",
+      "bec87a16-afdf-51ef-9be6-fe48b57b9f13"
+     ],
+     "junctionUuids": [],
+     "pinUuids": [
+      "a5eba47a-8099-5ba1-97b8-5fb04abc4388",
+      "1fc74e64-32e9-57ef-9a6c-cc6975367068"
+     ],
+     "labelInstanceCount": 2
+    }
+   ],
+   "pcbRefs": [
+    {
+     "trackUuids": [
+      "018be5c0-22d6-553d-a9d5-e5c4482b52a3"
+     ],
+     "arcUuids": [],
+     "viaUuids": [],
+     "zoneUuids": [],
+     "padUuids": [
+      "93f286ac-d5aa-57d6-b83a-03c130ebd55e",
+      "c4ef3c40-a7ad-59ab-9c16-1fb83208d5a6"
+     ]
+    }
+   ],
+   "webgpuRefs": []
+  },
+  {
+   "netUid": "net:7f10610573ecaf21e429",
+   "name": "/X3",
+   "netClass": "Default",
+   "aliases": [],
+   "sourceSheets": [
+    "/"
+   ],
+   "schematicRefs": [
+    {
+     "sheetInstancePath": "/3864e78d-5fe5-51cb-8013-c70e7368c94c",
+     "sheetPath": "/",
+     "page": "ambiguous.kicad_sch",
+     "wireUuids": [],
+     "labelUuids": [
+      "5b1d8104-d57e-5d88-a5dd-0c73e6063d64",
+      "7be3fc27-1efc-5413-b002-b34b1f975f18"
+     ],
+     "junctionUuids": [],
+     "pinUuids": [
+      "c2dac4e2-8e68-540b-af30-84a8b4711f83",
+      "a3cfdab3-5fc7-5782-9ed3-59990b01398d"
+     ],
+     "labelInstanceCount": 2
+    }
+   ],
+   "pcbRefs": [
+    {
+     "trackUuids": [
+      "322ffcdd-3a0b-5422-9124-fbe32e2193b9"
+     ],
+     "arcUuids": [],
+     "viaUuids": [],
+     "zoneUuids": [],
+     "padUuids": [
+      "6f6173f5-54da-5e77-8f40-863e19398587",
+      "c69b0392-27c6-5b95-b4ef-a0f15d3e97c0"
+     ]
+    }
+   ],
+   "webgpuRefs": []
+  },
+  {
+   "netUid": "net:7333982690bfb6eff430",
+   "name": "/X5",
+   "netClass": "Default",
+   "aliases": [],
+   "sourceSheets": [
+    "/"
+   ],
+   "schematicRefs": [
+    {
+     "sheetInstancePath": "/3864e78d-5fe5-51cb-8013-c70e7368c94c",
+     "sheetPath": "/",
+     "page": "ambiguous.kicad_sch",
+     "wireUuids": [],
+     "labelUuids": [
+      "78741424-1a7c-513b-a004-c615b8e43a8b",
+      "fa054fe0-fe82-5c62-afc3-3a5a2ae5ff60"
+     ],
+     "junctionUuids": [],
+     "pinUuids": [
+      "4ab542fb-592a-595d-96a7-c57dd768f260",
+      "3cdc02f4-7a3d-5305-98f8-ebbe517f0bee"
+     ],
+     "labelInstanceCount": 2
+    }
+   ],
+   "pcbRefs": [
+    {
+     "trackUuids": [
+      "aa437ffb-2e7e-5b9e-919b-5561fa8b4205"
+     ],
+     "arcUuids": [],
+     "viaUuids": [],
+     "zoneUuids": [],
+     "padUuids": [
+      "3b6bdf72-9c12-5e14-951e-54bcd2fb9554",
+      "e941ec37-57e8-5730-9d55-4d5e0b5eaa96"
+     ]
+    }
+   ],
+   "webgpuRefs": []
+  },
+  {
+   "netUid": "net:3267c122db08c7e10221",
+   "name": "/X7",
+   "netClass": "Default",
+   "aliases": [],
+   "sourceSheets": [
+    "/"
+   ],
+   "schematicRefs": [
+    {
+     "sheetInstancePath": "/3864e78d-5fe5-51cb-8013-c70e7368c94c",
+     "sheetPath": "/",
+     "page": "ambiguous.kicad_sch",
+     "wireUuids": [],
+     "labelUuids": [
+      "08e8775d-1531-5048-ace4-b8b7e56fb3fe",
+      "e9a5f665-da40-59b1-a25c-405aa711c44b"
+     ],
+     "junctionUuids": [],
+     "pinUuids": [
+      "0df48d48-42aa-5e11-a70e-699da3b5ce59",
+      "2972c454-a5f8-5512-91b9-9852af8a1ce7"
+     ],
+     "labelInstanceCount": 2
+    }
+   ],
+   "pcbRefs": [
+    {
+     "trackUuids": [
+      "cb8ad48c-6f1f-5cd6-84a8-a3b06512d2b7"
+     ],
+     "arcUuids": [],
+     "viaUuids": [],
+     "zoneUuids": [],
+     "padUuids": [
+      "31400e43-1db4-5998-9df4-96805684134c",
+      "4a78c8e7-0e1d-5254-83c2-d3a6521e9d05"
+     ]
+    }
+   ],
+   "webgpuRefs": []
+  },
+  {
+   "netUid": "net:470ec600eecd0da54f5f",
+   "name": "/X9",
+   "netClass": "Default",
+   "aliases": [],
+   "sourceSheets": [
+    "/"
+   ],
+   "schematicRefs": [
+    {
+     "sheetInstancePath": "/3864e78d-5fe5-51cb-8013-c70e7368c94c",
+     "sheetPath": "/",
+     "page": "ambiguous.kicad_sch",
+     "wireUuids": [],
+     "labelUuids": [
+      "27a49328-cdbb-5436-9bf4-54686b19d798",
+      "e2ec5bc5-3316-574d-9c7c-e14ba12e33c9"
+     ],
+     "junctionUuids": [],
+     "pinUuids": [
+      "d6f3e7bb-bf0d-56b8-bc72-91f32d07647a",
+      "af413e9f-2788-5c83-a16c-8acc1f29a7dc"
+     ],
+     "labelInstanceCount": 2
+    }
+   ],
+   "pcbRefs": [
+    {
+     "trackUuids": [
+      "2ac73f90-d760-52d6-b8bc-dd3ac091c1c3"
+     ],
+     "arcUuids": [],
+     "viaUuids": [],
+     "zoneUuids": [],
+     "padUuids": [
+      "c6a11d14-11d7-5549-b809-ef2892ce72c4",
+      "7dc170f3-4bcf-5a7e-b7d4-ef4ba893397e"
+     ]
+    }
+   ],
+   "webgpuRefs": []
+  }
+ ],
+ "terminals": [
+  {
+   "terminalUid": "term:19207ed30fcc3cfc44fe",
+   "componentUid": "cmp:89e843f754d3779c87ad",
+   "reference": "J1",
+   "pin": "1",
+   "pinName": "Pin_1",
+   "pinType": "PASSIVE",
+   "netUid": "net:40ffb604d658a0f6ac14",
+   "netName": "/X1",
+   "schematicNetName": "/X1",
+   "schematicPinUuid": "a5eba47a-8099-5ba1-97b8-5fb04abc4388",
+   "pcbPadUuid": "93f286ac-d5aa-57d6-b83a-03c130ebd55e"
+  },
+  {
+   "terminalUid": "term:5d8a39ba6cac45ae722e",
+   "componentUid": "cmp:89e843f754d3779c87ad",
+   "reference": "J1",
+   "pin": "2",
+   "pinName": "Pin_2",
+   "pinType": "PASSIVE",
+   "netUid": "net:40ffb604d658a0f6ac14",
+   "netName": "/X1",
+   "schematicNetName": "/X1",
+   "schematicPinUuid": "1fc74e64-32e9-57ef-9a6c-cc6975367068",
+   "pcbPadUuid": "c4ef3c40-a7ad-59ab-9c16-1fb83208d5a6"
+  },
+  {
+   "terminalUid": "term:68d591c23ba8122a79b3",
+   "componentUid": "cmp:89e843f754d3779c87ad",
+   "reference": "J1",
+   "pin": "3",
+   "pinName": "Pin_3",
+   "pinType": "PASSIVE",
+   "netUid": "net:7f10610573ecaf21e429",
+   "netName": "/X3",
+   "schematicNetName": "/X3",
+   "schematicPinUuid": "c2dac4e2-8e68-540b-af30-84a8b4711f83",
+   "pcbPadUuid": "6f6173f5-54da-5e77-8f40-863e19398587"
+  },
+  {
+   "terminalUid": "term:68cc500b829f9d335b16",
+   "componentUid": "cmp:89e843f754d3779c87ad",
+   "reference": "J1",
+   "pin": "4",
+   "pinName": "Pin_4",
+   "pinType": "PASSIVE",
+   "netUid": "net:7f10610573ecaf21e429",
+   "netName": "/X3",
+   "schematicNetName": "/X3",
+   "schematicPinUuid": "a3cfdab3-5fc7-5782-9ed3-59990b01398d",
+   "pcbPadUuid": "c69b0392-27c6-5b95-b4ef-a0f15d3e97c0"
+  },
+  {
+   "terminalUid": "term:27c6b0d9e3e0406b6309",
+   "componentUid": "cmp:89e843f754d3779c87ad",
+   "reference": "J1",
+   "pin": "5",
+   "pinName": "Pin_5",
+   "pinType": "PASSIVE",
+   "netUid": "net:7333982690bfb6eff430",
+   "netName": "/X5",
+   "schematicNetName": "/X5",
+   "schematicPinUuid": "4ab542fb-592a-595d-96a7-c57dd768f260",
+   "pcbPadUuid": "3b6bdf72-9c12-5e14-951e-54bcd2fb9554"
+  },
+  {
+   "terminalUid": "term:574922c06ed81d2b5b32",
+   "componentUid": "cmp:89e843f754d3779c87ad",
+   "reference": "J1",
+   "pin": "6",
+   "pinName": "Pin_6",
+   "pinType": "PASSIVE",
+   "netUid": "net:7333982690bfb6eff430",
+   "netName": "/X5",
+   "schematicNetName": "/X5",
+   "schematicPinUuid": "3cdc02f4-7a3d-5305-98f8-ebbe517f0bee",
+   "pcbPadUuid": "e941ec37-57e8-5730-9d55-4d5e0b5eaa96"
+  },
+  {
+   "terminalUid": "term:879b12cf136dfe099727",
+   "componentUid": "cmp:89e843f754d3779c87ad",
+   "reference": "J1",
+   "pin": "7",
+   "pinName": "Pin_7",
+   "pinType": "PASSIVE",
+   "netUid": "net:3267c122db08c7e10221",
+   "netName": "/X7",
+   "schematicNetName": "/X7",
+   "schematicPinUuid": "0df48d48-42aa-5e11-a70e-699da3b5ce59",
+   "pcbPadUuid": "31400e43-1db4-5998-9df4-96805684134c"
+  },
+  {
+   "terminalUid": "term:2536bf228be8a36f8338",
+   "componentUid": "cmp:89e843f754d3779c87ad",
+   "reference": "J1",
+   "pin": "8",
+   "pinName": "Pin_8",
+   "pinType": "PASSIVE",
+   "netUid": "net:3267c122db08c7e10221",
+   "netName": "/X7",
+   "schematicNetName": "/X7",
+   "schematicPinUuid": "2972c454-a5f8-5512-91b9-9852af8a1ce7",
+   "pcbPadUuid": "4a78c8e7-0e1d-5254-83c2-d3a6521e9d05"
+  },
+  {
+   "terminalUid": "term:ea46a30f79b8ab3b9234",
+   "componentUid": "cmp:89e843f754d3779c87ad",
+   "reference": "J1",
+   "pin": "10",
+   "pinName": "Pin_10",
+   "pinType": "PASSIVE",
+   "netUid": "net:470ec600eecd0da54f5f",
+   "netName": "/X9",
+   "schematicNetName": "/X9",
+   "schematicPinUuid": "d6f3e7bb-bf0d-56b8-bc72-91f32d07647a",
+   "pcbPadUuid": "7dc170f3-4bcf-5a7e-b7d4-ef4ba893397e"
+  },
+  {
+   "terminalUid": "term:31554818a7ae2664bca1",
+   "componentUid": "cmp:89e843f754d3779c87ad",
+   "reference": "J1",
+   "pin": "9",
+   "pinName": "Pin_9",
+   "pinType": "PASSIVE",
+   "netUid": "net:470ec600eecd0da54f5f",
+   "netName": "/X9",
+   "schematicNetName": "/X9",
+   "schematicPinUuid": "af413e9f-2788-5c83-a16c-8acc1f29a7dc",
+   "pcbPadUuid": "c6a11d14-11d7-5549-b809-ef2892ce72c4"
+  }
+ ],
+ "sheetInstances": [
+  {
+   "sheetInstanceUid": "sheet-instance:f71be794318acb758193",
+   "sheetInstancePath": "/3864e78d-5fe5-51cb-8013-c70e7368c94c",
+   "sheetPath": "/",
+   "page": "ambiguous.kicad_sch",
+   "parentSheetInstancePath": null,
+   "sheetSymbolUuid": null,
+   "sheetName": "ambiguous",
+   "isTopLevel": true,
+   "parentPage": null
+  }
+ ],
+ "buses": [],
+ "indexes": {
+  "componentByReference": {
+   "J1": 0
+  },
+  "componentBySchematicUuid": {
+   "72af98b8-8f94-515a-b8ad-c2500955df2f": 0
+  },
+  "componentByPcbFootprintUuid": {
+   "728727d3-9906-542d-b89f-c0d27a8d505a": 0
+  },
+  "terminalBySchematicPinUuid": {
+   "a5eba47a-8099-5ba1-97b8-5fb04abc4388": 0,
+   "1fc74e64-32e9-57ef-9a6c-cc6975367068": 1,
+   "c2dac4e2-8e68-540b-af30-84a8b4711f83": 2,
+   "a3cfdab3-5fc7-5782-9ed3-59990b01398d": 3,
+   "4ab542fb-592a-595d-96a7-c57dd768f260": 4,
+   "3cdc02f4-7a3d-5305-98f8-ebbe517f0bee": 5,
+   "0df48d48-42aa-5e11-a70e-699da3b5ce59": 6,
+   "2972c454-a5f8-5512-91b9-9852af8a1ce7": 7,
+   "d6f3e7bb-bf0d-56b8-bc72-91f32d07647a": 8,
+   "af413e9f-2788-5c83-a16c-8acc1f29a7dc": 9
+  },
+  "terminalByPcbPadUuid": {
+   "93f286ac-d5aa-57d6-b83a-03c130ebd55e": 0,
+   "c4ef3c40-a7ad-59ab-9c16-1fb83208d5a6": 1,
+   "6f6173f5-54da-5e77-8f40-863e19398587": 2,
+   "c69b0392-27c6-5b95-b4ef-a0f15d3e97c0": 3,
+   "3b6bdf72-9c12-5e14-951e-54bcd2fb9554": 4,
+   "e941ec37-57e8-5730-9d55-4d5e0b5eaa96": 5,
+   "31400e43-1db4-5998-9df4-96805684134c": 6,
+   "4a78c8e7-0e1d-5254-83c2-d3a6521e9d05": 7,
+   "c6a11d14-11d7-5549-b809-ef2892ce72c4": 9,
+   "7dc170f3-4bcf-5a7e-b7d4-ef4ba893397e": 8
+  },
+  "terminalByReferencePin": {
+   "J1:1": 0,
+   "J1:2": 1,
+   "J1:3": 2,
+   "J1:4": 3,
+   "J1:5": 4,
+   "J1:6": 5,
+   "J1:7": 6,
+   "J1:8": 7,
+   "J1:10": 8,
+   "J1:9": 9
+  },
+  "netByName": {
+   "/X1": 0,
+   "/X3": 1,
+   "/X5": 2,
+   "/X7": 3,
+   "/X9": 4
+  },
+  "netByNetCode": {},
+  "netBySchematicUuid": {
+   "0f83003c-8992-5cc9-9d56-01bf61355edf": 0,
+   "bec87a16-afdf-51ef-9be6-fe48b57b9f13": 0,
+   "a5eba47a-8099-5ba1-97b8-5fb04abc4388": 0,
+   "1fc74e64-32e9-57ef-9a6c-cc6975367068": 0,
+   "5b1d8104-d57e-5d88-a5dd-0c73e6063d64": 1,
+   "7be3fc27-1efc-5413-b002-b34b1f975f18": 1,
+   "c2dac4e2-8e68-540b-af30-84a8b4711f83": 1,
+   "a3cfdab3-5fc7-5782-9ed3-59990b01398d": 1,
+   "78741424-1a7c-513b-a004-c615b8e43a8b": 2,
+   "fa054fe0-fe82-5c62-afc3-3a5a2ae5ff60": 2,
+   "4ab542fb-592a-595d-96a7-c57dd768f260": 2,
+   "3cdc02f4-7a3d-5305-98f8-ebbe517f0bee": 2,
+   "08e8775d-1531-5048-ace4-b8b7e56fb3fe": 3,
+   "e9a5f665-da40-59b1-a25c-405aa711c44b": 3,
+   "0df48d48-42aa-5e11-a70e-699da3b5ce59": 3,
+   "2972c454-a5f8-5512-91b9-9852af8a1ce7": 3,
+   "27a49328-cdbb-5436-9bf4-54686b19d798": 4,
+   "e2ec5bc5-3316-574d-9c7c-e14ba12e33c9": 4,
+   "d6f3e7bb-bf0d-56b8-bc72-91f32d07647a": 4,
+   "af413e9f-2788-5c83-a16c-8acc1f29a7dc": 4
+  },
+  "netByPcbUuid": {
+   "93f286ac-d5aa-57d6-b83a-03c130ebd55e": 0,
+   "c4ef3c40-a7ad-59ab-9c16-1fb83208d5a6": 0,
+   "6f6173f5-54da-5e77-8f40-863e19398587": 1,
+   "c69b0392-27c6-5b95-b4ef-a0f15d3e97c0": 1,
+   "3b6bdf72-9c12-5e14-951e-54bcd2fb9554": 2,
+   "e941ec37-57e8-5730-9d55-4d5e0b5eaa96": 2,
+   "31400e43-1db4-5998-9df4-96805684134c": 3,
+   "4a78c8e7-0e1d-5254-83c2-d3a6521e9d05": 3,
+   "c6a11d14-11d7-5549-b809-ef2892ce72c4": 4,
+   "7dc170f3-4bcf-5a7e-b7d4-ef4ba893397e": 4,
+   "018be5c0-22d6-553d-a9d5-e5c4482b52a3": 0,
+   "322ffcdd-3a0b-5422-9124-fbe32e2193b9": 1,
+   "aa437ffb-2e7e-5b9e-919b-5561fa8b4205": 2,
+   "cb8ad48c-6f1f-5cd6-84a8-a3b06512d2b7": 3,
+   "2ac73f90-d760-52d6-b8bc-dd3ac091c1c3": 4
+  },
+  "sheetInstanceByPath": {
+   "/3864e78d-5fe5-51cb-8013-c70e7368c94c": 0
+  },
+  "busByUid": {}
+ },
+ "assembly": {
+  "schema": "prism.assembly_state_a0",
+  "catalog": [],
+  "footprintInventory": [
+   {
+    "uuid": "728727d3-9906-542d-b89f-c0d27a8d505a",
+    "reference": "J1"
+   }
+  ],
+  "default": {
+   "occurrences": {},
+   "components": {},
+   "footprints": {}
+  },
+  "variants": [],
+  "diagnostics": []
+ }
+}

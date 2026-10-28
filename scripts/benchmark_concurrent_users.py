@@ -16,7 +16,7 @@ Usage:
 VPN-like delay:
   --network-delay-ms / --network-jitter-ms inject one-way latency around each
   HTTP call (excluded from server latency metrics, included in client latency).
-  Use a dedicated load environment; see docs/OPERATIONS.md for operational guidance.
+  Use a dedicated load environment; see https://krishna-swaroop.github.io/KiCAD-Prism/admin/operations/.
 
 Requires: aiohttp (pip install aiohttp)
 """
@@ -601,7 +601,7 @@ async def run_webgpu_3d_job(
     job_id = str(start_payload["job_id"])
     final = await poll_job_status(
         session,
-        f"{base_url}/api/projects/jobs/{job_id}",
+        f"{base_url}/api/jobs/{job_id}",
         metrics,
         "projects.webgpu_3d.status",
         timeout_seconds=job_timeout,
@@ -617,7 +617,7 @@ async def run_webgpu_3d_job(
             metrics,
             "projects.webgpu_3d.readiness",
         )
-        bundle_url = str((final or {}).get("bundle_url") or "")
+        bundle_url = str(((final or {}).get("result_metadata") or {}).get("bundle_url") or "")
         if bundle_url:
             await fetch_json(session, resolve_url(base_url, bundle_url), metrics, "projects.webgpu_3d.manifest")
         return "completed"

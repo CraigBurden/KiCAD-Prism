@@ -23,7 +23,11 @@ import type { BomDiff, ChangeItem } from "./types";
  * assert something no reviewer ever sees, so these drive both.
  */
 
-function schematicChange(overrides: Partial<ChangeItem> = {}): ChangeItem {
+type ChangeSpec = Partial<ChangeItem> & { layers?: string[] };
+
+function schematicChange(overrides: ChangeSpec = {}): ChangeItem {
+    const { layers, ...rest } = overrides;
+    const sideLayers = layers ?? [];
     return {
         id: "change-1",
         kind: "changed",
@@ -32,11 +36,15 @@ function schematicChange(overrides: Partial<ChangeItem> = {}): ChangeItem {
         classification: "primary",
         label: "U1",
         reference: "U1",
-        semantic_id: "cmp:u1",
-        object_kind: "symbol",
+        semanticId: "cmp:u1",
+        objectKind: "symbol",
         page: "main.kicad_sch",
         reasons: ["properties-changed"],
-        ...overrides,
+        fields: {},
+        details: {},
+        base: { sourceId: "base-1", documentPath: "main.kicad_sch", layers: sideLayers },
+        head: { sourceId: "head-1", documentPath: "main.kicad_sch", layers: sideLayers },
+        ...rest,
     };
 }
 
@@ -46,8 +54,8 @@ describe("review-focused comparison grouping", () => {
         const result = prepareChangesForReview([
             schematicChange({
                 id: "pin-move",
-                object_kind: "pin",
-                semantic_id: "pin:1",
+                objectKind: "pin",
+                semanticId: "pin:1",
                 reasons: ["moved"],
                 fields: { Position: { old: "10, 10", new: "20, 10" } },
             }),
@@ -63,8 +71,8 @@ describe("review-focused comparison grouping", () => {
             schematicChange({
                 id: "pin-added",
                 kind: "added",
-                object_kind: "pin",
-                semantic_id: "pin:1",
+                objectKind: "pin",
+                semanticId: "pin:1",
                 reasons: ["object-added"],
             }),
         ]);
@@ -77,8 +85,8 @@ describe("review-focused comparison grouping", () => {
         const result = prepareChangesForReview([
             schematicChange({
                 id: "pin-rename",
-                object_kind: "pin",
-                semantic_id: "pin:1",
+                objectKind: "pin",
+                semanticId: "pin:1",
                 reasons: ["renamed"],
                 fields: { Name: { old: "IN", new: "ENABLE" } },
             }),
@@ -98,8 +106,8 @@ describe("review-focused comparison grouping", () => {
             schematicChange({
                 id: "pin-reference",
                 category: "nets",
-                object_kind: "pin",
-                semantic_id: "pin:1",
+                objectKind: "pin",
+                semanticId: "pin:1",
                 fields: { Reference: { old: "R57", new: "R118" } },
                 reasons: ["renamed"],
             }),
@@ -116,8 +124,8 @@ describe("review-focused comparison grouping", () => {
                 fields: {
                     Position: { old: "10, 10", new: "20, 10" },
                     "Value attributes": {
-                        old: { at: [10, 12] },
-                        new: { at: [20, 12] },
+                        old: { at: "10, 12" },
+                        new: { at: "20, 12" },
                     },
                 },
             }),
@@ -174,8 +182,8 @@ describe("review-focused comparison grouping", () => {
             schematicChange({
                 id: "semantic-bus-geometry",
                 category: "nets",
-                reference: null,
-                object_kind: "bus",
+                reference: undefined,
+                objectKind: "bus",
                 reasons: ["content-changed"],
                 fields: {
                     busContent: {
@@ -195,8 +203,8 @@ describe("review-focused comparison grouping", () => {
             schematicChange({
                 id: "semantic-bus-interface",
                 category: "nets",
-                reference: null,
-                object_kind: "bus",
+                reference: undefined,
+                objectKind: "bus",
                 reasons: ["content-changed"],
                 fields: {
                     busContent: {
@@ -215,18 +223,18 @@ describe("review-focused comparison grouping", () => {
         const semanticRename = schematicChange({
             id: "semantic-net-rename",
             category: "nets",
-            reference: null,
+            reference: undefined,
             net: "/Expansion/PMOD_A7",
-            object_kind: undefined,
+            objectKind: undefined,
             reasons: ["net-renamed"],
             fields: { name: { old: "/Expansion/PMOD_A4", new: "/Expansion/PMOD_A7" } },
         });
         const nativeLabel = schematicChange({
             id: "native-label-rename",
             category: "nets",
-            reference: null,
+            reference: undefined,
             net: "PMOD_A7",
-            object_kind: "label",
+            objectKind: "label",
             reasons: ["net-changed", "properties-changed"],
             fields: {
                 Net: { old: "PMOD_A4", new: "PMOD_A7" },
@@ -244,9 +252,9 @@ describe("review-focused comparison grouping", () => {
         const result = prepareChangesForReview([
             schematicChange({
                 category: "nets",
-                reference: null,
+                reference: undefined,
                 net: "unconnected-(U1-Pad2)",
-                object_kind: undefined,
+                objectKind: undefined,
                 reasons: ["net-renamed"],
                 fields: {
                     name: {
@@ -265,8 +273,8 @@ describe("review-focused comparison grouping", () => {
         const result = prepareChangesForReview([
             schematicChange({
                 category: "nets",
-                object_kind: "wire",
-                reference: null,
+                objectKind: "wire",
+                reference: undefined,
                 net: "USB_D+",
                 reasons: ["moved", "net-changed"],
             }),
@@ -281,18 +289,18 @@ describe("review-focused comparison grouping", () => {
                 id: "wire-add",
                 kind: "added",
                 category: "nets",
-                object_kind: "wire",
-                reference: null,
-                semantic_id: "wire:1",
+                objectKind: "wire",
+                reference: undefined,
+                semanticId: "wire:1",
                 reasons: ["object-added"],
             }),
             schematicChange({
                 id: "junction-remove",
                 kind: "removed",
                 category: "nets",
-                object_kind: "junction",
-                reference: null,
-                semantic_id: "junction:1",
+                objectKind: "junction",
+                reference: undefined,
+                semanticId: "junction:1",
                 reasons: ["object-removed"],
             }),
         ]);
@@ -313,9 +321,9 @@ describe("review-focused comparison grouping", () => {
             schematicChange({
                 id: "wire-move",
                 category: "nets",
-                object_kind: "wire",
-                reference: null,
-                semantic_id: "wire:1",
+                objectKind: "wire",
+                reference: undefined,
+                semanticId: "wire:1",
                 reasons: ["moved"],
             }),
         ]);
@@ -333,18 +341,22 @@ describe("review-focused comparison grouping", () => {
                 kind: "removed",
                 label: "FL3",
                 reference: "FL3",
-                semantic_id: "cmp:fl3",
+                semanticId: "cmp:fl3",
                 page: "usb_phy.kicad_sch",
                 reasons: ["object-removed"],
+                base: { sourceId: "base-fl3", documentPath: "usb_phy.kicad_sch", layers: [] },
+                head: undefined,
             }),
             schematicChange({
                 id: "new-fl3",
                 kind: "added",
                 label: "FL3",
                 reference: "FL3",
-                semantic_id: "cmp:fl3",
+                semanticId: "cmp:fl3",
                 page: "control_port.kicad_sch",
                 reasons: ["object-added"],
+                base: undefined,
+                head: { sourceId: "head-fl3", documentPath: "control_port.kicad_sch", layers: [] },
             }),
         ]);
 
@@ -359,11 +371,11 @@ describe("review-focused comparison grouping", () => {
     it("groups PCB routing by net while keeping pads and zones exact", () => {
         const base = schematicChange({ domain: "pcb", page: "board.kicad_pcb" });
         const groups = groupChanges([
-            { ...base, id: "track", category: "nets", object_kind: "track", net: "GND", semantic_id: "track:1" },
-            { ...base, id: "via", category: "nets", object_kind: "via", net: "GND", semantic_id: "via:1" },
-            { ...base, id: "pad", category: "components", object_kind: "pad", semantic_id: "pad:1" },
-            { ...base, id: "pad-2", category: "components", object_kind: "pad", semantic_id: "pad:2" },
-            { ...base, id: "zone", category: "zones", object_kind: "zone", reference: null, net: "GND", semantic_id: "zone:1" },
+            { ...base, id: "track", category: "nets", objectKind: "track", net: "GND", semanticId: "track:1" },
+            { ...base, id: "via", category: "nets", objectKind: "via", net: "GND", semanticId: "via:1" },
+            { ...base, id: "pad", category: "components", objectKind: "pad", semanticId: "pad:1" },
+            { ...base, id: "pad-2", category: "components", objectKind: "pad", semanticId: "pad:2" },
+            { ...base, id: "zone", category: "zones", objectKind: "zone", reference: undefined, net: "GND", semanticId: "zone:1" },
         ]);
 
         expect(groups).toHaveLength(3);
@@ -376,10 +388,10 @@ describe("review-focused comparison grouping", () => {
         const base = schematicChange({
             domain: "pcb",
             category: "zones",
-            object_kind: "zone",
-            reference: null,
+            objectKind: "zone",
+            reference: undefined,
             net: undefined,
-            semantic_id: "28136169-0d3a-4fc0-aaf4",
+            semanticId: "28136169-0d3a-4fc0-aaf4",
             label: "28136169-0d3",
             layers: ["In3.Cu"],
         });
@@ -395,14 +407,19 @@ describe("review-focused comparison grouping", () => {
             kind: "added",
             domain: "pcb",
             category: "zones",
-            object_kind: "zone",
-            reference: null,
+            objectKind: "zone",
+            reference: undefined,
             net: undefined,
-            semantic_id: id,
+            semanticId: id,
             label: id,
             layers: ["F.Cu"],
-            geometry: { kind: "zone", x, y: 42 },
-            fields: { Thermal: { old: null, new: { gap: 0.5 } } },
+            head: {
+                sourceId: id,
+                documentPath: "board.kicad_pcb",
+                layers: ["F.Cu"],
+                at: { xNm: x * 1_000_000, yNm: 42_000_000 },
+            },
+            fields: { Thermal: { new: { gap: 0.5 } } },
         });
 
         const groups = groupChanges([zone("uuid-a", 10), zone("uuid-b", 20)]);
@@ -421,9 +438,9 @@ describe("review-focused comparison grouping", () => {
             reasons: ["object-added"],
         });
         const prepared = prepareChangesForReview([
-            { ...base, id: "footprint", object_kind: "footprint" },
-            { ...base, id: "pad", object_kind: "pad", semantic_id: "pad:1" },
-            { ...base, id: "silk", object_kind: "footprint_graphic", semantic_id: "silk:1" },
+            { ...base, id: "footprint", objectKind: "footprint" },
+            { ...base, id: "pad", objectKind: "pad", semanticId: "pad:1" },
+            { ...base, id: "silk", objectKind: "footprint-graphic", semanticId: "silk:1" },
         ]);
 
         expect(prepared.changes.map((change) => change.id)).toEqual(["footprint"]);
@@ -436,9 +453,9 @@ describe("review-focused comparison grouping", () => {
             page: "board.kicad_pcb",
         });
         const groups = groupChanges([
-            { ...base, id: "footprint", object_kind: "footprint" },
-            { ...base, id: "pad", object_kind: "pad", semantic_id: "pad:1" },
-            { ...base, id: "fab", category: "graphics", object_kind: "footprint_graphic", semantic_id: "fab:1" },
+            { ...base, id: "footprint", objectKind: "footprint" },
+            { ...base, id: "pad", objectKind: "pad", semanticId: "pad:1" },
+            { ...base, id: "fab", category: "graphics", objectKind: "footprint-graphic", semanticId: "fab:1" },
         ]);
 
         expect(groups).toHaveLength(1);
@@ -455,7 +472,7 @@ describe("review-focused comparison grouping", () => {
             page: "board.kicad_pcb",
             reference: "IC1",
             label: "IC1",
-            object_kind: "pad",
+            objectKind: "pad",
             category: "nets",
             reasons: ["net-changed"],
         });
@@ -463,19 +480,19 @@ describe("review-focused comparison grouping", () => {
             {
                 ...base,
                 id: "pad-b6",
-                semantic_id: "pad:b6",
+                semanticId: "pad:b6",
                 fields: { Net: { old: "PMOD_B6", new: "PMOD_B9" } },
             },
             {
                 ...base,
                 id: "pad-a2",
-                semantic_id: "pad:a2",
+                semanticId: "pad:a2",
                 fields: { Net: { old: "PMOD_A2", new: "PMOD_A5" } },
             },
             {
                 ...base,
                 id: "pad-a5",
-                semantic_id: "pad:a5",
+                semanticId: "pad:a5",
                 fields: { Net: { old: "PMOD_A5", new: "PMOD_A8" } },
             },
         ]);
@@ -493,8 +510,8 @@ describe("review-focused comparison grouping", () => {
             schematicChange({
                 id: "net-rename",
                 category: "nets",
-                object_kind: "net",
-                reference: null,
+                objectKind: "net",
+                reference: undefined,
                 reasons: ["net-renamed"],
                 fields: {
                     name: { old: "/Debugger/MCU_SWDCLK", new: "/Debugger/MCU_SWCLK" },
@@ -504,7 +521,7 @@ describe("review-focused comparison grouping", () => {
         const base = schematicChange({
             domain: "pcb",
             page: "board.kicad_pcb",
-            reference: null,
+            reference: undefined,
             category: "nets",
             reasons: ["net-changed"],
             net: "/Debugger/MCU_SWCLK",
@@ -514,15 +531,15 @@ describe("review-focused comparison grouping", () => {
         });
         const prepared = prepareChangesForReview(
             [
-                { ...base, id: "track-1", object_kind: "track", semantic_id: "t:1" },
-                { ...base, id: "via-1", object_kind: "via", semantic_id: "v:1" },
+                { ...base, id: "track-1", objectKind: "track", semanticId: "t:1" },
+                { ...base, id: "via-1", objectKind: "via", semanticId: "v:1" },
                 {
                     ...base,
                     id: "pad-1",
-                    object_kind: "pad",
+                    objectKind: "pad",
                     reference: "U5",
                     label: "U5",
-                    semantic_id: "p:1",
+                    semanticId: "p:1",
                 },
             ],
             { netRenames: renames },
@@ -548,9 +565,9 @@ describe("review-focused comparison grouping", () => {
                 id: "track-1",
                 domain: "pcb",
                 page: "board.kicad_pcb",
-                reference: null,
+                reference: undefined,
                 category: "nets",
-                object_kind: "track",
+                objectKind: "track",
                 reasons: ["net-changed"],
                 net: "Net-(U16-1D-)",
                 fields: {
@@ -574,9 +591,9 @@ describe("review-focused comparison grouping", () => {
                 id: "track-1",
                 domain: "pcb",
                 page: "board.kicad_pcb",
-                reference: null,
+                reference: undefined,
                 category: "nets",
-                object_kind: "track",
+                objectKind: "track",
                 reasons: ["net-changed", "moved"],
                 net: "NEW",
                 fields: { Net: { old: "OLD", new: "NEW" } },
@@ -597,14 +614,14 @@ describe("review-focused comparison grouping", () => {
                 ...base,
                 id: "fab",
                 category: "graphics",
-                object_kind: "footprint_graphic",
-                semantic_id: "fab:1",
+                objectKind: "footprint-graphic",
+                semanticId: "fab:1",
                 fields: { Layer: { old: "F.Fab", new: "B.Fab" } },
             },
             {
                 ...base,
                 id: "footprint",
-                object_kind: "footprint",
+                objectKind: "footprint",
                 fields: { Description: { old: "Filter", new: "EMI filter" } },
             },
         ])[0]!;
@@ -616,14 +633,14 @@ describe("review-focused comparison grouping", () => {
         const base = schematicChange({
             domain: "pcb",
             category: "rules",
-            reference: null,
+            reference: undefined,
             page: "board.kicad_pro",
         });
         const groups = groupChanges([
-            { ...base, id: "assignment-a", object_kind: "net_class_assignment", label: "USB_D+" },
-            { ...base, id: "assignment-b", object_kind: "net_class_assignment", label: "USB_D-" },
-            { ...base, id: "exclusion-a", object_kind: "drc_exclusion", label: "Courtyard overlap" },
-            { ...base, id: "constraint", object_kind: "board_constraint", label: "Board constraints" },
+            { ...base, id: "assignment-a", objectKind: "net-class-assignment", label: "USB_D+" },
+            { ...base, id: "assignment-b", objectKind: "net-class-assignment", label: "USB_D-" },
+            { ...base, id: "exclusion-a", objectKind: "drc-exclusion", label: "Courtyard overlap" },
+            { ...base, id: "constraint", objectKind: "board-constraint", label: "Board constraints" },
         ]);
 
         expect(groups.map((group) => group.label)).toEqual([
@@ -639,13 +656,13 @@ describe("review-focused comparison grouping", () => {
             domain: "pcb",
             category: "graphics",
             classification: "secondary",
-            object_kind: "graphic",
-            reference: null,
+            objectKind: "graphic",
+            reference: undefined,
             layers: ["Dwgs.User"],
         });
         const groups = groupChanges([
-            { ...base, id: "graphic-1", semantic_id: "graphic:1" },
-            { ...base, id: "graphic-2", semantic_id: "graphic:2" },
+            { ...base, id: "graphic-1", semanticId: "graphic:1" },
+            { ...base, id: "graphic-2", semanticId: "graphic:2" },
         ]);
 
         expect(groups).toHaveLength(1);
@@ -664,7 +681,7 @@ describe("component grouping by BOM identity", () => {
             id: `change-${reference}`,
             label: reference,
             reference,
-            semantic_id: `cmp:${reference.toLocaleLowerCase()}`,
+            semanticId: `cmp:${reference.toLocaleLowerCase()}`,
             // An authored value edit, not the shared helper's default
             // "properties-changed", which with no fields reads as layout noise
             // and never reaches the component branch.
@@ -810,7 +827,7 @@ describe("component grouping by BOM identity", () => {
 
     it("does not invent an old side for an added component", () => {
         const groups = groupChanges(
-            [capacitor("C9", { kind: "added", fields: { Value: "470nF" } })],
+            [capacitor("C9", { kind: "added", fields: { Value: { new: "470nF" } } })],
             [],
             null,
         );
@@ -824,9 +841,9 @@ describe("copper grouped by conductor across a net rename", () => {
         return schematicChange({
             domain: "pcb",
             category: "nets",
-            reference: null,
-            object_kind: "track",
-            semantic_id: null,
+            reference: undefined,
+            objectKind: "track",
+            semanticId: undefined,
             ...overrides,
         });
     }
@@ -846,8 +863,8 @@ describe("copper grouped by conductor across a net rename", () => {
             schematicChange({
                 id: "semantic-aux-rename",
                 category: "nets",
-                object_kind: "net",
-                reference: null,
+                objectKind: "net",
+                reference: undefined,
                 reasons: ["net-renamed"],
                 fields: {
                     name: {

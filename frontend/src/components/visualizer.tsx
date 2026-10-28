@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, useLayoutEffect, useMemo } from "react";
+import { useEffect, useState, useCallback, useRef, useLayoutEffect, useMemo, useReducer } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Cpu, Box, FileText, CircuitBoard, Layers3, PackageCheck, MessageSquare, MessageSquarePlus, type LucideIcon } from "lucide-react";
@@ -7,15 +7,20 @@ import { EngineeringBomTable } from "./engineering-bom-table";
 import { SelectionInspector, type HighlightedNetEntry } from "./selection-inspector";
 import { filterLabelInstances, type LabelInstanceRef } from "@/lib/label-instances";
 import { WebGpu3dTab } from "./webgpu-3d-tab";
+import { PrismInsetScene3D } from "@/lib/inset-scene-3d";
+import { EcadViewerPair, useEcadViewer, type EcadSource, type EcadViewer } from "@/lib/ecad-viewer";
+import { MeasureReadout } from "./pcb-measure";
 import { EcadViewerControls } from "./ecad-viewer-controls";
 import { CommentForm, type CommentFormSubmitPayload } from "./comment-form";
 import { CommentCard } from "./comment-card";
 import { CommentPanel } from "./comment-panel";
+import { ThreadUpdateContext } from "@/features/rich-comments/thread-updates";
 import { useLiveComments } from "@/features/live-comments/use-live-comments";
 import { ViewerOverlayRail, SELECTION_INSPECTOR_RAIL_RESIZE } from "./viewer-overlay-rail";
-import { fetchApi, readApiError } from "@/lib/api";
-import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
-import { canWriteCatalog } from "@/lib/roles";
+import { fetchApi, fetchDesignJson, fetchDesignText, DesignDataPendingError, ifMatch, readApiError } from "@/lib/api";
+import { throwIfJobFailed } from "@/lib/jobs";
+import { useJobWatcher } from "@/hooks/use-job-watcher";
+import { canCommentOnProjects, canWriteCatalog } from "@/lib/roles";
 import { crossProbeRequestForSelection, enrichPrismSelection, netStatisticsRefForSelection, normalizeEcadSelection } from "@/lib/prism-selection";
 import {
     adoptViewerNets,
@@ -34,40 +39,48 @@ import {
     commentLocationFromArea,
     commentOverlaySet,
     normalizeComment,
-    worldToViewportScreen,
     type ActiveSchematicPage,
 } from "@/lib/comment-overlays";
 import { DesignSearchField } from "./design-search-field";
+import { DesignDataFailed, DesignDataPending, WorkingTreeDirtyNotice } from "./design-data-state";
 import {
     requestedVariantFromSearchParams,
     resolveVariantSelection,
     variantSearchParams,
 } from "./design-variants/variant-selection";
 import { DesignVariantSelector } from "./design-variants/variant-selector";
+import {
+    VIEWER_TABS,
+    commentModeAvailable,
+    consumeElementEscape,
+    elementModes,
+    initialViewerModes,
+    viewerKeyIntent,
+    viewerModesReducer,
+    type VisualizerTab,
+} from "./viewer-modes";
 import { usePrismCrossProbe } from "@/hooks/use-prism-cross-probe";
+import { registerProjectViewerState } from "@/lib/project-viewer-state";
+import { applyViewState } from "@/lib/view-state-apply";
+import { buildViewStateParams, parseViewState } from "@/lib/view-state-url";
 import {
     projectAssemblyState,
     physicalVisibility,
 } from "@/lib/design-variants";
 import { dnpVisibilityPlan, EMPTY_DNP_PLAN } from "./design-variants/dnp-visibility";
 import {
-    syncViewerVariant,
     viewerVariantNotice,
+    type ViewerVariantSync,
     type ViewerVariantTarget,
 } from "@/lib/ecad-viewer-variant";
 import type { User } from "@/types/auth";
 import type {
-    ECadViewerElement,
-    EcadCommentAreaDetail,
-    EcadCommentOverlayHitDetail,
-    EcadHighlightChangeDetail,
-    EcadNetStatistics,
     EcadSemanticSelectionDetail,
     EcadViewportInsets,
     EcadCommentAnchorResolution,
 } from "@/types/ecad-viewer";
 import type { PrismSelection, PrismSelectionContext, PrismSemanticIndex } from "@/types/prism-selection";
-import type { Comment, CommentContext, CommentLocation, MentionCandidate } from "@/types/comments";
+import type { Comment, MentionCandidate } from "@/types/comments";
 
 interface VisualizerProps {
     projectId: string;
@@ -76,21 +89,15 @@ interface VisualizerProps {
     active?: boolean;
 }
 
-type VisualizerTab = "sch" | "pcb" | "3d" | "bom" | "stackup" | "assembly";
-type ViewerRightRailTab = "selection" | "comments";
-
-/**
- * Toolbar order is also the shortcut order: pressing 1 through 6 selects the
- * nth tab, so the two must be defined together and never drift apart.
- */
-const VISUALIZER_TABS: { id: VisualizerTab; label: string; icon: LucideIcon }[] = [
-    { id: "sch", label: "Schematic", icon: Cpu },
-    { id: "pcb", label: "PCB", icon: CircuitBoard },
-    { id: "3d", label: "3D", icon: Box },
-    { id: "bom", label: "BOM", icon: FileText },
-    { id: "stackup", label: "Stackup", icon: Layers3 },
-    { id: "assembly", label: "Assembly Assistant", icon: PackageCheck },
-];
+/** The toolbar follows VIEWER_TABS, which is also the 1–6 shortcut order. */
+const TAB_LABELS: Record<VisualizerTab, { label: string; icon: LucideIcon }> = {
+    sch: { label: "Schematic", icon: Cpu },
+    pcb: { label: "PCB", icon: CircuitBoard },
+    "3d": { label: "3D", icon: Box },
+    bom: { label: "BOM", icon: FileText },
+    stackup: { label: "Stackup", icon: Layers3 },
+    assembly: { label: "Assembly Assistant", icon: PackageCheck },
+};
 
 function selectionContextForTab(tab: VisualizerTab): PrismSelectionContext {
     if (tab === "pcb") return "PCB";
@@ -102,209 +109,49 @@ function selectionContextForTab(tab: VisualizerTab): PrismSelectionContext {
 const isAbortError = (error: unknown): boolean =>
     error instanceof DOMException && error.name === "AbortError";
 
-type ViewerBlobSource = {
-    filename: string;
-    content: string;
-};
-
 const buildViewerKey = (
     kind: "schematic" | "pcb",
     projectId: string,
     commit: string | null | undefined,
 ) => `${kind}:${projectId}:${commit ?? "latest"}`;
 
-interface PendingCommentElement {
-    elementId?: string;
-    elementRef?: string;
-    elementType?: string;
-    relativePoint?: [number, number];
-}
-
-function applyCommentMode(viewer: ECadViewerElement | null, enabled: boolean): void {
-    if (!viewer) return;
-    viewer.setCommentMode?.(enabled);
-    if (enabled) {
-        viewer.setAttribute("comment-mode", "true");
-    } else {
-        viewer.removeAttribute("comment-mode");
-    }
-}
-
-/** Attach the overlay set for one view to its viewer; overlays are a separate render pass. */
-function publishCommentsOverlay(
-    viewer: ECadViewerElement | null,
-    context: CommentContext,
-    comments: Comment[],
-    activePage?: ActiveSchematicPage | null,
-): EcadCommentAnchorResolution[] {
-    if (!viewer) return [];
-    return viewer.setCommentOverlays(commentOverlaySet(comments, context, activePage));
+/** A load that failed for good; the adapter has already retried a lost decode race. */
+function reportLoadError(cause: unknown) {
+    // Left unhandled this surfaced only as an uncaught rejection in the
+    // console, with the sheet stuck half-drawn and no hint why.
+    console.error("[Visualizer] Could not load the sheet", cause);
+    toast.error(
+        cause instanceof Error && cause.message
+            ? `Could not draw this sheet: ${cause.message}`
+            : "Could not draw this sheet.",
+    );
 }
 
 type EcadViewerHostProps = {
-    viewerKey: string;
-    sources: ViewerBlobSource[];
+    viewer: EcadViewer;
+    revisionKey: string;
+    sources: EcadSource[];
     active: boolean;
-    setViewerRef: (node: ECadViewerElement | null) => void;
-    onReady: () => void;
     viewportInsets: EcadViewportInsets;
 };
 
-/**
- * Load the root sheet, and give a failed paint one more go.
- *
- * The viewer paints as soon as sources land and throws "Image not ready" when
- * a bitmap on the sheet has not finished decoding, which rejects
- * `replaceSources`. Nothing here used to catch that, so a transient decode
- * race ended the whole load: `ecadReadyRevision` stayed empty, `onReady` never
- * fired, and the sheet sat half-painted -- component bodies drawn, everything
- * after the failing layer missing -- with no way back short of a reload.
- *
- * A decode that lost one race has almost always finished by the next frame, so
- * the retry is a frame later rather than an interval. Two attempts, because a
- * third would be saying the failure is something other than a race, and if it
- * is then the caller should hear about it.
- */
-async function loadRootSource(
-    viewer: ECadViewerElement,
-    payload: Parameters<ECadViewerElement["replaceSources"]>[0],
-    isStale: () => boolean,
-): Promise<void> {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-        try {
-            await viewer.replaceSources(payload);
-            return;
-        } catch (cause) {
-            if (isStale()) return;
-            if (attempt === 1) throw cause;
-            await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
-            if (isStale()) return;
-        }
-    }
-}
-
-function EcadViewerHost({
-    viewerKey,
-    sources,
-    active,
-    setViewerRef,
-    onReady,
-    viewportInsets,
-}: EcadViewerHostProps) {
-    const hostRef = useRef<ECadViewerElement | null>(null);
-    const replaceReadyRef = useRef<Promise<void> | null>(null);
-    const rootSource = sources[0];
-    const appendedSources = useMemo(() => sources.slice(1), [sources]);
-    const viewportLeft = viewportInsets.left ?? 0;
-    const viewportRight = viewportInsets.right ?? 0;
-    const viewportTop = viewportInsets.top ?? 0;
-    const viewportBottom = viewportInsets.bottom ?? 0;
-
-    const attachViewerRef = useCallback((node: ECadViewerElement | null) => {
-        hostRef.current = node;
-        setViewerRef(node);
-    }, [setViewerRef]);
-
+/** Mounts one element and hands it its sources, visibility and insets; the adapter does the rest. */
+function EcadViewerHost({ viewer, revisionKey, sources, active, viewportInsets }: EcadViewerHostProps) {
+    const left = viewportInsets.left ?? 0;
+    const right = viewportInsets.right ?? 0;
+    const top = viewportInsets.top ?? 0;
+    const bottom = viewportInsets.bottom ?? 0;
     useLayoutEffect(() => {
-        const viewer = hostRef.current;
-        if (!viewer || !rootSource) return;
-
-        let cancelled = false;
-
-        const replaceRoot = async () => {
-            await customElements.whenDefined("ecad-viewer");
-            if (cancelled || !hostRef.current) return;
-            hostRef.current.dataset.ecadReadyRevision = "";
-            await loadRootSource(
-                hostRef.current,
-                { revisionKey: viewerKey, sources: [rootSource] },
-                () => cancelled || !hostRef.current,
-            );
-            if (cancelled || !hostRef.current) return;
-            // Wait for project load. Do not gate on host.isReady — the custom
-            // element exposes `ready` (Promise), not a boolean isReady flag.
-            // Gating on undefined left ecadReadyRevision unset forever, which
-            // blocked Escape clears and SCH cross-probe apply.
-            if (appendedSources.length === 0) {
-                await hostRef.current.ready;
-                if (cancelled || !hostRef.current) return;
-                hostRef.current.dataset.ecadReadyRevision = viewerKey;
-                onReady();
-            }
-        };
-
-        replaceReadyRef.current = replaceRoot().catch((cause) => {
-            if (cancelled) return;
-            // Left unhandled this surfaced only as an uncaught rejection in the
-            // console, with the sheet stuck half-drawn and no hint why.
-            console.error("[Visualizer] Could not load the sheet", cause);
-            toast.error(
-                cause instanceof Error && cause.message
-                    ? `Could not draw this sheet: ${cause.message}`
-                    : "Could not draw this sheet.",
-            );
-        });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [appendedSources.length, onReady, rootSource, viewerKey]);
-
-    useEffect(() => {
-        if (!appendedSources.length) return;
-        if (hostRef.current) hostRef.current.dataset.ecadReadyRevision = "";
-        let cancelled = false;
-        const appendRemainingSources = async () => {
-            await replaceReadyRef.current;
-            if (cancelled || !hostRef.current) return;
-            await hostRef.current.appendSources({
-                revisionKey: viewerKey,
-                sources: appendedSources,
-            });
-            if (cancelled || !hostRef.current) return;
-            await hostRef.current.ready;
-            if (cancelled || !hostRef.current) return;
-            hostRef.current.dataset.ecadReadyRevision = viewerKey;
-            onReady();
-        };
-        void appendRemainingSources().catch((cause) => {
-            if (cancelled) return;
-            // Same shape as the root load: an unhandled rejection here left
-            // the extra sheets missing and the viewer never marked ready.
-            console.error("[Visualizer] Could not load the remaining sheets", cause);
-            toast.error("Some sheets in this design could not be drawn.");
-        });
-        return () => { cancelled = true; };
-    }, [appendedSources, onReady, viewerKey]);
-
-    useEffect(() => {
-        let cancelled = false;
-        void customElements.whenDefined("ecad-viewer").then(() => {
-            if (!cancelled) hostRef.current?.setActive(active);
-        });
-        return () => { cancelled = true; };
-    }, [active]);
-
-    useLayoutEffect(() => {
-        const viewer = hostRef.current;
-        if (!viewer) return;
-        let cancelled = false;
-        void customElements.whenDefined("ecad-viewer").then(() => {
-            if (!cancelled && hostRef.current === viewer) {
-                viewer.setViewportInsets({
-                    left: viewportLeft,
-                    right: viewportRight,
-                    top: viewportTop,
-                    bottom: viewportBottom,
-                });
-            }
-        });
-        return () => { cancelled = true; };
-    }, [viewportBottom, viewportLeft, viewportRight, viewportTop]);
-
+        viewer.load(revisionKey, sources);
+    }, [revisionKey, sources, viewer]);
+    useEffect(() => viewer.setActive(active), [active, viewer]);
+    useLayoutEffect(
+        () => viewer.setViewportInsets({ left, right, top, bottom }),
+        [bottom, left, right, top, viewer],
+    );
     return (
         <ecad-viewer
-            ref={attachViewerRef}
+            ref={viewer.attach}
             style={{ width: "100%", height: "100%" }}
             show-header="false"
             show-selection-panel="false"
@@ -313,89 +160,119 @@ function EcadViewerHost({
     );
 }
 
+/**
+ * Apply the URL's design variant to one element. The element owns replay
+ * across source replacement and page switches (the reflected `variant`
+ * attribute is durable); this covers a freshly mounted element and a ready
+ * arriving after the selection. A bundle older than the vendored API is
+ * reported, never skipped silently.
+ */
+function useViewerVariant(
+    viewer: EcadViewer,
+    target: ViewerVariantTarget,
+    variant: string | null,
+    report: (target: ViewerVariantTarget, result: ViewerVariantSync) => void,
+) {
+    const { element, generation } = useEcadViewer(viewer);
+    useEffect(() => {
+        let cancelled = false;
+        void viewer.syncVariant(variant, () => !cancelled).then((result) => {
+            if (result) report(target, result);
+        });
+        return () => { cancelled = true; };
+    }, [element, generation, report, target, variant, viewer]);
+}
+
+/**
+ * A design-data read that settled without data. A pending answer is not a
+ * failure: it keeps its own state so a screen can offer "Check again" instead
+ * of claiming the build failed.
+ */
+type DesignDataReadFailure =
+    | { kind: "pending" }
+    | { kind: "failed"; detail: string };
+
+function designDataReadFailure(error: unknown, fallback: string): DesignDataReadFailure {
+    if (error instanceof DesignDataPendingError) return { kind: "pending" };
+    return { kind: "failed", detail: error instanceof Error ? error.message : fallback };
+}
+
 // react-doctor-disable-next-line no-giant-component - viewer event orchestration and the comment system share the viewer refs
 export function Visualizer({ projectId, user, commit, active: viewerActive = true }: VisualizerProps) {
-    const [schematicViewerElement, setSchematicViewerElement] = useState<ECadViewerElement | null>(null);
-    const [pcbViewerElement, setPcbViewerElement] = useState<ECadViewerElement | null>(null);
-    // Layer name -> swatch color, read from the PCB viewer so the inspector can
-    // show a layer's color the same way the layer menu does.
-    const [layerColors, setLayerColors] = useState<Record<string, string>>({});
-    const schematicViewerRef = useRef<ECadViewerElement | null>(null);
-    const pcbViewerRef = useRef<ECadViewerElement | null>(null);
-
-    // Callback refs to sync state and refs
-    const setSchematicViewerRef = useCallback((node: ECadViewerElement | null) => {
-        schematicViewerRef.current = node;
-        setSchematicViewerElement(node);
-    }, []);
-
-    const setPcbViewerRef = useCallback((node: ECadViewerElement | null) => {
-        pcbViewerRef.current = node;
-        setPcbViewerElement(node);
-    }, []);
-
     // Open on the tab a caller asked for (e.g. clicking a changed .kicad_pcb in
     // the history file list), read once on mount; defaults to the schematic.
     const [searchParams, setSearchParams] = useSearchParams();
-    const [activeTab, setActiveTab] = useState<VisualizerTab>(() => {
-        const requested = searchParams.get("tab");
-        return requested === "pcb"
-            || requested === "3d"
-            || requested === "bom"
-            || requested === "stackup"
-            || requested === "assembly"
-            ? requested
-            : "sch";
-    });
-    const [threeDActivated, setThreeDActivated] = useState(false);
-    /**
-     * Whether the PCB tab has ever been opened.
-     *
-     * The board *source* is fetched eagerly so the tab is ready the moment it is
-     * shown, but mounting the viewer is what parses the board, and that parse
-     * runs on the main thread. Mounting it as soon as the fetch resolved froze
-     * the whole UI while the reviewer was still reading the schematic. Fetch
-     * early, parse on first visit; once visited it stays mounted so switching
-     * back does not re-parse.
-     */
-    const [pcbActivated, setPcbActivated] = useState(false);
+    // The view state a link carries: selected parts, highlighted nets, sheet,
+    // framed region and insets (lib/view-state-url.ts).
+    const requestedViewState = useMemo(() => parseViewState(searchParams), [searchParams]);
+    const schematicViewerKey = buildViewerKey("schematic", projectId, commit);
+    const pcbViewerKey = buildViewerKey("pcb", projectId, commit);
+    // Tab, comment mode, the comment draft, the selected comment and the right
+    // rail, and the rules between them (viewer-modes.ts).
+    const [modes, dispatchMode] = useReducer(viewerModesReducer, searchParams.get("tab"), initialViewerModes);
+    const activeTab = modes.tab;
+    const setActiveTab = useCallback((tab: VisualizerTab) => dispatchMode({ type: "tab", tab }), []);
+    // A navigation to another `tab` (window.prism.open, a link, Back) opens it.
+    // The visualizer's own tab clicks do not write the URL, so only a changed
+    // URL value moves the tab, never an unrelated query update.
+    const urlTab = searchParams.get("tab");
+    const lastUrlTab = useRef(urlTab);
+    useEffect(() => {
+        if (lastUrlTab.current === urlTab) return;
+        lastUrlTab.current = urlTab;
+        const tab = VIEWER_TABS.find((candidate) => candidate === urlTab);
+        if (tab) dispatchMode({ type: "tab", tab });
+    }, [urlTab]);
+    // IN-61: T on a PCB inset shows the 3D tab's board, mounting the tab in
+    // the background the first time.
+    const [insetScene3d] = useState(() => new PrismInsetScene3D(() => dispatchMode({ type: "mount", view: "3d" })));
+    useEffect(() => () => insetScene3d.dispose(), [insetScene3d]);
+    // The schematic and board elements, their load and readiness, and the
+    // inset links between them (lib/ecad-viewer.ts).
+    const [viewers] = useState(() => new EcadViewerPair({ inset3d: insetScene3d, onLoadError: reportLoadError }));
+    useEffect(() => () => viewers.dispose(), [viewers]);
+    const sch = useEcadViewer(viewers.sch);
+    const pcb = useEcadViewer(viewers.pcb);
     const [schematicContent, setSchematicContent] = useState<string | null>(null);
-    const [subsheets, setSubsheets] = useState<{ filename: string, content: string }[]>([]);
-    const [viewerSupportFiles, setViewerSupportFiles] = useState<ViewerBlobSource[]>([]);
+    const [subsheets, setSubsheets] = useState<EcadSource[]>([]);
+    // Null until the request settles; the viewers wait for it.
+    const [viewerSupportFiles, setViewerSupportFiles] = useState<EcadSource[] | null>(null);
     const [pcbContent, setPcbContent] = useState<string | null>(null);
     const [ibomUrl, setIbomUrl] = useState<string | null>(null);
     const [schematicContentLoaded, setSchematicContentLoaded] = useState(false);
     const [pcbContentLoaded, setPcbContentLoaded] = useState(false);
+    // The board loads without waiting for its tab, but not alongside the
+    // schematic a user is looking at: on a large design the two share the
+    // link and the board can be tens of MB. Once released it stays released,
+    // so a tab switch never aborts a board read part way.
+    const pcbLoadGate = activeTab !== "sch" || schematicContentLoaded;
+    const [pcbLoadReleased, setPcbLoadReleased] = useState(pcbLoadGate);
+    if (pcbLoadGate && !pcbLoadReleased) setPcbLoadReleased(true);
+    const [schematicPending, setSchematicPending] = useState(false);
+    const [pcbPending, setPcbPending] = useState(false);
+    const [schematicError, setSchematicError] = useState<DesignDataReadFailure | null>(null);
+    const [pcbError, setPcbError] = useState<DesignDataReadFailure | null>(null);
+    const [workingTreeDirty, setWorkingTreeDirty] = useState(false);
     const [semanticIndex, setSemanticIndex] = useState<PrismSemanticIndex | null>(null);
     const [semanticIndexLoading, setSemanticIndexLoading] = useState(true);
+    const [semanticIndexPending, setSemanticIndexPending] = useState(false);
     const [semanticIndexError, setSemanticIndexError] = useState<string | null>(null);
     const [semanticIndexRetryToken, setSemanticIndexRetryToken] = useState(0);
-    const [rightRailTab, setRightRailTab] =
-        useState<ViewerRightRailTab | null>(null);
+    const rightRailTab = modes.rightRail;
     const [schematicLeftInset, setSchematicLeftInset] = useState(0);
     const [pcbLeftInset, setPcbLeftInset] = useState(0);
     const [rightRailInset, setRightRailInset] = useState(0);
     const [componentImportPending, setComponentImportPending] = useState(false);
-    const [labelInstances, setLabelInstances] = useState<LabelInstanceRef[]>([]);
     const [navigatingLabelInstance, setNavigatingLabelInstance] = useState(false);
-    const [activeSchematicPage, setActiveSchematicPage] = useState<ActiveSchematicPage | null>(null);
-    // Bumped every time a host reports ready; the variant sync effect keys on
-    // it so a ready arriving after the selection still converges.
-    const [schematicReadyGeneration, setSchematicReadyGeneration] = useState(0);
-    const [pcbReadyGeneration, setPcbReadyGeneration] = useState(0);
+    // Track the active schematic page so comment overlay filtering can match
+    // comments to the currently visible sheet.
+    const activeSchematicPage = sch.activePage;
 
     // Comment collaboration state
     const { comments, setComments, refresh: refreshComments, status: commentConnectionStatus, error: commentsError,
         hasLoaded: commentsLoaded } = useLiveComments(projectId, { kind: "canvas", revision: commit ?? undefined });
     const [commentMarkerResolutions, setCommentMarkerResolutions] = useState<Record<string, EcadCommentAnchorResolution>>({});
-    const [commentMode, setCommentMode] = useState(false);
-    const [showCommentForm, setShowCommentForm] = useState(false);
-    const [pendingLocation, setPendingLocation] = useState<CommentLocation | null>(null);
-    const [pendingContext, setPendingContext] = useState<CommentContext | null>(null);
-    // The pending comment element is read only when the comment submits,
-    // never on screen.
-    const pendingElementRef = useRef<PendingCommentElement | null>(null);
-    const [selectedCommentId, setSelectedCommentId] = useState<string | null>(null);
+    const { commentMode, draft: commentDraft, selectedCommentId } = modes;
     // Focus is an imperative viewer request, not render state. It is retried
     // when a tab/page change publishes the next set of overlay resolutions.
     const pendingCommentFocusRef = useRef<string | null>(null);
@@ -450,29 +327,22 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             netCode: net.netCode,
         });
     }, [activeTab, selectGlobal]);
-    const fitHighlightedNets = useCallback(() => {
-        pcbViewerRef.current?.focusHighlightedNets?.();
-    }, []);
+    const fitHighlightedNets = useCallback(() => viewers.pcb.focusHighlightedNets(), [viewers]);
     // Escape and the bar's Clear drop the inspected object and the nets.
     const clearSelectionAndHighlights = useCallback(() => {
         clearGlobalSelection();
         clearHighlightedNets();
     }, [clearGlobalSelection, clearHighlightedNets]);
-    const notifySchematicViewerReady = useCallback(
-        () => {
-            setSchematicReadyGeneration((generation) => generation + 1);
-            notifyClientReady("visualizer-schematic");
-        },
-        [notifyClientReady],
-    );
-    const notifyPcbViewerReady = useCallback(
-        () => {
-            setPcbReadyGeneration((generation) => generation + 1);
-            notifyClientReady("visualizer-pcb");
-        },
-        [notifyClientReady],
-    );
-
+    // `window.prism.getState` reads the live viewer through this: the elements
+    // for their own net/inset API, and the visualizer's selection for the part
+    // the element API cannot report.
+    useEffect(() => registerProjectViewerState(() => ({
+        tab: activeTab,
+        selection: globalSelection,
+        highlightedNets,
+        sch: viewers.sch.element,
+        pcb: viewers.pcb.element,
+    })), [activeTab, globalSelection, highlightedNets, pcb.element, sch.element, viewers]);
     // The index supplies the catalog and overlays atomically; there is no
     // independent catalog fetch or revision-reconciliation state.
     const requestedVariant = requestedVariantFromSearchParams(searchParams);
@@ -515,14 +385,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         [searchParams, setSearchParams],
     );
 
-    // The ecad-viewer elements own replay across source replacement and page
-    // switches (the reflected `variant` attribute is durable). These effects
-    // cover what they cannot: a freshly mounted element, and a ready arriving
-    // after the selection. A bundle older than the vendored API is reported,
-    // never skipped silently.
     const reportedViewerVariantIssues = useRef(new Set<string>());
     const reportViewerVariantSync = useCallback(
-        (target: ViewerVariantTarget, result: ReturnType<typeof syncViewerVariant>) => {
+        (target: ViewerVariantTarget, result: ViewerVariantSync) => {
             const notice = viewerVariantNotice(target, result);
             if (!notice) return;
             const key = `${target}:${result.state}:${result.requested ?? ""}`;
@@ -533,41 +398,11 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         },
         [],
     );
-    useEffect(() => {
-        let cancelled = false;
-        void customElements.whenDefined("ecad-viewer").then(() => {
-            if (cancelled) return;
-            reportViewerVariantSync(
-                "schematic",
-                syncViewerVariant(schematicViewerElement, variantSelection.effective),
-            );
-        });
-        return () => { cancelled = true; };
-    }, [
-        reportViewerVariantSync,
-        schematicReadyGeneration,
-        schematicViewerElement,
-        variantSelection.effective,
-    ]);
-    useEffect(() => {
-        let cancelled = false;
-        void customElements.whenDefined("ecad-viewer").then(() => {
-            if (cancelled) return;
-            reportViewerVariantSync(
-                "pcb",
-                syncViewerVariant(pcbViewerElement, variantSelection.effective),
-            );
-        });
-        return () => { cancelled = true; };
-    }, [
-        pcbReadyGeneration,
-        pcbViewerElement,
-        reportViewerVariantSync,
-        variantSelection.effective,
-    ]);
+    useViewerVariant(viewers.sch, "schematic", variantSelection.effective, reportViewerVariantSync);
+    useViewerVariant(viewers.pcb, "pcb", variantSelection.effective, reportViewerVariantSync);
 
     const canImportLibraryComponent = canWriteCatalog(user?.role);
-    const canModifyComments = user?.role === "admin" || user?.role === "designer";
+    const canModifyComments = canCommentOnProjects(user?.role);
 
     const handleImportSelectedComponent = useCallback(async () => {
         if (!globalSelection || globalSelection.kind === "net" || componentImportPending) return;
@@ -622,24 +457,19 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             const baseUrl = `/api/projects/${projectId}`;
 
             try {
-                const [ibomRes, supportRes, mentionsRes] = await Promise.all([
-                    fetch(appendCommit(`${baseUrl}/ibom`), { signal }),
-                    fetch(appendCommit(`${baseUrl}/viewer/support-files`), { signal }),
+                const [ibomRes, mentionsRes] = await Promise.all([
+                    fetchApi(appendCommit(`${baseUrl}/ibom`), { signal }),
                     fetchApi(`${baseUrl}/comments/mention-candidates`, { signal }),
                 ]);
+                // Only the status is wanted here: the Assembly tab's frame loads
+                // the page itself, and the page is several MB.
+                void ibomRes.body?.cancel().catch(() => undefined);
                 if (cancelled) return;
 
                 if (ibomRes.ok) {
                     setIbomUrl(appendCommit(`${baseUrl}/ibom`));
                 } else {
                     setIbomUrl(null);
-                }
-                if (supportRes.ok) {
-                    const payload = await supportRes.json() as { files?: ViewerBlobSource[] };
-                    if (cancelled) return;
-                    setViewerSupportFiles(payload.files ?? []);
-                } else {
-                    setViewerSupportFiles([]);
                 }
                 if (mentionsRes.ok) {
                     const candidates = await mentionsRes.json() as MentionCandidate[];
@@ -665,42 +495,96 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         };
     }, [projectId, appendCommit]);
 
+    // The .kicad_pro and page layout the viewers load with each document. A
+    // failed request settles to no files: the sheet still draws, with KiCad's
+    // default page layout. Both viewers wait for it, as files arriving after
+    // the sheet would reload the whole design.
+    useEffect(() => {
+        const controller = new AbortController();
+        let cancelled = false;
+
+        const fetchSupportFiles = async () => {
+            let files: EcadSource[] = [];
+            try {
+                const { data, workingTreeDirty: dirty } = await fetchDesignJson<{ files?: EcadSource[] }>(
+                    appendCommit(`/api/projects/${projectId}/viewer/support-files`),
+                    { signal: controller.signal },
+                    { fallbackError: "Could not load the viewer support files" },
+                );
+                files = data.files ?? [];
+                if (!cancelled && dirty) setWorkingTreeDirty(true);
+            } catch (err) {
+                if (!cancelled && !isAbortError(err)) {
+                    console.error("Error loading viewer support files", err);
+                }
+            }
+            if (cancelled) return;
+            setViewerSupportFiles(files);
+        };
+
+        void fetchSupportFiles();
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
+    }, [appendCommit, projectId]);
+
     useEffect(() => {
         if (semanticIndex) return;
         const controller = new AbortController();
         setSemanticIndexLoading(true);
+        setSemanticIndexPending(false);
         setSemanticIndexError(null);
         // The compact identity artifact is generated independently from 3D
         // assets and loaded in the background. It never gates SCH/PCB source
         // rendering, but is ready before the first normal selection whenever
-        // generation completes quickly.
-        fetch(appendCommit(`/api/projects/${projectId}/semantic-index/identity`), {
-            signal: controller.signal,
-            credentials: "include",
-        })
-            .then(async (response) => {
-                if (!response.ok) {
-                    const payload = await response.json().catch(() => null) as { detail?: string } | null;
-                    throw new Error(payload?.detail || "Semantic identity index is unavailable");
+        // generation completes quickly. A pending answer retries and keeps the
+        // loading state, so the BOM table and variant selector stay calm.
+        fetchDesignJson<PrismSemanticIndex>(
+            appendCommit(`/api/projects/${projectId}/semantic-index/identity`),
+            { signal: controller.signal, credentials: "include" },
+            {
+                fallbackError: "Semantic identity index is unavailable",
+                onPending: () => {
+                    if (!controller.signal.aborted) setSemanticIndexPending(true);
+                },
+            },
+        )
+            .then(({ data, workingTreeDirty: dirty }) => {
+                if (!controller.signal.aborted) {
+                    setSemanticIndexPending(false);
+                    setSemanticIndexError(null);
+                    setSemanticIndex(data);
+                    if (dirty) setWorkingTreeDirty(true);
                 }
-                return response.json() as Promise<PrismSemanticIndex>;
-            })
-            .then((payload) => {
-                if (!controller.signal.aborted) setSemanticIndex(payload);
             })
             .catch((error: unknown) => {
                 if (!isAbortError(error) && !controller.signal.aborted) {
-                    setSemanticIndexError(error instanceof Error ? error.message : "Semantic identity index is unavailable");
+                    if (error instanceof DesignDataPendingError) {
+                        // Still building, not failed: keep the pending state and
+                        // let "Check again" start another window.
+                        setSemanticIndexPending(true);
+                    } else {
+                        setSemanticIndexPending(false);
+                        setSemanticIndexError(error instanceof Error ? error.message : "Semantic identity index is unavailable");
+                    }
                 }
             })
             .finally(() => {
-                if (!controller.signal.aborted) setSemanticIndexLoading(false);
+                if (!controller.signal.aborted) {
+                    setSemanticIndexLoading(false);
+                }
             });
         return () => controller.abort();
     }, [appendCommit, projectId, semanticIndex, semanticIndexRetryToken]);
 
+    const watchJob = useJobWatcher();
+    const retrySemanticIndexRead = useCallback(() => {
+        setSemanticIndexRetryToken((token) => token + 1);
+    }, []);
     const generateSemanticIdentity = useCallback(async () => {
         setSemanticIndexLoading(true);
+        setSemanticIndexPending(false);
         setSemanticIndexError(null);
         try {
             const response = await fetchApi(`/api/projects/${projectId}/semantic-index/generate`, {
@@ -711,14 +595,18 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 throw new Error(await readApiError(response, "Failed to generate semantic identity index"));
             }
             const payload = await response.json() as { job_id: string };
-            const job = await watchPrismJob(payload.job_id);
-            throwIfJobFailed(job, "Failed to generate semantic identity index");
+            if (payload.job_id) {
+                const job = await watchJob(payload.job_id);
+                throwIfJobFailed(job, "Failed to generate semantic identity index");
+            }
             setSemanticIndexRetryToken((token) => token + 1);
         } catch (error) {
-            setSemanticIndexError(error instanceof Error ? error.message : "Failed to generate semantic identity index");
             setSemanticIndexLoading(false);
+            // An abort means the visualizer went away while the job ran.
+            if (isAbortError(error)) return;
+            setSemanticIndexError(error instanceof Error ? error.message : "Failed to generate semantic identity index");
         }
-    }, [commit, projectId]);
+    }, [commit, projectId, watchJob]);
 
     // Lazy load schematic content when schematic tab is first accessed
     useEffect(() => {
@@ -726,49 +614,55 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             const controller = new AbortController();
             const signal = controller.signal;
             let cancelled = false;
+            setSchematicError(null);
+            setSchematicPending(false);
 
             const loadSchematic = async () => {
                 try {
                     const baseUrl = `/api/projects/${projectId}`;
+                    const onPending = () => {
+                        if (!cancelled) setSchematicPending(true);
+                    };
 
                     const [schRes, subsheetsRes] = await Promise.allSettled([
-                        fetch(appendCommit(`${baseUrl}/schematic`), { signal }),
-                        fetch(appendCommit(`${baseUrl}/schematic/subsheets`), { signal })
+                        fetchDesignText(appendCommit(`${baseUrl}/schematic`), { signal }, { onPending }),
+                        fetchDesignJson<{ files?: { name?: string; path?: string; url: string; content?: string }[] }>(
+                            appendCommit(`${baseUrl}/schematic/subsheets?include=content`),
+                            { signal },
+                            { onPending },
+                        )
                     ]);
                     if (cancelled) return;
 
                     // Handle Schematic
-                    if (schRes.status === "fulfilled" && schRes.value.ok) {
-                        const schematicText = await schRes.value.text();
-                        if (cancelled) return;
-                        setSchematicContent(schematicText);
+                    if (schRes.status === "fulfilled") {
+                        setSchematicContent(schRes.value.data);
+                        if (schRes.value.workingTreeDirty) setWorkingTreeDirty(true);
                     } else {
-                        console.error("Schematic not found");
+                        const failure = designDataReadFailure(schRes.reason, "Schematic could not be loaded");
+                        if (failure.kind === "failed") console.error("Schematic not found", schRes.reason);
                         setSchematicContent(null);
+                        setSchematicError(failure);
                     }
 
                     // Handle Subsheets
-                    if (subsheetsRes.status === "fulfilled" && subsheetsRes.value.ok) {
-                        const data = await subsheetsRes.value.json();
-                        if (cancelled) return;
+                    if (subsheetsRes.status === "fulfilled") {
+                        const data = subsheetsRes.value.data;
                         if (data.files?.length) {
-                            const subsheetResults = await Promise.allSettled(data.files.map(async (f: any) => {
-                                const cRes = await fetch(f.url, { signal });
-                                if (!cRes.ok) {
-                                    throw new Error(`Failed to load subsheet: ${f.url}`);
-                                }
+                            const subsheetResults = await Promise.allSettled(data.files.map(async (f) => {
+                                // The hierarchy read inlines each sheet's text;
+                                // only entries past its size cap need their own read.
+                                const content = f.content
+                                    ?? (await fetchDesignText(f.url, { signal }, { onPending })).data;
                                 let filename = f.name || f.path || f.url.split("/")?.pop() || "subsheet.kicad_sch";
                                 if (!filename.endsWith('.kicad_sch')) filename += '.kicad_sch';
                                 if (!filename.includes("/") && f.url.includes("Subsheets")) filename = `Subsheets/${filename}`;
-                                return { filename, content: await cRes.text() };
+                                return { filename, content };
                             }));
 
                             if (cancelled) return;
 
-                            const loadedSubsheets: Array<{
-                                filename: string;
-                                content: string;
-                            }> = [];
+                            const loadedSubsheets: EcadSource[] = [];
                             for (const result of subsheetResults) {
                                 if (result.status === "fulfilled") {
                                     loadedSubsheets.push(result.value);
@@ -790,6 +684,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     }
                 } finally {
                     if (!cancelled) {
+                        setSchematicPending(false);
                         setSchematicContentLoaded(true);
                     }
                 }
@@ -806,32 +701,39 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     // Load PCB content eagerly, not on first PCB-tab visit. Waiting until the tab
     // was opened left the board unloaded behind a "open the PCB tab" placeholder;
     // fetching up front means the board is ready the moment the tab is shown.
+    // It starts once the schematic on screen has loaded (pcbLoadReleased).
     useEffect(() => {
-        if (pcbContentLoaded) return;
+        if (pcbContentLoaded || !pcbLoadReleased) return;
         const controller = new AbortController();
         const signal = controller.signal;
         let cancelled = false;
+        setPcbError(null);
+        setPcbPending(false);
 
         const loadPcb = async () => {
             try {
                 const baseUrl = `/api/projects/${projectId}`;
-                const pcbRes = await fetch(appendCommit(`${baseUrl}/pcb`), { signal });
-                if (cancelled) return;
-
-                if (pcbRes.ok) {
-                    const pcbText = await pcbRes.text();
-                    if (cancelled) return;
-                    setPcbContent(pcbText);
-                } else {
-                    console.error("PCB not found");
-                    setPcbContent(null);
+                const loaded = await fetchDesignText(
+                    appendCommit(`${baseUrl}/pcb`),
+                    { signal },
+                    { onPending: () => { if (!cancelled) setPcbPending(true); } },
+                );
+                if (!cancelled) {
+                    setPcbContent(loaded.data);
+                    if (loaded.workingTreeDirty) setWorkingTreeDirty(true);
                 }
             } catch (err) {
-                if (!cancelled && !isAbortError(err)) {
-                    console.error("Error loading PCB content", err);
+                if (!cancelled) {
+                    const failure = designDataReadFailure(err, "PCB source could not be loaded");
+                    if (!isAbortError(err) && failure.kind === "failed") {
+                        console.error("Error loading PCB content", err);
+                    }
+                    setPcbContent(null);
+                    setPcbError(failure);
                 }
             } finally {
                 if (!cancelled) {
+                    setPcbPending(false);
                     setPcbContentLoaded(true);
                 }
             }
@@ -842,7 +744,18 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             cancelled = true;
             controller.abort();
         };
-    }, [pcbContentLoaded, projectId, appendCommit]);
+    }, [pcbContentLoaded, pcbLoadReleased, projectId, appendCommit]);
+
+    // A read that ended pending keeps its settled state so the view can offer
+    // "Check again"; clearing the settled flag starts the read again.
+    const retrySchematicRead = useCallback(() => {
+        setSchematicError(null);
+        setSchematicContentLoaded(false);
+    }, []);
+    const retryPcbRead = useCallback(() => {
+        setPcbError(null);
+        setPcbContentLoaded(false);
+    }, []);
 
     // A different project or commit is a different visualizer, not this one
     // with twenty-three values put back. ProjectDetailPage keys this component
@@ -850,10 +763,34 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     // cross-probe hook's own selection, which lives here too -- and there is no
     // render where the previous board's state is still on screen.
 
+    // What the elements report: inset mode on the schematic mounts the board
+    // (insets need both), the board's measure mode ends comment mode, a
+    // finished load re-dispatches an active cross-probe, and comment pins.
     useEffect(() => {
-        if (activeTab === "3d" || activeTab === "stackup") setThreeDActivated(true);
-        if (activeTab === "pcb") setPcbActivated(true);
-    }, [activeTab]);
+        const offInsets = viewers.sch.on("inset-mode", ({ on }) => {
+            if (on) dispatchMode({ type: "mount", view: "pcb" });
+        });
+        const offMeasure = viewers.pcb.on("measure-mode", ({ on }) => dispatchMode({ type: "measure-mode", on }));
+        const offReady = viewers.on("ready", (_, view) => {
+            notifyClientReady(view === "sch" ? "visualizer-schematic" : "visualizer-pcb");
+        });
+        const offPin = viewers.on("comment-overlay-click", (detail) => {
+            const commentId = commentIdFromOverlayHit(detail);
+            if (!commentId) return;
+            dispatchMode({ type: "select-comment", id: commentId });
+            setCommentCardScreenPosition(viewers.get(detail.context === "SCH" ? "sch" : "pcb").screenPoint(detail.x, detail.y));
+        });
+        const offArea = viewers.on("comment-area", (detail) => {
+            dispatchMode({ type: "comment-area", context: detail.context, location: commentLocationFromArea(detail) });
+        });
+        return () => {
+            offInsets();
+            offMeasure();
+            offReady();
+            offPin();
+            offArea();
+        };
+    }, [notifyClientReady, viewers]);
 
     // Re-apply an active cross-probe when SCH/PCB becomes visible so hatch/net
     // Focus paints that ran while the canvas was hidden are rebuilt. For SCH,
@@ -866,9 +803,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         }
         if (activeTab !== "sch") return;
 
-        const viewer = schematicViewerRef.current;
         const selection = globalSelection;
-        if (viewer && selection) {
+        if (viewers.sch.element && selection) {
             const request = crossProbeRequestForSelection(selection, "SCH", semanticIndex);
             // Only force the page for a probe that arrived from somewhere else.
             //
@@ -880,8 +816,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             // viewer already reserves that for a double click. A selection made
             // in the schematic is by definition already on the right page.
             const arrivedFromElsewhere = selection.sourceContext !== "SCH";
-            if (arrivedFromElsewhere && request.page && typeof viewer.showPage === "function") {
-                void viewer.showPage(request.page).finally(() => {
+            const shown = arrivedFromElsewhere && request.page ? viewers.sch.showPage(request.page) : null;
+            if (shown) {
+                void shown.finally(() => {
                     notifyClientReady("visualizer-schematic");
                 });
                 return;
@@ -893,17 +830,14 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             return;
         }
         notifyClientReady("visualizer-schematic");
-    }, [activeTab, globalSelection, notifyClientReady, semanticIndex]);
+    }, [activeTab, globalSelection, notifyClientReady, semanticIndex, viewers]);
+
+    // a2 carries the design key; a0 and a1 the revision key.
+    const semanticKey = semanticIndex?.designKey ?? semanticIndex?.sourceRevisionKey;
 
     useEffect(() => {
-        const schematicViewer = schematicViewerElement;
-        const pcbViewer = pcbViewerElement;
-        if (!schematicViewer && !pcbViewer) return;
-
-        const revisionKey = semanticIndex?.sourceRevisionKey ?? commit ?? undefined;
-
-        const handleSelection = (event: Event) => {
-            const detail = (event as CustomEvent<EcadSemanticSelectionDetail>).detail;
+        const revisionKey = semanticKey ?? commit ?? undefined;
+        const offSelection = viewers.on("selection", (detail) => {
             lastSelectionRef.current = detail;
             const normalized = normalizeEcadSelection(detail, revisionKey);
             if (normalized) {
@@ -917,63 +851,49 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 // side panel closes, rather than leaving the last item stuck.
                 clearGlobalSelection();
             }
-        };
-
-        const handleCrossProbe = (event: Event) => {
-            const detail = (event as CustomEvent<EcadSemanticSelectionDetail>).detail;
+        });
+        const offProbe = viewers.on("crossprobe", (detail) => {
             lastSelectionRef.current = detail;
             const normalized = normalizeEcadSelection(detail, revisionKey);
             if (normalized) crossProbeGlobal(normalized);
-        };
-
+        });
         // The board viewer reports the set whenever it changes it itself
         // (double-click cross-probe, clear), so the collection follows.
-        const handleHighlightChange = (event: Event) => {
-            const detail = (event as CustomEvent<EcadHighlightChangeDetail>).detail;
+        const offNets = viewers.pcb.on("highlight-change", (detail) => {
             setHighlightedNets((current) => adoptViewerNets(current, detail.nets));
-        };
-
-        schematicViewer?.addEventListener("ecad-viewer:selection", handleSelection as EventListener);
-        pcbViewer?.addEventListener("ecad-viewer:selection", handleSelection as EventListener);
-        schematicViewer?.addEventListener("ecad-viewer:crossprobe", handleCrossProbe as EventListener);
-        pcbViewer?.addEventListener("ecad-viewer:crossprobe", handleCrossProbe as EventListener);
-        pcbViewer?.addEventListener("ecad-viewer:highlight-change", handleHighlightChange as EventListener);
-
+        });
         return () => {
-            schematicViewer?.removeEventListener("ecad-viewer:selection", handleSelection as EventListener);
-            pcbViewer?.removeEventListener("ecad-viewer:selection", handleSelection as EventListener);
-            schematicViewer?.removeEventListener("ecad-viewer:crossprobe", handleCrossProbe as EventListener);
-            pcbViewer?.removeEventListener("ecad-viewer:crossprobe", handleCrossProbe as EventListener);
-            pcbViewer?.removeEventListener("ecad-viewer:highlight-change", handleHighlightChange as EventListener);
+            offSelection();
+            offProbe();
+            offNets();
         };
-    }, [commit, clearGlobalSelection, crossProbeGlobal, pcbViewerElement, schematicViewerElement, selectGlobal, semanticIndex?.sourceRevisionKey, toggleNetForSelection]);
+    }, [commit, clearGlobalSelection, crossProbeGlobal, selectGlobal, semanticKey, toggleNetForSelection, viewers]);
 
     // Project the collection onto the board. Keyed on the ready generation so
     // nets accumulated before the board finished loading are applied once it
     // has; a re-applied identical set is a no-op in the viewer.
     useEffect(() => {
-        const viewer = pcbViewerElement;
-        if (!viewer || pcbReadyGeneration === 0) return;
-        viewer.setHighlightedNets?.(highlightRefs(highlightedNets));
-    }, [highlightedNets, pcbReadyGeneration, pcbViewerElement]);
+        if (pcb.generation === 0) return;
+        viewers.pcb.setHighlightedNets(highlightRefs(highlightedNets));
+    }, [highlightedNets, pcb.element, pcb.generation, viewers]);
 
     useEffect(() => {
         const applySelection = (
-            viewer: ECadViewerElement | null,
+            viewer: EcadViewer,
             targetContext: "SCH" | "PCB",
             selection: PrismSelection | null,
         ) => {
-            if (!viewer) return;
+            if (!viewer.element) return;
             if (!selection) {
                 // The collection is the visualizer's; deselecting the
                 // inspected object must not drop it from the board.
-                viewer.clearSelection({ keepHighlights: true });
+                viewer.clearSelection();
                 return;
             }
-            if (typeof viewer.requestCrossProbe !== "function") return;
-            const request = crossProbeRequestForSelection(selection, targetContext, semanticIndex);
+            const probe = viewer.requestCrossProbe(crossProbeRequestForSelection(selection, targetContext, semanticIndex));
+            if (!probe) return;
             void (async () => {
-                const resolved = await viewer.requestCrossProbe(request);
+                const resolved = await probe;
                 if (!resolved && selection.kind === "terminal") {
                     await viewer.requestCrossProbe({
                         sourceContext: selection.sourceContext,
@@ -991,26 +911,22 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         const unregisterSchematic = registerClient({
             id: "visualizer-schematic",
             context: "SCH",
-            revisionKey: semanticIndex?.sourceRevisionKey ?? commit ?? undefined,
-            isReady: () =>
-                schematicViewerRef.current?.dataset.ecadReadyRevision ===
-                buildViewerKey("schematic", projectId, commit),
-            applySelection: (selection) => applySelection(schematicViewerRef.current, "SCH", selection),
+            revisionKey: semanticKey ?? commit ?? undefined,
+            isReady: () => viewers.sch.isReady(buildViewerKey("schematic", projectId, commit)),
+            applySelection: (selection) => applySelection(viewers.sch, "SCH", selection),
         });
         const unregisterPcb = registerClient({
             id: "visualizer-pcb",
             context: "PCB",
-            revisionKey: semanticIndex?.sourceRevisionKey ?? commit ?? undefined,
-            isReady: () =>
-                pcbViewerRef.current?.dataset.ecadReadyRevision ===
-                buildViewerKey("pcb", projectId, commit),
-            applySelection: (selection) => applySelection(pcbViewerRef.current, "PCB", selection),
+            revisionKey: semanticKey ?? commit ?? undefined,
+            isReady: () => viewers.pcb.isReady(buildViewerKey("pcb", projectId, commit)),
+            applySelection: (selection) => applySelection(viewers.pcb, "PCB", selection),
         });
         return () => {
             unregisterSchematic();
             unregisterPcb();
         };
-    }, [commit, pcbViewerElement, projectId, registerClient, schematicViewerElement, semanticIndex]);
+    }, [commit, pcb.element, projectId, registerClient, sch.element, semanticIndex, semanticKey, viewers]);
 
     const handleDesignSearchPick = useCallback((hit: DesignSearchHit) => {
         const sourceContext = selectionContextForTab(activeTab);
@@ -1024,12 +940,61 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         // source SCH/PCB client. Probe everyone, then apply to the source too.
         crossProbeGlobal(selection);
         if (sourceContext !== "SCH" && sourceContext !== "PCB") return;
-        const viewer = sourceContext === "SCH" ? schematicViewerRef.current : pcbViewerRef.current;
-        if (typeof viewer?.requestCrossProbe !== "function") return;
-        void viewer.requestCrossProbe(
+        void viewers.get(sourceContext === "SCH" ? "sch" : "pcb").requestCrossProbe(
             crossProbeRequestForSelection(selection, sourceContext, semanticIndex),
         );
-    }, [activeSchematicPage, activeTab, crossProbeGlobal, semanticIndex]);
+    }, [activeSchematicPage, activeTab, crossProbeGlobal, semanticIndex, viewers]);
+
+    // Apply the URL's view state once the active view has loaded its document
+    // and the semantic index is in, and again whenever the URL changes. A
+    // reference in `sel` selects the way a design-search pick does, so the
+    // selection panel, the other views and window.prism all see it; uuids,
+    // the sheet, insets and the framed region go to the element directly,
+    // with bbox last so it wins the camera.
+    const appliedViewState = useRef<string | null>(null);
+    useEffect(() => {
+        if (!viewerActive) appliedViewState.current = null;
+    }, [viewerActive]);
+    useEffect(() => {
+        if (!viewerActive || !semanticIndex) return;
+        const view = activeTab === "sch" ? "sch" : activeTab === "pcb" ? "pcb" : null;
+        if (!view) return;
+        const viewerKey = view === "sch" ? schematicViewerKey : pcbViewerKey;
+        const loaded = (view === "sch" ? sch.readyRevision : pcb.readyRevision) === viewerKey;
+        const element = viewers.get(view).element;
+        if (!loaded || !element) return;
+        const signature = `${view}|${viewerKey}|${buildViewStateParams(requestedViewState).toString()}`;
+        if (appliedViewState.current === signature) return;
+        appliedViewState.current = signature;
+
+        const selected = requestedViewState.sel ?? [];
+        const firstComponent = selected
+            .map((reference) => semanticIndex.components.find((entry) => entry.reference === reference))
+            .find((component) => component !== undefined);
+        const direct = {
+            ...requestedViewState,
+            // A sheet path belongs to the schematic; the board ignores it.
+            page: view === "sch" ? requestedViewState.page : undefined,
+            sel: selected.filter((item) => !semanticIndex.components.some((entry) => entry.reference === item)),
+        };
+        void (async () => {
+            if (firstComponent) {
+                handleDesignSearchPick({
+                    kind: "component",
+                    id: firstComponent.reference,
+                    title: firstComponent.reference,
+                    subtitle: "",
+                    score: 0,
+                    component: firstComponent,
+                });
+            }
+            await applyViewState(element, direct);
+        })();
+        if (requestedViewState.nets?.length) {
+            setHighlightedNets(requestedViewState.nets.map((netName) => ({ netName })));
+        }
+    }, [activeTab, handleDesignSearchPick, pcb.readyRevision, pcbViewerKey, requestedViewState, sch.readyRevision,
+        schematicViewerKey, semanticIndex, setHighlightedNets, viewerActive, viewers]);
 
     // The active CAD view, or null on non-CAD tabs (3D, stackup, ...).
     const activeViewContext: "SCH" | "PCB" | null =
@@ -1052,15 +1017,10 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     const highlightsVisibleInActiveView = highlightedNets.length > 0 && activeViewContext !== null;
     const inspectorHasContent = (globalSelection !== null && selectionVisibleInActiveView) || highlightsVisibleInActiveView;
 
+    // Nothing for this view (cleared, or a single-view selection that
+    // belongs to the other view) closes the selection panel; comments stay.
     useEffect(() => {
-        if (inspectorHasContent) {
-            setRightRailTab("selection");
-        } else {
-            // Nothing for this view (cleared, or a single-view selection
-            // that belongs to the other view): close the selection panel so it
-            // does not linger. Leave other rail tabs (comments) alone.
-            setRightRailTab((tab) => (tab === "selection" ? null : tab));
-        }
+        dispatchMode({ type: "inspector", hasContent: inspectorHasContent });
     }, [inspectorHasContent]);
 
     // Routed length / layers / counts for the selected net, read from the
@@ -1069,80 +1029,46 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     // fills in once it has.
     const netStatistics = useMemo(() => {
         const ref = netStatisticsRefForSelection(globalSelection);
-        if (!ref || !pcbViewerElement || pcbReadyGeneration === 0) return null;
-        try {
-            return pcbViewerElement.getNetStatistics?.(ref) ?? null;
-        } catch {
-            return null;
-        }
-    }, [globalSelection, pcbReadyGeneration, pcbViewerElement]);
+        return ref ? viewers.pcb.getNetStatistics(ref) : null;
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- re-read when the board loads or is replaced
+    }, [globalSelection, pcb.element, pcb.generation, viewers]);
 
     // The same summary for every highlighted net, so the panel can list the
     // whole collection (#305). Names the board does not know come back null.
-    const highlightedNetEntries = useMemo<HighlightedNetEntry[]>(() => {
-        const read = (net: HighlightedNet): EcadNetStatistics | null => {
-            if (!pcbViewerElement || pcbReadyGeneration === 0) return null;
-            try {
-                return pcbViewerElement.getNetStatistics?.({ name: net.netName, netCode: net.netCode }) ?? null;
-            } catch {
-                return null;
-            }
-        };
-        return highlightedNets.map((net) => ({ net, statistics: read(net) }));
-    }, [highlightedNets, pcbReadyGeneration, pcbViewerElement]);
+    const highlightedNetEntries = useMemo<HighlightedNetEntry[]>(
+        () => highlightedNets.map((net) => ({
+            net,
+            statistics: viewers.pcb.getNetStatistics({ name: net.netName, netCode: net.netCode }),
+        })),
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- re-read when the board loads or is replaced
+        [highlightedNets, pcb.element, pcb.generation, viewers],
+    );
 
-    // Refresh the layer color map when a selection carries a layer or its net
-    // has routing layers, so the inspector can show swatches matching the
-    // layer menu. Read lazily from the PCB viewer; layer colors are stable for
-    // a board.
-    useEffect(() => {
-        if (!pcbViewerElement) return;
-        const highlightedLayers = highlightedNetEntries.some((entry) => entry.statistics?.layers.length);
-        if (!globalSelection?.anchor?.layer && !netStatistics?.layers.length && !highlightedLayers) return;
-        void customElements.whenDefined("ecad-viewer").then(() => {
-            const layers = pcbViewerElement.getPcbViewState?.()?.layers;
-            if (!layers?.length) return;
-            setLayerColors((previous) => {
-                const next: Record<string, string> = { ...previous };
-                let changed = false;
-                for (const layer of layers) {
-                    if (next[layer.name] !== layer.color) {
-                        next[layer.name] = layer.color;
-                        changed = true;
-                    }
-                }
-                return changed ? next : previous;
-            });
-        });
-    }, [globalSelection, highlightedNetEntries, netStatistics, pcbViewerElement]);
+    // Layer name -> swatch color, read from the board so the inspector can
+    // show a layer's color the same way the layer menu does.
+    const layerColors = useMemo(
+        () => Object.fromEntries((pcb.pcbViewState?.layers ?? []).map((layer) => [layer.name, layer.color])),
+        [pcb.pcbViewState],
+    );
 
-    useEffect(() => {
+    // Selection Next/Prev over the label instances sharing a schematic net's name.
+    const labelInstances = useMemo<LabelInstanceRef[]>(() => {
         const selection = globalSelection;
-        const viewer = schematicViewerRef.current;
-        if (
-            !selection ||
-            selection.kind !== "net" ||
-            selection.sourceContext !== "SCH" ||
-            !viewer?.findLabelInstances
-        ) {
-            setLabelInstances([]);
-            return;
-        }
-
-        const all = viewer.findLabelInstances(selection.netName);
-        setLabelInstances(filterLabelInstances(all, selection.anchor?.itemType));
-    }, [globalSelection, schematicViewerElement]);
+        if (!selection || selection.kind !== "net" || selection.sourceContext !== "SCH") return [];
+        return filterLabelInstances(viewers.sch.findLabelInstances(selection.netName), selection.anchor?.itemType);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- re-read when the schematic element is replaced
+    }, [globalSelection, sch.element, viewers]);
 
     const focusLabelInstance = useCallback(async (uuid: string) => {
-        const viewer = schematicViewerRef.current;
-        if (!viewer?.focusLabelInstance) return;
+        const focusing = viewers.sch.focusLabelInstance(uuid);
+        if (!focusing) return;
         setNavigatingLabelInstance(true);
         try {
-            await viewer.focusLabelInstance(uuid);
+            await focusing;
         } finally {
             setNavigatingLabelInstance(false);
         }
-    }, []);
+    }, [viewers]);
 
     const navigateLabelInstance = useCallback(
         (direction: -1 | 1) => {
@@ -1159,31 +1085,6 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         },
         [focusLabelInstance, globalSelection?.anchor?.uuid, globalSelection?.uuid, labelInstances],
     );
-
-    // Track the active schematic page so comment overlay filtering can match
-    // comments to the currently visible sheet.
-    useEffect(() => {
-        const viewer = schematicViewerElement;
-        if (!viewer) {
-            setActiveSchematicPage(null);
-            return;
-        }
-        const refresh = () => {
-            const active = viewer.getActiveSchematicPage?.();
-            setActiveSchematicPage(
-                active
-                    ? {
-                          projectPath: active.projectPath,
-                          filename: active.filename,
-                          page: active.page,
-                      }
-                    : null,
-            );
-        };
-        refresh();
-        viewer.addEventListener("ecad-viewer:view-state-change", refresh);
-        return () => viewer.removeEventListener("ecad-viewer:view-state-change", refresh);
-    }, [schematicViewerElement]);
 
     const focusPendingComment = useCallback((
         resolutions: Record<string, EcadCommentAnchorResolution>,
@@ -1203,7 +1104,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             const targetPage = commentCurrentLocation(comment).page;
             const current = [page?.projectPath, page?.filename, page?.page];
             if (targetPage && !current.includes(targetPage)) {
-                schematicViewerRef.current?.switchPage(targetPage);
+                viewers.sch.switchPage(targetPage);
                 return;
             }
         }
@@ -1214,93 +1115,63 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             toast.message("This comment's source object is missing on this revision.");
             return;
         }
-        const viewer = expectedTab === "sch" ? schematicViewerRef.current : pcbViewerRef.current;
-        if (!viewer) return;
+        const viewer = viewers.get(expectedTab);
+        if (!viewer.element) return;
         if (resolution.location.page) viewer.switchPage(resolution.location.page);
         viewer.zoomToLocation(resolution.location.x, resolution.location.y);
-        setCommentCardScreenPosition(worldToViewportScreen(viewer, resolution.location.x, resolution.location.y));
-    }, [comments]);
+        setCommentCardScreenPosition(viewer.screenPoint(resolution.location.x, resolution.location.y));
+    }, [comments, viewers]);
 
     // Publish comment markers to the ecad-viewer overlay layer. This never
     // touches replaceSources/appendSources - overlays are a separate render pass.
     useEffect(() => {
         let resolutions: EcadCommentAnchorResolution[] = [];
         if (activeTab === "sch") {
-            resolutions = publishCommentsOverlay(schematicViewerElement, "SCH", comments, activeSchematicPage);
-            pcbViewerElement?.clearCommentOverlays("PCB");
+            resolutions = viewers.sch.setCommentOverlays(commentOverlaySet(comments, "SCH", activeSchematicPage));
+            viewers.pcb.clearCommentOverlays("PCB");
         } else if (activeTab === "pcb") {
-            resolutions = publishCommentsOverlay(pcbViewerElement, "PCB", comments);
-            schematicViewerElement?.clearCommentOverlays("SCH");
+            resolutions = viewers.pcb.setCommentOverlays(commentOverlaySet(comments, "PCB"));
+            viewers.sch.clearCommentOverlays("SCH");
         } else {
-            schematicViewerElement?.clearCommentOverlays("SCH");
-            pcbViewerElement?.clearCommentOverlays("PCB");
+            viewers.sch.clearCommentOverlays("SCH");
+            viewers.pcb.clearCommentOverlays("PCB");
         }
         const byId = Object.fromEntries(resolutions.map((resolution) => [resolution.id, resolution]));
         setCommentMarkerResolutions(byId);
         focusPendingComment(byId, activeTab, activeSchematicPage);
-    }, [activeTab, activeSchematicPage, comments, pcbReadyGeneration, pcbViewerElement,
-        schematicReadyGeneration, schematicViewerElement, focusPendingComment]);
+    }, [activeTab, activeSchematicPage, comments, pcb.generation, pcb.element,
+        sch.generation, sch.element, focusPendingComment, viewers]);
 
-    // Mirror comment mode onto whichever viewer is currently active.
+    // Apply the modes to each element: comment mode only on its own tab, and
+    // the board stops measuring while comment mode is on.
+    const schematicModes = elementModes(modes, "sch");
+    const pcbModes = elementModes(modes, "pcb");
     useEffect(() => {
-        applyCommentMode(schematicViewerElement, commentMode && activeTab === "sch");
-        applyCommentMode(pcbViewerElement, commentMode && activeTab === "pcb");
-    }, [activeTab, commentMode, pcbViewerElement, schematicViewerElement]);
-
-    const openCommentCardForOverlayHit = useCallback((event: Event) => {
-        const detail = (event as CustomEvent<EcadCommentOverlayHitDetail>).detail;
-        const commentId = commentIdFromOverlayHit(detail);
-        if (!commentId) return;
-        const viewer = detail.context === "SCH" ? schematicViewerRef.current : pcbViewerRef.current;
-        setSelectedCommentId(commentId);
-        setCommentCardScreenPosition(
-            worldToViewportScreen(viewer, detail.x, detail.y),
-        );
-    }, []);
-
-    const handleCommentAreaEvent = useCallback((event: Event) => {
-        const detail = (event as CustomEvent<EcadCommentAreaDetail>).detail;
-        setCommentMode(false);
-        setPendingContext(detail.context);
-        setPendingLocation(commentLocationFromArea(detail));
-        pendingElementRef.current = null;
-        setShowCommentForm(true);
-    }, []);
-
+        viewers.sch.setCommentMode(schematicModes.commentMode);
+    }, [schematicModes.commentMode, sch.element, viewers]);
     useEffect(() => {
-        const schematicViewer = schematicViewerElement;
-        const pcbViewer = pcbViewerElement;
-        if (!schematicViewer && !pcbViewer) return;
-
-        schematicViewer?.addEventListener("ecad-viewer:comment-overlay-click", openCommentCardForOverlayHit as EventListener);
-        pcbViewer?.addEventListener("ecad-viewer:comment-overlay-click", openCommentCardForOverlayHit as EventListener);
-        schematicViewer?.addEventListener("ecad-viewer:comment-area", handleCommentAreaEvent as EventListener);
-        pcbViewer?.addEventListener("ecad-viewer:comment-area", handleCommentAreaEvent as EventListener);
-
-        return () => {
-            schematicViewer?.removeEventListener("ecad-viewer:comment-overlay-click", openCommentCardForOverlayHit as EventListener);
-            pcbViewer?.removeEventListener("ecad-viewer:comment-overlay-click", openCommentCardForOverlayHit as EventListener);
-            schematicViewer?.removeEventListener("ecad-viewer:comment-area", handleCommentAreaEvent as EventListener);
-            pcbViewer?.removeEventListener("ecad-viewer:comment-area", handleCommentAreaEvent as EventListener);
-        };
-    }, [handleCommentAreaEvent, openCommentCardForOverlayHit, pcbViewerElement, schematicViewerElement]);
+        viewers.pcb.setCommentMode(pcbModes.commentMode);
+        if (pcbModes.endMeasure) viewers.pcb.setMeasureMode(false);
+    }, [pcbModes.commentMode, pcbModes.endMeasure, pcb.element, viewers]);
 
     const submitComment = useCallback(async (payload: CommentFormSubmitPayload) => {
-        if (!pendingLocation || !pendingContext) return;
+        if (!commentDraft) return;
+        const { context, location, element } = commentDraft;
         setIsSubmittingComment(true);
         try {
             const response = await fetchApi(`/api/projects/${projectId}/comments`, {
                 method: "POST",
                 body: JSON.stringify({
-                    context: pendingContext,
-                    location: pendingLocation,
+                    context,
+                    location,
                     content: payload.content,
+                    contentFormat: payload.contentFormat,
                     author: user?.name,
-                    elementId: pendingElementRef.current?.elementId,
-                    elementRef: pendingElementRef.current?.elementRef,
-                    elementType: pendingElementRef.current?.elementType,
-                    ...(pendingElementRef.current?.relativePoint
-                        ? { metadata: { anchorRelativePoint: pendingElementRef.current.relativePoint } }
+                    elementId: element?.elementId,
+                    elementRef: element?.elementRef,
+                    elementType: element?.elementType,
+                    ...(element?.relativePoint
+                        ? { metadata: { anchorRelativePoint: element.relativePoint } }
                         : {}),
                     commentClass: payload.commentClass,
                     severity: payload.severity,
@@ -1311,16 +1182,13 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             if (!response.ok) throw new Error(await readApiError(response, "Failed to post comment"));
             const created = normalizeComment(await response.json() as Comment);
             setComments((prev) => [...prev, created]);
-            setShowCommentForm(false);
-            setPendingLocation(null);
-            setPendingContext(null);
-            pendingElementRef.current = null;
+            dispatchMode({ type: "close-draft" });
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to post comment");
         } finally {
             setIsSubmittingComment(false);
         }
-    }, [commit, pendingContext, pendingLocation, projectId, setComments, user?.name]);
+    }, [commit, commentDraft, projectId, setComments, user?.name]);
 
     const resolveComment = useCallback(async (commentId: string, resolved: boolean) => {
         try {
@@ -1341,7 +1209,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         try {
             const response = await fetchApi(`/api/projects/${projectId}/comments/${commentId}/replies`, {
                 method: "POST",
-                body: JSON.stringify({ content }),
+                body: JSON.stringify({ content, contentFormat: "md" }),
             });
             if (!response.ok) throw new Error(await readApiError(response, "Failed to add reply"));
             const payload = await response.json() as { comment: Comment };
@@ -1352,6 +1220,11 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         }
     }, [projectId, setComments]);
 
+    const applyThread = useCallback((updated: Comment) => {
+        setComments((prev) => prev.map((entry) => (entry.id === updated.id
+            ? { ...normalizeComment(updated), anchorResolution: entry.anchorResolution } : entry)));
+    }, [setComments]);
+
     const deleteComment = useCallback(async (commentId: string) => {
         try {
             const response = await fetchApi(`/api/projects/${projectId}/comments/${commentId}`, {
@@ -1359,7 +1232,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             });
             if (!response.ok) throw new Error(await readApiError(response, "Failed to delete comment"));
             setComments((prev) => prev.filter((entry) => entry.id !== commentId));
-            setSelectedCommentId((current) => (current === commentId ? null : current));
+            dispatchMode({ type: "comment-deleted", id: commentId });
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to delete comment");
         }
@@ -1421,9 +1294,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         try {
             const response = await fetchApi(`/api/projects/${projectId}/comments/${comment.id}/reattach`, {
                 method: "POST",
+                headers: ifMatch("comment", comment.id, comment.revision),
                 body: JSON.stringify({
                     commit,
-                    expectedRevision: comment.revision,
                     elementId: selected.uuid,
                     relativePoint,
                     location: { x: selected.x, y: selected.y, layer: selected.layer ?? "", page: selected.page ?? "" },
@@ -1438,19 +1311,18 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     }, [commit, projectId, refreshComments]);
 
     const handleCommentClick = useCallback((comment: Comment) => {
-        setSelectedCommentId(comment.id);
+        dispatchMode({ type: "select-comment", id: comment.id });
         if (comment.anchorResolution?.state === "unresolved") {
             toast.message("This comment's anchor needs review on this revision.");
             return;
         }
         const targetTab: VisualizerTab = comment.context === "SCH" ? "sch" : "pcb";
-        setActiveTab((current) => (current === targetTab ? current : targetTab));
-        const viewer = targetTab === "sch" ? schematicViewerRef.current : pcbViewerRef.current;
+        setActiveTab(targetTab);
         const location = commentCurrentLocation(comment);
-        if (location.page) viewer?.switchPage(location.page);
+        if (location.page) viewers.get(targetTab).switchPage(location.page);
         pendingCommentFocusRef.current = comment.id;
         focusPendingComment(commentMarkerResolutions, activeTab, activeSchematicPage);
-    }, [activeSchematicPage, activeTab, commentMarkerResolutions, focusPendingComment]);
+    }, [activeSchematicPage, activeTab, commentMarkerResolutions, focusPendingComment, setActiveTab, viewers]);
 
     const selectedComment = useMemo(
         () => comments.find((entry) => entry.id === selectedCommentId) ?? null,
@@ -1467,107 +1339,63 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 || (target instanceof HTMLElement && target.isContentEditable)
             ) return;
 
-            if (event.key === "Escape") {
-                clearSelectionAndHighlights();
-                setRightRailTab(null);
-                setCommentMode(false);
-                setShowCommentForm(false);
-                setSelectedCommentId(null);
-                lastSelectionRef.current = null;
-                return;
-            }
-            // Number keys jump straight to a tab. Modifiers are excluded so the
-            // browser keeps Cmd/Ctrl+1..9 for its own tab switching.
-            if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
-                const tabIndex = Number.parseInt(event.code.startsWith("Digit") ? event.code.slice(5) : event.key, 10);
-                if (Number.isInteger(tabIndex) && tabIndex >= 1 && tabIndex <= VISUALIZER_TABS.length) {
-                    setActiveTab(VISUALIZER_TABS[tabIndex - 1].id);
+            const intent = viewerKeyIntent(event, activeTab, canModifyComments);
+            if (!intent) return;
+            if (intent.kind === "escape") {
+                const element = activeTab === "sch" || activeTab === "pcb" ? viewers.get(activeTab).element : null;
+                if (consumeElementEscape(activeTab, element)) {
                     event.preventDefault();
                     return;
                 }
+                clearSelectionAndHighlights();
+                lastSelectionRef.current = null;
+                dispatchMode({ type: "escape" });
+                return;
             }
-            if (
-                canModifyComments
-                && (activeTab === "sch" || activeTab === "pcb")
-                && event.key.toLowerCase() === "c"
-                && !event.metaKey
-                && !event.ctrlKey
-                && !event.altKey
-            ) {
-                const selection = lastSelectionRef.current;
-                if (selection && selection.x !== undefined && selection.y !== undefined) {
-                    setCommentMode(false);
-                    setPendingContext(activeTab === "sch" ? "SCH" : "PCB");
-                    setPendingLocation({
-                        x: selection.x,
-                        y: selection.y,
-                        layer: selection.layer ?? "",
-                        page: selection.page,
-                        // Element comments use marker-at-center only; do not
-                        // treat the selected item bbox as an area comment.
-                    });
-                    pendingElementRef.current = {
-                        elementId: selection.uuid,
-                        elementRef: selection.reference,
-                        elementType: selection.itemType,
-                        relativePoint: selection.bounds && selection.bounds[2] > 0 && selection.bounds[3] > 0
-                            ? [
-                                Math.max(0, Math.min(1, (selection.x - selection.bounds[0]) / selection.bounds[2])),
-                                Math.max(0, Math.min(1, (selection.y - selection.bounds[1]) / selection.bounds[3])),
-                            ]
-                            : undefined,
-                    };
-                    setShowCommentForm(true);
-                } else {
-                    // No selection: C toggles commenting mode, so pressing it
-                    // again turns it back off.
-                    setCommentMode((enabled) => !enabled);
-                }
+            if (intent.kind === "tab") {
+                dispatchMode({ type: "tab", tab: intent.tab });
                 event.preventDefault();
                 return;
             }
-            if (activeTab === "sch") {
-                const bracketDirection = event.key === "[" || event.code === "BracketLeft"
-                    ? -1
-                    : event.key === "]" || event.code === "BracketRight"
-                        ? 1
-                        : null;
-                if (bracketDirection) {
-                    const handled = schematicViewerRef.current?.navigateSchematicPage?.(
-                        bracketDirection,
-                    );
-                    if (handled) event.preventDefault();
-                    return;
-                }
-                if (event.altKey && (event.key === "Backspace" || event.key === "Delete")) {
-                    const handled = schematicViewerRef.current?.navigateSchematicParent?.();
-                    if (handled) event.preventDefault();
-                    return;
-                }
+            if (intent.kind === "comment") {
+                dispatchMode({ type: "comment-key", selection: lastSelectionRef.current });
+                event.preventDefault();
+                return;
             }
+            const handled = intent.kind === "schematic-page"
+                ? viewers.sch.navigateSchematicPage(intent.direction)
+                : viewers.sch.navigateSchematicParent();
+            if (handled) event.preventDefault();
         };
         // Capture before the embedded canvas can consume bracket/backspace keys.
         // ecad-viewer still receives every key Prism does not handle.
         window.addEventListener("keydown", handleKeyboard, true);
         return () => window.removeEventListener("keydown", handleKeyboard, true);
-    }, [activeTab, canModifyComments, clearSelectionAndHighlights]);
+    }, [activeTab, canModifyComments, clearSelectionAndHighlights, viewers]);
 
-    const schematicRootSource = useMemo<ViewerBlobSource | null>(
+    const schematicRootSource = useMemo<EcadSource | null>(
         () => (schematicContent ? { filename: "root.kicad_sch", content: schematicContent } : null),
         [schematicContent],
     );
-    const schematicSources = useMemo<ViewerBlobSource[]>(
-        () => (schematicRootSource ? [schematicRootSource, ...viewerSupportFiles, ...subsheets] : []),
+    const schematicSources = useMemo<EcadSource[]>(
+        () => (schematicRootSource
+            ? [schematicRootSource, ...(viewerSupportFiles ?? []), ...subsheets]
+            : []),
         [schematicRootSource, subsheets, viewerSupportFiles],
     );
-    const pcbSources = useMemo<ViewerBlobSource[]>(
+    const pcbSources = useMemo<EcadSource[]>(
         () => (pcbContent
-            ? [{ filename: "board.kicad_pcb", content: pcbContent }, ...viewerSupportFiles]
+            ? [{ filename: "board.kicad_pcb", content: pcbContent }, ...(viewerSupportFiles ?? [])]
             : []),
         [pcbContent, viewerSupportFiles],
     );
-    const schematicViewerKey = buildViewerKey("schematic", projectId, commit);
-    const pcbViewerKey = buildViewerKey("pcb", projectId, commit);
+    // One bundle failure fails the index and the open view alike; the view
+    // below already says it, so the banner does not repeat the same text.
+    const viewFailure = activeTab === "sch" ? schematicError : activeTab === "pcb" ? pcbError : null;
+    const bannerIndexError = semanticIndexError
+        && !(viewFailure?.kind === "failed" && viewFailure.detail === semanticIndexError)
+        ? semanticIndexError
+        : null;
 
     return (
         <div className="relative flex h-full min-h-0 flex-col bg-background">
@@ -1581,20 +1409,20 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             />
             {/* Toolbar */}
             <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b bg-muted/20 px-2 py-1">
-                {VISUALIZER_TABS.map((tab, index) => {
-                    const Icon = tab.icon;
+                {VIEWER_TABS.map((tab, index) => {
+                    const { label, icon: Icon } = TAB_LABELS[tab];
                     return (
                         <Button
-                            key={tab.id}
-                            variant={activeTab === tab.id ? "secondary" : "ghost"}
+                            key={tab}
+                            variant={activeTab === tab ? "secondary" : "ghost"}
                             size="sm"
-                            data-visualizer-tab={tab.id}
-                            onClick={() => setActiveTab(tab.id)}
-                            title={`${tab.label} (${index + 1})`}
+                            data-visualizer-tab={tab}
+                            onClick={() => setActiveTab(tab)}
+                            title={`${label} (${index + 1})`}
                             className="text-xs h-8"
                         >
                             <Icon className="w-3 h-3 mr-2" />
-                            {tab.label}
+                            {label}
                         </Button>
                     );
                 })}
@@ -1608,7 +1436,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                         onRetry={() => { void generateSemanticIdentity(); }}
                     />
                 )}
-                {(activeTab === "sch" || activeTab === "pcb") && canModifyComments && (
+                {commentModeAvailable(activeTab, canModifyComments) && (
                     <Button
                         variant={commentMode ? "default" : "ghost"}
                         size="sm"
@@ -1618,7 +1446,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 : "h-8 text-xs"
                         }
                         aria-pressed={commentMode}
-                        onClick={() => setCommentMode((enabled) => !enabled)}
+                        onClick={() => dispatchMode({ type: "toggle-comment-mode" })}
                     >
                         <MessageSquarePlus className="mr-2 h-3 w-3" />
                         Commenting Mode
@@ -1636,9 +1464,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 <Button
                     variant={rightRailTab === "comments" ? "secondary" : "ghost"}
                     size="sm"
-                    onClick={() => setRightRailTab((tab) =>
-                        tab === "comments" ? null : "comments"
-                    )}
+                    onClick={() => dispatchMode({ type: "toggle-rail", tab: "comments" })}
                     className="text-xs h-8"
                     aria-pressed={rightRailTab === "comments"}
                 >
@@ -1652,21 +1478,47 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 </Button>
             </div>
 
+            {semanticIndexPending || bannerIndexError || workingTreeDirty ? (
+                <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b bg-muted/20 px-3 py-1.5">
+                    {semanticIndexPending ? (
+                        <DesignDataPending
+                            className="text-xs"
+                            onRetry={semanticIndexLoading ? undefined : retrySemanticIndexRead}
+                        />
+                    ) : null}
+                    {bannerIndexError ? (
+                        <DesignDataFailed
+                            detail={bannerIndexError}
+                            onRetry={() => { void generateSemanticIdentity(); }}
+                            className="flex-row items-center gap-2 text-left"
+                        />
+                    ) : null}
+                    {workingTreeDirty ? <WorkingTreeDirtyNotice /> : null}
+                </div>
+            ) : null}
+
             {/* Content Area */}
             <div className="flex min-h-0 flex-1 overflow-hidden">
                 <div className="relative min-w-0 flex-1 overflow-hidden">
                     {/* Schematic View - always mounted after first visit */}
                     <div aria-hidden={activeTab !== "sch"} className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "sch" ? "visible pointer-events-auto opacity-100" : "invisible pointer-events-none opacity-0"}`}>
-                        {schematicContentLoaded ? (
-                            schematicSources.length > 0 ? (
+                        {schematicContentLoaded && viewerSupportFiles ? (
+                            schematicError ? (
+                                <div className="flex h-full items-center justify-center p-8">
+                                    {schematicError.kind === "pending" ? (
+                                        <DesignDataPending onRetry={retrySchematicRead} />
+                                    ) : (
+                                        <DesignDataFailed detail={schematicError.detail} onRetry={retrySchematicRead} />
+                                    )}
+                                </div>
+                            ) : schematicSources.length > 0 ? (
                                 <div className="relative h-full min-w-0 overflow-hidden">
                                     <div className="absolute inset-0 min-h-0 min-w-0">
                                         <EcadViewerHost
-                                            viewerKey={schematicViewerKey}
+                                            viewer={viewers.sch}
+                                            revisionKey={schematicViewerKey}
                                             sources={schematicSources}
                                             active={viewerActive && activeTab === "sch"}
-                                            setViewerRef={setSchematicViewerRef}
-                                            onReady={notifySchematicViewerReady}
                                             viewportInsets={{
                                                 left: schematicLeftInset,
                                                 right: rightRailInset,
@@ -1675,9 +1527,12 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                     </div>
                                     <EcadViewerControls
                                         context="SCH"
-                                        viewer={schematicViewerElement}
+                                        viewer={viewers.sch}
                                         onVisibleWidthChange={setSchematicLeftInset}
                                     />
+                                    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center px-2">
+                                        <MeasureReadout viewer={viewers.pcb} />
+                                    </div>
                                     <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center px-2">
                                         <NetHighlightBar
                                             nets={highlightedNets}
@@ -1693,23 +1548,34 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                             )
                         ) : (
                             <div className="flex h-full items-center justify-center text-muted-foreground">
-                                <p>Loading schematic…</p>
+                                {schematicPending ? (
+                                    <DesignDataPending />
+                                ) : (
+                                    <p>Loading schematic…</p>
+                                )}
                             </div>
                         )}
                     </div>
 
                     {/* PCB View - always mounted after first visit */}
                     <div aria-hidden={activeTab !== "pcb"} className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "pcb" ? "visible pointer-events-auto opacity-100" : "invisible pointer-events-none opacity-0"}`}>
-                        {!pcbActivated ? null : pcbContentLoaded ? (
-                            pcbSources.length > 0 ? (
+                        {!modes.mounted.pcb ? null : pcbContentLoaded && viewerSupportFiles ? (
+                            pcbError ? (
+                                <div className="flex h-full items-center justify-center p-8">
+                                    {pcbError.kind === "pending" ? (
+                                        <DesignDataPending onRetry={retryPcbRead} />
+                                    ) : (
+                                        <DesignDataFailed detail={pcbError.detail} onRetry={retryPcbRead} />
+                                    )}
+                                </div>
+                            ) : pcbSources.length > 0 ? (
                                 <div className="relative h-full min-w-0 overflow-hidden">
                                     <div className="absolute inset-0 min-h-0 min-w-0">
                                         <EcadViewerHost
-                                            viewerKey={pcbViewerKey}
+                                            viewer={viewers.pcb}
+                                            revisionKey={pcbViewerKey}
                                             sources={pcbSources}
                                             active={viewerActive && activeTab === "pcb"}
-                                            setViewerRef={setPcbViewerRef}
-                                            onReady={notifyPcbViewerReady}
                                             viewportInsets={{
                                                 left: pcbLeftInset,
                                                 right: rightRailInset,
@@ -1718,9 +1584,12 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                     </div>
                                     <EcadViewerControls
                                         context="PCB"
-                                        viewer={pcbViewerElement}
+                                        viewer={viewers.pcb}
                                         onVisibleWidthChange={setPcbLeftInset}
                                     />
+                                    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center px-2">
+                                        <MeasureReadout viewer={viewers.pcb} />
+                                    </div>
                                     <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center px-2">
                                         <NetHighlightBar
                                             nets={highlightedNets}
@@ -1737,12 +1606,16 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                             )
                         ) : (
                             <div className="flex h-full items-center justify-center text-muted-foreground">
-                                <p>Loading the board source…</p>
+                                {pcbPending ? (
+                                    <DesignDataPending />
+                                ) : (
+                                    <p>Loading the board source…</p>
+                                )}
                             </div>
                         )}
                     </div>
 
-                    {threeDActivated && (
+                    {modes.mounted["3d"] && (
                         <div aria-hidden={activeTab !== "3d" && activeTab !== "stackup"} className={`absolute inset-0 bg-background transition-opacity duration-200 ${activeTab === "3d" || activeTab === "stackup" ? "visible z-20 pointer-events-auto opacity-100" : "invisible z-0 pointer-events-none opacity-0"}`}>
                             <WebGpu3dTab
                                 projectId={projectId}
@@ -1758,6 +1631,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 ambiguousComponents={dnpPlan.ambiguous}
                                 showDnp={showDnp}
                                 onShowDnpChange={setShowDnp}
+                                insetScene={insetScene3d}
                             />
                         </div>
                     )}
@@ -1768,10 +1642,14 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 semanticIndex={semanticIndex}
                                 components={effectiveComponents}
                                 loading={semanticIndexLoading}
+                                pending={semanticIndexPending}
                                 error={semanticIndexError}
                                 selection={globalSelection}
                                 onSelection={crossProbeGlobal}
-                                onRetry={() => void generateSemanticIdentity()}
+                                onRetry={() => {
+                                    if (semanticIndexError) void generateSemanticIdentity();
+                                    else retrySemanticIndexRead();
+                                }}
                             />
                         </div>
                     )}
@@ -1825,8 +1703,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                     : null,
                             },
                         ]}
-                        onTabChange={setRightRailTab}
-                        onClose={() => setRightRailTab(null)}
+                        onTabChange={(tab) => dispatchMode({ type: "rail", tab })}
+                        onClose={() => dispatchMode({ type: "rail", tab: null })}
                         onVisibleWidthChange={setRightRailInset}
                         ariaLabel="Viewer details"
                         resizable={
@@ -1848,9 +1726,11 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 </div>
                             )}
                             <div className="min-h-0 flex-1">
+                            <ThreadUpdateContext.Provider value={applyThread}>
                             <CommentPanel
+                                projectId={projectId}
                                 comments={comments}
-                                onClose={() => setRightRailTab(null)}
+                                onClose={() => dispatchMode({ type: "rail", tab: null })}
                                 onResolve={(commentId, resolved) => void resolveComment(commentId, resolved)}
                                 onReply={replyToComment}
                                 onDelete={deleteComment}
@@ -1864,6 +1744,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 onShareReply={shareReply}
                                 embedded
                             />
+                            </ThreadUpdateContext.Provider>
                             </div>
                             </div>
                         ) : inspectorHasContent ? (
@@ -1879,7 +1760,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 onInspectHighlightedNet={inspectHighlighted}
                                 onRemoveHighlightedNet={removeHighlighted}
                                 onOpenChange={(open) => {
-                                    if (!open) setRightRailTab(null);
+                                    if (!open) dispatchMode({ type: "rail", tab: null });
                                 }}
                                 onClear={clearSelectionAndHighlights}
                                 onImportComponent={globalSelection?.kind === "net" ? undefined : handleImportSelectedComponent}
@@ -1900,35 +1781,34 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 </div>
             </div>
 
-            {showCommentForm && pendingLocation && <CommentForm
+            {commentDraft && <CommentForm
+                projectId={projectId}
                 // Each pin is its own draft, so each is its own component.
-                key={`${pendingLocation.x}:${pendingLocation.y}`}
+                key={`${commentDraft.location.x}:${commentDraft.location.y}`}
                 isOpen
-                onClose={() => {
-                    setShowCommentForm(false);
-                    setPendingLocation(null);
-                    setPendingContext(null);
-                    pendingElementRef.current = null;
-                }}
+                onClose={() => dispatchMode({ type: "close-draft" })}
                 onSubmit={(payload) => void submitComment(payload)}
-                location={pendingLocation}
-                context={pendingContext ?? "SCH"}
+                location={commentDraft.location}
+                context={commentDraft.context}
                 isSubmitting={isSubmittingComment}
                 mentionCandidates={mentionCandidates}
             />}
 
             {selectedComment && (
+                <ThreadUpdateContext.Provider value={applyThread}>
                 <CommentCard
+                    projectId={projectId}
                     comment={selectedComment}
                     screenPosition={commentCardScreenPosition}
                     canModify={canModifyComments}
-                    onClose={() => setSelectedCommentId(null)}
+                    onClose={() => dispatchMode({ type: "select-comment", id: null })}
                     onResolve={(commentId, resolved) => void resolveComment(commentId, resolved)}
                     onReply={replyToComment}
                     onDelete={deleteComment}
                     onPromote={promoteComment}
                     onRetrySync={retryCommentSync}
                 />
+                </ThreadUpdateContext.Provider>
             )}
         </div>
     );

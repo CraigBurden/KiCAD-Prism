@@ -1,0 +1,255 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.cli.verify_report:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.cli.verify_report.a0",
+            "description": "Document schema id."
+        },
+        "status": {
+            "$ref": "#/$defs/CliVerifyStatus",
+            "description": "Whether the bundle passed every check."
+        },
+        "manifest_schema": {
+            "$ref": "#/$defs/SchemaId",
+            "description": "The `schema` that `bundle.json` declares, when `bundle.json` could be read and declares a well-formed schema id."
+        },
+        "generator_matches": {
+            "type": "boolean",
+            "description": "Whether the manifest's generator id equals this binary's, byte for byte in canonical form. Absent when the manifest could not be read as `prism.bundle.manifest.a3`. A bundle of another generator can be valid."
+        },
+        "stages": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/CliStageState"
+            },
+            "description": "Every stage's state as the manifest records it, in stage order (`parse`, `board`, `models`); empty when the manifest could not be read."
+        },
+        "members_checked": {
+            "$ref": "#/$defs/Count",
+            "description": "How many members' sizes and SHA-256 digests were checked against the manifest."
+        },
+        "findings": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/CliFinding"
+            },
+            "description": "Every failed check, sorted by `location.path` in code point order\n(findings without a path first), then by `code`, then by `message`.\nEmpty exactly when `status` is `valid`. At most `max-findings` entries\nplus one `findings-truncated`."
+        }
+    },
+    "required": [
+        "schema",
+        "status",
+        "stages",
+        "members_checked",
+        "findings"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "stdout of `bundle verify`: exit 0 when `status` is `valid`, exit 8 when it is `invalid`.",
+    "title": "prism-kicad bundle verify report a0",
+    "$defs": {
+        "CliVerifyStatus": {
+            "type": "string",
+            "enum": [
+                "valid",
+                "invalid"
+            ],
+            "description": "Outcome of `bundle verify`."
+        },
+        "SchemaId": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+\\.[av][0-9]+$",
+            "description": "Id of a JSON document schema, `<family>.<name>.<version>`: for example\n`prism.stackup.a0`, `prism.bundle.manifest.a2`, `prism.system_interface.v1`\nor `kicad_monkey.design.a0`. Lowercase, dot-separated, ending in the\nversion (`a<N>` while pre-stable, `v<N>` once stable)."
+        },
+        "CliStageState": {
+            "type": "object",
+            "properties": {
+                "stage": {
+                    "$ref": "#/$defs/CliBuildStage",
+                    "description": "The stage."
+                },
+                "status": {
+                    "$ref": "#/$defs/CliStageStatus",
+                    "description": "Its state."
+                },
+                "error": {
+                    "$ref": "#/$defs/CliFinding",
+                    "description": "The content error that failed the stage. Present exactly when `status` is `failed`."
+                },
+                "skip_reason": {
+                    "$ref": "#/$defs/CliSkipReason",
+                    "description": "Why the stage will never run. Present exactly when `status` is `skipped`."
+                },
+                "failed_members": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/CliMemberFailure"
+                    },
+                    "description": "The members the stage could not write, sorted by `path` in code point order. Non-empty exactly when `status` is `partial`."
+                }
+            },
+            "required": [
+                "stage",
+                "status",
+                "failed_members"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The state of one build stage: the status, error, skip reason and failed\nmembers of the stage's record in the bundle manifest, copied verbatim. The\nmanifest's other per-stage fields (warnings, fill check, cross-check) are\nnot repeated."
+        },
+        "Count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A count of things: a non-negative safe integer."
+        },
+        "CliFinding": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "$ref": "#/$defs/DiagnosticCode",
+                    "description": "Stable code (cli-spec.md §8) that tools and tests match on."
+                },
+                "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "One-sentence explanation for people. It never contains a host path; its wording may change between versions."
+                },
+                "location": {
+                    "$ref": "#/$defs/CliLocation",
+                    "description": "Where the finding is, when known."
+                }
+            },
+            "required": [
+                "code",
+                "message"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A finding with a stable code, a message for people and an optional location."
+        },
+        "CliBuildStage": {
+            "type": "string",
+            "enum": [
+                "parse",
+                "board",
+                "models"
+            ],
+            "description": "A stage of `bundle build`, in the order the stages run (ADR §4.4). The\nsame three stages are recorded in the bundle manifest."
+        },
+        "CliStageStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "complete",
+                "partial",
+                "failed",
+                "skipped"
+            ],
+            "description": "The state of one stage in a bundle."
+        },
+        "CliSkipReason": {
+            "type": "string",
+            "enum": [
+                "no-board",
+                "earlier-stage-failed"
+            ],
+            "description": "Why a stage is skipped."
+        },
+        "CliMemberFailure": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "$ref": "#/$defs/ArchivePath",
+                    "description": "The member's archive path, for example `projections/system-interface.json`."
+                },
+                "code": {
+                    "$ref": "#/$defs/DiagnosticCode",
+                    "description": "Stable code (cli-spec.md §8), for example `projection-failed`."
+                },
+                "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "One-sentence explanation for people. It never contains a host path."
+                }
+            },
+            "required": [
+                "path",
+                "code",
+                "message"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A member a stage could not write, and why."
+        },
+        "DiagnosticCode": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+            "description": "Stable machine-readable code of a finding, in lowercase kebab-case, for\nexample `stale-saved-fills` or `net-mismatch`. A code never changes meaning\nonce published; a new meaning gets a new code."
+        },
+        "CliLocation": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "$ref": "#/$defs/ArchivePath",
+                    "description": "The file, named by the path it has as a bundle member, whether or not a\nbundle has been written yet: `sources/<RepoPath>` for a source file,\n`refilled/<board file name>` for the `--refilled-board` input (refill mode only),\n`viewer/models/components.glb` for the `--models-glb` input,\nthe member path itself for a member of an existing bundle. Absent when the finding\nis about an argument file that is not a member (`--config`) or about no\nfile at all."
+                },
+                "line": {
+                    "$ref": "#/$defs/CliOneBased",
+                    "description": "One-based line of the finding in a text file."
+                },
+                "column": {
+                    "$ref": "#/$defs/CliOneBased",
+                    "description": "One-based column, counted in Unicode scalar values, on `line`."
+                },
+                "offset": {
+                    "$ref": "#/$defs/ByteCount",
+                    "description": "Zero-based byte offset of the finding from the start of the file."
+                },
+                "pointer": {
+                    "$ref": "#/$defs/CliJsonPointer",
+                    "description": "JSON Pointer to the value in a JSON file (a `.kicad_pro`, `--config`, or a JSON member)."
+                },
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "UUID of the KiCad object the finding is about, as written in the file."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Where a finding is. Every field is optional; a field is present only when\nit is known. The field names are single words so the model can move to\ncommon.tsp unchanged and serve camelCase documents too."
+        },
+        "ArchivePath": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*$",
+            "description": "Path of a member inside a `.prism` bundle archive: `/`-separated, relative,\nno empty, `.` or `..` segment, no leading or trailing `/`, no backslash and\nno `:`. The same rule as manifest a1's ArchivePath and prism-bundle's\n`check_member_name`, without lookaround."
+        },
+        "CliOneBased": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "A one-based line or column number."
+        },
+        "ByteCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A size in bytes: a non-negative safe integer."
+        },
+        "CliJsonPointer": {
+            "type": "string",
+            "pattern": "^(/([^~/]|~[01])*)*$",
+            "description": "A JSON Pointer (RFC 6901) into a JSON file: empty for the whole document,\notherwise `/`-separated reference tokens with `~0` for `~` and `~1` for `/`."
+        },
+        "KiCadUuid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "KiCad object UUID in the canonical form KiCad writes (`KIID::AsString`):\nlowercase hexadecimal, 8-4-4-4-12. Copied from the file, never generated\nor re-cased."
+        }
+    }
+}

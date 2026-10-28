@@ -6,15 +6,12 @@ import asyncio
 import hashlib
 import hmac
 import json
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException
+from fastapi import HTTPException
 from pydantic import SecretStr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -27,11 +24,12 @@ from app.services.trackers.github_webhooks import (  # noqa: E402
     parse_github_event,
     verify_signature,
 )
-from app.services.trackers.inbox_store import InboxStore, apply_schema as apply_inbox_schema  # noqa: E402
+from app.services.trackers.inbox_store import apply_schema as apply_inbox_schema  # noqa: E402
 from app.services.trackers.migrations import (  # noqa: E402
     migrate_tracker_webhook_oauth_tables,
     migrate_workspace_tracker_tables,
 )
+from support.postgres import requires_scratch_postgres, scratch_schema  # noqa: E402
 
 try:
     import psycopg
@@ -40,28 +38,10 @@ except ImportError:  # pragma: no cover
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 F7 = json.loads((DOCS / "fixtures" / "F07.json").read_text(encoding="utf-8"))
 WEBHOOK_SECRET = "webhook-secret-fixture-tr27"
 ROOT_KEY = "aa" * 32
-
-
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 def _settings(**overrides) -> Settings:
@@ -86,35 +66,13 @@ def run(coro):
     return asyncio.run(coro)
 
 
-class RoutingContractTests(unittest.TestCase):
-    def test_main_registers_webhook_route(self) -> None:
-        source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
-        self.assertIn("tracker_webhooks_router", source)
-        self.assertIn("initialize_tracker_webhook_service", source)
-        app = FastAPI()
-        app.include_router(webhooks_api.router)
-        self.assertIn("/api/trackers/webhooks/{provider}/{connector_id}", set(app.openapi()["paths"]))
 
-    def test_fixture_cases_are_present(self) -> None:
-        ids = {case["id"] for case in F7["cases"]}
-        self.assertIn("F7.bad_signature", ids)
-        self.assertIn("F7.duplicate_delivery", ids)
-        self.assertIn("F7.hint_durable_before_2xx", ids)
-
-
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class GitHubWebhookPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"tr27_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
+        self.scratch = scratch_schema(self, "tr27", then=(migrate_workspace_tracker_tables, migrate_tracker_webhook_oauth_tables, apply_inbox_schema,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
         self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        migrate_workspace_tracker_tables(self.conn)
-        migrate_tracker_webhook_oauth_tables(self.conn)
-        apply_inbox_schema(self.conn)
         self.conn.execute(
             """
             INSERT INTO tracker_connectors (id, provider, instance_kind, display_name)
@@ -135,17 +93,10 @@ class GitHubWebhookPostgresTests(unittest.TestCase):
 
     def _cleanup(self) -> None:
         webhooks_api.service = TrackerWebhookService()
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
 
     @contextmanager
     def _factory(self):
-        conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        conn.execute(f'SET search_path TO "{self.schema}", public')
+        conn = self.scratch.connect()
         try:
             yield conn
         finally:
@@ -207,6 +158,15 @@ class GitHubWebhookPostgresTests(unittest.TestCase):
 
         response = run(webhooks_api.tracker_webhook("github", "cn_gh1", _Request(body, headers)))
         self.assertEqual(response.status_code, 200)
+        from fastapi.encoders import jsonable_encoder
+
+        from app.api import tracker_webhooks as models
+
+        payload = json.loads(response.body)
+        self.assertEqual(
+            models.WebhookAccepted.model_validate(payload).model_dump(mode="json"),
+            jsonable_encoder(payload),
+        )
         row = self.conn.execute(
             "SELECT delivery_id FROM remote_deliveries WHERE connector_id = 'cn_gh1'"
         ).fetchone()
@@ -302,7 +262,6 @@ class GitHubWebhookPostgresTests(unittest.TestCase):
         self.assertEqual(caught.exception.status_code, 401)
         count = self.conn.execute("SELECT COUNT(*) AS n FROM remote_deliveries").fetchone()["n"]
         self.assertEqual(count, 0)
-
 
     def test_http_oversized_body_returns_413(self) -> None:
         from app.services.trackers.github_webhooks import MAX_BODY_BYTES

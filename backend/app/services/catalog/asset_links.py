@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 import uuid
 
+from app.services.catalog.asset_files import lock_and_check_asset_bytes
 from app.services.catalog.asset_types import (
     PLACE_REQUIRED_ASSET_TYPES,
     preview_kind_for_asset_type,
@@ -41,6 +42,8 @@ class CatalogAssetLinks:
         now = utc_now_iso()
         asset_type = str(asset["asset_type"])
         asset_id = str(asset["id"])
+        if asset_type == "3dmodel":
+            lock_and_check_asset_bytes(conn, asset_id)
         conn.execute(
             """
             INSERT INTO revision_assets (revision_id, asset_type, asset_id, required, created_at, updated_at)
@@ -186,7 +189,7 @@ class CatalogAssetLinks:
         if not current:
             raise ValueError("Component not found")
         current_id = str(current["id"])
-        self._revision_kernel.assert_expected_revision(current_id, expected_revision_id)
+        self._revision_kernel.assert_expected_revision(current_id, expected_revision_id, component_id=component_id)
         asset_type = str(asset["asset_type"])
         asset_id = str(asset["id"])
         existing = conn.execute(

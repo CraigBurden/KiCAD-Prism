@@ -1,0 +1,124 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.cli.compare_result:a1",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.cli.compare_result.a1",
+            "description": "Document schema id."
+        },
+        "base": {
+            "$ref": "#/$defs/CliCompareSide",
+            "description": "The `--base` side."
+        },
+        "head": {
+            "$ref": "#/$defs/CliCompareSide",
+            "description": "The `--head` side."
+        },
+        "counts": {
+            "$ref": "#/$defs/DesignCompareCounts",
+            "description": "The result's change counts per tab: its `counts`."
+        }
+    },
+    "required": [
+        "schema",
+        "base",
+        "head",
+        "counts"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "stdout of `compare` (exit 0), written after `-o` holds the\n`DesignCompareResultA1` document (cli-spec.md §5.6). a1 replaced a0's object\ndiff counts with the result's per-tab counts when `prism.compare.object_delta.a0`\nwas removed (ADR amendment C2r §4).",
+    "title": "prism-kicad compare result a1",
+    "$defs": {
+        "CliCompareSide": {
+            "type": "object",
+            "properties": {
+                "revision_key": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "The side's revision key, from `--<side>-revision-key` in both modes (ADR amendment K2 §3.6)."
+                },
+                "bundle_key": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "The bundle key of the side's bundle (cli-spec.md §5.1.4), computed from its manifest's revision key and generator id. Absent for a source tree."
+                },
+                "objects": {
+                    "$ref": "#/$defs/Count",
+                    "description": "How many objects the side's `projections/board-objects.json` holds, review-only objects included: today's `objects`."
+                }
+            },
+            "required": [
+                "revision_key",
+                "objects"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One side of a `compare` (cli-spec.md §5.6)."
+        },
+        "DesignCompareCounts": {
+            "type": "object",
+            "properties": {
+                "schematic": {
+                    "$ref": "#/$defs/DesignCompareSummary",
+                    "description": "The Schematic tab's changes."
+                },
+                "pcb": {
+                    "$ref": "#/$defs/DesignCompareSummary",
+                    "description": "The PCB tab's changes."
+                },
+                "bom": {
+                    "$ref": "#/$defs/DesignCompareSummary",
+                    "description": "The BOM tab's rows."
+                }
+            },
+            "required": [
+                "schematic",
+                "pcb",
+                "bom"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Change counts per tab."
+        },
+        "Sha256Hex": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Lowercase hexadecimal SHA-256 digest: exactly 64 characters, no prefix such as `sha256:`."
+        },
+        "Count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A count of things: a non-negative safe integer."
+        },
+        "DesignCompareSummary": {
+            "type": "object",
+            "properties": {
+                "added": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Added entries."
+                },
+                "removed": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Removed entries."
+                },
+                "changed": {
+                    "$ref": "#/$defs/Count",
+                    "description": "Changed entries."
+                }
+            },
+            "required": [
+                "added",
+                "removed",
+                "changed"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Added, removed and changed counts."
+        }
+    }
+}

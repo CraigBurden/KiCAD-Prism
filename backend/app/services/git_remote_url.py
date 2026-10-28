@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from typing import Iterable, Optional
 from urllib.parse import urlsplit
 
+from app.core import errors
+
 __all__ = [
     "RemoteUrlError",
     "RemoteUrlPolicy",
@@ -31,8 +33,8 @@ __all__ = [
 ]
 
 
-class RemoteUrlError(ValueError):
-    """Raised when a remote URL is malformed or not permitted."""
+class RemoteUrlError(errors.BadRequest, ValueError):
+    """Raised when a remote URL is malformed or not permitted (400)."""
 
 
 # ``<transport>::<address>`` is git's remote-helper syntax. ``ext::`` is the

@@ -8,16 +8,17 @@ import json
 from pathlib import Path
 import tempfile
 import threading
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.api._helpers import get_project_for_role_or_404
+from app.core.errors import caller_errors
 from app.core.security import AuthenticatedUser, require_viewer
 from app.services import design_compare_service
-from app.services.job_runtime import job_state_root
+from app.services.job_artifact_service import job_artifacts
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
 
@@ -46,7 +47,71 @@ class DesignCompareDebugEvent(BaseModel):
     reset: bool = False
 
 
-@router.post("/{project_id}/design-compare/debug-log")
+class DesignCompareDebugLogResponse(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    status: str
+    path: str
+
+
+class StartDesignCompareResponse(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    job_id: str
+
+
+class DesignCompareSidecarRef(BaseModel):
+    """One sidecar's manifest entry; the route adds its ``url``."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    digest: Optional[str] = None
+    sizeBytes: Optional[int] = None
+    mediaType: Optional[str] = None
+    url: Optional[str] = None
+
+
+class DesignCompareResult(BaseModel):
+    """A comparison result: the finished v2 manifest, or the partial tab document.
+
+    The tabs themselves are ``prism-kicad``'s documents and are passed through
+    untouched, so they stay ``dict`` and every key the models miss is allowed.
+    """
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    # ``schema`` shadows BaseModel's deprecated helper, so the wire name is an alias.
+    schema_name: Optional[str] = Field(default=None, alias="schema")
+    resultSchema: Optional[str] = None
+    base: Optional[str | dict[str, Any]] = None
+    head: Optional[str | dict[str, Any]] = None
+    revisions: Optional[dict[str, Any]] = None
+    readiness: Optional[dict[str, Any]] = None
+    counts: Optional[dict[str, Any]] = None
+    modes: Optional[dict[str, str]] = None
+    sidecars: Optional[dict[str, DesignCompareSidecarRef]] = None
+    files: Optional[dict[str, Any]] = None
+    schematic: Optional[dict[str, Any]] = None
+    pcb: Optional[dict[str, Any]] = None
+    bom: Optional[dict[str, Any]] = None
+    stackup: Optional[dict[str, Any]] = None
+    routeMetrics: Optional[dict[str, Any]] = None
+    projectDiff: Optional[dict[str, Any]] = None
+    fabrication: Optional[dict[str, Any]] = None
+
+
+class DeleteDesignCompareResponse(BaseModel):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    status: str
+
+
+@router.post(
+    "/{project_id}/design-compare/debug-log",
+    response_model=DesignCompareDebugLogResponse,
+    response_model_exclude_unset=True,
+    summary="Append one comparison-view transition event to the debug log",
+)
 async def append_design_compare_debug_log(
     project_id: str,
     request: DesignCompareDebugEvent,
@@ -88,14 +153,19 @@ async def append_design_compare_debug_log(
     return {"status": "logged", "path": str(_DEBUG_LOG_PATH)}
 
 
-@router.post("/{project_id}/design-compare")
+@router.post(
+    "/{project_id}/design-compare",
+    response_model=StartDesignCompareResponse,
+    response_model_exclude_unset=True,
+    summary="Queue a design comparison between two commits",
+)
 async def start_design_compare(
     project_id: str,
     request: DesignCompareRequest,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     get_project_for_role_or_404(project_id, user.role)
-    try:
+    with caller_errors((ValueError, 400), unexpected="Comparison failed to start"):
         job_id = await asyncio.to_thread(
             design_compare_service.start_design_compare_job,
             project_id,
@@ -105,24 +175,14 @@ async def start_design_compare(
             requested_by=user.email,
         )
         return {"job_id": job_id}
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.get("/{project_id}/design-compare/{job_id}/status")
-async def design_compare_status(
-    project_id: str, job_id: str, user: AuthenticatedUser = Depends(require_viewer)
-):
-    get_project_for_role_or_404(project_id, user.role)
-    status = await asyncio.to_thread(design_compare_service.get_job_status, job_id)
-    if not status or status.get("project_id") != project_id:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return status
-
-
-@router.get("/{project_id}/design-compare/{job_id}")
+@router.get(
+    "/{project_id}/design-compare/{job_id}",
+    response_model=DesignCompareResult,
+    response_model_exclude_unset=True,
+    summary="Read a comparison's result",
+)
 async def design_compare_result(
     project_id: str, job_id: str, user: AuthenticatedUser = Depends(require_viewer)
 ):
@@ -135,7 +195,8 @@ async def design_compare_result(
     result = await asyncio.to_thread(design_compare_service.get_job_result, job_id)
     if not result:
         raise HTTPException(status_code=404, detail="Result not found")
-    if result.get("schema") == "prism.design_compare_bundle_v1":
+    # v1: the legacy pipeline; v2: `prism-kicad compare` (ADR amendment C2r §9 step 5).
+    if result.get("schema") in ("prism.design_compare_bundle_v1", "prism.design_compare_bundle_v2"):
         sidecars = {
             name: {
                 **metadata,
@@ -153,7 +214,17 @@ async def design_compare_result(
     return result
 
 
-@router.get("/{project_id}/design-compare/{job_id}/sidecars/{digest}")
+@router.get(
+    "/{project_id}/design-compare/{job_id}/sidecars/{digest}",
+    response_class=FileResponse,
+    responses={
+        200: {
+            "content": {"application/json": {}, "image/svg+xml": {}},
+            "description": "One comparison sidecar (a tab document or a layer render)",
+        }
+    },
+    summary="Download one comparison sidecar",
+)
 async def design_compare_sidecar(
     project_id: str,
     job_id: str,
@@ -177,13 +248,8 @@ async def design_compare_sidecar(
     )
     if not artifact:
         raise HTTPException(status_code=404, detail="Comparison sidecar not found")
-    root = (job_state_root() / "artifacts" / "objects" / "sha256").resolve()
-    path = Path(str(artifact.get("object_path") or "")).resolve()
-    try:
-        path.relative_to(root)
-    except ValueError as error:
-        raise HTTPException(status_code=404, detail="Comparison sidecar not found") from error
-    if not path.is_file():
+    path = job_artifacts.store.contains(str(artifact.get("object_path") or ""))
+    if path is None or not path.is_file():
         raise HTTPException(status_code=404, detail="Comparison sidecar not found")
     return FileResponse(
         path,
@@ -195,7 +261,12 @@ async def design_compare_sidecar(
     )
 
 
-@router.delete("/{project_id}/design-compare/{job_id}")
+@router.delete(
+    "/{project_id}/design-compare/{job_id}",
+    response_model=DeleteDesignCompareResponse,
+    response_model_exclude_unset=True,
+    summary="Cancel a comparison or forget its finished result",
+)
 async def delete_design_compare(
     project_id: str, job_id: str, user: AuthenticatedUser = Depends(require_viewer)
 ):

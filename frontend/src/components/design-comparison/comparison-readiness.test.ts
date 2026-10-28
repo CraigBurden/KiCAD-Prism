@@ -6,35 +6,38 @@ function resultWithDomains(
     domains: DesignCompareReadiness["domains"],
 ): DesignCompareResult {
     return {
-        base: "base",
-        head: "head",
-        diagnostics: [],
+        schema: "prism.design_compare.result.a1",
+        base: { revisionKey: "base", projectFile: "main.kicad_pro" },
+        head: { revisionKey: "head", projectFile: "main.kicad_pro" },
         files: { base: [], head: [] },
-        document_diff: {
+        projectDiff: {
             schema: "prism.kicad_project_diff_v1",
             provider: "prism-semantic",
             project: { documents: [] },
             navigation: {},
             diagnostics: [],
         },
-        schematic: {
-            pages: [],
-            changes: [],
-            groups: [],
-            summary: { added: 0, removed: 0, changed: 0 },
-        },
-        pcb: {
-            changes: [],
-            groups: [],
-            summary: { added: 0, removed: 0, changed: 0 },
-            route_metrics: { base: {}, compare: {} },
-        },
+        schematic: { changes: [] },
+        pcb: { changes: [] },
         bom: {
             changes: [],
             fields: [],
             summary: { added: 0, removed: 0, changed: 0 },
         },
-        stackup: { base: [], head: [], changed: false, present: false },
+        stackup: {
+            base: [],
+            head: [],
+            baseSettings: {},
+            headSettings: {},
+            changed: false,
+            present: false,
+        },
+        routeMetrics: { base: {}, head: {} },
+        counts: {
+            schematic: { added: 0, removed: 0, changed: 0 },
+            pcb: { added: 0, removed: 0, changed: 0 },
+            bom: { added: 0, removed: 0, changed: 0 },
+        },
         readiness: {
             stage: "initial-ready",
             domains,

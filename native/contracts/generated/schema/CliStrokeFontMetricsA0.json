@@ -1,0 +1,44 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.cli.stroke_font_metrics:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.cli.stroke_font_metrics.a0",
+            "description": "Document schema id."
+        },
+        "space_width": {
+            "type": "number",
+            "description": "The advance of one U+0020 space, in the renderer's normalized units."
+        },
+        "super_sub_size_multiplier": {
+            "type": "number",
+            "description": "The scale a `^{}`/`_{}` span's glyphs are measured and drawn at (`0.8`)."
+        },
+        "advances": {
+            "$ref": "#/$defs/RecordFloat64",
+            "description": "The per-glyph advance table: the keys are the decimal Unicode code points\n`\"32\"` to `\"11263\"` that the font has a glyph for, serialized in code\npoint order, and each value is that glyph's advance in the renderer's\nnormalized units (U+0020 included; the formula uses `space_width` for it)."
+        }
+    },
+    "required": [
+        "schema",
+        "space_width",
+        "super_sub_size_multiplier",
+        "advances"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "stdout of `stroke-text --metrics` (exit 0): the NewStroke advance table, so\nlayout can measure text without a process per string.\n\nThe advance of a string in the renderer's normalized units is the sum, left\nto right over the string's Unicode scalar values, of each value below, added\nas IEEE-754 doubles; the width in millimetres is that sum times the run's\nnominal size. A U+0020 space contributes `space_width`; any other code point\ncontributes `advances[<decimal code point>]` when present and `0` when\nabsent (the renderer skips a code point it has no glyph for). This\nreproduces kicad_monkey 2026.9.7's\n`KiCadStrokeFontRenderer._calculate_text_width` exactly.\n\nFor text containing KiCad markup (`~{}`, `^{}`, `_{}`), the plain-text\ncontributions inside a `^{}` or `_{}` span are multiplied by\n`super_sub_size_multiplier`; a `~{}` span's are not (kicad_monkey's\n`_markup_nodes_width` with `styled` false).",
+    "title": "prism-kicad stroke font metrics a0",
+    "$defs": {
+        "RecordFloat64": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "type": "number"
+            }
+        }
+    }
+}

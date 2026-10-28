@@ -41,6 +41,8 @@ export type ReleaseCandidate = {
     status: "draft" | "building" | "built" | "failed" | "superseded" | "frozen";
     hermetic: boolean;
     non_hermetic_reasons: string[];
+    /** Reads nothing outside the commit and the pinned toolchain; null when not recorded. */
+    self_contained?: boolean | null;
     technical_config_digest: string;
     input_closure_digest: string;
     toolchain_digest: string;
@@ -112,6 +114,14 @@ export type PublishRecord = {
     created_at: string;
 };
 
+/** A 3D model whose bytes the build did not pin; approve and publish acknowledge it by `key`. */
+export type UnpinnedModel = {
+    key: string;
+    source_path: string;
+    reference: string;
+    location: "unreadable" | "substitutable";
+};
+
 export type ApprovalState = {
     designer: ReviewDecision | null;
     qa: ReviewDecision | null;
@@ -123,6 +133,7 @@ export type ApprovalState = {
     can_withdraw: boolean;
     can_publish: boolean;
     blocked_reason: string;
+    unpinned_models?: UnpinnedModel[];
 };
 
 export type VendorReadiness = {

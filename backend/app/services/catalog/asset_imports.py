@@ -21,6 +21,7 @@ from app.services.catalog.asset_files import (
     discover_footprint_name_in_text,
     discover_symbol_names_in_text,
 )
+from app.services.catalog.step_quarantine import raise_if_asset_purged
 from app.services.catalog.asset_links import CatalogAssetLinks
 from app.services.catalog.asset_registry import CatalogAssetRegistry
 from app.services.catalog.asset_types import (
@@ -28,12 +29,13 @@ from app.services.catalog.asset_types import (
     PLACE_REQUIRED_ASSET_TYPES,
     SUPPORTED_ASSET_TYPES,
 )
-from app.services.catalog.conflicts import CatalogConflict, asset_referenced_conflict
-from app.services.catalog.kicad_cli import KicadCliRunner
+from app.services.catalog.conflicts import asset_referenced_conflict, revision_conflict
 from app.services.catalog.normalization import sanitize_name
 from app.services.catalog.revision_finalization import CatalogRevisionFinalizer
 from app.services.catalog.revision_kernel import CatalogRevisionKernel
+from app.services.catalog.preview_pipeline import run_kicad_for_catalog
 from app.services.catalog.runtime import CatalogRuntime
+from app.services.kicad_tools import KicadTool, kicad_cli
 
 
 logger = logging.getLogger(__name__)
@@ -61,7 +63,9 @@ class CatalogAssetImports:
         finalizer: CatalogRevisionFinalizer,
         asset_files: CatalogAssetFiles | None = None,
         asset_registry: CatalogAssetRegistry | None = None,
+        kicad: KicadTool | None = None,
     ) -> None:
+        self._kicad = kicad or kicad_cli()
         self._revision_kernel = revision_kernel
         self._asset_links = asset_links
         self._finalizer = finalizer
@@ -74,19 +78,21 @@ class CatalogAssetImports:
         _, current = self._revision_kernel.active_revision_row(conn, component_id, released=False)
         if not current:
             raise ValueError("Component not found")
-        self._revision_kernel.assert_expected_revision(str(current["id"]), expected_revision_id)
+        self._revision_kernel.assert_expected_revision(
+            str(current["id"]), expected_revision_id, component_id=component_id,
+        )
 
     # -- pure upload shaping --------------------------------------------------
 
     @staticmethod
-    def normalize_symbol_upload(runtime: CatalogRuntime, upload_name: str, payload: bytes) -> bytes:
+    def normalize_symbol_upload(kicad: KicadTool, upload_name: str, payload: bytes) -> bytes:
         """Upgrade an uploaded library with ``kicad-cli``; keep the bytes when it cannot."""
         with tempfile.TemporaryDirectory(prefix="prism_sym_import_") as tmp_dir:
             input_path = Path(tmp_dir) / sanitize_name(upload_name or "uploaded", "uploaded.kicad_sym")
             output_path = Path(tmp_dir) / "normalized.kicad_sym"
             input_path.write_bytes(payload)
-            success, error = KicadCliRunner.run(
-                runtime,
+            success, error = run_kicad_for_catalog(
+                kicad,
                 ["sym", "upgrade", "--force", "--output", str(output_path), str(input_path)],
             )
             if not success:
@@ -242,7 +248,7 @@ class CatalogAssetImports:
     ) -> dict[str, Any]:
         """Import one symbol; ``mode`` is ``selection_required`` until a symbol is chosen."""
         self._require_expected_revision(conn, component_id, expected_revision_id)
-        normalized = self.normalize_symbol_upload(runtime, upload_name, payload)
+        normalized = self.normalize_symbol_upload(self._kicad, upload_name, payload)
         text = normalized.decode("utf-8", errors="ignore")
         discovered = discover_symbol_names_in_text(text)
         if not discovered:
@@ -443,7 +449,7 @@ class CatalogAssetImports:
         if not current:
             raise ValueError("Component not found")
         if str(current["id"]) != expected_revision_id:
-            raise CatalogConflict()
+            raise revision_conflict(component_id=component_id, current_revision_id=str(current["id"]))
         linked = conn.execute(
             "SELECT asset_type FROM revision_assets WHERE revision_id = %s AND asset_id = %s",
             (current["id"], asset_id),
@@ -491,7 +497,8 @@ class CatalogAssetImports:
         """One asset's stored bytes, as written -- not the placement rewrite.
 
         Returns ``(path, content_type, filename)``, or ``None`` when the asset is
-        unknown or its file is missing.  The resolved path is confined to the
+        unknown or its file is missing. A file artifact maintenance quarantined or
+        purged raises ``NotFound`` with code ``asset_quarantined`` or ``asset_purged`` instead.  The resolved path is confined to the
         store root so a row written by an older import cannot become an
         arbitrary file read.
         """
@@ -507,6 +514,7 @@ class CatalogAssetImports:
         except ValueError:
             return None
         if not path.is_file():
+            raise_if_asset_purged(conn, asset_id)
             return None
         return (path, content_type_for_asset(str(row["asset_type"] or ""), path), path.name)
 

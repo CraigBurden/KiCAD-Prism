@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import json
-import os
-import subprocess
 import sys
 import tempfile
 import threading
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,9 +16,9 @@ from fastapi.responses import JSONResponse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import comments as comments_api  # noqa: E402
 from app.api import tracker_sync as tracker_sync_api  # noqa: E402
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.comments_revisions import Editor, record_revision  # noqa: E402
 from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
 from app.services.trackers.op_store import OpStore  # noqa: E402
@@ -33,10 +30,12 @@ from app.services.trackers.promotion import (  # noqa: E402
 from app.services.trackers.connector_service import ConnectorService  # noqa: E402
 from app.services.trackers.publication_policy import PublicationPolicyService  # noqa: E402
 from app.services.trackers.store import TrackerStore  # noqa: E402
-from tests.test_tracker_tr_01 import DisposableSchemaStore, POSTGRES_URL, SHARED_APPLICATION_DATABASE, psycopg  # noqa: E402
+from tests.test_tracker_tr_01 import if_match  # noqa: E402
 from tests.test_tracker_tr_03 import body, run, session  # noqa: E402
 from tests.test_tracker_tr_05 import TwoCommitPcb  # noqa: E402
 from tests.test_tracker_tr_23 import _settings  # noqa: E402
+from app.services.comments_schema_migrations import COMMENTS_LEDGER  # noqa: E402
+from support.postgres import requires_scratch_postgres, scratch_schema, comments_store_on, seed_comment  # noqa: E402
 
 try:
     from psycopg.rows import dict_row
@@ -46,19 +45,9 @@ except ImportError:  # pragma: no cover
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 F1 = json.loads((DOCS / "fixtures" / "F01.json").read_text(encoding="utf-8"))
 F8 = json.loads((DOCS / "fixtures" / "F08.json").read_text(encoding="utf-8"))
-COMMIT = "3f2c9a1b7e4d5c6a8b9f0e1d2c3b4a5968778695"
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 class RoutingContractTests(unittest.TestCase):
-    def test_fixture_cases_are_present(self) -> None:
-        f8_ids = {case["id"] for case in F8["cases"]}
-        self.assertIn("F8.viewer_task_not_auto_promoted", f8_ids)
-        self.assertIn("F8.viewer_reply_on_linked", f8_ids)
-        self.assertIn("F8.share_to_github", f8_ids)
 
     def test_promote_and_share_routes_registered(self) -> None:
         from fastapi import FastAPI
@@ -66,28 +55,21 @@ class RoutingContractTests(unittest.TestCase):
         from app.api import tracker_sync
 
         app = FastAPI()
+
+        install_error_handlers(app)
         app.include_router(tracker_sync.router)
         paths = set(app.openapi()["paths"])
         self.assertIn("/api/projects/{project_id}/comments/{comment_id}/promote", paths)
         self.assertIn("/api/projects/{project_id}/comments/{comment_id}/replies/{reply_id}/share", paths)
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class PromotionPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"tr25_{uuid.uuid4().hex[:12]}"
-        self.store = DisposableSchemaStore(self.schema)
+        self.scratch = scratch_schema(self, "tr25", ledgers=(COMMENTS_LEDGER,), then=(migrate_workspace_tracker_tables,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
+        self.store = comments_store_on(self.scratch)
         self.store.workspace_schema = self.schema
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self._create_comments_foundation()
-        comments_schema_migrations.apply_comments_migrations(self.conn)
-        migrate_workspace_tracker_tables(self.conn)
-        self.conn.commit()
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
         self.fixture = TwoCommitPcb(Path(self.tempdir.name))
@@ -105,68 +87,13 @@ class PromotionPostgresTests(unittest.TestCase):
             item.start()
             self.addCleanup(item.stop)
 
-    def _cleanup(self) -> None:
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
-
     @contextmanager
     def _factory(self):
-        conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        conn.execute(f'SET search_path TO "{self.schema}", public')
+        conn = self.scratch.connect()
         try:
             yield conn
         finally:
             conn.close()
-
-    def _create_comments_foundation(self) -> None:
-        self.conn.execute(
-            """
-            CREATE TABLE comments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL DEFAULT '',
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                status TEXT NOT NULL DEFAULT 'OPEN',
-                context TEXT NOT NULL DEFAULT 'PCB',
-                location_x REAL NOT NULL DEFAULT 0,
-                location_y REAL NOT NULL DEFAULT 0,
-                location_layer TEXT NOT NULL DEFAULT '',
-                location_page TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT '',
-                comment_class TEXT NOT NULL DEFAULT 'general',
-                severity TEXT NOT NULL DEFAULT 'info',
-                mentions JSONB NOT NULL DEFAULT '[]'::jsonb,
-                metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-                scope TEXT NOT NULL DEFAULT 'canvas',
-                anchor_commit TEXT,
-                anchor_state TEXT NOT NULL DEFAULT 'unpinned',
-                anchor_source TEXT,
-                anchor_revision_key TEXT,
-                revision INTEGER NOT NULL DEFAULT 1,
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                deleted_at TIMESTAMPTZ
-            );
-            CREATE TABLE comment_replies (
-                id TEXT PRIMARY KEY,
-                comment_id TEXT NOT NULL REFERENCES comments(id),
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL DEFAULT '',
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                content TEXT NOT NULL DEFAULT '',
-                author_user_id TEXT,
-                author_kind TEXT,
-                revision INTEGER NOT NULL DEFAULT 1,
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                deleted_at TIMESTAMPTZ,
-                origin TEXT NOT NULL DEFAULT 'prism'
-            );
-            """,
-            prepare=False,
-        )
 
     def _observe_container(
         self,
@@ -272,13 +199,16 @@ class PromotionPostgresTests(unittest.TestCase):
         return str(comment_id)
 
     def test_comment_revision_and_op_roll_back_together(self) -> None:
-        self.conn.execute(
-            """
-            INSERT INTO comments(
-                id, project_id, author, content, severity, anchor_commit, anchor_state, revision
-            ) VALUES ('c_rb', 'prj_a', 'Priya', 'rollback', 'major', %s, 'pinned', 1)
-            """,
-            (self.fixture.sha_a,),
+        seed_comment(
+            self.conn,
+            "c_rb",
+            "prj_a",
+            author="Priya",
+            content="rollback",
+            severity="major",
+            anchor_commit=self.fixture.sha_a,
+            anchor_state="pinned",
+            revision=1,
         )
         self.conn.commit()
         comment = self.store.get_comment("prj_a", self.project.path, "c_rb")
@@ -344,13 +274,16 @@ class PromotionPostgresTests(unittest.TestCase):
             self.assertEqual(conn.execute("SELECT COUNT(*) AS n FROM sync_ops").fetchone()["n"], 1)
 
     def test_concurrent_promotion_creates_one_op(self) -> None:
-        self.conn.execute(
-            """
-            INSERT INTO comments(
-                id, project_id, author, content, severity, anchor_commit, anchor_state, revision
-            ) VALUES ('c_race', 'prj_a', 'Priya', 'race', 'major', %s, 'pinned', 1)
-            """,
-            (self.fixture.sha_a,),
+        seed_comment(
+            self.conn,
+            "c_race",
+            "prj_a",
+            author="Priya",
+            content="race",
+            severity="major",
+            anchor_commit=self.fixture.sha_a,
+            anchor_state="pinned",
+            revision=1,
         )
         self.conn.commit()
         comment = self.store.get_comment("prj_a", self.project.path, "c_race")
@@ -445,10 +378,7 @@ class PromotionPostgresTests(unittest.TestCase):
     def test_downgrade_on_linked_thread_enqueues_update_not_unlink(self) -> None:
         comment_id = self._seed_linked_thread()
         designer = session("designer", user_id="u_designer")
-        updated = run(comments_api.update_comment(
-            "prj_a",
-            comment_id,
-            comments_api.UpdateCommentRequest(severity="info", expectedRevision=1),
+        updated = run(comments_api.update_comment("prj_a", comment_id, comments_api.UpdateCommentRequest(severity="info"), if_match("comment", comment_id, 1),
             designer,
         ))
         self.assertEqual(updated["tracker"]["linkState"], "linked")

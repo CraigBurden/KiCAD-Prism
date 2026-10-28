@@ -1,0 +1,137 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.cli.vendor_run_result:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.cli.vendor_run_result.a0",
+            "description": "Document schema id."
+        },
+        "vendor": {
+            "type": "string",
+            "description": "The vendor that ran, its id (`jlcpcb`)."
+        },
+        "files": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/CliVendorFile"
+            },
+            "description": "Every file the run wrote, sorted by `path` in code point order."
+        },
+        "rows": {
+            "$ref": "#/$defs/RecordCount",
+            "description": "How many rows each of the vendor's tables holds; the keys are the vendor's\ntable names, for example `bom` and `cpl`, serialized in code point order."
+        },
+        "excluded": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/CliVendorExcludedComponent"
+            },
+            "description": "Every component the run left out, sorted by `key` in code point order."
+        }
+    },
+    "required": [
+        "schema",
+        "vendor",
+        "files",
+        "rows",
+        "excluded"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "stdout of `vendor run` (exit 0).",
+    "title": "prism-kicad vendor run result a0",
+    "$defs": {
+        "CliVendorFile": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "$ref": "#/$defs/ArchivePath",
+                    "description": "The file's path relative to the output directory."
+                },
+                "sha256": {
+                    "$ref": "#/$defs/Sha256Hex",
+                    "description": "SHA-256 of the file's bytes."
+                }
+            },
+            "required": [
+                "path",
+                "sha256"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One file a vendor run wrote."
+        },
+        "RecordCount": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/Count"
+            }
+        },
+        "CliVendorExcludedComponent": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "$ref": "#/$defs/ObjectRef",
+                    "description": "The component's identity, `<RepoPath>#<KiCadUuid>`."
+                },
+                "reference": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "Its reference designator, as written. Absent when it has none or it is empty."
+                },
+                "code": {
+                    "$ref": "#/$defs/DiagnosticCode",
+                    "description": "Stable reason code, for example `excluded-from-bom` or `excluded-from-position`."
+                },
+                "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "One-sentence explanation for people. It never contains a host path."
+                }
+            },
+            "required": [
+                "key",
+                "code",
+                "message"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One component a vendor run left out of an output, and why."
+        },
+        "ArchivePath": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*$",
+            "description": "Path of a member inside a `.prism` bundle archive: `/`-separated, relative,\nno empty, `.` or `..` segment, no leading or trailing `/`, no backslash and\nno `:`. The same rule as manifest a1's ArchivePath and prism-bundle's\n`check_member_name`, without lookaround."
+        },
+        "Sha256Hex": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Lowercase hexadecimal SHA-256 digest: exactly 64 characters, no prefix such as `sha256:`."
+        },
+        "Count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A count of things: a non-negative safe integer."
+        },
+        "ObjectRef": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*#[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "Reference to one object in one KiCad document: `<documentPath>#<uuid>`,\nwhere `documentPath` is the RepoPath of the `.kicad_sch` or `.kicad_pcb`\nand `uuid` the object's KiCadUuid. Split at the last `#`. Unique across\nevery project in the repository, including projects that share a\ndirectory.\nA reused sheet file holds one object for all its instances, so an\nObjectRef names the object in the file, not an occurrence; occurrences\nare named by KiidPath."
+        },
+        "Refdes": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Reference designator as KiCad resolves it for one symbol instance or\nfootprint, for example `R1`, `U3`, `#PWR01` or `R?`. Always a string. A\ncontract states whether it includes virtual (`#`) and unannotated (`?`)\nreferences."
+        },
+        "DiagnosticCode": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+            "description": "Stable machine-readable code of a finding, in lowercase kebab-case, for\nexample `stale-saved-fills` or `net-mismatch`. A code never changes meaning\nonce published; a new meaning gets a new code."
+        }
+    }
+}

@@ -1,0 +1,207 @@
+{
+ "schema": "prism.occurrences.a0",
+ "sheets": [
+  {
+   "sheetPath": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": []
+  },
+  {
+   "sheetPath": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/1be6926c-1f66-559e-b180-22b373d042c4",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": []
+  },
+  {
+   "sheetPath": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/fa5dc19a-38e3-5a2d-9e7b-ce5a9ff878e9",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": []
+  }
+ ],
+ "symbols": [
+  {
+   "kiidPath": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/34f055d4-6678-5dc4-b79f-232a96428961",
+   "sheetPath": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef",
+   "symbolUuid": "34f055d4-6678-5dc4-b79f-232a96428961",
+   "documentPath": "mini_payload.kicad_sch",
+   "libId": "Connector_Generic:Conn_02x10_Odd_Even",
+   "reference": "J4",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Connector_PinHeader_2.54mm:PinHeader_2x10_P2.54mm_Vertical",
+    "Reference": "J4",
+    "Value": "Conn_02x10"
+   },
+   "bomFields": {
+    "value": "Conn_02x10",
+    "footprint": "Connector_PinHeader_2.54mm:PinHeader_2x10_P2.54mm_Vertical"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/58a75445-193f-5b73-8bae-7031f82c3c1e",
+   "sheetPath": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef",
+   "symbolUuid": "58a75445-193f-5b73-8bae-7031f82c3c1e",
+   "documentPath": "mini_payload.kicad_sch",
+   "libId": "Connector_Generic:Conn_01x02",
+   "reference": "J9",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical",
+    "Prism_Port": "no",
+    "Reference": "J9",
+    "Value": "Conn_01x02"
+   },
+   "bomFields": {
+    "value": "Conn_01x02",
+    "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/8905aaee-fe73-5e88-a881-5d780581856f",
+   "sheetPath": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef",
+   "symbolUuid": "8905aaee-fe73-5e88-a881-5d780581856f",
+   "documentPath": "mini_payload.kicad_sch",
+   "libId": "MiniSys:TestPad",
+   "reference": "TP1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "MiniSys:TestPad_1.5mm",
+    "Prism_Port": "yes",
+    "Reference": "TP1",
+    "Value": "TestPad"
+   },
+   "bomFields": {
+    "value": "TestPad",
+    "footprint": "MiniSys:TestPad_1.5mm"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/1be6926c-1f66-559e-b180-22b373d042c4/21efc24e-7520-56a7-8353-4b2fec7322ec",
+   "sheetPath": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/1be6926c-1f66-559e-b180-22b373d042c4",
+   "symbolUuid": "21efc24e-7520-56a7-8353-4b2fec7322ec",
+   "documentPath": "channel.kicad_sch",
+   "libId": "Connector_Generic:Conn_01x02",
+   "reference": "J12",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical",
+    "Reference": "J11",
+    "Value": "Conn_01x02"
+   },
+   "bomFields": {
+    "value": "Conn_01x02",
+    "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/fa5dc19a-38e3-5a2d-9e7b-ce5a9ff878e9/21efc24e-7520-56a7-8353-4b2fec7322ec",
+   "sheetPath": "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/fa5dc19a-38e3-5a2d-9e7b-ce5a9ff878e9",
+   "symbolUuid": "21efc24e-7520-56a7-8353-4b2fec7322ec",
+   "documentPath": "channel.kicad_sch",
+   "libId": "Connector_Generic:Conn_01x02",
+   "reference": "J11",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical",
+    "Reference": "J11",
+    "Value": "Conn_01x02"
+   },
+   "bomFields": {
+    "value": "Conn_01x02",
+    "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+   },
+   "variants": []
+  }
+ ],
+ "footprints": [],
+ "references": [
+  {
+   "reference": "J11",
+   "symbols": [
+    "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/fa5dc19a-38e3-5a2d-9e7b-ce5a9ff878e9/21efc24e-7520-56a7-8353-4b2fec7322ec"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "J12",
+   "symbols": [
+    "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/1be6926c-1f66-559e-b180-22b373d042c4/21efc24e-7520-56a7-8353-4b2fec7322ec"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "J4",
+   "symbols": [
+    "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/34f055d4-6678-5dc4-b79f-232a96428961"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "J9",
+   "symbols": [
+    "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/58a75445-193f-5b73-8bae-7031f82c3c1e"
+   ],
+   "footprints": []
+  },
+  {
+   "reference": "TP1",
+   "symbols": [
+    "/d3146c74-5e35-516d-8c6e-8aa74fa572ef/8905aaee-fe73-5e88-a881-5d780581856f"
+   ],
+   "footprints": []
+  }
+ ],
+ "variantDeclarations": []
+}

@@ -146,6 +146,13 @@ class AuthConfigTests(unittest.TestCase):
         self.assertFalse(cfg.oidc_enabled)
         self.assertTrue(cfg.auth_enabled)
 
+    def test_config_says_whether_simulation_studio_is_served(self) -> None:
+        for enabled in (False, True):
+            with patch.object(settings, "PRISM_SIM_STUDIO_ENABLED", enabled), \
+                 patch.object(auth_api, "oidc_enabled", return_value=False):
+                cfg = asyncio.run(auth_api.get_auth_config())
+            self.assertIs(cfg.sim_studio_enabled, enabled)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,601 @@
+{
+ "schema": "prism.placements.a1",
+ "footprints": [
+  {
+   "uuid": "3b68a2fc-48d3-5f32-9f14-2a1b21ad2477",
+   "reference": "J6",
+   "libId": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+   "side": "front",
+   "positionNm": {
+    "xNm": 50000000,
+    "yNm": 10000000
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "pads": [
+    {
+     "number": "1",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 50000000,
+      "yNm": 10000000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "2",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 50000000,
+      "yNm": 12540000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "3",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 50000000,
+      "yNm": 15080000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "4",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 50000000,
+      "yNm": 17620000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    }
+   ],
+   "models": [],
+   "sourceSpan": {
+    "offsetBytes": 1667,
+    "lengthBytes": 1959
+   }
+  },
+  {
+   "uuid": "4ae3c5e4-b9f5-5461-97e0-da329a279776",
+   "reference": "J2",
+   "libId": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+   "side": "front",
+   "positionNm": {
+    "xNm": 10000000,
+    "yNm": 10000000
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "pads": [
+    {
+     "number": "1",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 10000000,
+      "yNm": 10000000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "2",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 10000000,
+      "yNm": 12540000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "3",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 10000000,
+      "yNm": 15080000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "4",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 10000000,
+      "yNm": 17620000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    }
+   ],
+   "models": [],
+   "sourceSpan": {
+    "offsetBytes": 3628,
+    "lengthBytes": 1960
+   }
+  },
+  {
+   "uuid": "715ea630-49b8-52d4-b631-01b6d2521bcc",
+   "reference": "JP1",
+   "libId": "Jumper:SolderJumper-2_P1.3mm_Open_Pad1.0x1.5mm",
+   "side": "front",
+   "positionNm": {
+    "xNm": 90000000,
+    "yNm": 10000000
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "pads": [
+    {
+     "number": "1",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 90000000,
+      "yNm": 10000000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "2",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 90000000,
+      "yNm": 12540000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    }
+   ],
+   "models": [],
+   "sourceSpan": {
+    "offsetBytes": 5590,
+    "lengthBytes": 1550
+   }
+  },
+  {
+   "uuid": "a2556416-c65d-5d8a-8e8a-b281d42a9a32",
+   "reference": "J7",
+   "libId": "Connector_PinHeader_2.54mm:PinHeader_2x10_P2.54mm_Vertical",
+   "side": "front",
+   "positionNm": {
+    "xNm": 70000000,
+    "yNm": 10000000
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "pads": [
+    {
+     "number": "1",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 10000000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "2",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 12540000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "3",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 15080000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "4",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 17620000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "5",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 20160000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "6",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 22700000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "7",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 25240000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "8",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 27780000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "9",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 30320000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "10",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 32860000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "11",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 35400000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "12",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 37940000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "13",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 40480000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "14",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 43020000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "15",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 45560000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "16",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 48100000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "17",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 50640000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "18",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 53180000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "19",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 55720000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "20",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 70000000,
+      "yNm": 58260000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    }
+   ],
+   "models": [],
+   "sourceSpan": {
+    "offsetBytes": 7142,
+    "lengthBytes": 5407
+   }
+  },
+  {
+   "uuid": "c432f8dc-2c51-5d8e-aae9-68b6a3381c80",
+   "reference": "J5",
+   "libId": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+   "side": "front",
+   "positionNm": {
+    "xNm": 30000000,
+    "yNm": 10000000
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "pads": [
+    {
+     "number": "1",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 30000000,
+      "yNm": 10000000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "2",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 30000000,
+      "yNm": 12540000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "3",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 30000000,
+      "yNm": 15080000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "4",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 30000000,
+      "yNm": 17620000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    }
+   ],
+   "models": [],
+   "sourceSpan": {
+    "offsetBytes": 12551,
+    "lengthBytes": 1956
+   }
+  },
+  {
+   "uuid": "ea77627e-aee1-5fc4-aa70-b6e23d9702dd",
+   "reference": "R10",
+   "libId": "Resistor_SMD:R_0603_1608Metric",
+   "side": "front",
+   "positionNm": {
+    "xNm": 10000000,
+    "yNm": 30000000
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "pads": [
+    {
+     "number": "1",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 10000000,
+      "yNm": 30000000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "2",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 10000000,
+      "yNm": 32540000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    }
+   ],
+   "models": [],
+   "sourceSpan": {
+    "offsetBytes": 14509,
+    "lengthBytes": 1574
+   }
+  }
+ ],
+ "designators": [
+  "J2",
+  "J5",
+  "J6",
+  "J7",
+  "JP1",
+  "R10"
+ ]
+}

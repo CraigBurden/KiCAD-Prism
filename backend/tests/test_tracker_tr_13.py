@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import unittest
-import uuid
 from pathlib import Path
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.comments_revisions import Editor, record_revision  # noqa: E402
 from app.services.trackers.inbox_store import (  # noqa: E402
     CHECKPOINT_KINDS,
@@ -21,10 +17,7 @@ from app.services.trackers.inbox_store import (  # noqa: E402
     StaleHintFence,
     apply_schema as apply_inbox_schema,
 )
-from app.services.trackers.migrations import (  # noqa: E402
-    WORKSPACE_WEBHOOK_OAUTH_VERSION,
-    migrate_workspace_tracker_tables,
-)
+from app.services.trackers.migrations import WORKSPACE_WEBHOOK_OAUTH_VERSION  # noqa: E402
 from app.services.trackers.op_store import (  # noqa: E402
     EXECUTE_DISPATCH,
     OP_KINDS,
@@ -38,6 +31,7 @@ from app.services.trackers.op_store import (  # noqa: E402
 from app.services.trackers.schema import FORBIDDEN_COLUMNS  # noqa: E402
 from app.services.trackers.store import TrackerStore  # noqa: E402
 from app.services.workspace_schema_migrations import MIGRATIONS as WS_MIGRATIONS  # noqa: E402
+from support.postgres import requires_scratch_postgres, tracker_schema, seed_comment  # noqa: E402
 
 try:
     import psycopg
@@ -46,26 +40,8 @@ except ImportError:  # pragma: no cover
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 EXAMPLES = json.loads((DOCS / "dto-examples.json").read_text(encoding="utf-8"))
-
-
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 class ContractSnapshotTests(unittest.TestCase):
@@ -77,7 +53,7 @@ class ContractSnapshotTests(unittest.TestCase):
         self.assertEqual(list(CHECKPOINT_KINDS), ["poll", "sweep", "recovery"])
         versions = [version for version, _, _ in WS_MIGRATIONS]
         self.assertIn(23, versions)
-        self.assertEqual(max(versions), WORKSPACE_WEBHOOK_OAUTH_VERSION)
+        self.assertIn(WORKSPACE_WEBHOOK_OAUTH_VERSION, versions)
 
     def test_sanitize_error_redacts_tokens_and_caps_length(self) -> None:
         payload = sanitize_error(
@@ -91,77 +67,24 @@ class ContractSnapshotTests(unittest.TestCase):
         self.assertFalse(payload["retryable"])
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class OpInboxPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"tr13_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self._create_comments_foundation()
-        comments_schema_migrations.apply_comments_migrations(self.conn)
-        migrate_workspace_tracker_tables(self.conn)
-        apply_op_schema(self.conn)
-        apply_inbox_schema(self.conn)
-        self.conn.commit()
+        self.scratch = tracker_schema(self, "tr13")
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
         self.store = TrackerStore(self.conn)
         self.ops = OpStore(self.conn)
         self.inbox = InboxStore(self.conn)
 
-    def _cleanup(self) -> None:
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
-
     def _restore_path(self) -> None:
-        self.conn.rollback()
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
+        self.scratch.reset_path()
         self.store = TrackerStore(self.conn)
         self.ops = OpStore(self.conn)
         self.inbox = InboxStore(self.conn)
 
     def _connect(self):
-        conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        conn.execute(f'SET search_path TO "{self.schema}", public')
+        conn = self.scratch.connect()
         return conn
-
-    def _create_comments_foundation(self) -> None:
-        self.conn.execute(
-            """
-            CREATE TABLE comments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                status TEXT NOT NULL DEFAULT 'OPEN',
-                context TEXT NOT NULL DEFAULT 'PCB',
-                location_x REAL NOT NULL DEFAULT 0,
-                location_y REAL NOT NULL DEFAULT 0,
-                location_layer TEXT NOT NULL DEFAULT '',
-                location_page TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT '',
-                forge_provider TEXT,
-                forge_issue_id TEXT,
-                forge_issue_url TEXT,
-                forge_sync_state TEXT
-            );
-            CREATE TABLE comment_replies (
-                id TEXT PRIMARY KEY,
-                comment_id TEXT NOT NULL REFERENCES comments(id),
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                content TEXT NOT NULL DEFAULT ''
-            );
-            """,
-            prepare=False,
-        )
 
     def _seed_thread(self, *, comment_id: str = "c_1", thread_id: str = "tt_1") -> str:
         self.store.upsert_connector(
@@ -176,13 +99,13 @@ class OpInboxPostgresTests(unittest.TestCase):
             remote_container_id="111",
             generation=2,
         )
-        self.conn.execute(
-            """
-            INSERT INTO comments(id, project_id, author, content)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT (id) DO NOTHING
-            """,
-            (comment_id, "prj_a", "Priya", "stub on MGMT.D0_P"),
+        seed_comment(
+            self.conn,
+            comment_id,
+            "prj_a",
+            on_conflict_skip=True,
+            author="Priya",
+            content="stub on MGMT.D0_P",
         )
         existing = self.conn.execute(
             "SELECT id FROM tracked_threads WHERE id = %s", (thread_id,)

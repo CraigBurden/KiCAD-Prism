@@ -76,9 +76,7 @@ export function LibraryFolderDiscoveryDialog({ discovery, open, submitting, onOp
       <DialogContent className="flex max-h-[90vh] max-w-5xl flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>Review discovered components</DialogTitle>
-          <DialogDescription>
-            Prism resolved the lightweight KiCad sources first. Approving this list captures only assets referenced by the selected components.
-          </DialogDescription>
+          <DialogDescription className="sr-only">Only the selected components' assets are captured</DialogDescription>
         </DialogHeader>
 
         {discovery && <>
@@ -126,7 +124,7 @@ export function LibraryFolderDiscoveryDialog({ discovery, open, submitting, onOp
                         {canImport
                           ? <Badge variant="success"><CheckCircle2 className="mr-1 h-3 w-3" />Resolved</Badge>
                           : component.existing_component
-                            ? <Badge variant="secondary">Existing · v{component.existing_component.version}</Badge>
+                            ? <Badge variant="secondary">{component.existing_component.is_active ? "Existing" : "Retired"} · v{component.existing_component.version}</Badge>
                             : <Badge variant="warning"><AlertTriangle className="mr-1 h-3 w-3" />{component.footprint.status === "suggested" ? "Suggested match" : component.footprint.status}</Badge>}
                         {warnings > 0 && <Badge variant="outline">{warnings} metadata warning{warnings === 1 ? "" : "s"}</Badge>}
                       </div>
@@ -151,7 +149,7 @@ export function LibraryFolderDiscoveryDialog({ discovery, open, submitting, onOp
                         <div className="flex min-w-0 items-start gap-2 border bg-muted/20 p-2"><Box className="h-3.5 w-3.5 shrink-0" /><span className="min-w-0"><span className="block font-medium">3D models</span><span className="block truncate text-muted-foreground">{component.models.length === 0 ? "None referenced" : component.models.map((model) => model.candidates[0]?.relative_path || model.reference).join(", ")}</span></span></div>
                       </div>
                       {canImport && component.models.some((model) => model.status === "missing") && <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <p className="text-xs text-warning">A footprint model reference could not be found in the selected directory.</p>
+                        <p className="text-xs text-warning">3D model not found</p>
                         <Button asChild size="sm" variant="outline" disabled={submitting || attachingId === `${component.id}:model`}>
                           <label className="cursor-pointer">
                             <Upload className="mr-1.5 h-3.5 w-3.5" />{attachingId === `${component.id}:model` ? "Attaching…" : "Upload STEP / WRL"}
@@ -176,7 +174,7 @@ export function LibraryFolderDiscoveryDialog({ discovery, open, submitting, onOp
                       {component.existing_component
                         ? <p className="mt-2 text-xs text-muted-foreground">Matched {component.existing_component.manufacturer} · {component.existing_component.manufacturer_part_number}. It will not be processed again.</p>
                         : !canImport && <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <p className="text-xs text-warning">This component is excluded until its footprint relationship is resolved.</p>
+                            <p className="text-xs text-warning">Excluded: footprint unresolved</p>
                             <Button asChild size="sm" variant="outline" disabled={submitting || attachingId === component.id}>
                               <label className="cursor-pointer">
                                 <Upload className="mr-1.5 h-3.5 w-3.5" />{attachingId === component.id ? "Attaching…" : "Upload .kicad_mod"}
@@ -202,7 +200,7 @@ export function LibraryFolderDiscoveryDialog({ discovery, open, submitting, onOp
                   </div>
                 </article>;
               })}
-              {visibleComponents.length === 0 && <p className="border p-6 text-center text-sm text-muted-foreground">No discovered components match these filters.</p>}
+              {visibleComponents.length === 0 && <p className="p-6 text-center text-sm text-muted-foreground">No matches</p>}
             </div>
           </ScrollArea>
         </>}

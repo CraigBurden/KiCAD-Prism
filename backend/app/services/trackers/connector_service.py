@@ -21,22 +21,22 @@ from app.services.trackers.credential_sidecars import (
     store_webhook_secret,
     webhook_configured,
 )
+from app.services.trackers.connector_runtime import (
+    WRITE_BLOCKING_REASONS,
+    connector_status,
+    credential_context as _context,
+    decrypt_material,
+)
 from app.services.trackers.errors import ProviderError
-from app.services.trackers.providers import is_issue_provider, issue_adapter_for, kit_for
-from app.services.trackers.secrets import decrypt_secret, encrypt_secret
+from app.services.trackers.providers import host_kit, host_kits, is_issue_provider, issue_adapter_for, kit_for
+from app.services.trackers.secrets import encrypt_secret
 from app.services.trackers.store import TrackerStore
 
-# Part of every stored envelope's authenticated data, for every provider.
-CREDENTIAL_FIELD = "github_app"
 BOOTSTRAP_ENV_FIELDS = ("GITHUB_TOKEN",)
-# Which providers can publish issues comes from ``providers`` (one kit each).
-# Hosts without a kit exist so people can link their accounts, and report
+# Hosts and their instance kinds come from ``providers`` (one kit each). Hosts
+# whose kit cannot publish exist so people can link their accounts, and report
 # ``capabilities.issues`` false.
-INSTANCE_KINDS_BY_PROVIDER = {
-    "github": {"github.com", "ghes"},
-    "gitlab": {"gitlab.com", "self-hosted"},
-    "gitea": {"self-hosted"},
-}
+INSTANCE_KINDS_BY_PROVIDER = {kit.provider: set(kit.instance_kinds) for kit in host_kits()}
 ALLOWED_PROVIDERS = set(INSTANCE_KINDS_BY_PROVIDER)
 ALLOWED_INSTANCE_KINDS = set().union(*INSTANCE_KINDS_BY_PROVIDER.values())
 
@@ -490,13 +490,18 @@ class ConnectorService:
                     SET bot_forge_user_id = %s,
                         bot_login = %s,
                         paused_reason = CASE
-                            WHEN paused_reason IN ('revoked', 'test_failed', 'auth_lost', 'permissions') THEN NULL
+                            WHEN paused_reason = ANY(%s) THEN NULL
                             WHEN paused THEN paused_reason ELSE NULL
                         END,
                         updated_at = NOW()
                     WHERE id = %s
                     """,
-                    (str(bot.get("id") or "") or None, str(bot.get("login") or "") or None, connector_id),
+                    (
+                        str(bot.get("id") or "") or None,
+                        str(bot.get("login") or "") or None,
+                        sorted(WRITE_BLOCKING_REASONS),
+                        connector_id,
+                    ),
                 )
             TrackerStore(conn).audit(
                 action="connector.test",
@@ -543,8 +548,7 @@ class ConnectorService:
         blob = (envelope or {}).get("credential_envelope")
         if not blob:
             return row, None, None
-        material = json.loads(decrypt_secret(blob, _context(connector_id), settings=self.settings).decode())
-        return row, blob, material
+        return row, blob, decrypt_material(connector_id, blob, settings=self.settings)
 
     def _encrypt(self, provider: str, connector_id: str, credentials: Mapping[str, str]) -> str:
         kit = kit_for(provider)
@@ -568,9 +572,7 @@ class ConnectorService:
             return None
         payload = kit.credential_payload(credentials)
         if existing_blob:
-            merged = json.loads(
-                decrypt_secret(existing_blob, _context(connector_id), settings=self.settings).decode()
-            )
+            merged = decrypt_material(connector_id, existing_blob, settings=self.settings)
             for key in kit.credential_fields:
                 if payload[key]:
                     merged[key] = payload[key]
@@ -605,16 +607,7 @@ class ConnectorService:
             raise ProviderError("invalid_request", "Unsupported tracker provider.")
         if instance_kind not in INSTANCE_KINDS_BY_PROVIDER[provider]:
             raise ProviderError("invalid_request", f"Unsupported {provider} instance kind.")
-        if instance_kind == "ghes" and not (base_url or "").strip():
-            raise ProviderError("invalid_request", "GHES connectors require a base URL.")
-        if provider == "gitlab":
-            from app.services.trackers.gitlab_auth import api_root_for
-
-            api_root_for(instance_kind=instance_kind, base_url=base_url)
-        if provider == "gitea":
-            from app.services.trackers.gitea_identity import web_root_for
-
-            web_root_for(base_url)
+        host_kit(provider).validate_instance(instance_kind, base_url)
 
     def _require(self, conn: Any, connector_id: str) -> dict[str, Any]:
         try:
@@ -671,18 +664,14 @@ class ConnectorService:
             "SELECT COUNT(*) AS n FROM tracker_audit WHERE connector_id = %s",
             (row["id"],),
         ).fetchone()
-        writes_enabled = (
-            not bool(row.get("paused"))
-            and bool(row.get("credentialConfigured"))
-            and bool(row.get("bot_forge_user_id"))
-            and str(row.get("paused_reason") or "") not in {"revoked", "permissions", "test_failed", "auth_lost"}
-        )
+        status = connector_status(row)
         return {
             "id": row["id"],
             "provider": row["provider"],
             "displayName": row.get("display_name") or "",
             "instanceKind": row["instance_kind"],
             "baseUrl": row.get("base_url") or "",
+            "status": status,
             "paused": bool(row.get("paused")),
             "pausedReason": row.get("paused_reason"),
             "bot": {
@@ -693,7 +682,7 @@ class ConnectorService:
             "webhookConfigured": webhook_configured(conn, str(row["id"])),
             "webhookUrl": self.webhook_url(str(row["id"]), provider=str(row["provider"])),
             "oauthClientConfigured": oauth_client_configured(conn, str(row["id"])),
-            "writesEnabled": writes_enabled,
+            "writesEnabled": status == "ready",
             "auditCount": int((audit_count or {}).get("n") or 0),
             "host": connector_host(row),
             "capabilities": {
@@ -711,20 +700,5 @@ def connector_host(row: Mapping[str, Any]) -> str:
     base = str(row.get("base_url") or "").strip()
     if base:
         return urlsplit(base).hostname or base
-    return {"github": "github.com", "gitlab": "gitlab.com"}.get(str(row.get("provider")), "")
-
-
-def _context(connector_id: str) -> dict[str, str]:
-    return {"record": connector_id, "field": CREDENTIAL_FIELD}
-
-
-def initialize_tracker_connector_service() -> None:
-    """Ensure workspace tracker tables exist. Credentials stay in admin records."""
-
-    from app.services.postgres_database import database
-    from app.services.trackers.migrations import migrate_workspace_tracker_tables
-
-    with database.connection() as conn:
-        conn.execute("SET search_path TO workspace, public")
-        migrate_workspace_tracker_tables(conn)
-        conn.commit()
+    provider = str(row.get("provider") or "")
+    return host_kit(provider).default_host if provider in INSTANCE_KINDS_BY_PROVIDER else ""

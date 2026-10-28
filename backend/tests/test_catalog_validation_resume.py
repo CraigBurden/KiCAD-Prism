@@ -8,6 +8,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services import catalog_worker_tasks  # noqa: E402
+from tests.in_memory_jobs import run_catalog_task  # noqa: E402
 
 
 class CatalogValidationResumeTests(unittest.TestCase):
@@ -34,7 +35,8 @@ class CatalogValidationResumeTests(unittest.TestCase):
                 side_effect=validate,
             ),
         ):
-            result = catalog_worker_tasks.run_validation(
+            result = run_catalog_task(
+                catalog_worker_tasks.run_validation,
                 {
                     "payload": {"component_ids": None},
                     "checkpoint": {"index": 1, "component_ids": ["A", "B"]},
@@ -63,7 +65,8 @@ class CatalogValidationResumeTests(unittest.TestCase):
             "validate_component_klc",
             side_effect=validate,
         ):
-            result = catalog_worker_tasks.run_validation(
+            result = run_catalog_task(
+                catalog_worker_tasks.run_validation,
                 {
                     "payload": {"component_ids": None},
                     "checkpoint": {"index": 1, "component_ids": ["A", "gone", "C"]},
@@ -98,7 +101,8 @@ class CatalogValidationResumeTests(unittest.TestCase):
                 side_effect=validate,
             ),
         ):
-            catalog_worker_tasks.run_validation(
+            run_catalog_task(
+                catalog_worker_tasks.run_validation,
                 {
                     "payload": {"component_ids": None},
                     "checkpoint": {"index": 0, "component_ids": ["A", "B"]},
@@ -131,7 +135,8 @@ class CatalogValidationResumeTests(unittest.TestCase):
                 side_effect=validate,
             ),
         ):
-            catalog_worker_tasks.run_validation(
+            run_catalog_task(
+                catalog_worker_tasks.run_validation,
                 {
                     "payload": {"component_ids": ["X", "Y"]},
                     "checkpoint": {},
@@ -165,7 +170,8 @@ class CatalogValidationResumeTests(unittest.TestCase):
                 return_value={"component": {"id": "cmp-1"}},
             ),
         ):
-            catalog_worker_tasks.run_validation(
+            run_catalog_task(
+                catalog_worker_tasks.run_validation,
                 {"payload": {"component_ids": None}, "checkpoint": {}, "result": {}},
                 lambda **fields: checkpoints.append(fields.get("checkpoint")) or True,
             )
@@ -185,7 +191,8 @@ class CatalogValidationResumeTests(unittest.TestCase):
             "validate_component_klc",
             side_effect=validate,
         ):
-            catalog_worker_tasks.run_validation(
+            run_catalog_task(
+                catalog_worker_tasks.run_validation,
                 {
                     "payload": {"component_ids": ["A", "B"]},
                     "checkpoint": {"index": 0, "component_ids": ["A", "B"]},
@@ -211,7 +218,8 @@ class CatalogValidationResumeTests(unittest.TestCase):
                 side_effect=lambda component_id: validated_ids.append(component_id) or {},
             ),
         ):
-            result = catalog_worker_tasks.run_validation(
+            result = run_catalog_task(
+                catalog_worker_tasks.run_validation,
                 {
                     "payload": {"component_ids": None},
                     "checkpoint": {"index": 2, "component_ids": ["A", "B"]},

@@ -1,0 +1,686 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.artwork.config:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.artwork.config.a0",
+            "description": "Document schema id."
+        },
+        "global": {
+            "$ref": "#/$defs/ArtworkGlobal",
+            "description": "Global rendering options and the default style table."
+        },
+        "assembly": {
+            "$ref": "#/$defs/ArtworkAssembly",
+            "description": "Default projection and designator colour policy."
+        },
+        "dnp": {
+            "$ref": "#/$defs/ArtworkDnp",
+            "description": "The do-not-populate hatch/marker style."
+        },
+        "pin1": {
+            "$ref": "#/$defs/ArtworkPin1",
+            "description": "Pin-1 marker selection policy."
+        },
+        "components": {
+            "$ref": "#/$defs/RecordArtworkComponentOverride",
+            "description": "Per-component overrides; the keys are reference designators (`J1`, `U5`),\nserialized in code point order. Empty when no component is overridden."
+        },
+        "layer_outputs": {
+            "$ref": "#/$defs/ArtworkLayerOutputs",
+            "description": "Standalone per-layer output settings."
+        },
+        "views": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/ArtworkView"
+            },
+            "description": "The composed views, in file order. `prism-kicad artwork --view` names one\nor more of them."
+        }
+    },
+    "required": [
+        "schema",
+        "global",
+        "assembly",
+        "dnp",
+        "pin1",
+        "components",
+        "layer_outputs",
+        "views"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "The artwork configuration `prism-kicad artwork --config` reads\n(`pcb-svg.config.json` / `pcb-svg.testpoints.config.json` with `schema`\nreplaced).",
+    "title": "Prism artwork config a0",
+    "$defs": {
+        "ArtworkGlobal": {
+            "type": "object",
+            "properties": {
+                "canvas": {
+                    "$ref": "#/$defs/ArtworkCanvas",
+                    "description": "SVG canvas bounds and margin policy."
+                },
+                "include_metadata": {
+                    "type": "boolean",
+                    "description": "Emit `data-*` metadata in generated SVG elements."
+                },
+                "show_empty_layers": {
+                    "type": "boolean",
+                    "description": "Write physical layer SVGs even when no geometry is present."
+                },
+                "clip_to_outline": {
+                    "type": "boolean",
+                    "description": "Clip rendered layers to the board outline when possible."
+                },
+                "clip_holes_from_copper": {
+                    "type": "boolean",
+                    "description": "Clip drill and slot holes out of rendered copper layers."
+                },
+                "mirror_bottom_view": {
+                    "type": "boolean",
+                    "description": "Mirror bottom-side composed views into a board-front reading orientation."
+                },
+                "svg_scale": {
+                    "type": "number",
+                    "description": "SVG user-unit scale factor per millimetre."
+                },
+                "svg_size_unit": {
+                    "type": "string",
+                    "description": "SVG `width`/`height` unit suffix; an empty string keeps raw user units."
+                },
+                "clean_output": {
+                    "type": "boolean",
+                    "description": "Remove prior generated outputs before writing the new render set."
+                },
+                "styles": {
+                    "$ref": "#/$defs/ArtworkStyles",
+                    "description": "The default style table, merged under each view's own `styles`."
+                }
+            },
+            "required": [
+                "canvas",
+                "include_metadata",
+                "show_empty_layers",
+                "clip_to_outline",
+                "clip_holes_from_copper",
+                "mirror_bottom_view",
+                "svg_scale",
+                "svg_size_unit",
+                "clean_output",
+                "styles"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Global rendering options and the default style table\n(`global` of `pcb-svg.config.json`)."
+        },
+        "ArtworkAssembly": {
+            "type": "object",
+            "properties": {
+                "default_projection": {
+                    "$ref": "#/$defs/ArtworkProjectionMode",
+                    "description": "The projection mode used for a fitted part."
+                },
+                "dnp_projection": {
+                    "$ref": "#/$defs/ArtworkProjectionMode",
+                    "description": "The projection mode used for a do-not-populate part."
+                },
+                "designator_color": {
+                    "type": "string",
+                    "description": "Fallback colour for fitted assembly designators."
+                },
+                "dnp_designator_color": {
+                    "type": "string",
+                    "description": "Fallback colour for do-not-populate assembly designators."
+                }
+            },
+            "required": [
+                "default_projection",
+                "dnp_projection",
+                "designator_color",
+                "dnp_designator_color"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Default projection and designator colour policy (`assembly`)."
+        },
+        "ArtworkDnp": {
+            "type": "object",
+            "properties": {
+                "color": {
+                    "type": "string",
+                    "description": "Marker colour, CSS syntax."
+                },
+                "hatch": {
+                    "type": "boolean",
+                    "description": "Draw a hatch fill when true."
+                },
+                "hatch_spacing_mm": {
+                    "type": "number",
+                    "description": "Hatch line spacing in millimetres."
+                },
+                "hatch_angle_deg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "Hatch angle in degrees."
+                },
+                "hatch_line_width_mm": {
+                    "type": "number",
+                    "description": "Hatch stroke width in millimetres."
+                }
+            },
+            "required": [
+                "color",
+                "hatch",
+                "hatch_spacing_mm",
+                "hatch_angle_deg",
+                "hatch_line_width_mm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The do-not-populate hatch/marker style (`dnp`)."
+        },
+        "ArtworkPin1": {
+            "type": "object",
+            "properties": {
+                "exclude_designators": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Designators excluded from pin-1 markers, as written: exact names, prefixes,\nwildcards or ranges. In file order."
+                },
+                "exclude_single_pin": {
+                    "type": "boolean",
+                    "description": "Suppress pin-1 markers for single-pin footprints."
+                }
+            },
+            "required": [
+                "exclude_designators",
+                "exclude_single_pin"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Pin-1 marker selection policy (`pin1`)."
+        },
+        "RecordArtworkComponentOverride": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/ArtworkComponentOverride"
+            }
+        },
+        "ArtworkLayerOutputs": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Write standalone per-layer and virtual-layer SVGs."
+                }
+            },
+            "required": [
+                "enabled"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "Standalone per-layer output settings (`layer_outputs`)."
+        },
+        "ArtworkView": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The view's stable name, used by `--view`."
+                },
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether the view is rendered."
+                },
+                "group_id": {
+                    "type": "string",
+                    "description": "The SVG group id for the composed view."
+                },
+                "output_svg": {
+                    "type": "string",
+                    "description": "The output path template relative to the output root; supports `{board}` and `{view}`."
+                },
+                "layers": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "The physical and virtual layer tokens rendered into this view, in draw\norder (first drawn at the bottom). A physical token is a KiCad layer name\n(`F.Cu`) or a config alias (`TOP`); a virtual token is one of\n`BOARD_OUTLINE`, `BOARD_CUTOUTS`, `DRILLS`, `SLOTS`, `PIN1_TOP`,\n`PIN1_BOTTOM`, the `ASSEMBLY_HLR_*`, `ASSEMBLY_BOUNDS_*` and\n`ASSEMBLY_DESIGNATORS_*` tokens."
+                },
+                "assembly_hlr_mode": {
+                    "$ref": "#/$defs/ArtworkProjectionMode",
+                    "description": "The view's projection mode for its `ASSEMBLY_HLR_*` tokens."
+                },
+                "styles": {
+                    "$ref": "#/$defs/ArtworkStyles",
+                    "description": "Per-view style overrides merged over `global.styles`."
+                }
+            },
+            "required": [
+                "name",
+                "enabled",
+                "group_id",
+                "output_svg",
+                "layers",
+                "assembly_hlr_mode",
+                "styles"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One composed view (one entry of `views`)."
+        },
+        "ArtworkCanvas": {
+            "type": "object",
+            "properties": {
+                "bounds": {
+                    "$ref": "#/$defs/ArtworkCanvasBounds",
+                    "description": "How the canvas is bounded."
+                },
+                "margin_mm": {
+                    "type": "number",
+                    "description": "Extra margin around the selected canvas bounds, in millimetres."
+                }
+            },
+            "required": [
+                "bounds",
+                "margin_mm"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The view's canvas bounds and margin."
+        },
+        "ArtworkStyles": {
+            "type": "object",
+            "properties": {
+                "board_outline": {
+                    "$ref": "#/$defs/ArtworkBoardOutlineStyle",
+                    "description": "The board perimeter derived from `Edge.Cuts`."
+                },
+                "board_cutouts": {
+                    "$ref": "#/$defs/ArtworkBoardCutoutStyle",
+                    "description": "Internal board cutouts derived from smaller closed `Edge.Cuts` regions."
+                },
+                "drills": {
+                    "$ref": "#/$defs/ArtworkDrillSlotStyle",
+                    "description": "Circular drill overlays."
+                },
+                "slots": {
+                    "$ref": "#/$defs/ArtworkDrillSlotStyle",
+                    "description": "Slotted drill overlays."
+                },
+                "assembly_hlr": {
+                    "$ref": "#/$defs/ArtworkHlrStyle",
+                    "description": "The Geometer-backed assembly projection."
+                },
+                "dnp": {
+                    "$ref": "#/$defs/ArtworkDnpStyle",
+                    "description": "The do-not-populate hatch fill, a per-view override of the top-level `dnp`."
+                },
+                "assembly_designators": {
+                    "$ref": "#/$defs/ArtworkAssemblyDesignatorStyle",
+                    "description": "Fitted assembly reference-designator text."
+                },
+                "pin1_marker": {
+                    "$ref": "#/$defs/ArtworkPin1MarkerStyle",
+                    "description": "Synthesized pin-1 markers (`PIN1_TOP`/`PIN1_BOTTOM`)."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The style table: one entry per rendered feature, each optional so a view may\nmerge only what it changes over `global.styles`. The entries are the ones\nPrism's two config files use."
+        },
+        "ArtworkProjectionMode": {
+            "type": "string",
+            "enum": [
+                "detail",
+                "outline",
+                "bounding_box",
+                "model_bounds",
+                "pad_bounds",
+                "none"
+            ],
+            "description": "How a component's body is projected, used by `assembly.default_projection`,\n`assembly.dnp_projection` and `views[].assembly_hlr_mode`. The value is\nCruncher's token (its `PCB_SVG_COMPONENT_PROJECTION_MODES`), kept verbatim."
+        },
+        "Degrees": {
+            "type": "number",
+            "description": "Angle in degrees. In new documents it is as written in the KiCad file:\nnot normalized, not rounded. A parity document may round it as today's\noutput does, and its field says so. A positive angle is a counter-clockwise rotation as KiCad shows\nit on the front side. Each field states the frame its angle is in."
+        },
+        "ArtworkComponentOverride": {
+            "type": "object",
+            "properties": {
+                "side": {
+                    "$ref": "#/$defs/ArtworkComponentSide",
+                    "description": "The side the component is treated as being on."
+                },
+                "projection": {
+                    "$ref": "#/$defs/ArtworkProjectionMode",
+                    "description": "The component's body projection mode."
+                },
+                "assembly_hlr": {
+                    "$ref": "#/$defs/ArtworkHlrStyle",
+                    "description": "Assembly HLR style overrides for this component."
+                },
+                "assembly_designators": {
+                    "$ref": "#/$defs/ArtworkAssemblyDesignatorStyle",
+                    "description": "Assembly designator style overrides for this component."
+                },
+                "pin1_enabled": {
+                    "type": "boolean",
+                    "description": "Force the pin-1 marker on or off for this component."
+                },
+                "pin1_pad": {
+                    "type": "string",
+                    "description": "The pad name to use for this component's pin-1 marker."
+                },
+                "cathode_pad": {
+                    "type": "string",
+                    "description": "The pad name to use for this component's cathode marker."
+                },
+                "diode": {
+                    "type": "boolean",
+                    "description": "Force diode/cathode detection on or off for this component."
+                },
+                "diode_line_art": {
+                    "type": "boolean",
+                    "description": "Force diode line-art rendering on or off for this component."
+                },
+                "show_designator": {
+                    "type": "boolean",
+                    "description": "Force the assembly designator on or off for this component."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One per-component override (`components.<designator>`). The keys of the\n`components` map are reference designators, for example `J1` or `U5`."
+        },
+        "ArtworkCanvasBounds": {
+            "type": "string",
+            "enum": [
+                "board_outline",
+                "all_geometry",
+                "board_and_bodies"
+            ],
+            "description": "How the view's canvas is bounded."
+        },
+        "ArtworkBoardOutlineStyle": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Draw the perimeter."
+                },
+                "color": {
+                    "type": "string",
+                    "description": "Line colour, CSS syntax."
+                },
+                "line_width_mm": {
+                    "type": "number",
+                    "description": "Stroke width in millimetres."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The board-perimeter style."
+        },
+        "ArtworkBoardCutoutStyle": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Draw the cutouts."
+                },
+                "color": {
+                    "type": "string",
+                    "description": "Line colour, CSS syntax."
+                },
+                "hatch": {
+                    "type": "boolean",
+                    "description": "Fill the cutout interior with a hatch when true."
+                },
+                "outline_style": {
+                    "$ref": "#/$defs/ArtworkOutlineStyle",
+                    "description": "How the cutout outline is stroked."
+                },
+                "outline_width_mm": {
+                    "type": "number",
+                    "description": "Cutout outline stroke width in millimetres."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The board-cutout style."
+        },
+        "ArtworkDrillSlotStyle": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Draw the overlays."
+                },
+                "plated_color": {
+                    "type": "string",
+                    "description": "Colour of plated geometry."
+                },
+                "non_plated_color": {
+                    "type": "string",
+                    "description": "Colour of non-plated geometry."
+                },
+                "opacity": {
+                    "type": "number",
+                    "description": "Opacity from 0 to 1."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A circular or slotted drill overlay style (`drills`, `slots`)."
+        },
+        "ArtworkHlrStyle": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Draw the projection."
+                },
+                "color": {
+                    "type": "string",
+                    "description": "Line colour, CSS syntax."
+                },
+                "line_width_mm": {
+                    "type": "number",
+                    "description": "Stroke width in millimetres."
+                },
+                "opacity": {
+                    "type": "number",
+                    "description": "Opacity from 0 to 1."
+                },
+                "include_visible": {
+                    "type": "boolean",
+                    "description": "Include the visible-internal-edge (detail) geometry."
+                },
+                "include_outline": {
+                    "type": "boolean",
+                    "description": "Include the silhouette (outline) geometry."
+                },
+                "union_polygons": {
+                    "type": "boolean",
+                    "description": "Union outline polygons before rendering when Geometer supports it."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The Geometer-backed assembly projection style."
+        },
+        "ArtworkDnpStyle": {
+            "type": "object",
+            "properties": {
+                "color": {
+                    "type": "string",
+                    "description": "Marker colour, CSS syntax."
+                },
+                "hatch": {
+                    "type": "boolean",
+                    "description": "Draw a hatch fill when true."
+                },
+                "hatch_spacing_mm": {
+                    "type": "number",
+                    "description": "Hatch line spacing in millimetres."
+                },
+                "hatch_angle_deg": {
+                    "$ref": "#/$defs/Degrees",
+                    "description": "Hatch angle in degrees."
+                },
+                "hatch_line_width_mm": {
+                    "type": "number",
+                    "description": "Hatch stroke width in millimetres."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "A do-not-populate hatch override under `global.styles` or `views[].styles`:\neach field it sets replaces the top-level `dnp` value."
+        },
+        "ArtworkAssemblyDesignatorStyle": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Draw the designators."
+                },
+                "color": {
+                    "type": "string",
+                    "description": "Text colour, CSS syntax."
+                },
+                "box_fill_ratio": {
+                    "type": "number",
+                    "description": "Fraction of the component bounds used by the fitted text."
+                },
+                "font_weight": {
+                    "type": "string",
+                    "description": "CSS font weight of the designator text."
+                },
+                "min_font_size_mm": {
+                    "type": "number",
+                    "description": "Smallest fitted font size in millimetres."
+                },
+                "max_font_size_mm": {
+                    "type": "number",
+                    "description": "Largest fitted font size in millimetres."
+                },
+                "rotation_aspect_threshold": {
+                    "type": "number",
+                    "description": "Rotate the text when the fitted bounds are taller than this height/width ratio."
+                },
+                "rotation_direction": {
+                    "type": "string",
+                    "description": "Designator rotation direction when the bounds are tall (`ccw` or `cw`)."
+                },
+                "callout": {
+                    "type": "boolean",
+                    "description": "Place the designator outside the body region with a leader line, at\n`min_font_size_mm`, instead of fitting it inside. Testpoint views set it:\na 1 mm test pad has no room for a readable label."
+                },
+                "opacity": {
+                    "type": "number",
+                    "description": "Opacity from 0 to 1."
+                },
+                "selector_overrides": {
+                    "$ref": "#/$defs/RecordArtworkSelectorOverride",
+                    "description": "Per-selector overrides merged over this style; the keys are designator\nselectors as written in the file, for example `*` or `TP*`, and each value\nis the override that applies to the designators the selector matches.\nOrdered by key in code point order."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The fitted assembly designator style."
+        },
+        "ArtworkPin1MarkerStyle": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Draw the markers."
+                },
+                "color": {
+                    "type": "string",
+                    "description": "Marker colour, CSS syntax."
+                },
+                "dot_diameter_mm": {
+                    "type": "number",
+                    "description": "Fixed marker dot diameter in millimetres."
+                },
+                "pad_diameter_ratio": {
+                    "type": "number",
+                    "description": "Marker diameter as a ratio of the selected pad size."
+                },
+                "min_dot_diameter_mm": {
+                    "type": "number",
+                    "description": "Smallest marker dot diameter in millimetres."
+                },
+                "max_dot_diameter_mm": {
+                    "type": "number",
+                    "description": "Largest marker dot diameter in millimetres."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The pin-1 marker style."
+        },
+        "ArtworkComponentSide": {
+            "type": "string",
+            "enum": [
+                "top",
+                "bottom"
+            ],
+            "description": "The side a component override forces, `top`/`bottom` exactly as the config\nfile spells it (KiCad's own spelling for a front/back side)."
+        },
+        "ArtworkOutlineStyle": {
+            "type": "string",
+            "enum": [
+                "solid",
+                "dashed"
+            ],
+            "description": "How a board cutout's outline is stroked."
+        },
+        "RecordArtworkSelectorOverride": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "$ref": "#/$defs/ArtworkSelectorOverride"
+            }
+        },
+        "ArtworkSelectorOverride": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Draw the designators the selector matches."
+                }
+            },
+            "required": [
+                "enabled"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One `selector_overrides` entry: whether matching designators are drawn."
+        }
+    }
+}

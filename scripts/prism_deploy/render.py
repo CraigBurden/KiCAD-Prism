@@ -8,6 +8,7 @@ Docker daemon, and it is the reason this module holds no I/O helpers.
 from __future__ import annotations
 
 import json
+import re
 import secrets
 
 from . import schemes
@@ -17,12 +18,22 @@ from .schemes import (
 )
 
 CADDY_IMAGE_TAG = "kicad-prism-caddy-dns:2"
+
+# Operator-owned Caddy sites. The generated Caddyfile imports every *.caddy
+# file here, so a second site survives re-running the installer.
+CADDY_SITES_DIR = "sites"
+CADDY_SITES_MOUNT = "/etc/caddy/sites"
+
+# Services besides the backend that read the deployment env file wholesale.
+WORKER_SERVICES = ("catalog-worker", "prism-worker")
+GENERATED_ENV = "generated/.env"
 TAILSCALE_IMAGE = "tailscale/tailscale:stable"
 
 SECRET_KEYS = frozenset(
     {"POSTGRES_PASSWORD", "SESSION_SECRET", "OIDC_CLIENT_SECRET", "TS_AUTHKEY"}
 )
 REDACTION = "<redacted>"
+_SECRET_NAME = re.compile(r"^[A-Z][A-Z0-9_]*(TOKEN|SECRET|PASSWORD|_KEY)$")
 
 
 def generate_secret(length: int = 48) -> str:
@@ -68,8 +79,11 @@ def redact(content: str, answers: dict) -> str:
 
     lines = []
     for line in content.split("\n"):
-        key, separator, _ = line.partition("=")
-        if separator and key.strip() in keys:
+        key, separator, value = line.partition("=")
+        # Values kept from an earlier .env (tokens, root keys) are not answers,
+        # so the value pass cannot know them; their names give them away.
+        named_secret = bool(value.strip()) and _SECRET_NAME.search(key.strip()) is not None
+        if separator and (key.strip() in keys or named_secret):
             lines.append(f"{key}={REDACTION}")
         else:
             lines.append(line)
@@ -142,22 +156,88 @@ def normalise(answers: dict) -> dict:
     return result
 
 
-def render_env(example: str, answers: dict) -> str:
+_ASSIGNMENT = re.compile(r"^(# ?)?([A-Z][A-Z0-9_]*)=(.*)$")
+
+
+def template_defaults(example: str) -> dict[str, str]:
+    """The uncommented assignments in .env.example: what a key gets by default."""
+    defaults: dict[str, str] = {}
+    for raw in example.replace("\r\n", "\n").split("\n"):
+        match = _ASSIGNMENT.match(raw.strip())
+        if match and not match.group(1):
+            defaults.setdefault(match.group(2), match.group(3))
+    return defaults
+
+
+def _scheme_keys() -> set[str]:
+    """Keys only one scheme's answers set; a leftover from another is dropped."""
+    keys = {"TS_AUTHKEY", "PRISM_CADDY_IMAGE"}
+    for provider in DNS_PROVIDERS.values():
+        keys.add(provider.env_var)
+        keys.update(companion.key for companion in provider.companions)
+    return keys
+
+
+def carried_values(
+    example: str,
+    answers: dict,
+    existing: dict[str, str],
+    previous_sizing: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Values from an earlier .env that a re-run keeps instead of overwriting.
+
+    Answers win for the settings the installer asks about; the interview
+    already offers the earlier values as defaults. A sizing setting keeps the
+    earlier value only when an operator changed it: it differs from what the
+    installer wrote last time (``previous_sizing``, from the plan), or, for a
+    deployment without that record, from the template default and every
+    preset. Everything else the operator set -- tokens, root keys, allowlists,
+    tuned limits -- is kept, so a re-run never silently resets it.
+    """
+    sizing = SIZINGS[answers["sizing"]].values
+    owned = env_values(answers)
+    defaults = template_defaults(example)
+    scheme_keys = _scheme_keys()
+    previous_sizing = previous_sizing or {}
+    kept: dict[str, str] = {}
+    for key, value in existing.items():
+        if key in scheme_keys:
+            continue
+        if key in sizing:
+            if key in previous_sizing:
+                written_by_installer = value == previous_sizing[key]
+            else:
+                written_by_installer = value == defaults.get(key) or any(
+                    value == preset.values.get(key) for preset in SIZINGS.values()
+                )
+            if not written_by_installer:
+                kept[key] = value
+        elif key not in owned and value != defaults.get(key):
+            kept[key] = value
+    return kept
+
+
+def render_env(example: str, answers: dict, carried: dict[str, str] | None = None) -> str:
     """Rewrite .env.example in place, preserving its comments and ordering.
 
     Keys the operator did not set keep the template's documented defaults, so
     the generated file stays readable and reviewable rather than becoming a
-    bare list of assignments.
+    bare list of assignments. A key the template documents only as a comment
+    (``# KEY=...``) is written in that place. ``carried`` holds values kept
+    from an earlier .env (``carried_values``) and wins over the presets.
     """
-    values = env_values(answers)
+    values = {**env_values(answers), **(carried or {})}
     pending = dict(values)
     lines: list[str] = []
+    template = example.replace("\r\n", "\n").split("\n")
+    assigned = set(template_defaults(example))
 
-    for raw in example.replace("\r\n", "\n").split("\n"):
-        stripped = raw.strip()
-        if stripped and not stripped.startswith("#") and "=" in raw:
-            key = raw.split("=", 1)[0].strip()
-            if key in pending:
+    for raw in template:
+        match = _ASSIGNMENT.match(raw.strip())
+        if match:
+            commented, key = match.group(1), match.group(2)
+            # A commented example stands in only for a key with no live line.
+            if key in pending and (not commented or key not in assigned):
                 lines.append(f"{key}={pending.pop(key)}")
                 continue
         lines.append(raw)
@@ -190,6 +270,9 @@ def env_values(answers: dict) -> dict[str, str]:
         "CORS_ORIGINS_STR": answers["cors_origins"],
         "POSTGRES_PASSWORD": answers["postgres_password"],
         "PRISM_HTTP_PORT": answers["http_port"],
+        # docker-compose.yml forwards this file to the containers; --env-file
+        # alone only fills its placeholders.
+        "PRISM_ENV_FILE": GENERATED_ENV,
     }
     if not answers.get("auth_enabled", True):
         # Every request is served as this role. viewer keeps an open evaluation
@@ -219,7 +302,10 @@ def render_caddyfile(answers: dict) -> str | None:
     hostname = answers["hostname"]
     header = (
         "# Generated by scripts/prism_deploy. Edits are overwritten on re-run.\n"
+        f"# Put further sites in {CADDY_SITES_DIR}/<name>.caddy instead. They are imported\n"
+        "# first, in name order, so the first file may open with a global options block.\n"
         f"# Scheme: {scheme}\n\n"
+        f"import {CADDY_SITES_MOUNT}/*.caddy\n\n"
     )
 
     if scheme == INTERNAL_CA:
@@ -238,13 +324,28 @@ def render_caddyfile(answers: dict) -> str | None:
         else:
             tls_block = ""
 
+    return header + caddy_site(hostname, tls_block, forwarded_proto(scheme))
+
+
+def forwarded_proto(scheme: str) -> str:
+    """What the proxy tells Prism the client scheme was.
+
+    Behind a supplied certificate Caddy may sit behind another hop and cannot
+    infer https from the request, so internal-ca pins it.
+    """
+    return "https" if scheme == INTERNAL_CA else "{scheme}"
+
+
+def caddy_site(hostname: str, tls_block: str, proto: str) -> str:
+    """The one Caddy site block every Caddyfile is rendered from.
+
+    The installer output and the committed ``deploy/`` and ``deploy/release/``
+    templates (``static_caddyfiles``) both call this, so they cannot drift.
+    """
     if tls_block:
         tls_block += "\n"
-
-    forwarded_proto = "https" if scheme == INTERNAL_CA else "{scheme}"
-
     return (
-        f"{header}{hostname} {{\n"
+        f"{hostname} {{\n"
         f"{tls_block}"
         "\tencode gzip zstd\n"
         "\n"
@@ -256,7 +357,7 @@ def render_caddyfile(answers: dict) -> str | None:
         "\treverse_proxy frontend:80 {\n"
         "\t\theader_up Host {host}\n"
         "\t\theader_up X-Real-IP {remote_host}\n"
-        f"\t\theader_up X-Forwarded-Proto {forwarded_proto}\n"
+        f"\t\theader_up X-Forwarded-Proto {proto}\n"
         "\n"
         "\t\ttransport http {\n"
         "\t\t\tread_timeout 300s\n"
@@ -293,6 +394,14 @@ def render_compose(answers: dict) -> str:
     """
     port = answers["http_port"]
     bind = answers.get("bind_address", "127.0.0.1")
+    # docker-compose.yml reads ${PRISM_ENV_FILE:-.env}. Pinning it here as well
+    # keeps every setting reaching the containers even if the generated .env
+    # loses that line, e.g. when it is rebuilt by hand from .env.example.
+    env_file = [
+        "    env_file: !override",
+        f"      - path: {GENERATED_ENV}",
+        "        required: true",
+    ]
     blocks = [
         "# Generated by scripts/prism_deploy. Edits are overwritten on re-run.",
         f"# Scheme: {answers['scheme']}",
@@ -301,7 +410,12 @@ def render_compose(answers: dict) -> str:
         "  backend:",
         "    ports: !override",
         '      - "127.0.0.1:8000:8000"',
+        *env_file,
         "",
+    ]
+    for service in WORKER_SERVICES:
+        blocks += [f"  {service}:", *env_file, ""]
+    blocks += [
         "  frontend:",
         "    ports: !override",
         f'      - "{bind}:{port}:80"',
@@ -319,6 +433,7 @@ def render_compose(answers: dict) -> str:
         volumes = [
             "    volumes: !override",
             "      - ./generated/Caddyfile:/etc/caddy/Caddyfile:ro",
+            f"      - ./{CADDY_SITES_DIR}:{CADDY_SITES_MOUNT}:ro",
         ]
         if answers["scheme"] == INTERNAL_CA:
             volumes.append(f"      - {answers['certificate_dir']}:/certs:ro")
@@ -391,6 +506,8 @@ def render_plan(answers: dict) -> str:
         for key, value in answers.items()
     }
     redacted.pop("extra_provider_env", None)
+    # What the preset wrote, so a re-run can tell an operator's change from it.
+    redacted["sizing_values"] = SIZINGS[answers["sizing"]].values
     return json.dumps(redacted, indent=2, sort_keys=True) + "\n"
 
 
@@ -629,14 +746,17 @@ def _backup_section() -> list[str]:
         "- `data/projects` and `data/ssh`",
         "- `generated/.env`",
         "- the `caddy_data` volume, which holds issued certificates",
+        "- `data/secrets` (Release Studio signing key), `generated/` and `sites/`",
+        "",
+        "`python3 scripts/prism_backup.py create` captures all of them.",
         "",
     ]
 
 
-def render_all(example: str, answers: dict) -> dict[str, str]:
+def render_all(example: str, answers: dict, carried: dict[str, str] | None = None) -> dict[str, str]:
     """Every artifact for this deployment, keyed by path relative to the root."""
     files = {
-        "generated/.env": render_env(example, answers),
+        "generated/.env": render_env(example, answers, carried),
         "generated/docker-compose.generated.yml": render_compose(answers),
         "generated/deploy-plan.json": render_plan(answers),
         "generated/NEXT_STEPS.md": render_next_steps(answers),

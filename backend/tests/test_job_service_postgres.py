@@ -6,7 +6,9 @@ import tempfile
 import uuid
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from app.services import job_service
 from app.services.job_service import JobService
 from app.services.postgres_database import database
 
@@ -31,10 +33,6 @@ class JobServicePostgresTests(unittest.TestCase):
         with database.connection() as conn:
             conn.execute("SET search_path TO workspace, public")
             conn.execute(
-                "DELETE FROM ws_webgpu_ready WHERE project_id LIKE %s",
-                (f"%{self.suffix}%",),
-            )
-            conn.execute(
                 "DELETE FROM ws_artifacts WHERE kind = %s OR source_job_id = ANY(%s)",
                 (self.kind, self.job_ids),
             )
@@ -43,10 +41,22 @@ class JobServicePostgresTests(unittest.TestCase):
                 (self.job_ids,),
             )
             conn.execute(
+                "DELETE FROM ws_events WHERE topic = ANY(%s)",
+                ([f"job:{job_id}" for job_id in self.job_ids],),
+            )
+            conn.execute(
                 "DELETE FROM ws_job_resource_slots WHERE resource_name = %s",
                 (self.resource,),
             )
             conn.commit()
+
+    def _events(self, job_id: str):
+        with database.connection() as conn:
+            conn.execute("SET search_path TO workspace, public")
+            return conn.execute(
+                "SELECT * FROM ws_events WHERE topic = %s ORDER BY id",
+                (f"job:{job_id}",),
+            ).fetchall()
 
     def enqueue(self, artifact_key: str, **kwargs):
         job = self.service.enqueue(
@@ -96,6 +106,19 @@ class JobServicePostgresTests(unittest.TestCase):
             )
             conn.commit()
 
+    def test_enqueued_job_matches_the_release_studio_response_model(self) -> None:
+        """``create_candidate`` answers this row, so the typed model must keep it byte-for-byte."""
+
+        from fastapi.encoders import jsonable_encoder
+
+        from app.api import release_studio_models as models
+
+        job = self.enqueue("model-check")
+        self.assertEqual(
+            models.JobRecord.model_validate(job).model_dump(mode="json"),
+            jsonable_encoder(job),
+        )
+
     def test_active_dedup_includes_cancellation(self) -> None:
         first = self.enqueue("same-artifact")
         duplicate = self.enqueue("same-artifact")
@@ -121,6 +144,47 @@ class JobServicePostgresTests(unittest.TestCase):
         replacement = self.enqueue("same-artifact")
         self.assertNotEqual(first["job_id"], replacement["job_id"])
 
+    def test_a_completed_job_appends_job_finished_after_the_commit(self) -> None:
+        job = self.enqueue("finished")
+        claim = self.service.claim("worker-a", worker_pool=self.pool)
+        self.assertTrue(
+            self.service.complete(job["job_id"], "worker-a", int(claim["fence"]))
+        )
+
+        finished = [row for row in self._events(job["job_id"]) if row["kind"] == "job.finished"]
+        self.assertEqual(len(finished), 1)
+        self.assertEqual(
+            finished[0]["payload"],
+            {"jobId": job["job_id"], "jobKind": self.kind, "state": "completed"},
+        )
+
+    def test_progress_events_hold_one_per_job_per_two_seconds(self) -> None:
+        job = self.enqueue("progress")
+        claim = self.service.claim("worker-a", worker_pool=self.pool)
+        job_id, fence = job["job_id"], int(claim["fence"])
+
+        def progress(percent: float) -> None:
+            self.assertTrue(
+                self.service.progress(job_id, "worker-a", fence, percent=percent)
+            )
+
+        # Two moves inside one window record once; the next window records the
+        # new value, and repeating it does not record again.
+        with mock.patch.object(job_service, "_monotonic", return_value=100.0):
+            progress(10)
+            progress(20)
+        with mock.patch.object(job_service, "_monotonic", return_value=102.5):
+            progress(30)
+        with mock.patch.object(job_service, "_monotonic", return_value=105.0):
+            progress(30)
+
+        recorded = [
+            row["payload"]["progress"]
+            for row in self._events(job_id)
+            if row["kind"] == "job.progress"
+        ]
+        self.assertEqual(recorded, [10.0, 30.0])
+
     def test_expired_cancel_requested_is_finalized_and_leaves_dedup(self) -> None:
         first = self.enqueue("cancel-expire")
         claimed = self.service.claim("worker-a", worker_pool=self.pool)
@@ -135,9 +199,35 @@ class JobServicePostgresTests(unittest.TestCase):
         finalized = self.service.get(first["job_id"])
         self.assertEqual(finalized["status"], "cancelled")
 
+        finished = [row for row in self._events(first["job_id"]) if row["kind"] == "job.finished"]
+        self.assertEqual([row["payload"]["state"] for row in finished], ["cancelled"])
+
         replacement = self.enqueue("cancel-expire")
         self.assertFalse(replacement.get("deduplicated"))
         self.assertNotEqual(first["job_id"], replacement["job_id"])
+
+    def test_active_jobs_without_a_lease_are_ended_and_leave_dedup(self) -> None:
+        running = self.enqueue("unleased-running")
+        cancelling = self.enqueue("unleased-cancelling")
+        with database.connection() as conn:
+            conn.execute("SET search_path TO workspace, public")
+            for job_id, status in ((running["job_id"], "running"), (cancelling["job_id"], "cancel_requested")):
+                conn.execute(
+                    "UPDATE ws_jobs SET status = %s, lease_expires_at = NULL WHERE id = %s",
+                    (status, job_id),
+                )
+            conn.commit()
+
+        self.assertIsNone(self.service.claim("worker-a", worker_pool=self.pool))
+        failed = self.service.get(running["job_id"])
+        self.assertEqual((failed["status"], failed["error_code"]), ("failed", "orphaned"))
+        self.assertEqual(self.service.get(cancelling["job_id"])["status"], "cancelled")
+        for job_id, state in ((running["job_id"], "failed"), (cancelling["job_id"], "cancelled")):
+            finished = [row for row in self._events(job_id) if row["kind"] == "job.finished"]
+            self.assertEqual([row["payload"]["state"] for row in finished], [state])
+
+        replacement = self.enqueue("unleased-running")
+        self.assertNotEqual(running["job_id"], replacement["job_id"])
 
     def test_resource_slots_and_reclaim_reject_stale_fence(self) -> None:
         self.service.configure_resource_slots({self.resource: 1})
@@ -403,6 +493,68 @@ class JobServicePostgresTests(unittest.TestCase):
         self.assertEqual(outcome, "cancelled")
         self.assertEqual(self.service.get(queued["job_id"])["status"], "cancelled")
 
+    def test_a_successful_retry_clears_the_failed_attempt_s_error(self) -> None:
+        queued = self.enqueue("retry-clears-error")
+        claim = self.service.claim("worker-a", worker_pool=self.pool)
+        outcome = self.service.fail(
+            queued["job_id"],
+            "worker-a",
+            int(claim["fence"]),
+            error_code="output-write-failed",
+            error_message="-o's directory does not exist",
+            transient=True,
+            retry_after_seconds=0,
+        )
+        self.assertEqual(outcome, "retry_wait")
+        self.assertEqual(self.service.get(queued["job_id"])["error_code"], "output-write-failed")
+        retry = self.service.claim("worker-a", worker_pool=self.pool)
+        self.assertEqual(str(retry["job_id"]), queued["job_id"])
+        self.assertTrue(self.service.complete(queued["job_id"], "worker-a", int(retry["fence"]), message="done"))
+        job = self.service.get(queued["job_id"])
+        self.assertEqual(
+            (job["status"], job["percent"], job["error_code"], job["error_message"]),
+            ("completed", 100, "", ""),
+        )
+
+    def _artifact(self, name: str, body: bytes, readiness: str = "partial") -> dict:
+        path, digest, size = self.write_artifact_file(name, body)
+        return {"kind": self.kind, "artifact_key": "ended", "digest": digest, "object_path": path,
+                "media_type": "application/json", "size_bytes": size, "readiness": readiness}
+
+    def test_an_ended_job_result_is_replaced_once_and_never_while_running(self) -> None:
+        queued = self.enqueue("ended")
+        claim = self.service.claim("worker-a", worker_pool=self.pool)
+        fence = int(claim["fence"])
+        partial = self._artifact("partial.json", b"partial")
+        self.assertTrue(self.service.publish_partial_artifact(
+            queued["job_id"], "worker-a", fence, partial, stage="s", message="m", percent=50,
+            details={"result_version": 1},
+        ))
+        relabel = self._artifact("failed.json", b"failed")
+        # Running: an end hook must not overwrite a live attempt's result.
+        self.assertFalse(self.service.publish_ended_result(
+            queued["job_id"], relabel, expected_digest=partial["digest"], details={"result_version": 2}))
+        self.assertEqual(self.service.ended_job_ids(self.kind, result_metadata={"result_version": 1}), [])
+        self.service.fail(queued["job_id"], "worker-a", fence, error_code="x", error_message="x")
+        self.assertEqual(self.service.ended_job_ids(self.kind, result_metadata={"result_version": 1}),
+                         [queued["job_id"]])
+
+        self.assertTrue(self.service.publish_ended_result(
+            queued["job_id"], relabel, expected_digest=partial["digest"], details={"result_version": 2}))
+        self.assertFalse(self.service.publish_ended_result(
+            queued["job_id"], relabel, expected_digest=partial["digest"], details={"result_version": 2}))
+        job = self.service.get(queued["job_id"])
+        self.assertEqual((job["status"], job["result_digest"], job["result_metadata"]),
+                         ("failed", relabel["digest"], {"result_version": 2}))
+        self.assertEqual(self.service.ended_job_ids(self.kind, result_metadata={"result_version": 1}), [])
+        with database.connection() as conn:
+            conn.execute("SET search_path TO workspace, public")
+            row = conn.execute(
+                "SELECT source_job_id, source_fence FROM ws_artifacts WHERE kind = %s AND digest = %s",
+                (self.kind, relabel["digest"]),
+            ).fetchone()
+        self.assertEqual((str(row["source_job_id"]), int(row["source_fence"])), (queued["job_id"], fence))
+
     def test_completed_sidecars_share_the_authoritative_fence(self) -> None:
         queued = self.enqueue("sidecar-bundle")
         claim = self.service.claim("worker-a", worker_pool=self.pool)
@@ -457,174 +609,6 @@ class JobServicePostgresTests(unittest.TestCase):
         )
         self.assertEqual(resolved_primary["digest"], primary_digest)
         self.assertEqual(resolved_sidecar["kind"], "design_compare_sidecar")
-
-    def test_webgpu_completion_publishes_o1_readiness_metadata(self) -> None:
-        anchor_suffix = ":anchor:0123456789abcdef"
-        selector = f"commit:{self.suffix}{anchor_suffix}"
-        project_id = f"project-{self.suffix}"
-        queued = self.service.enqueue(
-            "webgpu_3d",
-            {"test": True},
-            worker_pool=self.pool,
-            artifact_key=f"webgpu-{self.suffix}",
-        )
-        self.job_ids.append(str(queued["job_id"]))
-        claim = self.service.claim("worker-a", worker_pool=self.pool)
-        details = {
-            "schema": "prism.webgpu_3d_status_a0",
-            "project_id": project_id,
-            "status_selector": selector,
-            "source_fingerprint": "source-a",
-            "sourceRevisionKey": "source-a",
-            "build_fingerprint": "build-a",
-            "bundle_url": "/bundle.json",
-            "status": "ready",
-            "available": True,
-            "commit": "a" * 40,
-        }
-        path, digest, size = self.write_artifact_file("bundle.json", b"{}")
-        artifact = {
-            "kind": "webgpu_3d",
-            "artifact_key": f"webgpu-{self.suffix}",
-            "digest": digest,
-            "object_path": path,
-            "media_type": "application/json",
-            "size_bytes": size,
-            "schema_version": "test-v1",
-            "generator_version": "test",
-            "readiness": "ready",
-        }
-        self.assertTrue(
-            self.service.complete_artifact(
-                queued["job_id"],
-                "worker-a",
-                int(claim["fence"]),
-                artifact,
-                details=details,
-            )
-        )
-        ready = self.service.get_webgpu_ready(project_id, selector, "build-a")
-        self.assertIsNotNone(ready)
-        self.assertTrue(ready["available"])
-        prefixed = self.service.find_webgpu_ready_by_commit_prefix(
-            project_id,
-            "build-a",
-            "a" * 12,
-            selector_suffix=anchor_suffix,
-        )
-        self.assertEqual(prefixed["commit"], "a" * 40)
-        self.assertIsNone(
-            self.service.find_webgpu_ready_by_commit_prefix(
-                project_id,
-                "build-a",
-                "a" * 12,
-                selector_suffix=":anchor:fedcba9876543210",
-            )
-        )
-
-    def test_webgpu_staged_upsert_exposes_building_status_via_fast_read(self) -> None:
-        selector = f"workspace:staged-{self.suffix}"
-        project_id = f"project-staged-{self.suffix}"
-        queued = self.service.enqueue(
-            "webgpu_3d",
-            {"test": True},
-            worker_pool=self.pool,
-            artifact_key=f"webgpu-staged-{self.suffix}",
-        )
-        self.job_ids.append(str(queued["job_id"]))
-        claim = self.service.claim("worker-a", worker_pool=self.pool)
-        readiness = {
-            "schema": "prism.visualizer_readiness.a0",
-            "stage": "board-ready",
-            "progress": 35,
-            "available_assets": ["board"],
-            "revision": "rev-partial",
-        }
-        self.service.upsert_webgpu_ready_status(
-            job_id=str(queued["job_id"]),
-            fence=int(claim["fence"]),
-            details={
-                "schema": "prism.webgpu_3d_status_a0",
-                "project_id": project_id,
-                "status_selector": selector,
-                "source_fingerprint": "source-partial",
-                "sourceRevisionKey": "source-partial",
-                "build_fingerprint": "build-a",
-                "bundle_url": "/partial/bundle.json",
-                "status": "building",
-                "available": True,
-                "readiness": readiness,
-            },
-        )
-        ready = self.service.get_webgpu_ready(project_id, selector, "build-a")
-        self.assertIsNotNone(ready)
-        self.assertEqual(ready["status"], "building")
-        self.assertTrue(ready["available"])
-        self.assertEqual(ready["readiness"]["stage"], "board-ready")
-
-    def test_webgpu_ready_upsert_respects_invalidation_and_recency(self) -> None:
-        selector = f"commit:webgpu-race-{self.suffix}"
-        project_id = f"project-race-{self.suffix}"
-        older = self.service.enqueue(
-            "webgpu_3d",
-            {"order": 1},
-            worker_pool=self.pool,
-            artifact_key=f"webgpu-old-{self.suffix}",
-        )
-        newer = self.service.enqueue(
-            "webgpu_3d",
-            {"order": 2},
-            worker_pool=self.pool,
-            artifact_key=f"webgpu-new-{self.suffix}",
-        )
-        self.job_ids.extend([str(older["job_id"]), str(newer["job_id"])])
-        older_claim = self.service.claim("worker-a", worker_pool=self.pool)
-        newer_claim = self.service.claim("worker-b", worker_pool=self.pool)
-        self.assertEqual(older["job_id"], older_claim["job_id"])
-        self.assertEqual(newer["job_id"], newer_claim["job_id"])
-
-        def publish(job_id: str, worker_id: str, fence: int, label: str) -> None:
-            path, digest, size = self.write_artifact_file(
-                f"{label}.json",
-                label.encode(),
-            )
-            self.assertTrue(
-                self.service.complete_artifact(
-                    job_id,
-                    worker_id,
-                    fence,
-                    {
-                        "kind": "webgpu_3d",
-                        "artifact_key": f"webgpu-{label}-{self.suffix}",
-                        "digest": digest,
-                        "object_path": path,
-                        "media_type": "application/json",
-                        "size_bytes": size,
-                        "schema_version": "test-v1",
-                        "generator_version": "test",
-                        "readiness": "ready",
-                    },
-                    details={
-                        "project_id": project_id,
-                        "status_selector": selector,
-                        "sourceRevisionKey": label,
-                        "build_fingerprint": "build-race",
-                        "bundle_url": f"/{label}.json",
-                        "status": "ready",
-                        "available": True,
-                        "commit": "b" * 40,
-                    },
-                )
-            )
-
-        publish(newer["job_id"], "worker-b", int(newer_claim["fence"]), "newer")
-        self.assertTrue(
-            self.service.invalidate_webgpu_ready(project_id, selector, "build-race")
-        )
-        publish(older["job_id"], "worker-a", int(older_claim["fence"]), "older")
-        self.assertIsNone(
-            self.service.get_webgpu_ready(project_id, selector, "build-race")
-        )
 
 
 if __name__ == "__main__":

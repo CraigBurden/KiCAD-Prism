@@ -7,21 +7,27 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { fetchApi, fetchJson, readApiError } from "@/lib/api";
+import { bulkAcceptProposals, importProposalsCsv, importProposalsCsvUrl, saveProposalDrafts } from "./catalog-client";
+import {
+  blockingImportFindings, customImportProblems, importMetadataProblems, isFieldRequired, isImportFieldRequired,
+} from "@/lib/catalog-field-rules";
 import { PermissionHint } from "@/components/ui/permission-hint";
-import { useHotkeys } from "@/hooks/use-hotkeys";
 import { cn } from "@/lib/utils";
 import type {
-  BulkAcceptResult, ImportProposalDraft, ProjectComponentImportProposal,
+  CatalogMetadataField, ImportMetadataOverrides, ImportProposalDraft, ProjectComponentImportProposal,
 } from "@/types/catalog";
 import { LibraryAssetLinkPicker } from "./library-asset-link-picker";
-import { useEditHistory } from "./use-edit-history";
+import { acceptExtraFields, scannedExtraFields } from "./library-import-custom-fields";
+import { useStagedGridEdits } from "./use-staged-grid-edits";
 
 interface LibraryImportRemediationGridProps {
   sessionId: string;
   proposals: ProjectComponentImportProposal[];
+  /** Active custom metadata fields; each gets an editable column (D43). */
+  customFields?: readonly CatalogMetadataField[];
   canWrite: boolean;
   onShowDetailView: () => void;
   onRefresh: () => Promise<void> | void;
@@ -39,22 +45,48 @@ interface ColumnDef {
   key: EditableField;
   label: string;
   width: number;
-  required: boolean;
 }
 
+/** A grid column: a remediable built-in field, or a custom field (keyed by its storage key). */
+type GridColumn =
+  | (ColumnDef & { kind: "builtin"; required: boolean })
+  | { kind: "custom"; key: string; label: string; width: number; required: boolean };
+
+// Which of these are required, and what a valid datasheet is, comes from the
+// catalog field rules; the server applies the same rules when accepting.
 const COLUMNS: ColumnDef[] = [
-  { key: "value", label: "Value", width: 130, required: true },
-  { key: "manufacturer", label: "Manufacturer", width: 150, required: true },
-  { key: "manufacturer_part_number", label: "MPN", width: 170, required: true },
-  { key: "description", label: "Description", width: 240, required: true },
-  { key: "datasheet", label: "Datasheet", width: 220, required: true },
-  { key: "package_name", label: "Package", width: 170, required: false },
+  { key: "value", label: "Value", width: 130 },
+  { key: "manufacturer", label: "Manufacturer", width: 150 },
+  { key: "manufacturer_part_number", label: "MPN", width: 170 },
+  { key: "description", label: "Description", width: 240 },
+  { key: "datasheet", label: "Datasheet", width: 220 },
+  { key: "package_name", label: "Package", width: 170 },
 ];
 
-/** Local edits keyed by proposal id. */
+const BUILTIN_COLUMNS: GridColumn[] = COLUMNS.map((column) => ({
+  ...column, kind: "builtin", required: isImportFieldRequired(column.key),
+}));
+
+const NO_CUSTOM_FIELDS: readonly CatalogMetadataField[] = [];
+
+function gridColumns(customFields: readonly CatalogMetadataField[]): GridColumn[] {
+  return [
+    ...BUILTIN_COLUMNS,
+    ...customFields.map((field): GridColumn => ({
+      kind: "custom", key: field.storage_key, label: field.label || field.key, width: 160,
+      required: isFieldRequired(field),
+    })),
+  ];
+}
+
+/** Local edits keyed by proposal id; `extraFields` holds edited custom values by storage key. */
 export type RowEdits = Record<
   string,
-  { metadata: Partial<Record<EditableField, string>>; footprintAssetId?: string }
+  {
+    metadata: Partial<Record<EditableField, string>>;
+    extraFields?: Record<string, string>;
+    footprintAssetId?: string;
+  }
 >;
 
 function metadataValue(proposal: ProjectComponentImportProposal, field: EditableField): string {
@@ -80,6 +112,30 @@ function effectiveValue(
   return metadataValue(proposal, field);
 }
 
+/** Effective custom value: local edit wins, then a saved draft, then the symbol's own field. */
+function effectiveExtraValue(
+  proposal: ProjectComponentImportProposal,
+  storageKey: string,
+  edits: RowEdits
+): string {
+  const local = edits[proposal.id]?.extraFields?.[storageKey];
+  if (local !== undefined) return local;
+  const drafted = draftOf(proposal).metadata_overrides?.extra_fields?.[storageKey];
+  if (drafted !== undefined) return drafted;
+  return scannedExtraFields(proposal)[storageKey] ?? "";
+}
+
+/** Custom values edited locally or in a saved draft (local wins). */
+function editedExtraFields(proposal: ProjectComponentImportProposal, edits: RowEdits): Record<string, string> {
+  return { ...draftOf(proposal).metadata_overrides?.extra_fields, ...edits[proposal.id]?.extraFields };
+}
+
+function cellValue(proposal: ProjectComponentImportProposal, column: GridColumn, edits: RowEdits): string {
+  return column.kind === "builtin"
+    ? effectiveValue(proposal, column.key, edits)
+    : effectiveExtraValue(proposal, column.key, edits);
+}
+
 function effectiveFootprintLink(
   proposal: ProjectComponentImportProposal,
   edits: RowEdits
@@ -91,28 +147,6 @@ function effectiveFootprintLink(
 
 function hasOwnAsset(proposal: ProjectComponentImportProposal, assetType: string): boolean {
   return proposal.assets.some((asset) => asset.asset_type === assetType);
-}
-
-/**
- * Blocking findings the grid cannot fix.
- *
- * Metadata and conflict findings are edited away in the cells. An
- * "<asset_type>_not_resolved" finding means the extractor could not locate that
- * asset in the project, which is precisely what linking an existing catalog asset
- * answers - so a supplied link clears it. The backend applies the same rule when
- * accepting, and the two must agree or a row would read as ready and then fail.
- */
-function unresolvableFindings(
-  proposal: ProjectComponentImportProposal,
-  linkedAssetTypes: Set<string>
-) {
-  return proposal.findings.filter(
-    (finding) =>
-      finding.severity === "error" &&
-      !finding.code.startsWith("missing_metadata_") &&
-      !finding.code.startsWith("conflicting_") &&
-      !linkedAssetTypes.has(finding.code.replace(/_not_resolved$/, ""))
-  );
 }
 
 /**
@@ -176,37 +210,57 @@ export function groupProposals(
   });
 }
 
+/** A grouped row stands for one component, so an edit applies to every member. */
+function writeGroupCell(edits: RowEdits, group: ProposalGroup, column: GridColumn, value: string): RowEdits {
+  const next = { ...edits };
+  for (const member of group.members) {
+    const current = next[member.id];
+    next[member.id] = column.kind === "builtin"
+      ? { ...current, metadata: { ...current?.metadata, [column.key]: value } }
+      : { ...current, metadata: current?.metadata ?? {}, extraFields: { ...current?.extraFields, [column.key]: value } };
+  }
+  return next;
+}
+
 /** Every distinct problem across a group, since all its members get imported. */
-export function groupProblems(group: ProposalGroup, edits: RowEdits): string[] {
+export function groupProblems(
+  group: ProposalGroup,
+  edits: RowEdits,
+  customFields: readonly CatalogMetadataField[] = NO_CUSTOM_FIELDS
+): string[] {
   const problems = new Set<string>();
   for (const member of group.members) {
-    for (const problem of rowProblems(member, edits)) problems.add(problem);
+    for (const problem of rowProblems(member, edits, customFields)) problems.add(problem);
   }
   return [...problems];
 }
 
 export function rowProblems(
   proposal: ProjectComponentImportProposal,
-  edits: RowEdits
+  edits: RowEdits,
+  customFields: readonly CatalogMetadataField[] = NO_CUSTOM_FIELDS
 ): string[] {
-  const problems: string[] = [];
-  for (const column of COLUMNS) {
-    if (column.required && !effectiveValue(proposal, column.key, edits).trim()) {
-      problems.push(`${column.label} is required`);
-    }
-  }
-  const datasheet = effectiveValue(proposal, "datasheet", edits).trim();
-  if (datasheet && !/^https?:\/\//i.test(datasheet)) problems.push("Datasheet must be an HTTP(S) URL");
+  const values = Object.fromEntries(
+    COLUMNS.map((column) => [column.key, effectiveValue(proposal, column.key, edits)])
+  );
+  const extraValues = Object.fromEntries(
+    customFields.map((field) => [field.storage_key, effectiveExtraValue(proposal, field.storage_key, edits)])
+  );
+  // The server's order: built-in readiness first, then custom required fields.
+  const problems = [...importMetadataProblems(values), ...customImportProblems(customFields, extraValues)];
 
+  // An "<asset_type>_not_resolved" finding means the extractor could not locate
+  // that asset, which is precisely what linking an existing catalog asset
+  // answers - so a supplied link clears it, here and when the server accepts.
   const footprintLink = effectiveFootprintLink(proposal, edits);
-  const linkedAssetTypes = new Set(footprintLink ? ["footprint"] : []);
+  const linkedAssetTypes = footprintLink ? ["footprint"] : [];
 
   if (!hasOwnAsset(proposal, "symbol")) problems.push("No symbol was extracted");
   if (!hasOwnAsset(proposal, "footprint") && !footprintLink) {
     problems.push("Link an existing footprint or re-import with one");
   }
   problems.push(
-    ...unresolvableFindings(proposal, linkedAssetTypes).map((finding) => finding.message)
+    ...blockingImportFindings(proposal.findings, linkedAssetTypes).map((finding) => finding.message)
   );
   return problems;
 }
@@ -215,15 +269,24 @@ export function rowProblems(
 export function LibraryImportRemediationGrid({
   sessionId,
   proposals,
+  customFields = NO_CUSTOM_FIELDS,
   canWrite,
   onShowDetailView,
   onRefresh,
 }: LibraryImportRemediationGridProps) {
-  // Every cell edit, fill-down, and link change pushes the previous state here so a
-  // mis-aimed fill-down across 300 rows is one keystroke to undo. The three
-  // pieces move through one pure reducer (useEditHistory) so history can never
-  // duplicate or desync.
-  const { edits, undoStack, redoStack, commitEdits, replaceEdits, resetHistory, undo, redo } = useEditHistory();
+  const columns = useMemo(() => gridColumns(customFields), [customFields]);
+  // Every cell edit, fill-down, and link change is one undo step, so a
+  // mis-aimed fill-down across 300 rows is one keystroke to undo. Undo, redo,
+  // and save (mod+s) stay live while a cell is focused but stand down while a
+  // dialog such as the command palette is open. `saveDrafts` is declared
+  // below; the binding only calls it on a key press, after render.
+  const {
+    edits, canUndo, canRedo, commit: commitEdits, setCell: setGroupCell, fillDown: fillGroups,
+    replace: replaceEdits, reset: resetHistory, undo, redo,
+  } = useStagedGridEdits({
+    writeCell: writeGroupCell,
+    hotkeys: { enabled: canWrite, onSave: () => void saveDrafts() },
+  });
   const [rawSelected, setSelected] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [accepting, setAccepting] = useState(false);
@@ -245,9 +308,9 @@ export function LibraryImportRemediationGrid({
 
   const problemsByGroup = useMemo(() => {
     const map = new Map<string, string[]>();
-    for (const group of groups) map.set(group.key, groupProblems(group, edits));
+    for (const group of groups) map.set(group.key, groupProblems(group, edits, customFields));
     return map;
-  }, [edits, groups]);
+  }, [customFields, edits, groups]);
 
   const visibleRows = useMemo(() => {
     const term = filter.trim().toLowerCase();
@@ -256,13 +319,13 @@ export function LibraryImportRemediationGrid({
       if (!term) return true;
       const haystack = [
         ...group.references,
-        ...COLUMNS.map((column) => effectiveValue(group.representative, column.key, edits)),
+        ...columns.map((column) => cellValue(group.representative, column, edits)),
       ]
         .join(" ")
         .toLowerCase();
       return haystack.includes(term);
     });
-  }, [edits, filter, groups, onlyProblems, problemsByGroup]);
+  }, [columns, edits, filter, groups, onlyProblems, problemsByGroup]);
 
   const readyRows = useMemo(
     () => groups.filter((group) => (problemsByGroup.get(group.key)?.length ?? 0) === 0),
@@ -286,24 +349,6 @@ export function LibraryImportRemediationGrid({
     return live;
   }, [groups, rawSelected]);
 
-  /** Apply an edit through the history so it can be undone. */
-  /** A grouped row stands for one component, so an edit applies to every member. */
-  const setCell = useCallback(
-    (group: ProposalGroup, field: EditableField, value: string) => {
-      commitEdits((current) => {
-        const next = { ...current };
-        for (const member of group.members) {
-          next[member.id] = {
-            ...next[member.id],
-            metadata: { ...next[member.id]?.metadata, [field]: value },
-          };
-        }
-        return next;
-      });
-    },
-    [commitEdits]
-  );
-
   const setFootprintLink = useCallback(
     (group: ProposalGroup, assetId: string) => {
       commitEdits((current) => {
@@ -319,53 +364,44 @@ export function LibraryImportRemediationGrid({
 
   /** Copy the focused row's value down every selected row - the spreadsheet staple. */
   const fillDown = useCallback(
-    (source: ProposalGroup, field: EditableField) => {
-      const value = effectiveValue(source.representative, field, edits);
+    (source: ProposalGroup, column: GridColumn) => {
+      const value = cellValue(source.representative, column, edits);
       const targetGroups =
         selected.size > 0 ? visibleRows.filter((group) => selected.has(group.key)) : visibleRows;
-      commitEdits((current) => {
-        const next = { ...current };
-        for (const group of targetGroups) {
-          for (const member of group.members) {
-            next[member.id] = {
-              ...next[member.id],
-              metadata: { ...next[member.id]?.metadata, [field]: value },
-            };
-          }
-        }
-        return next;
-      });
-      toast.success(`Filled ${field.replace(/_/g, " ")} into ${targetGroups.length} rows`, {
+      fillGroups(targetGroups, column, value);
+      const name = column.kind === "builtin" ? column.key.replace(/_/g, " ") : column.label;
+      toast.success(`Filled ${name} into ${targetGroups.length} rows`, {
         description: "Press ⌘Z to undo",
       });
     },
-    [commitEdits, edits, selected, visibleRows]
+    [edits, fillGroups, selected, visibleRows]
   );
 
   const buildDrafts = useCallback(() => {
     const drafts: Record<string, ImportProposalDraft> = {};
+    const byId = new Map(proposals.map((proposal) => [proposal.id, proposal]));
     for (const [proposalId, edit] of Object.entries(edits)) {
       const draft: ImportProposalDraft = {};
-      if (edit.metadata && Object.keys(edit.metadata).length > 0) {
-        draft.metadata_overrides = edit.metadata as Record<string, string>;
+      const overrides: ImportMetadataOverrides = { ...edit.metadata };
+      if (edit.extraFields) {
+        // A saved draft is replaced whole, so keep the custom values drafted earlier.
+        const proposal = byId.get(proposalId);
+        overrides.extra_fields = proposal ? editedExtraFields(proposal, edits) : edit.extraFields;
       }
+      if (Object.keys(overrides).length > 0) draft.metadata_overrides = overrides;
       if (edit.footprintAssetId !== undefined) {
         draft.asset_links = edit.footprintAssetId ? { footprint: edit.footprintAssetId } : {};
       }
       drafts[proposalId] = draft;
     }
     return drafts;
-  }, [edits]);
+  }, [edits, proposals]);
 
   const saveDrafts = useCallback(async () => {
     if (dirtyCount === 0) return;
     setSaving(true);
     try {
-      await fetchJson<{ saved: number }>(
-        `/api/catalog/import-sessions/${sessionId}/proposals/drafts`,
-        { method: "PUT", body: JSON.stringify({ drafts: buildDrafts() }) },
-        "Failed to save import edits"
-      );
+      await saveProposalDrafts(sessionId, buildDrafts());
       resetHistory();
       // Saved edits are no longer pending, so a stale selection would leave the
       // "Import selected" count disagreeing with the checkboxes.
@@ -388,10 +424,12 @@ export function LibraryImportRemediationGrid({
         // resolves them to one component and records each reference as a usage
         // rather than creating a duplicate or an extra revision.
         const items = rows.flatMap((group) => group.members.map((proposal) => {
-          const metadata_overrides: Record<string, string> = {};
+          const metadata_overrides: ImportMetadataOverrides = {};
           for (const column of COLUMNS) {
             metadata_overrides[column.key] = effectiveValue(proposal, column.key, edits);
           }
+          const extraFields = acceptExtraFields(proposal, editedExtraFields(proposal, edits));
+          if (extraFields) metadata_overrides.extra_fields = extraFields;
           const footprintAssetId = effectiveFootprintLink(proposal, edits);
           return {
             proposal_id: proposal.id,
@@ -401,11 +439,7 @@ export function LibraryImportRemediationGrid({
           };
         }));
 
-        const result = await fetchJson<BulkAcceptResult>(
-          `/api/catalog/import-sessions/${sessionId}/proposals/bulk-accept`,
-          { method: "POST", body: JSON.stringify({ items }) },
-          "Failed to accept import rows"
-        );
+        const result = await bulkAcceptProposals(sessionId, items);
 
         replaceEdits((current) => {
           const next = { ...current };
@@ -451,7 +485,7 @@ export function LibraryImportRemediationGrid({
   );
 
   const exportCsv = useCallback(() => {
-    window.location.href = `/api/catalog/import-sessions/${sessionId}/proposals.csv`;
+    window.location.href = importProposalsCsvUrl(sessionId);
   }, [sessionId]);
 
   const importCsv = useCallback(
@@ -459,14 +493,7 @@ export function LibraryImportRemediationGrid({
       if (!file) return;
       setSaving(true);
       try {
-        const form = new FormData();
-        form.append("file", file, file.name);
-        const response = await fetchApi(
-          `/api/catalog/import-sessions/${sessionId}/proposals.csv`,
-          { method: "POST", body: form }
-        );
-        if (!response.ok) throw new Error(await readApiError(response, "Failed to import CSV"));
-        const result = (await response.json()) as { saved: number; skipped_unknown_rows: number };
+        const result = await importProposalsCsv(sessionId, file);
         replaceEdits(() => ({}));
         await onRefresh();
         toast.success(
@@ -481,19 +508,6 @@ export function LibraryImportRemediationGrid({
       }
     },
     [onRefresh, replaceEdits, sessionId]
-  );
-
-  // Undo, redo, and save stay live while a cell is focused — the whole point is
-  // to correct a value you just typed — but stand down while a dialog such as
-  // the command palette is open.
-  useHotkeys(
-    [
-      { combo: "mod+z", handler: () => undo(), allowInInputs: true },
-      { combo: "mod+shift+z", handler: () => redo(), allowInInputs: true },
-      { combo: "mod+y", handler: () => redo(), allowInInputs: true },
-      { combo: "mod+s", handler: () => void saveDrafts(), allowInInputs: true },
-    ],
-    { enabled: canWrite },
   );
 
   const toggleAll = (checked: boolean) => {
@@ -514,70 +528,69 @@ export function LibraryImportRemediationGrid({
 
   // Status leads the row so a scan down the left edge shows what still needs work,
   // which matters most when the "needs attention" filter is off.
-  const gridTemplate = `36px 40px 150px ${COLUMNS.map((column) => `${column.width}px`).join(" ")} 200px`;
+  const gridTemplate = `36px 40px 150px ${columns.map((column) => `${column.width}px`).join(" ")} 200px`;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3" data-testid="import-remediation-grid">
-      <div className="flex shrink-0 flex-wrap items-center gap-2" data-testid="import-remediation-controls">
+    <div className="flex h-full min-h-0 flex-col gap-2" data-testid="import-remediation-grid">
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5" data-testid="import-remediation-controls">
         <Input
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
-          placeholder="Filter rows"
-          className="h-8 w-56 text-xs"
+          placeholder="Filter"
+          aria-label="Filter rows"
+          className="h-8 w-44 text-xs"
         />
         <Button
           variant={onlyProblems ? "default" : "outline"}
           size="sm"
-          className="h-8 text-xs"
+          className="h-8 gap-1.5 px-2 text-xs"
+          aria-pressed={onlyProblems}
+          aria-label={`Needs attention (${groups.length - readyRows.length})`}
+          title="Only rows that need attention"
           onClick={() => setOnlyProblems((current) => !current)}
         >
-          <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />
-          Needs attention ({groups.length - readyRows.length})
+          <AlertTriangle className="h-3.5 w-3.5" />
+          <span className="tabular-nums">{groups.length - readyRows.length}</span>
         </Button>
         <Button
           variant={groupByMpn ? "default" : "outline"}
-          size="sm"
-          className="h-8 text-xs"
-          title="Show one row per catalog component instead of one per placed reference"
+          size="icon-sm"
+          className="size-8"
+          aria-pressed={groupByMpn}
+          aria-label="Group by MPN"
+          title={groupByMpn && mergedGroupCount > 0 ? `One row per MPN (${mergedGroupCount} merged)` : "One row per MPN"}
           onClick={() => setGroupByMpn((current) => !current)}
         >
-          <Combine className="mr-1.5 h-3.5 w-3.5" />
-          Group by MPN
-          {groupByMpn && mergedGroupCount > 0 ? ` (${mergedGroupCount} merged)` : ""}
+          <Combine className="h-3.5 w-3.5" />
         </Button>
-        <Button variant="outline" size="sm" className="ml-auto h-8 text-xs" onClick={onShowDetailView}>
-          <Rows3 className="mr-1.5 h-3.5 w-3.5" />Detail view
-        </Button>
-
+        <Separator orientation="vertical" className="mx-0.5 h-5" />
         <PermissionHint
           blocked={!canWrite}
           action="edit or accept import proposals"
           allowedRoles={["designer", "admin"]}
-          className="basis-full"
+          className="flex min-w-0 flex-1 max-w-none"
         >
-        <div className="flex w-full basis-full flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            size="icon-sm"
-            aria-label="Undo"
-            title="Undo (⌘Z)"
-            disabled={!canWrite || undoStack.length === 0}
-            onClick={undo}
-          >
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+          <Button variant="ghost" size="icon-sm" className="size-8" aria-label="Undo" title="Undo (⌘Z)" disabled={!canWrite || !canUndo} onClick={undo}>
             <Undo2 className="h-3.5 w-3.5" />
           </Button>
-          <Button
-            variant="outline"
-            size="icon-sm"
-            aria-label="Redo"
-            title="Redo (⇧⌘Z)"
-            disabled={!canWrite || redoStack.length === 0}
-            onClick={redo}
-          >
+          <Button variant="ghost" size="icon-sm" className="size-8" aria-label="Redo" title="Redo (⇧⌘Z)" disabled={!canWrite || !canRedo} onClick={redo}>
             <Redo2 className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="outline" size="sm" className="h-8 text-xs" onClick={exportCsv}>
-            <Download className="mr-1.5 h-3.5 w-3.5" /> Export CSV
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 px-2 text-xs"
+            aria-label={`Save edits${dirtyCount > 0 ? ` (${dirtyCount})` : ""}`}
+            title="Save edits (⌘S)"
+            disabled={!canWrite || saving || dirtyCount === 0}
+            onClick={() => void saveDrafts()}
+          >
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            {dirtyCount > 0 ? <span className="tabular-nums">{dirtyCount}</span> : null}
+          </Button>
+          <Button variant="ghost" size="icon-sm" className="size-8" aria-label="Export CSV" title="Export CSV" onClick={exportCsv}>
+            <Download className="h-3.5 w-3.5" />
           </Button>
           <input
             ref={fileInputRef}
@@ -586,56 +599,39 @@ export function LibraryImportRemediationGrid({
             className="hidden"
             onChange={(event) => void importCsv(event.target.files?.[0])}
           />
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs"
-            disabled={!canWrite || saving}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Upload className="mr-1.5 h-3.5 w-3.5" /> Import CSV
+          <Button variant="ghost" size="icon-sm" className="size-8" aria-label="Import CSV" title="Import CSV" disabled={!canWrite || saving} onClick={() => fileInputRef.current?.click()}>
+            <Upload className="h-3.5 w-3.5" />
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs"
-            disabled={!canWrite || saving || dirtyCount === 0}
-            onClick={() => void saveDrafts()}
-          >
-            {saving ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Save className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            Save edits{dirtyCount > 0 ? ` (${dirtyCount})` : ""}
-          </Button>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-1.5">
             <Button
               size="sm"
-              className="h-8 text-xs"
+              className="h-8 gap-1.5 text-xs"
+              aria-label={`Import selected (${selectedReady.length})`}
+              title="Accept the selected ready rows"
               disabled={!canWrite || accepting || selectedReady.length === 0}
               onClick={() => void acceptRows(selectedReady)}
             >
-              {accepting ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Check className="mr-1.5 h-3.5 w-3.5" />
-              )}
-              Import selected ({selectedReady.length})
+              {accepting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+              Selected <span className="tabular-nums">{selectedReady.length}</span>
             </Button>
             <Button
               size="sm"
               variant="secondary"
-              className="h-8 text-xs"
+              className="h-8 gap-1.5 text-xs"
+              aria-label={`Import all ready (${readyRows.length})`}
+              title="Accept every ready row"
               disabled={!canWrite || accepting || readyRows.length === 0}
               onClick={() => void acceptRows(readyRows)}
             >
-              <CheckCheck className="mr-1.5 h-3.5 w-3.5" />
-              Import all ready ({readyRows.length})
+              <CheckCheck className="h-3.5 w-3.5" />
+              All ready <span className="tabular-nums">{readyRows.length}</span>
             </Button>
           </div>
         </div>
         </PermissionHint>
+        <Button variant="ghost" size="icon-sm" className="size-8" aria-label="Detail view" title="Detail view" onClick={onShowDetailView}>
+          <Rows3 className="h-3.5 w-3.5" />
+        </Button>
       </div>
 
       <div className="themed-scrollbar min-h-0 flex-1 overflow-auto border" data-testid="import-remediation-scroll-region">
@@ -656,9 +652,9 @@ export function LibraryImportRemediationGrid({
               <span className="sr-only">Status</span>
             </div>
             <div className="flex h-9 items-center border-r px-2">References</div>
-            {COLUMNS.map((column) => (
-              <div key={column.key} className="flex h-9 items-center gap-1 border-r px-2">
-                <span className="truncate">{column.label}</span>
+            {columns.map((column) => (
+              <div key={`${column.kind}:${column.key}`} className="flex h-9 items-center gap-1 border-r px-2">
+                <span className="truncate" title={column.label}>{column.label}</span>
                 {column.required ? <span className="text-destructive">*</span> : null}
               </div>
             ))}
@@ -722,12 +718,12 @@ export function LibraryImportRemediationGrid({
                   ) : null}
                 </div>
 
-                {COLUMNS.map((column) => {
-                  const value = effectiveValue(proposal, column.key, edits);
+                {columns.map((column) => {
+                  const value = cellValue(proposal, column, edits);
                   const invalid = column.required && !value.trim();
                   return (
                     <div
-                      key={column.key}
+                      key={`${column.kind}:${column.key}`}
                       className={cn("group relative h-9 border-r p-0.5", invalid && "bg-destructive/10")}
                     >
                       <input
@@ -736,13 +732,13 @@ export function LibraryImportRemediationGrid({
                         disabled={!canWrite}
                         aria-invalid={invalid}
                         aria-label={`${column.label} for ${referenceLabel}`}
-                        onChange={(event) => setCell(group, column.key, event.target.value)}
+                        onChange={(event) => setGroupCell(group, column, event.target.value)}
                       />
                       {canWrite ? (
                         <button
                           type="button"
                           title="Fill this value down into selected rows"
-                          onClick={() => fillDown(group, column.key)}
+                          onClick={() => fillDown(group, column)}
                           className="absolute right-0.5 top-1/2 hidden -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground group-focus-within:block"
                         >
                           <ArrowDownToLine className="h-3 w-3" />
@@ -770,11 +766,6 @@ export function LibraryImportRemediationGrid({
         </div>
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        <Badge variant="outline">{visibleRows.length} shown</Badge>
-        <Badge variant="outline">{readyRows.length} ready</Badge>
-        <Badge variant="outline">{groups.length - readyRows.length} need attention</Badge>
-      </div>
     </div>
   );
 }

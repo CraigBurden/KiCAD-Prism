@@ -1,12 +1,27 @@
-import { useState } from "react";
-import { CheckCircle2, MessageSquare, Reply, Send, X } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
+import { CheckCircle2, Download, MessageSquare, Reply, Send, X } from "lucide-react";
+import { CommentAuthorKindBadge } from "@/components/comment-author-kind-badge";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { ReplyTrackerState } from "@/features/tracker-integration/reply-tracker-state";
 import { TrackerIssueAction } from "@/features/tracker-integration/tracker-issue-action";
 import { fetchApi, readApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { Comment, CommentContext } from "@/types/comments";
+import { ThreadMessage } from "@/features/rich-comments/thread-message";
+import { ThreadUpdateContext } from "@/features/rich-comments/thread-updates";
+import { useReplyBox } from "@/features/rich-comments/use-reply-box";
+import {
+    RichComposer,
+    type RichComposerHandle,
+    type RichComposerState,
+} from "@/features/rich-comments/rich-composer";
+
+const EMPTY_DRAFT: RichComposerState = { markdown: "", uploading: false };
+
+export function discussionReportUrl(projectId: string, base: string, compare: string, domain: CommentContext): string {
+    const query = new URLSearchParams({ base, compare, domain });
+    return `/api/projects/${encodeURIComponent(projectId)}/comparison-comments/report?${query}`;
+}
 
 interface DiscussionAnchor {
     id: string;
@@ -39,14 +54,13 @@ export function ComparisonDiscussionRail({
     onClose,
     embedded = false,
 }: ComparisonDiscussionRailProps) {
-    const [content, setContent] = useState("");
-    const [replyingTo, setReplyingTo] = useState<string | null>(null);
-    const [reply, setReply] = useState("");
+    const [draft, setDraft] = useState<RichComposerState>(EMPTY_DRAFT);
+    const draftRef = useRef<RichComposerHandle>(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const createThread = async () => {
-        if (!content.trim()) return;
+        if (!draft.markdown || draft.uploading) return;
         setBusy(true);
         setError(null);
         try {
@@ -56,7 +70,8 @@ export function ComparisonDiscussionRail({
                     baseCommit: base,
                     compareCommit: compare,
                     domain,
-                    content: content.trim(),
+                    content: draft.markdown,
+                    contentFormat: "md",
                     filePath: anchor?.page ?? undefined,
                     semanticItemId: anchor?.id ?? undefined,
                     semanticItemRef: anchor?.label ?? undefined,
@@ -67,7 +82,7 @@ export function ComparisonDiscussionRail({
                 throw new Error(await readApiError(response, "Failed to add discussion"));
             }
             onCommentsChange([...comments, (await response.json()) as Comment]);
-            setContent("");
+            draftRef.current?.clear();
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : "Failed to add discussion");
         } finally {
@@ -112,34 +127,12 @@ export function ComparisonDiscussionRail({
         }
     };
 
-    const addReply = async (comment: Comment) => {
-        if (!reply.trim()) return;
-        setBusy(true);
-        try {
-            const response = await fetchApi(
-                `/api/projects/${projectId}/comments/${comment.id}/replies`,
-                {
-                    method: "POST",
-                    body: JSON.stringify({ content: reply.trim() }),
-                },
-            );
-            if (!response.ok) {
-                throw new Error(await readApiError(response, "Failed to add reply"));
-            }
-            const payload = (await response.json()) as { comment: Comment };
-            onCommentsChange(
-                comments.map((item) => item.id === payload.comment.id ? payload.comment : item),
-            );
-            setReply("");
-            setReplyingTo(null);
-        } catch (caught) {
-            setError(caught instanceof Error ? caught.message : "Failed to add reply");
-        } finally {
-            setBusy(false);
-        }
-    };
+    const applyThread = useCallback((updated: Comment) => {
+        onCommentsChange(comments.map((item) => item.id === updated.id ? updated : item));
+    }, [comments, onCommentsChange]);
 
     return (
+        <ThreadUpdateContext.Provider value={applyThread}>
         <aside
             className={cn(
                 "flex h-full flex-col bg-background",
@@ -165,100 +158,32 @@ export function ComparisonDiscussionRail({
             )}
 
             <div className="min-h-0 flex-1 space-y-3 overflow-auto p-3">
+                {comments.length > 0 && (
+                    <a
+                        href={discussionReportUrl(projectId, base, compare, domain)}
+                        download
+                        className="flex items-center justify-end gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                    >
+                        <Download className="h-3 w-3" />
+                        Download discussion (Markdown + snips)
+                    </a>
+                )}
                 {!comments.length && (
                     <p className="py-8 text-center text-xs text-muted-foreground">
                         No discussion threads for this comparison yet.
                     </p>
                 )}
                 {comments.map((comment) => (
-                    <article
+                    <RailThread
                         key={comment.id}
-                        className={`rounded-md border p-3 text-xs ${
-                            comment.status === "RESOLVED" ? "opacity-60" : ""
-                        }`}
-                    >
-                        <div className="flex items-start justify-between gap-2">
-                            <div>
-                                <div className="font-medium">{comment.author}</div>
-                                <div className="mt-0.5 text-[10px] text-muted-foreground">
-                                    {comment.elementRef || "Whole comparison"}
-                                </div>
-                            </div>
-                            {canComment && (
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6"
-                                    onClick={() => void resolveThread(comment)}
-                                    aria-label={
-                                        comment.status === "RESOLVED"
-                                            ? "Reopen discussion"
-                                            : "Resolve discussion"
-                                    }
-                                >
-                                    <CheckCircle2 className="h-3.5 w-3.5" />
-                                </Button>
-                            )}
-                        </div>
-                        <p className="mt-2 whitespace-pre-wrap leading-relaxed">{comment.content}</p>
-                        <div className="mt-2">
-                            <TrackerIssueAction
-                                comment={comment}
-                                onPromote={(id) => trackerAction(`${id}/promote`, "Failed to create issue")}
-                                onRetry={(id) => trackerAction(`${id}/tracker/retry`, "Failed to retry issue sync")}
-                            />
-                        </div>
-                        {!!comment.replies.length && (
-                            <div className="mt-2 space-y-2 border-l pl-2">
-                                {comment.replies.map((item) => (
-                                    <div key={item.id ?? `${item.timestamp}-${item.author}-${item.content}`}>
-                                        <span className="font-medium">{item.author}: </span>
-                                        {item.content}
-                                        <ReplyTrackerState
-                                            reply={item}
-                                            provider={comment.tracker?.provider}
-                                            onShare={(replyId) => trackerAction(
-                                                `${comment.id}/replies/${replyId}/share`, "Failed to share reply",
-                                            )}
-                                        />
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                        {canComment && (
-                            <div className="mt-2">
-                                {replyingTo === comment.id ? (
-                                    <div className="space-y-2">
-                                        <Textarea
-                                            value={reply}
-                                            onChange={(event) => setReply(event.target.value)}
-                                            placeholder="Reply…"
-                                            className="min-h-16 text-xs"
-                                        />
-                                        <Button
-                                            size="sm"
-                                            className="h-7"
-                                            disabled={busy || !reply.trim()}
-                                            onClick={() => void addReply(comment)}
-                                        >
-                                            <Send className="mr-1.5 h-3 w-3" />
-                                            Reply
-                                        </Button>
-                                    </div>
-                                ) : (
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-7 px-1.5"
-                                        onClick={() => setReplyingTo(comment.id)}
-                                    >
-                                        <Reply className="mr-1.5 h-3 w-3" />
-                                        Reply
-                                    </Button>
-                                )}
-                            </div>
-                        )}
-                    </article>
+                        projectId={projectId}
+                        comment={comment}
+                        canComment={canComment}
+                        onThreadChange={applyThread}
+                        onResolve={resolveThread}
+                        onTrackerAction={trackerAction}
+                        onError={setError}
+                    />
                 ))}
             </div>
 
@@ -267,17 +192,21 @@ export function ComparisonDiscussionRail({
                     <div className="text-[10px] text-muted-foreground">
                         {anchor ? `New thread on ${anchor.label}` : "New comparison thread"}
                     </div>
-                    <Textarea
-                        value={content}
-                        onChange={(event) => setContent(event.target.value)}
-                        placeholder="Add review context…"
-                        className="min-h-20 text-xs"
+                    <RichComposer
+                        ref={draftRef}
+                        projectId={projectId}
+                        ariaLabel="New discussion"
+                        placeholder="Add review context… Paste a snip to attach it"
+                        onChange={setDraft}
+                        onSubmit={() => void createThread()}
+                        disabled={busy}
+                        minHeightClassName="min-h-20"
                     />
                     {error && <p className="text-[10px] text-destructive">{error}</p>}
                     <Button
                         size="sm"
                         className="w-full"
-                        disabled={busy || !content.trim()}
+                        disabled={busy || !draft.markdown || draft.uploading}
                         onClick={() => void createThread()}
                     >
                         <Send className="mr-2 h-3.5 w-3.5" />
@@ -286,5 +215,175 @@ export function ComparisonDiscussionRail({
                 </div>
             )}
         </aside>
+        </ThreadUpdateContext.Provider>
+    );
+}
+
+interface RailThreadProps {
+    projectId: string;
+    comment: Comment;
+    canComment: boolean;
+    onThreadChange: (updated: Comment) => void;
+    onResolve: (comment: Comment) => Promise<void>;
+    onTrackerAction: (path: string, fallback: string) => Promise<void>;
+    onError: (message: string | null) => void;
+}
+
+/** One discussion thread with its own reply box. */
+function RailThread({
+    projectId, comment, canComment, onThreadChange, onResolve, onTrackerAction, onError,
+}: RailThreadProps) {
+    const replyBox = useReplyBox();
+    const reply = replyBox.draft;
+    const [busy, setBusy] = useState(false);
+
+    const addReply = async () => {
+        if (!reply.markdown || reply.uploading) return;
+        setBusy(true);
+        try {
+            const response = await fetchApi(
+                `/api/projects/${projectId}/comments/${comment.id}/replies`,
+                {
+                    method: "POST",
+                    body: JSON.stringify({ content: reply.markdown, contentFormat: "md" }),
+                },
+            );
+            if (!response.ok) {
+                throw new Error(await readApiError(response, "Failed to add reply"));
+            }
+            const payload = (await response.json()) as { comment: Comment };
+            onThreadChange(payload.comment);
+            replyBox.close();
+        } catch (caught) {
+            onError(caught instanceof Error ? caught.message : "Failed to add reply");
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+            <article
+                key={comment.id}
+                className={`rounded-md border p-3 text-xs ${
+                    comment.status === "RESOLVED" ? "opacity-60" : ""
+                }`}
+            >
+                <div className="flex items-start justify-between gap-2">
+                    <div>
+                        <div className="flex items-center gap-1 font-medium">
+                            <span className="truncate">{comment.author}</span>
+                            <CommentAuthorKindBadge
+                                authorKind={comment.authorKind}
+                                authorClientId={comment.authorClientId}
+                                authorClientName={comment.authorClientName}
+                            />
+                        </div>
+                        <div className="mt-0.5 text-[10px] text-muted-foreground">
+                            {comment.elementRef || "Whole comparison"}
+                        </div>
+                    </div>
+                    {canComment && comment.permissions?.canResolve !== false && (
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => void onResolve(comment)}
+                            aria-label={
+                                comment.status === "RESOLVED"
+                                    ? "Reopen discussion"
+                                    : "Resolve discussion"
+                            }
+                        >
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                        </Button>
+                    )}
+                </div>
+                <ThreadMessage
+                    projectId={projectId}
+                    thread={comment}
+                    canInteract={canComment}
+                    onQuote={replyBox.quote}
+                    bodyClassName="text-xs leading-relaxed"
+                    className="mt-2"
+                />
+                <div className="mt-2">
+                    <TrackerIssueAction
+                        comment={comment}
+                        onPromote={(id) => onTrackerAction(`${id}/promote`, "Failed to create issue")}
+                        onRetry={(id) => onTrackerAction(`${id}/tracker/retry`, "Failed to retry issue sync")}
+                    />
+                </div>
+                {!!comment.replies.length && (
+                    <div className="mt-2 space-y-2 border-l pl-2">
+                        {comment.replies.map((item) => (
+                            <div key={item.id ?? `${item.timestamp}-${item.author}-${item.content}`}>
+                                <span className="flex items-center gap-1">
+                                    <span className="font-medium">{item.author}</span>
+                                    <CommentAuthorKindBadge
+                                        authorKind={item.authorKind}
+                                        authorClientId={item.authorClientId}
+                                        authorClientName={item.authorClientName}
+                                    />
+                                </span>
+                                <ThreadMessage
+                                    projectId={projectId}
+                                    thread={comment}
+                                    reply={item}
+                                    canInteract={canComment}
+                                    onQuote={replyBox.quote}
+                                    bodyClassName="text-xs"
+                                />
+                                <ReplyTrackerState
+                                    reply={item}
+                                    provider={comment.tracker?.provider}
+                                    onShare={(replyId) => onTrackerAction(
+                                        `${comment.id}/replies/${replyId}/share`, "Failed to share reply",
+                                    )}
+                                />
+                            </div>
+                        ))}
+                    </div>
+                )}
+                {canComment && (
+                    <div className="mt-2">
+                        {replyBox.open ? (
+                            <div className="space-y-2">
+                                <RichComposer
+                                    ref={replyBox.ref}
+                                    projectId={projectId}
+                                    ariaLabel="Reply"
+                                    autoFocus
+                                    initialMarkdown={replyBox.seed}
+                                    placeholder="Reply…"
+                                    onChange={replyBox.setDraft}
+                                    onSubmit={() => void addReply()}
+                                    onCancel={replyBox.close}
+                                    disabled={busy}
+                                    minHeightClassName="min-h-16"
+                                />
+                                <Button
+                                    size="sm"
+                                    className="h-7"
+                                    disabled={busy || !reply.markdown || reply.uploading}
+                                    onClick={() => void addReply()}
+                                >
+                                    <Send className="mr-1.5 h-3 w-3" />
+                                    Reply
+                                </Button>
+                            </div>
+                        ) : (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-1.5"
+                                onClick={() => replyBox.openWith()}
+                            >
+                                <Reply className="mr-1.5 h-3 w-3" />
+                                Reply
+                            </Button>
+                        )}
+                    </div>
+                )}
+            </article>
     );
 }

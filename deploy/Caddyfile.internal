@@ -1,6 +1,14 @@
 # KiCAD Prism reverse proxy (internal CA / custom certificates)
 
 # Replace kicad-prism.corp.internal and certificate paths.
+#
+# Serving a bare IP? Clients that send no SNI (Windows Schannel, Chrome) fail
+# the handshake unless this file starts with a global block naming that IP:
+#
+#   {
+#   	default_sni 192.168.1.20
+#   }
+#
 # Mount this file and the cert directory into the Caddy container.
 #
 # Example docker-compose.proxy.yml volume additions:
@@ -8,13 +16,15 @@
 #   - ./deploy/certs:/certs:ro
 #
 # Distribute deploy/certs/corp-root-ca.crt (or your real root) to every
-# KiCad workstation OS trust store. See docs/DEPLOYMENT.md.
+# KiCad workstation OS trust store. See
+# https://krishna-swaroop.github.io/KiCAD-Prism/admin/deployment/.
 
 kicad-prism.corp.internal {
 	tls /certs/prism.crt /certs/prism.key
 
 	encode gzip zstd
 
+	# Large catalog imports and long-running semantic generation
 	request_body {
 		max_size 2GB
 	}
@@ -22,9 +32,7 @@ kicad-prism.corp.internal {
 	reverse_proxy frontend:80 {
 		header_up Host {host}
 		header_up X-Real-IP {remote_host}
-		header_up X-Forwarded-For {remote_host}
 		header_up X-Forwarded-Proto https
-		header_up X-Forwarded-Host {host}
 
 		transport http {
 			read_timeout 300s

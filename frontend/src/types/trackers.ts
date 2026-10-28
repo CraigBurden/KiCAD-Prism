@@ -81,6 +81,12 @@ export interface TrackerBotIdentity {
     login: string | null;
 }
 
+/**
+ * The connector's one status, derived on the server
+ * (``connector_runtime.connector_status``); the UI only labels it.
+ */
+export type ConnectorStatus = "ready" | "linking-only" | "needs-test" | "paused" | "revoked";
+
 export interface TrackerConnector {
     id: string;
     provider: string;
@@ -93,6 +99,7 @@ export interface TrackerConnector {
     /** Forge-facing inbound webhook URL derived server-side from PUBLIC_BASE_URL; null when unset. */
     webhookUrl?: string | null;
     oauthClientConfigured?: boolean;
+    status: ConnectorStatus;
     paused: boolean;
     pausedReason?: string | null;
     writesEnabled?: boolean;

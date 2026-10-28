@@ -1,0 +1,223 @@
+{
+ "schema": "prism.placements.a1",
+ "footprints": [
+  {
+   "uuid": "ffe11c84-dc17-5743-a076-b5194d4f29a5",
+   "reference": "J1",
+   "libId": "Connector_PinSocket_2.54mm:PinSocket_1x04_P2.54mm_Vertical",
+   "side": "front",
+   "positionNm": {
+    "xNm": 110000000,
+    "yNm": 106000000
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1770000,
+     "yNm": -1770000
+    },
+    "maxNm": {
+     "xNm": 1770000,
+     "yNm": 9390000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "thru_hole",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 110000000,
+      "yNm": 106000000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "2",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 110000000,
+      "yNm": 108540000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "3",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 110000000,
+      "yNm": 111080000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "4",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 110000000,
+      "yNm": 113620000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD10_3DMODEL_DIR}/Connector_PinSocket_2.54mm.3dshapes/PinSocket_1x04_P2.54mm_Vertical.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 2016,
+    "lengthBytes": 5366
+   }
+  },
+  {
+   "uuid": "45fed5f8-0c0d-5e7f-b267-4f9b0dee62c1",
+   "reference": "J2",
+   "libId": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Horizontal",
+   "side": "front",
+   "positionNm": {
+    "xNm": 105000000,
+    "yNm": 118000000
+   },
+   "rotationDeg": 0,
+   "dnp": false,
+   "excludeFromPosFiles": false,
+   "courtyardBounds": {
+    "minNm": {
+     "xNm": -1770000,
+     "yNm": -1770000
+    },
+    "maxNm": {
+     "xNm": 10539999,
+     "yNm": 9390000
+    }
+   },
+   "pads": [
+    {
+     "number": "1",
+     "type": "thru_hole",
+     "shape": "rect",
+     "positionNm": {
+      "xNm": 105000000,
+      "yNm": 118000000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "2",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 105000000,
+      "yNm": 120540000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "3",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 105000000,
+      "yNm": 123080000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    },
+    {
+     "number": "4",
+     "type": "thru_hole",
+     "shape": "circle",
+     "positionNm": {
+      "xNm": 105000000,
+      "yNm": 125620000
+     },
+     "size": {
+      "xNm": 1700000,
+      "yNm": 1700000
+     }
+    }
+   ],
+   "models": [
+    {
+     "path": "${KICAD10_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x04_P2.54mm_Horizontal.step",
+     "hidden": false,
+     "offset": {
+      "xNm": 0,
+      "yNm": 0,
+      "zNm": 0
+     },
+     "rotation": {
+      "xDeg": 0,
+      "yDeg": 0,
+      "zDeg": 0
+     },
+     "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+     }
+    }
+   ],
+   "sourceSpan": {
+    "offsetBytes": 7384,
+    "lengthBytes": 12264
+   }
+  }
+ ],
+ "designators": [
+  "J1",
+  "J2"
+ ],
+ "outlineBounds": {
+  "minNm": {
+   "xNm": 100000000,
+   "yNm": 100000000
+  },
+  "maxNm": {
+   "xNm": 140000000,
+   "yNm": 130000000
+  }
+ }
+}

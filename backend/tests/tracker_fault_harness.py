@@ -1,18 +1,14 @@
-"""Shared adversarial forge + disposable Postgres schema for TR-45 (F5–F8)."""
+"""Shared adversarial forge and seed rows for TR-45 (F5–F8); schemas come from ``support.postgres``."""
 
 from __future__ import annotations
 
 import json
-import os
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping, Optional, Sequence
-from unittest.mock import patch
-from urllib.parse import urlsplit
 
-from app.services import comments_schema_migrations
 from app.services.trackers.capabilities import ProviderCapabilities
 from app.services.trackers.contracts import (
     Container,
@@ -31,34 +27,11 @@ from app.services.trackers.contracts import (
     UncertainAbsence,
     UpdateCursor,
 )
-from app.services.trackers.create_executor import (
-    github_issue_url,
-    mount_create_executor,
-    set_connect_factory as set_create_connect_factory,
-    unmount_create_executor,
-)
+from app.services.trackers.composition import initialize_tracker_composition, reset_tracker_runtime
+from app.services.trackers.connector_runtime import ConnectorRuntime, install_connector_runtime
 from app.services.trackers.errors import ProviderError
-from app.services.trackers.inbox_store import apply_schema as apply_inbox_schema
-from app.services.trackers.migrations import migrate_workspace_tracker_tables
-from app.services.trackers.op_store import apply_schema as apply_op_schema
-from app.services.trackers.reply_executor import (
-    github_comment_url,
-    mount_reply_executor,
-    set_connect_factory as set_reply_connect_factory,
-    unmount_reply_executor,
-)
-from app.services.trackers.thread_executor import (
-    mount_thread_executor,
-    set_connect_factory as set_thread_connect_factory,
-    unmount_thread_executor,
-)
-
-try:
-    import psycopg
-    from psycopg.rows import dict_row
-except ImportError:  # pragma: no cover
-    psycopg = None  # type: ignore[assignment]
-    dict_row = None  # type: ignore[assignment]
+from app.services.trackers.github_recovery import RecoveryCandidate
+from support.postgres import seed_comment  # noqa: E402
 
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 FIXTURE_SETS = ("F05", "F06", "F07", "F08")
@@ -79,35 +52,6 @@ EXT_COMMENT = "2211003"
 COMMIT = "3f2c9a1b7e4d5c6a8b9f0e1d2c3b4a5968778695"
 PROJECT_ID = "prj_a"
 PT_ID = "pt_a"
-
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
-
-
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def require_test_postgres() -> None:
-    if not POSTGRES_URL:
-        raise RuntimeError("TEST_POSTGRES_URL is required for tracker adversarial tests")
-    if SHARED_APPLICATION_DATABASE:
-        raise RuntimeError("TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
-    if psycopg is None:
-        raise RuntimeError("psycopg is required for tracker adversarial tests")
-
-
-def dsn() -> str:
-    require_test_postgres()
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 def load_fixture_cases(set_name: str) -> list[dict]:
@@ -135,108 +79,14 @@ def _human() -> ForgeUser:
     return ForgeUser(id=HUMAN_ID, login=HUMAN_LOGIN, isBot=False)
 
 
-COMMENTS_FOUNDATION_DDL = """
-CREATE TABLE comments (
-    id TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL,
-    author TEXT NOT NULL DEFAULT '',
-    author_kind TEXT NOT NULL DEFAULT 'user',
-    author_user_id TEXT,
-    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    status TEXT NOT NULL DEFAULT 'OPEN',
-    context TEXT NOT NULL DEFAULT 'PCB',
-    location_x REAL NOT NULL DEFAULT 0,
-    location_y REAL NOT NULL DEFAULT 0,
-    location_layer TEXT NOT NULL DEFAULT '',
-    location_page TEXT NOT NULL DEFAULT '',
-    content TEXT NOT NULL DEFAULT '',
-    comment_class TEXT NOT NULL DEFAULT 'general',
-    severity TEXT NOT NULL DEFAULT 'info',
-    scope TEXT NOT NULL DEFAULT 'canvas',
-    anchor_commit TEXT,
-    anchor_state TEXT NOT NULL DEFAULT 'pinned',
-    anchor_source TEXT,
-    revision INTEGER NOT NULL DEFAULT 1,
-    deleted_at TIMESTAMPTZ,
-    deleted_by TEXT,
-    metadata JSONB NOT NULL DEFAULT '{}'::jsonb
-);
-CREATE TABLE comment_replies (
-    id TEXT PRIMARY KEY,
-    comment_id TEXT NOT NULL REFERENCES comments(id),
-    project_id TEXT NOT NULL,
-    author TEXT NOT NULL DEFAULT '',
-    author_kind TEXT NOT NULL DEFAULT 'user',
-    author_user_id TEXT,
-    origin TEXT NOT NULL DEFAULT 'prism',
-    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    content TEXT NOT NULL DEFAULT '',
-    revision INTEGER NOT NULL DEFAULT 1,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    sync_state TEXT,
-    deleted_at TIMESTAMPTZ,
-    deleted_by TEXT
-);
-"""
+def github_issue_url(container_path: str, issue_number: int | str) -> str:
+    """github.com issue page for fixtures (the GitHub kit's own form for github.com)."""
+
+    return f"https://github.com/{container_path.strip('/')}/issues/{issue_number}"
 
 
-def bootstrap_tracker_schema(conn: Any) -> None:
-    conn.execute(COMMENTS_FOUNDATION_DDL, prepare=False)
-    comments_schema_migrations.apply_comments_migrations(conn)
-    migrate_workspace_tracker_tables(conn)
-    apply_op_schema(conn)
-    apply_inbox_schema(conn)
-
-
-class DisposableSchema:
-    """Unique search_path schema + connect factory for concurrent workers."""
-
-    def __init__(self, prefix: str = "tr45") -> None:
-        require_test_postgres()
-        self.schema = f"{prefix}_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(dsn(), row_factory=dict_row)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        bootstrap_tracker_schema(self.conn)
-        self.conn.commit()
-
-    def connect(self):
-        conn = psycopg.connect(dsn(), row_factory=dict_row)
-        conn.execute(f'SET search_path TO "{self.schema}", public')
-        return conn
-
-    @contextmanager
-    def factory(self) -> Iterator[Any]:
-        conn = self.connect()
-        try:
-            yield conn
-        finally:
-            conn.close()
-
-    def drop(self) -> None:
-        try:
-            try:
-                self.conn.rollback()
-            except Exception:
-                pass
-            try:
-                self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-                self.conn.commit()
-            except Exception:
-                try:
-                    fresh = psycopg.connect(dsn(), row_factory=dict_row)
-                    try:
-                        fresh.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-                        fresh.commit()
-                    finally:
-                        fresh.close()
-                except Exception:
-                    pass
-        finally:
-            try:
-                self.conn.close()
-            except Exception:
-                pass
+def github_comment_url(container_path: str, issue_number: int | str, comment_id: int | str) -> str:
+    return f"{github_issue_url(container_path, issue_number)}#issuecomment-{comment_id}"
 
 
 class FakeJobs:
@@ -301,9 +151,10 @@ class StatefulFakeForge:
         self.comment_calls: list[str] = []
         self.throttled_until: str | None = None
         self.auth_lost = False
-        self.list_issues_pages: list[tuple[list[dict], Optional[str]]] | None = None
+        self.list_issues_pages: list[tuple[list[RecoveryCandidate], Optional[str]]] | None = None
         self._list_issues_call = 0
         self.closed_as_duplicate: list[str] = []
+        self.update_patches: list[tuple[str, Any]] = []
 
     def trace(self, action: str, **detail: Any) -> None:
         entry = {"action": action, "at": _now_iso(), **detail}
@@ -480,6 +331,7 @@ class StatefulFakeForge:
         return issue
 
     def update_issue(self, dest: Destination, ext_id: str, patch: Any) -> RemoteIssue:
+        self.update_patches.append((str(ext_id), patch))
         issue = self._require_issue(ext_id)
         updates: dict[str, Any] = {
             "version": RemoteVersion(updatedAt=_now_iso(), etag=f"W/{uuid.uuid4().hex[:6]}"),
@@ -664,12 +516,12 @@ class StatefulFakeForge:
 
     # --- recovery page fetchers -----------------------------------------
 
-    def issue_page_fetcher(
+    def recovery_issue_pages(
         self, dest: Destination, *, since: str | None = None
-    ) -> Callable[[Optional[str]], tuple[list[dict], Optional[str]]]:
+    ) -> Callable[[Optional[str]], tuple[list[RecoveryCandidate], Optional[str]]]:
         del since
 
-        def fetch(cursor: Optional[str]) -> tuple[list[dict], Optional[str]]:
+        def fetch(cursor: Optional[str]) -> tuple[list[RecoveryCandidate], Optional[str]]:
             self._scan_count += 1
             self.trace("issue_page_scan", scan=self._scan_count, cursor=cursor)
             if self.delay_accept_until_scan_n and self._scan_count >= self.delay_accept_until_scan_n:
@@ -689,23 +541,18 @@ class StatefulFakeForge:
                 return page
             if self.mid_page_502 and cursor is not None:
                 raise ProviderError("transient", "mid-page 502", status=502, retryable=True)
-            items: list[dict] = []
-            for issue in self._unique_issues():
-                if issue.container.remoteContainerId != dest.remoteContainerId:
-                    continue
-                if issue.author.id != BOT_ID:
-                    continue
-                labels = [] if str(issue.externalId) in self.dropped_labels or str(issue.number) in self.dropped_labels else list(issue.labels)
-                items.append(
-                    {
-                        "id": int(issue.externalId),
-                        "number": issue.number,
-                        "body": issue.body,
-                        "html_url": issue.url,
-                        "labels": [{"name": name} for name in labels],
-                        "user": {"id": int(BOT_ID), "login": BOT_LOGIN},
-                    }
+            # Labels play no part: recovery must find issues whose labels were dropped.
+            items: list[RecoveryCandidate] = [
+                RecoveryCandidate(
+                    external_id=str(issue.externalId),
+                    number=issue.number,
+                    url=issue.url,
+                    body=issue.body or "",
+                    author_id=BOT_ID,
                 )
+                for issue in self._unique_issues()
+                if issue.container.remoteContainerId == dest.remoteContainerId and issue.author.id == BOT_ID
+            ]
             if self.mid_page_502 and cursor is None and items:
                 # Simulate multi-page: first page returns a next cursor.
                 return items[:1], "page-2"
@@ -713,7 +560,7 @@ class StatefulFakeForge:
 
         return fetch
 
-    def comment_page_fetcher(
+    def recovery_comment_pages(
         self, dest: Destination, issue: str
     ) -> Callable[[Optional[str]], tuple[list[RemoteComment], Optional[str]]]:
         def fetch(cursor: Optional[str]) -> tuple[list[RemoteComment], Optional[str]]:
@@ -740,12 +587,13 @@ class StatefulFakeForge:
         container_id: str = CONTAINER,
         path: str = REPO,
         author: ForgeUser | None = None,
+        title: str = "[MAJOR] adversarial",
     ) -> RemoteIssue:
         issue = RemoteIssue(
             externalId=str(external_id),
             url=github_issue_url(path, number),
             number=number,
-            title="[MAJOR] adversarial",
+            title=title,
             body=body,
             state=state,  # type: ignore[arg-type]
             labels=list(labels) if labels is not None else ["prism"],
@@ -878,50 +726,29 @@ class StatefulFakeForge:
         raise ProviderError("transient", f"forced status {status}", status=status, retryable=True)
 
 
+def forge_runtime(forge: Any, connect_factory: Callable[[], Any]) -> ConnectorRuntime:
+    """A connector runtime whose every connector talks to ``forge`` over ``connect_factory``."""
+
+    return ConnectorRuntime(connect=connect_factory, adapters=lambda _connector: (forge, forge))
+
+
 @contextmanager
 def install_fake_provider(
-    forge: StatefulFakeForge,
+    forge: Any,
     connect_factory: Callable[[], Any],
-) -> Iterator[StatefulFakeForge]:
-    """Patch executor adapters + recovery page fetchers; mount create/reply/thread."""
+) -> Iterator[Any]:
+    """Mount tracker composition with ``forge`` plugged in at the connector-runtime seam.
 
-    def _adapter(_connector, http=None):  # noqa: ANN001, ARG001
-        return forge
+    ``forge`` serves as both the issue and the comment adapter, recovery page
+    listings included, for executors, poll, sweep and inbound alike.
+    """
 
-    def _issue_pages(adapter, dest, since=None):  # noqa: ANN001, ARG001
-        return forge.issue_page_fetcher(dest, since=since)
-
-    def _comment_pages(adapter, dest, issue):  # noqa: ANN001, ARG001
-        return forge.comment_page_fetcher(dest, issue)
-
-    patches = [
-        patch("app.services.trackers.create_executor._issue_adapter", _adapter),
-        patch("app.services.trackers.reply_executor._comment_adapter", _adapter),
-        patch("app.services.trackers.state_executor._issue_adapter", _adapter),
-        patch("app.services.trackers.thread_executor._issue_adapter", _adapter),
-        patch("app.services.trackers.create_executor.issue_page_fetcher_for", _issue_pages),
-        patch("app.services.trackers.reply_executor.comment_page_fetcher_for", _comment_pages),
-        patch("app.services.trackers.thread_executor.comment_page_fetcher_for", _comment_pages),
-    ]
-    for item in patches:
-        item.start()
-    mount_create_executor()
-    mount_reply_executor()
-    mount_thread_executor()
-    set_create_connect_factory(connect_factory)
-    set_reply_connect_factory(connect_factory)
-    set_thread_connect_factory(connect_factory)
+    initialize_tracker_composition()
+    install_connector_runtime(forge_runtime(forge, connect_factory))
     try:
         yield forge
     finally:
-        unmount_thread_executor()
-        unmount_reply_executor()
-        unmount_create_executor()
-        set_create_connect_factory(None)
-        set_reply_connect_factory(None)
-        set_thread_connect_factory(None)
-        for item in reversed(patches):
-            item.stop()
+        reset_tracker_runtime()
 
 
 def seed_destination(store: Any, conn: Any, *, visibility: str = "private") -> None:
@@ -970,33 +797,12 @@ def seed_comment_row(
     comment_class: str = "observation",
     author_user_id: str | None = "u_designer",
 ) -> None:
-    conn.execute(
-        """
-        INSERT INTO comments (
-            id, project_id, author, author_kind, author_user_id, content, severity, comment_class,
-            context, location_x, location_y, location_layer, anchor_commit, anchor_state, anchor_source,
-            status, revision
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
-        ON CONFLICT (id) DO NOTHING
-        """,
-        (
-            comment_id,
-            project_id,
-            "Priya",
-            "user",
-            author_user_id,
-            content,
-            "major",
-            comment_class,
-            "PCB",
-            1.0,
-            2.0,
-            "F.Cu",
-            COMMIT,
-            "pinned",
-            "openswitch.kicad_pro",
-            status,
-        ),
+    seed_comment(
+        conn, comment_id, project_id, on_conflict_skip=True,
+        author_kind="user", author_user_id=author_user_id, content=content, severity="major",
+        comment_class=comment_class, location_x=1.0, location_y=2.0, location_layer="F.Cu",
+        anchor_commit=COMMIT, anchor_state="pinned", anchor_source="openswitch.kicad_pro",
+        status=status, revision=1,
     )
 
 
@@ -1007,7 +813,6 @@ __all__ = [
     "COMMIT",
     "CONNECTOR",
     "CONTAINER",
-    "DisposableSchema",
     "EXT_COMMENT",
     "FakeContext",
     "FakeJobs",
@@ -1015,20 +820,15 @@ __all__ = [
     "HUMAN_LOGIN",
     "ISSUE_ID",
     "ISSUE_NUMBER",
-    "POSTGRES_URL",
     "PROJECT_ID",
     "PT_ID",
     "REPO",
     "REPLY_ID",
-    "SHARED_APPLICATION_DATABASE",
     "StatefulFakeForge",
     "THREAD_ID",
     "all_fixture_case_ids",
-    "bootstrap_tracker_schema",
-    "dsn",
     "install_fake_provider",
     "load_fixture_cases",
-    "require_test_postgres",
     "seed_comment_row",
     "seed_destination",
 ]

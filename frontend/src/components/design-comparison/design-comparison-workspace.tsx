@@ -447,15 +447,15 @@ export function DesignComparisonWorkspace({
                 net: change.net,
                 page: change.page,
                 reasons: change.reasons ?? [],
-                sourceIdBase: change.source_id_base,
-                sourceIdCompare: change.source_id_compare,
-                visualTargets: change.details?.visualTargets ?? [],
+                sourceIdBase: change.base?.sourceId,
+                sourceIdCompare: change.head?.sourceId,
+                targets: change.details.targets ?? [],
             },
-            navigation: result?.document_diff.navigation[change.id] ?? null,
+            navigation: result?.projectDiff.navigation[change.id] ?? null,
             requestedDocumentPath: documentPath ?? null,
         });
         semanticFocusRef.current = {
-            semanticId: change.semantic_id,
+            semanticId: change.semanticId,
             reference: change.reference,
             net: change.net,
         };
@@ -469,7 +469,7 @@ export function DesignComparisonWorkspace({
         const change = changes[0];
         if (!change) return;
         semanticFocusRef.current = {
-            semanticId: change.semantic_id,
+            semanticId: change.semanticId,
             reference,
             net: change.net,
         };
@@ -497,12 +497,12 @@ export function DesignComparisonWorkspace({
                 reasons: change.reasons ?? [],
                 reference: change.reference,
                 net: change.net,
-                visualTargets: change.details?.visualTargets ?? [],
+                targets: change.details.targets ?? [],
             },
-            navigation: result?.document_diff.navigation[change.id] ?? null,
+            navigation: result?.projectDiff.navigation[change.id] ?? null,
         });
         semanticFocusRef.current = {
-            semanticId: change.semantic_id,
+            semanticId: change.semanticId,
             reference: change.reference,
             net: change.net,
         };
@@ -514,7 +514,7 @@ export function DesignComparisonWorkspace({
         const current = selectedReviewChanges[0];
         if (current) {
             semanticFocusRef.current = {
-                semanticId: current.semantic_id,
+                semanticId: current.semanticId,
                 reference: current.reference,
                 net: current.net,
             };
@@ -523,7 +523,7 @@ export function DesignComparisonWorkspace({
         const focus = semanticFocusRef.current;
         const counterpart = focus
             ? domainChanges.find((change) => (
-                (focus.semanticId && change.semantic_id === focus.semanticId)
+                (focus.semanticId && change.semanticId === focus.semanticId)
                 || (focus.reference && change.reference === focus.reference)
                 || (focus.net && change.net === focus.net)
             ))
@@ -686,7 +686,7 @@ export function DesignComparisonWorkspace({
         shellDomain: "schematic" | "pcb",
         shellGroups: ChangeGroup[],
     ) => {
-        if (!result?.document_diff) return null;
+        if (!result?.projectDiff) return null;
         const isActive = domain === shellDomain;
         return (
             <div
@@ -704,7 +704,7 @@ export function DesignComparisonWorkspace({
                     base={base}
                     compare={head}
                     presentationMode={presentationMode}
-                    documentDiff={result.document_diff}
+                    documentDiff={result.projectDiff}
                     files={result.files}
                     reviewGroups={shellGroups}
                     selection={isActive ? reviewSelection : null}
@@ -901,7 +901,7 @@ export function DesignComparisonWorkspace({
                                             onNext={() => navigate(1)}
                                         />
                                     </ResizablePanel>
-                                    {result.document_diff ? (
+                                    {result.projectDiff ? (
                                         <>
                                             {visitedDomainsRef.current.has("schematic")
                                                 && renderDomainShell(
@@ -938,10 +938,10 @@ export function DesignComparisonWorkspace({
                                         <ComparisonPropertyPanel
                                             group={selectedPropertyGroup}
                                             bom={result.bom}
-                                            routeMetrics={result.pcb.route_metrics}
+                                            routeMetrics={result.routeMetrics}
                                             pcbLayers={pcbLayers}
                                             diagnosticsCount={
-                                                result.document_diff?.diagnostics.length ?? 0
+                                                result.projectDiff?.diagnostics.length ?? 0
                                             }
                                                     discussion={(
                                                         <>

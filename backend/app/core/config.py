@@ -7,12 +7,20 @@ Configuration can be set via:
 
 See .env.example for available configuration options.
 """
-from pydantic import Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings
 from typing import List
 import os
 import re
 
+from app.core.design_bundle_config import DesignBundleSettings
+from app.core.pipeline_config import PipelineSettings
+from app.core.sim_studio_config import SimStudioSettings
+from app.core.worker_memory import default_worker_memory_budget_mib
+
+
+# bcrypt ignores everything past 72 bytes, so longer passwords are rejected.
+MAX_PASSWORD_BYTES = 72
 
 # Placeholders that appear in this repository's examples and in copy-pasted guides.
 # None of them may sign a real session.
@@ -28,8 +36,12 @@ _WEAK_SESSION_SECRETS = {
 _TRACKER_KEY_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
-class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
+class Settings(PipelineSettings, DesignBundleSettings, SimStudioSettings):
+    """Application settings loaded from environment variables.
+
+    The only reader of process configuration in `app`. Design-pipeline fields
+    are declared in `app.core.pipeline_config` and inherited here.
+    """
     
     # ===========================================
     # OIDC / OAuth Configuration
@@ -310,6 +322,48 @@ class Settings(BaseSettings):
         description="Enable the comment WebSocket gateway; disable during staged rollout to use HTTP refresh fallback.",
     )
 
+    PRISM_MCP_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "The read-only MCP server at /mcp and its OAuth metadata. Off by "
+            "default: agents reach Prism only when an administrator turns it on."
+        ),
+    )
+    PRISM_MCP_OPS_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Admin diagnostics (ADR scripting-and-mcp §11): the /api/ops routes, "
+            "the ops MCP tools and the ops:read/ops:act scopes. Off by default."
+        ),
+    )
+
+    PRISM_EVENT_RETENTION_DAYS: int = Field(
+        default=30,
+        ge=0,
+        description=(
+            "Days the append-only event log behind GET /api/v1/events keeps rows; "
+            "older rows are pruned at startup."
+        ),
+    )
+
+    PRISM_MCP_AUDIT_RETENTION_DAYS: int = Field(
+        default=365,
+        ge=0,
+        description=(
+            "Days the MCP read audit (ws_mcp_audit, behind GET /api/admin/mcp-audit) "
+            "keeps rows; older rows are pruned at startup."
+        ),
+    )
+
+    PRISM_WEBHOOK_ALLOW_PRIVATE: bool = Field(
+        default=False,
+        description=(
+            "Allow outbound webhook targets that resolve to private, loopback or "
+            "link-local addresses, over http as well as https. Off by default; set "
+            "it only for a local test receiver."
+        ),
+    )
+
     TRACKER_CREDENTIAL_ROOT_KEY: SecretStr = Field(default=SecretStr(""))
     TRACKER_CREDENTIAL_ROOT_KEY_ID: str = Field(default="v1")
     TRACKER_CREDENTIAL_PREVIOUS_ROOT_KEY: SecretStr = Field(default=SecretStr(""))
@@ -335,6 +389,23 @@ class Settings(BaseSettings):
         description="Destination directory assumed by the Prism remote-symbol provider when rewriting model paths."
     )
 
+    REMOTE_PROVIDER_EMBED_3D_MODELS: bool = Field(
+        default=True,
+        description=(
+            "Embed placed 3D models in the footprint as KiCad embedded files so the board pins them. "
+            "When false, every model is shipped to the remote destination directory instead."
+        ),
+    )
+
+    REMOTE_PROVIDER_EMBED_MAX_COMPRESSED_BYTES: int = Field(
+        default=16 * 1024 * 1024,
+        ge=0,
+        description=(
+            "Compressed (zstd) 3D model bytes one placed footprint may embed; a model over it keeps "
+            "the external destination path. The footprint grows by about 4/3 of the embedded data."
+        ),
+    )
+
     REMOTE_PROVIDER_OAUTH_CLIENT_ID: str = Field(
         default="kicad-prism-kicad",
         description="Public OAuth client_id advertised to KiCad for the remote provider."
@@ -352,6 +423,28 @@ class Settings(BaseSettings):
         ge=3600,
         le=2592000,
         description="Lifetime for KiCad remote provider refresh tokens."
+    )
+
+    AGENT_TOKEN_TTL_SECONDS: int = Field(
+        default=2592000,
+        ge=3600,
+        le=7776000,
+        description=(
+            "Lifetime for a KiCad agent sign-in token. Long by default because a "
+            "desktop agent is signed in once and used for weeks; it is scoped and "
+            "revocable, so a leaked token can be killed from the web console."
+        ),
+    )
+
+    PRISM_PAT_MAX_DAYS: int = Field(
+        default=365,
+        ge=1,
+        le=3650,
+        description=(
+            "Longest lifetime, in days, a personal access token may be given. A "
+            "token request defaults to 90 days; lower this to cap scripts and CI "
+            "at a shorter rotation period."
+        ),
     )
 
     # The MANUFACTURO_SQL_* settings were removed. Nothing under app/ ever read
@@ -454,6 +547,22 @@ class Settings(BaseSettings):
         description="Maximum number of supervised user jobs run by prism-worker.",
     )
 
+    PRISM_WORKER_MEMORY_BUDGET_MIB: int = Field(
+        default_factory=default_worker_memory_budget_mib,
+        ge=512,
+        le=65536,
+        description=(
+            "Memory the prism worker admits heavy jobs against, in MiB. "
+            "design_bundle, release_studio_build, design_compare, sim_run and "
+            "kicad_workflow reserve their measured peak as units of the shared "
+            "'memory' resource slot; a wave whose units exceed this budget waits. "
+            "Defaults to half the container (cgroup) or machine memory, clamped "
+            "to [4 GiB, 8 GiB] and rounded down to 256 MiB units (4 GiB on the "
+            "7.75 GiB deployment). Must fit the heaviest kind, or the worker "
+            "refuses to start."
+        ),
+    )
+
     PRISM_WORKER_POLL_SECONDS: float = Field(
         default=0.5,
         ge=0.1,
@@ -497,7 +606,59 @@ class Settings(BaseSettings):
         ),
     )
 
-    PRISM_WEBGPU_CONCURRENCY: int = Field(default=1, ge=1, le=8)
+    PRISM_JOB_RETENTION_DAYS: int = Field(
+        default=90,
+        description="Days finished jobs (rows, events, logs) are kept, unless still referenced.",
+    )
+    PRISM_ROUTINE_JOB_RETENTION_DAYS: int = Field(
+        default=7,
+        description="Days finished routine jobs (tracker polls and sweeps, background fetches, source checks) are kept.",
+    )
+    PRISM_JOB_ARTIFACT_RETENTION_DAYS: int = Field(
+        default=30,
+        description="Days job artifact metadata is kept by artifact maintenance (negative means 0).",
+    )
+
+    PRISM_JOB_PARTIAL_RETENTION_HOURS: int = Field(
+        default=24,
+        description="Hours partial (unfinished) job artifacts are kept by artifact maintenance.",
+    )
+
+    COMMENT_ATTACHMENT_ROOT: str = Field(
+        default="",
+        description=(
+            "Content-addressed store for review-comment attachments. Defaults to "
+            "KICAD_PROJECTS_ROOT/.kicad-prism/comment-attachments."
+        ),
+    )
+    COMMENT_ATTACHMENT_MAX_BYTES: int = Field(
+        default=10 * 1024 * 1024,
+        ge=1024,
+        le=100 * 1024 * 1024,
+        description="Largest single file a reviewer can attach to a comment.",
+    )
+    COMMENT_ATTACHMENT_PROJECT_QUOTA_BYTES: int = Field(
+        default=2 * 1024 * 1024 * 1024,
+        ge=0,
+        description="Total attachment storage one project may use. 0 means no limit.",
+    )
+    COMMENT_ATTACHMENT_LINK_SECRET: SecretStr = Field(
+        default=SecretStr(""),
+        description=(
+            "Signs session-less image links in forge issues (GitHub). Give the same value "
+            "to backend and prism-worker; unset sends the file name instead of an image."
+        ),
+    )
+    COMMENT_ATTACHMENT_LINK_TTL_DAYS: int = Field(
+        default=365,
+        ge=0,
+        le=3650,
+        description=(
+            "Lifetime of the signed image links Prism puts in forge issues that cannot "
+            "host uploads (GitHub). 0 sends a plain link that needs a Prism session."
+        ),
+    )
+
     PRISM_DESIGN_COMPARE_CONCURRENCY: int = Field(default=1, ge=1, le=8)
     PRISM_WORKFLOW_CONCURRENCY: int = Field(default=1, ge=1, le=8)
     PRISM_IMPORT_CONCURRENCY: int = Field(default=1, ge=1, le=8)
@@ -514,6 +675,16 @@ class Settings(BaseSettings):
     CATALOG_RETENTION_ENABLED: bool = Field(
         default=True,
         description="Run the local archive/quarantine/GC policy once per day.",
+    )
+
+    CATALOG_DRAFT_MODEL_QUARANTINE_DAYS: int = Field(
+        default=30,
+        ge=0,
+        description=(
+            "Days a superseded never-released draft STEP file waits in the catalog store's quarantine "
+            "before artifact maintenance deletes it; until then it can be restored. 0 deletes it in the "
+            "same maintenance run."
+        ),
     )
 
     CATALOG_IMPORT_ROOTS: str = Field(
@@ -603,6 +774,16 @@ class Settings(BaseSettings):
         description="Run ssh-keyscan for common Git hosts during backend startup.",
     )
 
+    # A fetch that stops making progress must fail instead of pinning a worker
+    # (and, for a manual sync, the repository write lock) forever. git's
+    # low-speed abort reports a stalled transfer sooner; this is the hard
+    # ceiling for one that keeps talking too slowly to finish.
+    PRISM_GIT_FETCH_TIMEOUT_SECONDS: int = Field(
+        default=300,
+        ge=10,
+        description="Hard timeout for one project git fetch, in seconds.",
+    )
+
     # Comma-separated list of Git hosts projects may be imported from.
     # Empty means any host, which suits a single-operator deployment.
     IMPORT_ALLOWED_HOSTS_STR: str = Field(
@@ -617,8 +798,39 @@ class Settings(BaseSettings):
     )
 
     # ===========================================
+    # KiCad tools (located by app.services.kicad_tools)
+    # ===========================================
+    KICAD_CLI_PATH: str = Field(
+        default="",
+        validation_alias=AliasChoices("KICAD_CLI_PATH", "KICAD_CLI"),
+        description=(
+            "kicad-cli every KiCad job runs. Empty: kicad-cli on PATH, then the usual "
+            "install locations. KICAD_CLI is accepted as a legacy name."
+        ),
+    )
+
+    # ===========================================
     # Computed Properties
     # ===========================================
+    # ===========================================
+    # Build identity and runtime locations
+    # ===========================================
+    KICAD_PROJECTS_ROOT: str = Field(
+        default=os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data/projects")),
+        description="Root for imported projects and Prism's .kicad-prism state.",
+    )
+    PRISM_RELEASE: str = Field(default="development", description="Release label baked into the image.")
+    PRISM_REVISION: str = Field(default="unknown", description="Source revision baked into the image.")
+    PRISM_BUILD_DATE: str = Field(default="unknown", description="Image build timestamp.")
+    PRISM_PLUGIN_DOWNLOAD_URL: str = Field(
+        default="https://github.com/krishna-swaroop/KiCAD-Prism/releases/latest",
+        description="Where the KiCad plugin update prompt sends users; point it at a private build.",
+    )
+    PRISM_CAIRO_LIBRARY_DIR: str = Field(
+        default="",
+        description="macOS only: directory holding libcairo.2.dylib for Release Studio PDF pages.",
+    )
+
     @property
     def ALLOWED_USERS(self) -> List[str]:
         """Parse allowed emails from comma-separated string."""
@@ -683,13 +895,6 @@ class Settings(BaseSettings):
             bool(self.EFFECTIVE_OIDC_CLIENT_SECRET),
         ]
         return any(present) and not all(present)
-
-    @property
-    def KICAD_PROJECTS_ROOT(self) -> str:
-        return os.environ.get(
-            "KICAD_PROJECTS_ROOT",
-            os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data/projects")),
-        )
 
     @property
     def AUTH_ENABLED(self) -> bool:
@@ -879,6 +1084,8 @@ class Settings(BaseSettings):
         if not self.PRISM_DATABASE_URL.strip():
             errors.append("PRISM_DATABASE_URL is required to store revocable sessions")
 
+        errors.extend(self._bootstrap_admin_password_errors())
+
         if self.OAUTH_EXTERNAL_JWT_ISSUER_URL.strip() and not self.OAUTH_EXTERNAL_JWT_AUDIENCE.strip():
             errors.append(
                 "OAUTH_EXTERNAL_JWT_AUDIENCE is required whenever OAUTH_EXTERNAL_JWT_ISSUER_URL is set; "
@@ -890,6 +1097,20 @@ class Settings(BaseSettings):
                 errors.append("CORS_ORIGINS_STR must not contain '*' because Prism sends credentials")
 
         return errors
+
+    def _bootstrap_admin_password_errors(self) -> List[str]:
+        """The seed password must pass the same policy seeding enforces, or no admin is created."""
+        seed = self.BOOTSTRAP_ADMIN_PASSWORD.strip()
+        if not (self.PASSWORD_AUTH_ENABLED and seed and self.BOOTSTRAP_ADMIN_USERS):
+            return []
+        if len(seed.encode("utf-8")) > MAX_PASSWORD_BYTES:
+            return [f"BOOTSTRAP_ADMIN_PASSWORD must be at most {MAX_PASSWORD_BYTES} bytes long"]
+        if len(seed) < self.PASSWORD_MIN_LENGTH:
+            return [
+                f"BOOTSTRAP_ADMIN_PASSWORD is {len(seed)} characters; PASSWORD_MIN_LENGTH "
+                f"requires at least {self.PASSWORD_MIN_LENGTH}"
+            ]
+        return []
 
     def validate_auth_configuration(self) -> None:
         """Fail closed at startup rather than serving an unauthenticated admin console."""
@@ -910,3 +1131,14 @@ class Settings(BaseSettings):
 
 # Global settings instance
 settings = Settings()
+
+
+def environment_value(name: str) -> str:
+    """A variable whose name comes from data rather than code.
+
+    A forge host's `token_name` (PRISM_FORGE_HOSTS) and a KiCad path variable
+    such as `${KICAD9_3DMODEL_DIR}` in a 3D model path name variables that no
+    `Settings` field can declare. Read them here so this module stays the only
+    configuration reader.
+    """
+    return os.environ.get(name, "")

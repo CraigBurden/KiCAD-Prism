@@ -11,17 +11,20 @@ from __future__ import annotations
 
 import sys
 import unittest
-import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services.trackers.create_executor import _comment_dict_from_row, _encrypt_context  # noqa: E402
+from app.core.errors import DomainError, error_response  # noqa: E402
+from tests.test_tracker_tr_01 import if_match  # noqa: E402
+from app.services.trackers.connector_runtime import credential_context  # noqa: E402
+from app.services.trackers.create_executor import _comment_dict_from_row  # noqa: E402
 from app.services.trackers.connector_service import _context as connector_context  # noqa: E402
 from app.services.trackers.drafts import board_name_from_comment, render_context_block_lines  # noqa: E402
 from app.services.trackers.executor_support import workspace_schema  # noqa: E402
+from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
 from app.services.trackers.promotion import load_policy_row  # noqa: E402
-from tracker_fault_harness import POSTGRES_URL, SHARED_APPLICATION_DATABASE  # noqa: E402
+from support.postgres import CATALOG_URL, comments_store_on, requires_scratch_postgres, scratch_schema, set_path  # noqa: E402
 
 try:
     import psycopg
@@ -30,43 +33,24 @@ except ImportError:  # pragma: no cover
     psycopg = None  # type: ignore[assignment]
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class WorkerSearchPathPolicyTests(unittest.TestCase):
     """Two real schemas, worker search_path order, workspace tables only in the second."""
 
     def setUp(self) -> None:
-        tag = uuid.uuid4().hex[:10]
-        self.comments_schema = f"c46_{tag}"
-        self.workspace_schema = f"w46_{tag}"
-        self.conn = psycopg.connect(POSTGRES_URL, row_factory=dict_row)
-        self.conn.execute(f'CREATE SCHEMA "{self.comments_schema}"')
-        self.conn.execute(f'CREATE SCHEMA "{self.workspace_schema}"')
+        self.comments_schema = scratch_schema(self, "c46").name
+        workspace = scratch_schema(self, "w46", then=(migrate_workspace_tracker_tables,))
+        self.workspace_schema, self.conn = workspace.name, workspace.conn
         self.conn.execute(
-            f"""
-            CREATE TABLE "{self.workspace_schema}".tracker_connectors (
-                id TEXT PRIMARY KEY, paused BOOLEAN NOT NULL DEFAULT FALSE, provider TEXT NOT NULL DEFAULT 'github'
-            );
-            CREATE TABLE "{self.workspace_schema}".project_trackers (
-                id TEXT PRIMARY KEY, project_id TEXT NOT NULL, connector_id TEXT NOT NULL,
-                promote_min_role TEXT NOT NULL DEFAULT 'designer', visibility TEXT NOT NULL DEFAULT 'private'
-            );
-            INSERT INTO "{self.workspace_schema}".tracker_connectors (id) VALUES ('cn_a');
-            INSERT INTO "{self.workspace_schema}".project_trackers (id, project_id, connector_id)
-            VALUES ('pt_a', 'prj_a', 'cn_a');
+            """
+            INSERT INTO tracker_connectors (id, provider, instance_kind) VALUES ('cn_a', 'github', 'github.com');
+            INSERT INTO project_trackers (id, project_id, connector_id, container_kind, container_path, remote_container_id)
+            VALUES ('pt_a', 'prj_a', 'cn_a', 'repo', 'acme/a', '1');
             """
         )
         # The worker's order: comments first, workspace second.
-        self.conn.execute(f'SET search_path TO "{self.comments_schema}", "{self.workspace_schema}", public')
+        set_path(self.conn, self.comments_schema, self.workspace_schema)
         self.conn.commit()
-
-    def tearDown(self) -> None:
-        self.conn.rollback()
-        self.conn.execute(f'DROP SCHEMA "{self.comments_schema}" CASCADE')
-        self.conn.execute(f'DROP SCHEMA "{self.workspace_schema}" CASCADE')
-        self.conn.commit()
-        self.conn.close()
 
     def test_resolves_schema_that_holds_project_trackers(self) -> None:
         self.assertEqual(workspace_schema(self.conn), self.workspace_schema)
@@ -93,7 +77,9 @@ class ExecutorRowMappingTests(unittest.TestCase):
     def test_executor_decrypt_context_matches_admin_api(self) -> None:
         # The admin API wrote the envelope with {"record", "field"}; a bytes
         # context crashed decrypt_secret (`'bytes' object has no attribute 'items'`).
-        self.assertEqual(_encrypt_context("cn_x"), connector_context("cn_x"))
+        # Executors now decrypt through the connector runtime, which owns the one context.
+        self.assertEqual(credential_context("cn_x"), connector_context("cn_x"))
+        self.assertEqual(credential_context("cn_x"), {"record": "cn_x", "field": "github_app"})
 
     def test_board_name_comes_from_project_relative_path(self) -> None:
         row = {
@@ -135,11 +121,12 @@ class StatusChangeEnqueuesSetStateTests(unittest.TestCase):
 
         user = AuthenticatedUser(email="a@x", name="Admin", role=role, session_id="sid", user_id="u_a")
         with patch.object(comments_api, "comments_store", store), \
-                patch.object(comments_api, "get_project_for_role_or_404", return_value=SimpleNamespace(id="prj", path="")), \
-                patch.object(comments_api, "_with_permissions", side_effect=lambda comment, *a, **k: comment):
-            return asyncio.run(comments_api.update_comment(
-                "prj", "c_1", comments_api.UpdateCommentRequest(status=status, expectedRevision=4), user,
-            ))
+                patch.object(comments_api, "get_project_for_role_or_404", return_value=SimpleNamespace(id="prj", path="")):
+            try:
+                return asyncio.run(comments_api.update_comment("prj", "c_1", comments_api.UpdateCommentRequest(status=status), if_match("comment", "c_1", 4), user,
+                ))
+            except DomainError as exc:
+                return error_response(exc)
 
     def test_status_patch_passes_promotion_actor(self) -> None:
         calls: list[dict] = []
@@ -156,9 +143,9 @@ class StatusChangeEnqueuesSetStateTests(unittest.TestCase):
         updated = self._run_patch(Store())
         self.assertEqual(updated["status"], "OPEN")
         self.assertEqual(len(calls), 1)
-        actor = calls[0].get("promotion_actor")
+        actor = calls[0].get("actor")
         self.assertIsNotNone(actor, "status change must carry the actor so enqueue_set_state runs")
-        self.assertEqual((actor.user_id, actor.role), ("u_a", "admin"))
+        self.assertEqual((actor.actor_id, actor.role), ("u_a", "admin"))
         self.assertEqual(calls[0].get("expected_revision"), 4)
 
     def test_publication_denied_on_status_is_a_403_not_a_500(self) -> None:
@@ -239,9 +226,7 @@ class SetStateReconciliationTests(unittest.TestCase):
         self.assertEqual((outcome, human_state), ("human_precedes", "closed"))
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class SystemNoteProductionSchemaTests(unittest.TestCase):
     """The production comment_replies table has NOT NULL timestamp; disposable
     tracker schemas defaulted it, so the note insert only failed live."""
@@ -249,19 +234,12 @@ class SystemNoteProductionSchemaTests(unittest.TestCase):
     def setUp(self) -> None:
         import tempfile
 
-        from tests.test_tracker_tr_01 import DisposableSchemaStore
-
-        self.schema = f"c46note_{uuid.uuid4().hex[:10]}"
-        self.store = DisposableSchemaStore(self.schema)
+        self.scratch = scratch_schema(self, "c46note", create=False)
+        self.schema = self.scratch.name
+        self.store = comments_store_on(self.scratch)
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
-        self.addCleanup(self._drop_schema)
         self.store.initialize()
-
-    def _drop_schema(self) -> None:
-        with self.store._connect() as conn:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            conn.commit()
 
     def test_append_system_note_satisfies_production_constraints(self) -> None:
         from app.services.trackers.state_mutations import append_system_note
@@ -432,9 +410,11 @@ class ReplyAndRootMutationsCarryActorTests(unittest.TestCase):
 
         user = AuthenticatedUser(email="a@x", name="Admin", role="admin", session_id="sid", user_id="u_a")
         with patch.object(comments_api, "comments_store", store), \
-                patch.object(comments_api, "get_project_for_role_or_404", return_value=SimpleNamespace(id="prj", path="")), \
-                patch.object(comments_api, "_with_permissions", side_effect=lambda comment, *a, **k: comment):
-            return asyncio.run(coro_factory(comments_api, user))
+                patch.object(comments_api, "get_project_for_role_or_404", return_value=SimpleNamespace(id="prj", path="")):
+            try:
+                return asyncio.run(coro_factory(comments_api, user))
+            except DomainError as exc:
+                return error_response(exc)
 
     def _store(self, calls):
         row = {"id": "c_1", "authorUserId": "u_a", "authorKind": "user", "status": "OPEN", "revision": 2, "replies": []}
@@ -463,31 +443,28 @@ class ReplyAndRootMutationsCarryActorTests(unittest.TestCase):
 
     def _assert_actor(self, calls, name):
         self.assertEqual([c[0] for c in calls], [name])
-        actor = calls[0][1].get("promotion_actor")
+        actor = calls[0][1].get("actor")
         self.assertIsNotNone(actor, f"{name} must carry the actor so the outbound op is enqueued")
-        self.assertEqual((actor.user_id, actor.role), ("u_a", "admin"))
+        self.assertEqual((actor.actor_id, actor.role), ("u_a", "admin"))
 
     def test_reply_edit_passes_promotion_actor(self) -> None:
         calls: list = []
-        self._call(self._store(calls), lambda api, user: api.update_reply(
-            "prj", "c_1", "r_1", api.UpdateReplyRequest(content="edited", expectedRevision=1), user,
+        self._call(self._store(calls), lambda api, user: api.update_reply("prj", "c_1", "r_1", api.UpdateReplyRequest(content="edited"), if_match("reply", "r_1", 1), user,
         ))
         self._assert_actor(calls, "edit_reply")
 
     def test_reply_delete_passes_promotion_actor(self) -> None:
         calls: list = []
-        self._call(self._store(calls), lambda api, user: api.delete_reply("prj", "c_1", "r_1", 1, user))
+        self._call(self._store(calls), lambda api, user: api.delete_reply("prj", "c_1", "r_1", if_match("reply", "r_1", 1), user))
         self._assert_actor(calls, "delete_reply")
 
     def test_root_delete_passes_promotion_actor(self) -> None:
         calls: list = []
-        self._call(self._store(calls), lambda api, user: api.delete_comment("prj", "c_1", 2, user))
+        self._call(self._store(calls), lambda api, user: api.delete_comment("prj", "c_1", if_match("comment", "c_1", 2), user))
         self._assert_actor(calls, "delete_comment")
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class CommentsStoreSearchPathTests(unittest.TestCase):
     """Live finding: POST .../tracker/unlink 500'd with ``relation
     "tracker_audit" does not exist`` because the comments store connection
@@ -502,7 +479,7 @@ class CommentsStoreSearchPathTests(unittest.TestCase):
 
         @contextmanager
         def connection():
-            with psycopg.connect(POSTGRES_URL, row_factory=dict_row) as conn:
+            with psycopg.connect(CATALOG_URL, row_factory=dict_row) as conn:
                 yield conn
 
         store = css.CommentsStoreService()

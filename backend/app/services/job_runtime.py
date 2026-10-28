@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 import threading
 import time
 from dataclasses import dataclass, field
@@ -9,6 +8,7 @@ from typing import Any, Callable, Mapping
 
 from app.core.config import settings
 from app.services.job_service import JobService, jobs
+from app.services.tree_removal import remove_tree
 
 
 class JobCancelled(RuntimeError):
@@ -65,6 +65,10 @@ class JobResult:
     details: Mapping[str, Any] = field(default_factory=dict)
     artifact: PreparedArtifact | None = None
     sidecar_artifacts: tuple[PreparedArtifact, ...] = ()
+    # Runs inside the job's completion transaction with its connection, so a
+    # feature row (a release build) succeeds exactly when the job completes.
+    # It must not use another connection on the job row: that would deadlock.
+    settle: Callable[[Any], Any] | None = None
 
 
 def job_state_root() -> Path:
@@ -77,8 +81,21 @@ def job_state_root() -> Path:
     ).expanduser().resolve()
 
 
+# Payload keys the context owns: resumable state that survives a retry.
+CHECKPOINT_KEY = "_checkpoint"
+PARTIAL_RESULT_KEY = "_partial_result"
+_RESERVED_PAYLOAD_KEYS = frozenset({CHECKPOINT_KEY, PARTIAL_RESULT_KEY})
+
+
 class JobContext:
-    """Fenced execution context passed to one child-process handler."""
+    """Fenced execution context passed to one child-process handler.
+
+    Besides progress and cancellation it carries a checkpoint: a handler that
+    can resume records ``save_checkpoint(checkpoint=..., result=...)`` as it
+    goes, and a retried attempt reads ``checkpoint`` and ``partial_result``
+    back. Both live in the job row's payload under keys the context owns, so
+    ``payload`` shows the handler only what the caller queued.
+    """
 
     def __init__(
         self,
@@ -89,6 +106,7 @@ class JobContext:
         progress_interval_seconds: float = 0.5,
     ) -> None:
         self.job = dict(job)
+        self.job["payload"] = dict(job.get("payload") or {})
         self.job_id = str(job["job_id"])
         self.fence = int(job["fence"])
         self.worker_id = worker_id
@@ -105,7 +123,54 @@ class JobContext:
 
     @property
     def payload(self) -> dict[str, Any]:
-        return dict(self.job.get("payload") or {})
+        return {
+            key: value
+            for key, value in self.job["payload"].items()
+            if key not in _RESERVED_PAYLOAD_KEYS
+        }
+
+    @property
+    def checkpoint(self) -> dict[str, Any]:
+        """The last saved checkpoint, ``{}`` on a first attempt."""
+
+        return dict(self.job["payload"].get(CHECKPOINT_KEY) or {})
+
+    @property
+    def partial_result(self) -> dict[str, Any]:
+        """The result fields saved so far, accumulated across checkpoints."""
+
+        return dict(self.job["payload"].get(PARTIAL_RESULT_KEY) or {})
+
+    def save_checkpoint(
+        self,
+        *,
+        checkpoint: Mapping[str, Any] | None = None,
+        result: Mapping[str, Any] | None = None,
+        stage: str | None = None,
+        message: str | None = None,
+        percent: float | None = None,
+    ) -> None:
+        """Record resumable state with a progress update; checks cancellation first.
+
+        ``checkpoint`` replaces the saved checkpoint; ``result`` is merged
+        into the partial result.
+        """
+
+        self.check_cancelled()
+        payload = self.job["payload"]
+        if checkpoint is not None:
+            payload[CHECKPOINT_KEY] = dict(checkpoint)
+        if result is not None:
+            payload[PARTIAL_RESULT_KEY] = {**self.partial_result, **dict(result)}
+        self.progress(
+            stage=stage,
+            message=message,
+            percent=percent,
+            payload_updates={
+                CHECKPOINT_KEY: self.checkpoint,
+                PARTIAL_RESULT_KEY: self.partial_result,
+            },
+        )
 
     def check_cancelled(self) -> None:
         current = self.service.get(self.job_id)
@@ -170,7 +235,34 @@ class JobContext:
 
     def cleanup_staging(self) -> None:
         if self.staging_dir.exists():
-            shutil.rmtree(self.staging_dir, ignore_errors=True)
+            remove_tree(self.staging_dir, ignore_errors=True)
 
 
 JobHandler = Callable[[JobContext], JobResult]
+
+
+class JobLogNotFound(LookupError):
+    """The job's log is missing or outside the job state root."""
+
+
+def tail_job_log(path: Path, line_count: int) -> list[str]:
+    """The last ``line_count`` lines of a job log under ``job_state_root()/jobs``.
+
+    Reads at most the final 256 KiB. A path outside that root, or a missing
+    file, raises ``JobLogNotFound``: a log path comes from the job row, so it is
+    checked rather than trusted.
+    """
+
+    root = (job_state_root() / "jobs").resolve()
+    resolved = Path(path).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as error:
+        raise JobLogNotFound(str(path)) from error
+    if not resolved.is_file():
+        raise JobLogNotFound(str(path))
+    with resolved.open("rb") as handle:
+        size = handle.seek(0, 2)
+        handle.seek(max(0, size - 256 * 1024))
+        text = handle.read(256 * 1024).decode("utf-8", errors="replace")
+    return text.splitlines()[-line_count:]

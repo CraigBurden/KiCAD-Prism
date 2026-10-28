@@ -167,6 +167,27 @@ export interface EcadNetStatisticsRef {
     netCode?: number;
 }
 
+/** ecad-viewer's InsetCamera, as a 3D scene receives it. */
+export interface EcadInsetCamera {
+    center: { x: number; y: number };
+    zoom: number;
+    rotation: number;
+    mirror: boolean;
+    view3d?: boolean;
+    tilt?: number;
+}
+
+export type EcadInset3DState = "ready" | "loading" | "unavailable";
+
+/** ecad-viewer's InsetScene3D: a host's 3D board drawing PCB insets. */
+export interface EcadInsetScene3D {
+    state(): EcadInset3DState;
+    load(): void;
+    render(camera: EcadInsetCamera, canvas: HTMLCanvasElement, bottom: boolean, key: string): boolean;
+    release?(key: string): void;
+    subscribe(listener: () => void): () => void;
+}
+
 export interface EcadViewportInsets {
     left?: number;
     right?: number;
@@ -386,6 +407,41 @@ export interface EcadTransitionTraceDetail {
     detail?: Record<string, unknown>;
 }
 
+export type EcadMeasureUnits = "mm" | "mil";
+
+export interface EcadMeasureSnap {
+    kind: "pad" | "via" | "track-end" | "track" | "free";
+    /** Board millimetres. */
+    x: number;
+    y: number;
+    /** "U1 · 25", "via", "track"; empty for a free point. */
+    label: string;
+    net: string | null;
+}
+
+export interface EcadMeasurement {
+    a: EcadMeasureSnap;
+    b: EcadMeasureSnap;
+    /** Millimetres; dx and dy are absolute. */
+    distance: number;
+    dx: number;
+    dy: number;
+    /** Degrees above the horizontal, 0–90. */
+    angle: number;
+}
+
+export interface EcadMeasureState {
+    phase: "idle" | "placing" | "done";
+    /** While placing, B is the point under the pointer. */
+    measurement: EcadMeasurement | null;
+    hover: EcadMeasureSnap | null;
+}
+
+/** `ecad-viewer:inset-mode` and `ecad-viewer:measure-mode`. */
+export interface EcadModeChangeDetail {
+    on: boolean;
+}
+
 export interface ECadViewerElement extends HTMLElement {
     readonly isReady: boolean;
     /** Design-variant API (packet 3.4); required by the vendored bundle. */
@@ -396,6 +452,32 @@ export interface ECadViewerElement extends HTMLElement {
     appendSources(update: { revisionKey: string; sources: Array<{ filename: string; content: string }> }): Promise<void>;
     setActive(active: boolean): void;
     setViewportInsets(insets: EcadViewportInsets | null): void;
+    /**
+     * Cross-document insets: hovering a pin or pad opens a live view of the
+     * other document. Link the schematic and PCB elements with setInsetPeer;
+     * `I` toggles inset mode (event "ecad-viewer:inset-mode", detail.on).
+     */
+    enableInsets?(): void;
+    setInsetPeer?(peer: ECadViewerElement | null): void;
+    setInsetMode?(on: boolean): void;
+    readonly insetMode?: boolean;
+    /** Close the inset preview, else all insets; true if anything closed. */
+    escapeInsets?(): boolean;
+    closeInsets?(): boolean;
+    /**
+     * PCB measure mode: click two points to measure between them; pads,
+     * vias and tracks snap, Shift places a free point. `Cmd/Ctrl+Shift+M`
+     * toggles it (event "ecad-viewer:measure-mode", detail.on); every change
+     * of points emits "ecad-viewer:measure" with an EcadMeasureState.
+     */
+    setMeasureMode?(on: boolean): void;
+    readonly measureMode?: boolean;
+    /** Clear the points, else leave measure mode; true if anything happened. */
+    escapeMeasure?(): boolean;
+    setMeasureUnits?(units: EcadMeasureUnits): void;
+    readonly measureState?: EcadMeasureState | null;
+    /** IN-61: the host's 3D board for this element's PCB insets (T). */
+    setInset3D?(scene: EcadInsetScene3D | null): void;
     resize?(): void;
     /**
      * Drop the inspected object; the highlighted nets too unless
@@ -510,6 +592,9 @@ declare global {
         "ecad-viewer:document-comparison-frame": CustomEvent<EcadDocumentComparisonSelectionResult>;
         "ecad-viewer:transition-trace": CustomEvent<EcadTransitionTraceDetail>;
         "ecad-viewer:comment-area": CustomEvent<EcadCommentAreaDetail>;
+        "ecad-viewer:inset-mode": CustomEvent<EcadModeChangeDetail>;
+        "ecad-viewer:measure-mode": CustomEvent<EcadModeChangeDetail>;
+        "ecad-viewer:measure": CustomEvent<EcadMeasureState>;
         "kicanvas:select": CustomEvent<KiCanvasSelectDetail>;
         camerachange: CustomEvent<CameraState>;
     }

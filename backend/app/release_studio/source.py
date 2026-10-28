@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 from app.release_studio.config.errors import ConfigLoadError
+from app.services.design_bundle.errors import DesignDataPending
 
 logger = logging.getLogger(__name__)
 
@@ -71,13 +72,19 @@ def apply_source_defaults(
 
 
 def discover_source(
-    repo_root: Path | str, commit_sha: str, relative_path: str | None = None
+    repo_root: Path | str,
+    commit_sha: str,
+    relative_path: str | None = None,
+    *,
+    project_id: str = "",
 ) -> dict[str, Any]:
     """List boards, schematics, variants, and BOM presets at *commit_sha*.
 
     ``relative_path`` is the imported project's subdirectory. A monorepo holds
     several projects in one repository, so discovery that ignored it would
-    offer a sibling project's board as this project's default.
+    offer a sibling project's board as this project's default. ``project_id``
+    keys the variant lookup's design-bundle read; without it a catalog cannot
+    be read, so the Source step offers only the explicit default.
     """
 
     root = Path(repo_root)
@@ -102,7 +109,9 @@ def discover_source(
         "board": board or "",
         "schematic": schematic or "",
         "project": project or "",
-        "variants": _variant_options(root, commit_sha, relative_path, project or board or schematic),
+        "variants": _variant_options(
+            root, commit_sha, relative_path, project or board or schematic, project_id
+        ),
         "bom_presets": presets,
         "default_bom_preset": presets[0] if presets else _CURRENT_SETTINGS,
         "variant": "",
@@ -195,10 +204,11 @@ def _variant_options(
     commit: str,
     relative_path: str | None,
     project_rel: str | None,
+    project_id: str = "",
 ) -> list[str]:
     """The explicit default plus every named variant at this commit."""
 
-    return [DEFAULT_VARIANT, *_variants(repo_root, commit, relative_path, project_rel)]
+    return [DEFAULT_VARIANT, *_variants(repo_root, commit, relative_path, project_rel, project_id)]
 
 
 @dataclass(frozen=True)
@@ -207,6 +217,7 @@ class _CatalogProject:
 
     path: str
     project_file: str | None = None
+    id: str = ""
 
 
 def _scoped_root(repo_root: Path, relative_path: str | None) -> Path:
@@ -232,29 +243,38 @@ def _variants(
     commit: str,
     relative_path: str | None = None,
     project_rel: str | None = None,
+    project_id: str = "",
 ) -> list[str]:
-    """Named variants from the shared catalog discovery (VAR-07/08).
+    """Named variants from the project's design-bundle catalog (VAR-07/08).
 
     The catalog service is the single source of variant truth for the variants
-    endpoint, the semantic index and Release Studio. The line scan this
-    replaces read the schematic text only, so project-registry and board-only
-    names were missed and names in comments were invented. Discovery stays
-    best-effort: variants are optional for a build, so a project whose catalog
-    cannot be read offers only the explicit default instead of failing the
-    whole Source step.
+    endpoint, the semantic index and Release Studio, and Release Studio reads
+    it from the bundle only (ADR amendment C3): the source-text scan is gone
+    with WP-X. Discovery stays best-effort: variants are optional for a build,
+    so a catalog that cannot be read offers only the explicit default instead
+    of failing the whole Source step. A bundle that is still building is
+    logged as pending rather than as a failure; neither retries the build here.
     """
 
-    if not project_rel:
+    if not project_rel or not project_id:
         return []
     scoped_root = _scoped_root(repo_root, relative_path)
     project = _CatalogProject(
         path=str(scoped_root),
         project_file=_catalog_anchor(repo_root, scoped_root, project_rel),
+        id=project_id,
     )
     from app.services import variant_catalog_service
 
     try:
         payload = variant_catalog_service.discover_variant_catalog(project, commit)
+    except DesignDataPending:
+        logger.info(
+            "Variant catalog for Release Studio at %s is still building; "
+            "offering the default variant",
+            commit,
+        )
+        return []
     except Exception:  # noqa: BLE001 - a missing catalog must not fail Source
         logger.warning(
             "Could not discover variants for Release Studio at %s",

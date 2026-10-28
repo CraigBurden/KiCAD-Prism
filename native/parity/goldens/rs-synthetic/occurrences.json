@@ -1,0 +1,222 @@
+{
+ "schema": "prism.occurrences.a0",
+ "sheets": [
+  {
+   "sheetPath": "/44444444-4444-4444-8444-444444444444",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": []
+  }
+ ],
+ "symbols": [
+  {
+   "kiidPath": "/44444444-4444-4444-8444-444444444444/55555555-5555-4555-8555-555555555555",
+   "sheetPath": "/44444444-4444-4444-8444-444444444444",
+   "symbolUuid": "55555555-5555-4555-8555-555555555555",
+   "documentPath": "synthetic.kicad_sch",
+   "libId": "Device:R",
+   "reference": "R1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "~",
+    "Description": "Status resistor",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "Reference": "R1",
+    "Value": "1k"
+   },
+   "bomFields": {
+    "value": "1k",
+    "description": "Status resistor",
+    "datasheet": "~",
+    "footprint": "Resistor_SMD:R_0603_1608Metric"
+   },
+   "variants": [
+    {
+     "name": "default",
+     "dnp": false,
+     "fields": {}
+    },
+    {
+     "name": "dnp-led",
+     "dnp": false,
+     "fields": {}
+    },
+    {
+     "name": "assembly-reduced",
+     "dnp": true,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "kiidPath": "/44444444-4444-4444-8444-444444444444/77777777-7777-4777-8777-777777777777",
+   "sheetPath": "/44444444-4444-4444-8444-444444444444",
+   "symbolUuid": "77777777-7777-4777-8777-777777777777",
+   "documentPath": "synthetic.kicad_sch",
+   "libId": "Device:LED",
+   "reference": "D1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "~",
+    "Description": "Status LED",
+    "Footprint": "LED_SMD:LED_0603_1608Metric",
+    "Reference": "D1",
+    "Value": "STATUS"
+   },
+   "bomFields": {
+    "value": "STATUS",
+    "description": "Status LED",
+    "datasheet": "~",
+    "footprint": "LED_SMD:LED_0603_1608Metric"
+   },
+   "variants": [
+    {
+     "name": "default",
+     "dnp": false,
+     "fields": {}
+    },
+    {
+     "name": "dnp-led",
+     "dnp": true,
+     "fields": {}
+    },
+    {
+     "name": "assembly-reduced",
+     "dnp": true,
+     "fields": {}
+    }
+   ]
+  }
+ ],
+ "footprints": [
+  {
+   "uuid": "11111111-1111-4111-8111-111111111111",
+   "documentPath": "synthetic.kicad_pcb",
+   "reference": "R1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": [
+    {
+     "name": "assembly-reduced",
+     "dnp": true,
+     "fields": {}
+    },
+    {
+     "name": "default",
+     "fields": {}
+    },
+    {
+     "name": "dnp-led",
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "uuid": "22222222-2222-4222-8222-222222222222",
+   "documentPath": "synthetic.kicad_pcb",
+   "reference": "D1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": [
+    {
+     "name": "assembly-reduced",
+     "dnp": true,
+     "fields": {}
+    },
+    {
+     "name": "default",
+     "fields": {}
+    },
+    {
+     "name": "dnp-led",
+     "dnp": true,
+     "fields": {}
+    }
+   ]
+  },
+  {
+   "uuid": "33333333-3333-4333-8333-333333333333",
+   "documentPath": "synthetic.kicad_pcb",
+   "reference": "J1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  }
+ ],
+ "references": [
+  {
+   "reference": "D1",
+   "symbols": [
+    "/44444444-4444-4444-8444-444444444444/77777777-7777-4777-8777-777777777777"
+   ],
+   "footprints": [
+    "22222222-2222-4222-8222-222222222222"
+   ]
+  },
+  {
+   "reference": "J1",
+   "symbols": [],
+   "footprints": [
+    "33333333-3333-4333-8333-333333333333"
+   ]
+  },
+  {
+   "reference": "R1",
+   "symbols": [
+    "/44444444-4444-4444-8444-444444444444/55555555-5555-4555-8555-555555555555"
+   ],
+   "footprints": [
+    "11111111-1111-4111-8111-111111111111"
+   ]
+  }
+ ],
+ "variantDeclarations": [
+  {
+   "source": "project",
+   "name": "default",
+   "description": "Populated reference assembly."
+  },
+  {
+   "source": "project",
+   "name": "dnp-led",
+   "description": "Status LED omitted from the assembly."
+  },
+  {
+   "source": "project",
+   "name": "assembly-reduced",
+   "description": "Status indication omitted for a reduced assembly."
+  },
+  {
+   "source": "pcb",
+   "name": "default",
+   "description": "Populated reference assembly."
+  },
+  {
+   "source": "pcb",
+   "name": "dnp-led",
+   "description": "Status LED omitted from the assembly."
+  },
+  {
+   "source": "pcb",
+   "name": "assembly-reduced",
+   "description": "Status indication omitted for a reduced assembly."
+  }
+ ]
+}

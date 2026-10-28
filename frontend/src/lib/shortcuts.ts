@@ -140,6 +140,31 @@ export const SHORTCUT_REFERENCE: ShortcutGroupDoc[] = [
     ],
   },
   {
+    title: "Insets",
+    hint: "Schematic and PCB tabs",
+    shortcuts: [
+      { combo: "i", description: "Inset mode: hover a pin or pad to see the other document" },
+      { keys: ["Hold", ...shortcutKeys("alt")], description: "Peek while inset mode is off" },
+      { keys: ["Click"], description: "Pin the hovered inset" },
+      { keys: ["R", "⇧R"], description: "Rotate the inset under the pointer +15° / −15°" },
+      { combo: "m", description: "Mirror the inset under the pointer" },
+      { combo: "l", description: "Lens shape" },
+      { keys: ["Home"], description: "Refit the inset" },
+      { combo: "p", description: "Pin the inset under the pointer" },
+      { combo: "x", description: "Close the inset under the pointer" },
+      { combo: "escape", description: "Close the preview, then all insets" },
+    ],
+  },
+  {
+    title: "Measure",
+    hint: "PCB tab",
+    shortcuts: [
+      { combo: "mod+shift+m", description: "Measure mode: click two points" },
+      { keys: ["Hold", ...shortcutKeys("shift")], description: "Place a free point instead of snapping" },
+      { combo: "escape", description: "Clear the points, then leave measure mode" },
+    ],
+  },
+  {
     title: "Dialogs",
     shortcuts: [
       { combo: "mod+enter", description: "Submit a create, rename, move, or import dialog" },

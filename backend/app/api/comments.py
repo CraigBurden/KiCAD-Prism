@@ -11,14 +11,25 @@ import os
 import re
 from typing import Callable, List, Optional, TypeVar
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field, model_validator
 
 from app.api._helpers import get_project_for_role_or_404
+from app.api.comments_models import (
+    CommentAttachmentUploadView,
+    CommentHistoryEntry,
+    CommentThreadView,
+    CommentView,
+    CommentsListing,
+    DeletedCommentView,
+    PushCommentsView,
+    ReplyCreatedView,
+)
+from app.core import preconditions
 from app.core.security import AuthenticatedUser, require_comment_writer, require_designer, require_viewer
-from app.core.roles import normalize_role
-from app.services import access_service, comment_permissions
+from app.services import access_service, comment_attachments, comment_permissions, comment_social
+from app.services.comment_capabilities import with_capabilities
 from app.services.comment_anchor_service import (
     AnchorValidationError,
     resolve_canvas_anchor,
@@ -26,8 +37,7 @@ from app.services.comment_anchor_service import (
     resolve_manual_pin,
     resolve_displayed_bindings,
 )
-from app.services.comment_permissions import ActorIdentity, AuthoredObject, CommentAction, CommentPermissionError
-from app.services.comments_revisions import Editor, RevisionConflict
+from app.services.comment_permissions import ActorIdentity, CommentAction, CommentPermissionError
 from app.services.comments_store_service import (
     COMMENT_CLASSES,
     COMMENT_SEVERITIES,
@@ -35,9 +45,6 @@ from app.services.comments_store_service import (
     DEFAULT_COMMENT_SEVERITY,
     comments_store,
 )
-from app.services.trackers.projections import can_retry_projection
-from app.services.trackers.promotion import PromotionActor
-from app.services.trackers.publication_policy import PublicationDenied
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
 T = TypeVar("T")
@@ -65,6 +72,7 @@ class CreateCommentRequest(BaseModel):
     context: str  # "PCB" or "SCH"
     location: CommentLocation
     content: str
+    contentFormat: Optional[str] = None
     elementId: Optional[str] = None
     elementRef: Optional[str] = None
     elementType: Optional[str] = None
@@ -77,20 +85,21 @@ class CreateCommentRequest(BaseModel):
 
 class CreateReplyRequest(BaseModel):
     content: str
+    contentFormat: Optional[str] = None
 
 
 class UpdateReplyRequest(BaseModel):
     content: str
-    expectedRevision: Optional[int] = None
+    contentFormat: Optional[str] = None
 
 
 class UpdateCommentRequest(BaseModel):
     status: Optional[str] = None  # "OPEN" or "RESOLVED"
     content: Optional[str] = None
+    contentFormat: Optional[str] = None
     severity: Optional[str] = None
     commentClass: Optional[str] = None
     mentions: Optional[List[str]] = None
-    expectedRevision: Optional[int] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -102,7 +111,6 @@ class UpdateCommentRequest(BaseModel):
 
 class PinCommentRequest(BaseModel):
     commit: str
-    expectedRevision: Optional[int] = None
 
 
 class ReattachCommentRequest(BaseModel):
@@ -110,7 +118,6 @@ class ReattachCommentRequest(BaseModel):
     location: CommentLocation
     elementId: Optional[str] = None
     relativePoint: Optional[List[float]] = None
-    expectedRevision: int = Field(ge=1)
 
 
 class CommentAnchor(BaseModel):
@@ -201,6 +208,7 @@ class CreateComparisonCommentRequest(BaseModel):
     compareCommit: str
     domain: str
     content: str
+    contentFormat: Optional[str] = None
     filePath: Optional[str] = None
     semanticItemId: Optional[str] = None
     semanticItemRef: Optional[str] = None
@@ -222,86 +230,11 @@ def _read_actor(user: AuthenticatedUser) -> Optional[ActorIdentity]:
         return None
 
 
-def _editor(actor: ActorIdentity) -> Editor:
-    return Editor(user_id=actor.actor_id, kind=actor.actor_kind, display=actor.display_name)
+async def _run_mutation(write: Callable[[], T]) -> T:
+    """Run a blocking write off the event loop. Its refusals (permission, publication,
+    revision conflict, anchor, attachment) are typed errors the app handler renders."""
 
-
-def _promotion_actor(actor: ActorIdentity) -> PromotionActor:
-    """The actor whose role decides whether a linked thread's change reaches the forge."""
-    return PromotionActor(user_id=actor.actor_id, role=actor.role, kind=actor.actor_kind)
-
-
-def _authored(value: dict) -> AuthoredObject:
-    return AuthoredObject(
-        author_user_id=value.get("authorUserId"),
-        author_kind=str(value.get("authorKind") or comment_permissions.ACTOR_KIND_LEGACY),
-    )
-
-
-def _with_permissions(comment: dict, actor: ActorIdentity) -> dict:
-    tracker = comment.get("tracker") or {}
-    promote_role = normalize_role(tracker.get("promoteMinRole")) or "designer"
-    linked = bool(tracker.get("linkState"))
-    capabilities = comment_permissions.capabilities(
-        actor, _authored(comment), linked=linked, promote_min_role=promote_role,
-    )
-    capabilities["canPublish"] = (
-        bool(tracker.get("promoteMinRole"))
-        and not linked
-        and (comment.get("anchor") or {}).get("state") == "pinned"
-        and comment_permissions.allowed(
-            CommentAction.PROMOTE, actor, promote_min_role=promote_role,
-        )
-    )
-    capabilities["canRetry"] = can_retry_projection(tracker) and comment_permissions.allowed(
-        CommentAction.RETRY, actor, linked=linked, promote_min_role=promote_role,
-    )
-    comment["permissions"] = capabilities
-    can_share = linked and comment_permissions.allowed(
-        CommentAction.SHARE, actor, promote_min_role=promote_role,
-    )
-    for reply in comment.get("replies", []):
-        reply_caps = comment_permissions.capabilities(actor, _authored(reply))
-        reply_caps["canPublish"] = False
-        reply_caps["canShare"] = can_share and (reply.get("sync") or {}).get("state") == "unsynced_local"
-        reply["permissions"] = reply_caps
-    return comment
-
-
-def _permission_response(exc: CommentPermissionError) -> JSONResponse:
-    body = {"detail": exc.detail, "code": exc.code}
-    if exc.required_role:
-        body["requiredRole"] = exc.required_role
-    return JSONResponse(status_code=exc.status_code, content=body)
-
-
-def _conflict_response(exc: RevisionConflict) -> JSONResponse:
-    return JSONResponse(
-        status_code=409,
-        content={"detail": "Comment changed since the revision you edited", "code": "revision_conflict",
-                 "currentRevision": exc.current_revision},
-    )
-
-
-async def _run_mutation(write: Callable[[], T]):
-    try:
-        return await asyncio.to_thread(write)
-    except CommentPermissionError as exc:
-        return _permission_response(exc)
-    except PublicationDenied as exc:
-        # A ValueError subclass: map it before the generic ValueError branch.
-        body = {"detail": str(exc), "code": exc.code}
-        if exc.required_role:
-            body["requiredRole"] = exc.required_role
-        return JSONResponse(status_code=403, content=body)
-    except RevisionConflict as exc:
-        return _conflict_response(exc)
-    except AnchorValidationError as exc:
-        return JSONResponse(status_code=422, content={"detail": exc.detail, "code": exc.code})
-    except ValueError as exc:
-        if "immutable" in str(exc).lower():
-            return JSONResponse(status_code=422, content={"detail": str(exc), "code": "anchor_immutable"})
-        raise
+    return await asyncio.to_thread(write)
 
 
 def _normalize_context(context: str) -> str:
@@ -315,7 +248,18 @@ def _normalize_content(content: str, *, field: str = "content") -> str:
     normalized = content.strip()
     if not normalized:
         raise HTTPException(status_code=400, detail=f"{field.capitalize()} cannot be empty")
+    if len(normalized) > comment_attachments.MAX_CONTENT_CHARS:
+        raise HTTPException(status_code=413, detail=f"{field.capitalize()} is too long")
     return normalized
+
+
+def _content_format(value: Optional[str], *, default: Optional[str] = comment_attachments.CONTENT_FORMAT_PLAIN) -> Optional[str]:
+    if value is None:
+        return default
+    try:
+        return comment_attachments.normalize_content_format(value)
+    except comment_attachments.AttachmentError as exc:
+        raise HTTPException(status_code=400, detail=exc.detail) from exc
 
 
 def _normalize_bounds(bounds: Optional[List[float]]) -> Optional[List[float]]:
@@ -392,7 +336,12 @@ async def list_mention_candidates(
     return await asyncio.to_thread(read)
 
 
-@router.get("/{project_id}/comments")
+@router.get(
+    "/{project_id}/comments",
+    response_model=CommentsListing,
+    response_model_exclude_unset=True,
+    summary="List a project's comment threads",
+)
 async def get_comments(
     project_id: str,
     user: AuthenticatedUser = Depends(require_viewer),
@@ -411,10 +360,12 @@ async def get_comments(
             )
             listing["comments"] = resolve_displayed_bindings(
                 project, listing["comments"], displayed, bindings,
+                record_design_keys=lambda keys: comments_store.fill_anchor_design_keys(project.id, keys),
             )
         actor = _read_actor(user)
-        if actor is not None:
-            listing["comments"] = [_with_permissions(comment, actor) for comment in listing["comments"]]
+        listing["comments"] = [
+            with_capabilities(comment, actor) for comment in listing["comments"]
+        ]
         return listing
 
     try:
@@ -423,7 +374,12 @@ async def get_comments(
         raise HTTPException(status_code=422, detail=exc.detail) from exc
 
 
-@router.get("/{project_id}/comments/{comment_id}/thread")
+@router.get(
+    "/{project_id}/comments/{comment_id}/thread",
+    response_model=CommentThreadView,
+    response_model_exclude_unset=True,
+    summary="Get one comment thread for a live refresh",
+)
 async def get_comment_thread(
     project_id: str,
     comment_id: str,
@@ -441,10 +397,13 @@ async def get_comment_thread(
         if comment is not None and revision and comment.get("scope") != "comparison":
             displayed = _normalize_commit(revision, "revision")
             bindings = comments_store.get_anchor_bindings(project.id, [comment_id])
-            [comment] = resolve_displayed_bindings(project, [comment], displayed, bindings)
+            [comment] = resolve_displayed_bindings(
+                project, [comment], displayed, bindings,
+                record_design_keys=lambda keys: comments_store.fill_anchor_design_keys(project.id, keys),
+            )
         actor = _read_actor(user)
-        if comment is not None and actor is not None:
-            comment = _with_permissions(comment, actor)
+        if comment is not None:
+            comment = with_capabilities(comment, actor)
         return {"comment": comment, "cursor": cursor}
 
     try:
@@ -453,7 +412,12 @@ async def get_comment_thread(
         raise HTTPException(status_code=422, detail=exc.detail) from exc
 
 
-@router.get("/{project_id}/comparison-comments")
+@router.get(
+    "/{project_id}/comparison-comments",
+    response_model=CommentsListing,
+    response_model_exclude_unset=True,
+    summary="List a comparison's discussion threads",
+)
 async def get_comparison_comments(
     project_id: str,
     base: str,
@@ -476,16 +440,62 @@ async def get_comparison_comments(
             comparison_domain=domain_norm,
         )
         actor = _read_actor(user)
-        if actor is not None:
-            listing["comments"] = [_with_permissions(comment, actor) for comment in listing["comments"]]
+        listing["comments"] = [
+            with_capabilities(comment, actor) for comment in listing["comments"]
+        ]
         return listing
 
     return await asyncio.to_thread(read)
 
 
+@router.get(
+    "/{project_id}/comparison-comments/report",
+    response_class=Response,
+    responses={
+        200: {
+            "content": {"application/zip": {}},
+            "description": "The discussion as Markdown plus its attachments, zipped",
+        }
+    },
+    summary="Download a comparison's discussion report",
+)
+async def get_comparison_discussion_report(
+    project_id: str,
+    base: str,
+    compare: str,
+    domain: Optional[str] = None,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """The comparison's discussion as Markdown with its attachments, zipped."""
+    domain_norm = _normalize_context(domain) if domain else None
+    base_commit = _normalize_commit(base, "base")
+    compare_commit = _normalize_commit(compare, "compare")
+
+    def build() -> tuple[bytes, str]:
+        project = get_project_for_role_or_404(project_id, user.role)
+        name = project.display_name or project.name
+        scope = f" ({domain_norm})" if domain_norm else ""
+        title = f"{name}: review discussion {base_commit[:10]} → {compare_commit[:10]}{scope}"
+        return comments_store.comparison_discussion_report(
+            project.id, project.path, base_commit, compare_commit, domain_norm, title,
+        ), name
+
+    data, name = await asyncio.to_thread(build)
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-") or "project"
+    filename = f"{safe}-discussion-{base_commit[:10]}-{compare_commit[:10]}.zip"
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"', "X-Content-Type-Options": "nosniff"},
+    )
+
+
 @router.post(
     "/{project_id}/comparison-comments",
     dependencies=[Depends(require_comment_writer)],
+    response_model=CommentView,
+    response_model_exclude_unset=True,
+    summary="Create a comparison, file, group or item discussion",
 )
 async def create_comparison_comment(
     project_id: str,
@@ -501,27 +511,25 @@ async def create_comparison_comment(
             detail="semanticItemId is required for item and group comments",
         )
     content = _normalize_content(request.content)
+    content_format = _content_format(request.contentFormat)
     comment_class = _normalize_comment_class(request.commentClass)
     severity = _normalize_severity(request.severity)
 
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
         actor = _actor(user)
-        comment_permissions.authorize(CommentAction.CREATE, actor)
         anchor = resolve_comparison_anchor(
             project, base_commit=request.baseCommit, compare_commit=request.compareCommit,
             selected_side=request.selectedSide, file_path=request.filePath, context=domain,
         )
-        created = comments_store.create_comment(
+        return comments_store.create_comment(
             project_id=project.id,
             project_path=project.path,
             context=domain,
             location={"x": 0.0, "y": 0.0, "layer": "", "page": request.filePath or ""},
             content=content,
-            author=actor.display_name,
-            author_user_id=actor.actor_id,
-            author_kind=actor.actor_kind,
-            promotion_actor=_promotion_actor(actor),
+            content_format=content_format,
+            actor=actor,
             element_id=request.semanticItemId,
             element_ref=request.semanticItemRef,
             element_type=anchor_kind,
@@ -537,16 +545,22 @@ async def create_comparison_comment(
             anchor_kind=anchor_kind,
             anchor_commit=anchor.commit,
             anchor_revision_key=anchor.source_revision_key,
+            anchor_design_key=anchor.design_key,
             anchor_source=anchor.source,
             selected_side=anchor.selected_side,
             project_relative_path=anchor.project_relative_path,
         )
-        return _with_permissions(created, actor)
 
     return await _run_mutation(write)
 
 
-@router.post("/{project_id}/comments", dependencies=[Depends(require_comment_writer)])
+@router.post(
+    "/{project_id}/comments",
+    dependencies=[Depends(require_comment_writer)],
+    response_model=CommentView,
+    response_model_exclude_unset=True,
+    summary="Create a comment on the design",
+)
 async def create_comment(
     project_id: str,
     request: CreateCommentRequest,
@@ -557,6 +571,7 @@ async def create_comment(
     """
     context = _normalize_context(request.context)
     content = _normalize_content(request.content)
+    content_format = _content_format(request.contentFormat)
     location = request.location.model_dump()
     location["bounds"] = _normalize_bounds(request.location.bounds)
     comment_class = _normalize_comment_class(request.commentClass)
@@ -578,20 +593,18 @@ async def create_comment(
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
         actor = _actor(user)
-        comment_permissions.authorize(CommentAction.CREATE, actor)
         anchor = resolve_canvas_anchor(
             project, revision=request.revision.model_dump() if request.revision else None,
             context=context,
         )
-        created = comments_store.create_comment(
+        return comments_store.create_comment(
             project_id=project.id,
             project_path=project.path,
             context=context,
             location=location,
             content=content,
-            author=actor.display_name,
-            author_user_id=actor.actor_id,
-            author_kind=actor.actor_kind,
+            content_format=content_format,
+            actor=actor,
             element_id=request.elementId,
             element_ref=request.elementRef,
             element_type=request.elementType,
@@ -602,20 +615,31 @@ async def create_comment(
             file_path=anchor.file_path,
             anchor_commit=anchor.commit,
             anchor_revision_key=anchor.source_revision_key,
+            anchor_design_key=anchor.design_key,
             anchor_source=anchor.source,
             project_relative_path=anchor.project_relative_path,
-            promotion_actor=_promotion_actor(actor),
         )
-        return _with_permissions(created, actor)
 
     return await _run_mutation(write)
 
 
-@router.patch("/{project_id}/comments/{comment_id}", dependencies=[Depends(require_comment_writer)])
+def _expected_revision(http: Request, kind: str, target_id: str, *, required: bool = False) -> Optional[int]:
+    """The revision ``If-Match`` names (``"comment:<id>:<n>"`` / ``"reply:<id>:<n>"``); ``None`` when optional and absent."""
+    return preconditions.int_version(preconditions.if_match(http, kind, target_id, required=required))
+
+
+@router.patch(
+    "/{project_id}/comments/{comment_id}",
+    dependencies=[Depends(require_comment_writer)],
+    response_model=CommentView,
+    response_model_exclude_unset=True,
+    summary="Edit a comment's content or status",
+)
 async def update_comment(
     project_id: str,
     comment_id: str,
     request: UpdateCommentRequest,
+    http: Request,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """Edit content or status using optimistic comment revisions."""
@@ -629,30 +653,21 @@ async def update_comment(
     if status is not None and status not in {"OPEN", "RESOLVED"}:
         raise HTTPException(status_code=400, detail="Status must be 'OPEN' or 'RESOLVED'")
     content = _normalize_content(request.content) if request.content is not None else None
+    content_format = _content_format(request.contentFormat, default=None)
     severity = _normalize_severity(request.severity) if request.severity is not None else None
     comment_class = _normalize_comment_class(request.commentClass) if request.commentClass is not None else None
+    expected_revision = _expected_revision(http, "comment", comment_id)
 
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
-        actor = _actor(user)
-        current = comments_store.get_comment(project.id, project.path, comment_id)
-        if current is None:
-            return None
-        if has_edit:
-            comment_permissions.authorize(CommentAction.EDIT, actor, target=_authored(current))
-        if status is not None:
-            comment_permissions.authorize(CommentAction.RESOLVE, actor)
-        updated = comments_store.patch_comment(
-            project.id, project.path, comment_id, _editor(actor),
-            expected_revision=request.expectedRevision, content=content, severity=severity,
+        return comments_store.patch_comment(
+            project.id, project.path, comment_id, actor=_actor(user),
+            expected_revision=expected_revision, content=content, severity=severity,
             comment_class=comment_class, mentions=request.mentions, status=status,
-            promotion_actor=_promotion_actor(actor),
+            content_format=content_format,
         )
-        return _with_permissions(updated, actor) if updated else None
 
     updated_comment = await _run_mutation(write)
-    if isinstance(updated_comment, JSONResponse):
-        return updated_comment
 
     if not updated_comment:
         raise HTTPException(status_code=404, detail="Comment not found")
@@ -660,46 +675,53 @@ async def update_comment(
     return updated_comment
 
 
-@router.post("/{project_id}/comments/{comment_id}/pin", dependencies=[Depends(require_comment_writer)])
+@router.post(
+    "/{project_id}/comments/{comment_id}/pin",
+    dependencies=[Depends(require_comment_writer)],
+    response_model=CommentView,
+    response_model_exclude_unset=True,
+    summary="Pin an unpinned comment to an exact commit",
+)
 async def pin_comment(
     project_id: str,
     comment_id: str,
     request: PinCommentRequest,
+    http: Request,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """An admin may pin a legacy or worktree comment once, to an exact commit."""
+    expected_revision = _expected_revision(http, "comment", comment_id)
+
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
-        actor = _actor(user)
-        if not actor.is_admin:
-            raise CommentPermissionError("legacy_admin_only", "Only an admin can pin a comment")
-        current = comments_store.get_comment(project.id, project.path, comment_id)
-        if current is None:
-            return None
-        anchor = resolve_manual_pin(project, commit=request.commit, context=current["context"])
-        updated = comments_store.pin_comment_anchor(
-            project.id, project.path, comment_id, _editor(actor), commit=anchor.commit or request.commit,
-            source_revision_key=anchor.source_revision_key, file_path=anchor.file_path,
-            project_relative_path=anchor.project_relative_path, expected_revision=request.expectedRevision,
+        return comments_store.pin_comment_anchor(
+            project.id, project.path, comment_id, actor=_actor(user), commit=request.commit,
+            resolve=lambda context: resolve_manual_pin(project, commit=request.commit, context=context),
+            expected_revision=expected_revision,
         )
-        return _with_permissions(updated, actor) if updated else None
 
     result = await _run_mutation(write)
-    if isinstance(result, JSONResponse):
-        return result
     if result is None:
         raise HTTPException(status_code=404, detail="Comment not found")
     return result
 
 
-@router.post("/{project_id}/comments/{comment_id}/reattach", dependencies=[Depends(require_comment_writer)])
+@router.post(
+    "/{project_id}/comments/{comment_id}/reattach",
+    dependencies=[Depends(require_comment_writer)],
+    response_model=CommentView,
+    response_model_exclude_unset=True,
+    summary="Reattach a comment for a commit's descendants",
+)
 async def reattach_comment(
     project_id: str,
     comment_id: str,
     request: ReattachCommentRequest,
+    http: Request,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """Append a binding for this commit's descendants; preserve the origin."""
+    expected_revision = _expected_revision(http, "comment", comment_id, required=True)
     location = request.location.model_dump()
     if not all(math.isfinite(float(location[key])) for key in ("x", "y")):
         raise HTTPException(status_code=400, detail="Comment location must be finite")
@@ -714,31 +736,29 @@ async def reattach_comment(
 
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
-        actor = _actor(user)
-        current = comments_store.get_comment(project.id, project.path, comment_id)
-        if current is None or current.get("scope") != "canvas":
-            return None
-        comment_permissions.authorize(CommentAction.EDIT, actor, target=_authored(current))
-        anchor = resolve_canvas_anchor(
-            project, revision={"commit": request.commit}, context=current["context"],
+        return comments_store.reattach_comment(
+            project.id, project.path, comment_id, actor=_actor(user),
+            commit=request.commit, location=location,
+            element_id=request.elementId, relative_point=relative_point,
+            resolve=lambda context: resolve_canvas_anchor(
+                project, revision={"commit": request.commit}, context=context,
+            ),
+            expected_revision=expected_revision,
         )
-        updated = comments_store.reattach_comment(
-            project.id, project.path, comment_id,
-            commit=anchor.commit or request.commit, location=location,
-            element_id=request.elementId, relative_point=relative_point, file_path=anchor.file_path,
-            editor=_editor(actor), expected_revision=request.expectedRevision,
-        )
-        return _with_permissions(updated, actor) if updated else None
 
     result = await _run_mutation(write)
-    if isinstance(result, JSONResponse):
-        return result
     if result is None:
         raise HTTPException(status_code=404, detail="Comment not found")
     return result
 
 
-@router.post("/{project_id}/comments/{comment_id}/replies", dependencies=[Depends(require_comment_writer)])
+@router.post(
+    "/{project_id}/comments/{comment_id}/replies",
+    dependencies=[Depends(require_comment_writer)],
+    response_model=ReplyCreatedView,
+    response_model_exclude_unset=True,
+    summary="Reply to an existing comment",
+)
 async def add_reply(
     project_id: str,
     comment_id: str,
@@ -749,32 +769,23 @@ async def add_reply(
     Add a reply to an existing comment.
     """
     content = _normalize_content(request.content)
+    content_format = _content_format(request.contentFormat)
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
-        actor = _actor(user)
-        comment_permissions.authorize(CommentAction.REPLY, actor)
         result = comments_store.add_reply(
             project_id=project.id,
             project_path=project.path,
             comment_id=comment_id,
             content=content,
-            author=actor.display_name,
-            author_user_id=actor.actor_id,
-            author_kind=actor.actor_kind,
-            promotion_actor=_promotion_actor(actor),
+            content_format=content_format,
+            actor=_actor(user),
         )
         if result is None:
             return None
         comment, reply = result
-        comment = _with_permissions(comment, actor)
-        reply_caps = comment_permissions.capabilities(actor, _authored(reply))
-        reply_caps["canPublish"] = False
-        reply["permissions"] = reply_caps
         return {"comment": comment, "reply": reply}
 
     result = await _run_mutation(write)
-    if isinstance(result, JSONResponse):
-        return result
 
     if not result:
         raise HTTPException(status_code=404, detail="Comment not found")
@@ -782,95 +793,145 @@ async def add_reply(
     return result
 
 
-@router.patch("/{project_id}/comments/{comment_id}/replies/{reply_id}", dependencies=[Depends(require_comment_writer)])
+@router.patch(
+    "/{project_id}/comments/{comment_id}/replies/{reply_id}",
+    dependencies=[Depends(require_comment_writer)],
+    response_model=CommentView,
+    response_model_exclude_unset=True,
+    summary="Edit a reply",
+)
 async def update_reply(
     project_id: str,
     comment_id: str,
     reply_id: str,
     request: UpdateReplyRequest,
+    http: Request,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     content = _normalize_content(request.content)
+    content_format = _content_format(request.contentFormat, default=None)
+    expected_revision = _expected_revision(http, "reply", reply_id)
 
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
-        actor = _actor(user)
-        current = comments_store.get_reply(project.id, comment_id, reply_id)
-        if current is None:
-            return None
-        comment_permissions.authorize(CommentAction.EDIT, actor, target=_authored(current))
-        updated = comments_store.edit_reply(
-            project.id, project.path, comment_id, reply_id, content, _editor(actor),
-            expected_revision=request.expectedRevision, promotion_actor=_promotion_actor(actor),
+        return comments_store.edit_reply(
+            project.id, project.path, comment_id, reply_id, content, actor=_actor(user),
+            expected_revision=expected_revision, content_format=content_format,
         )
-        return _with_permissions(updated, actor) if updated else None
 
     result = await _run_mutation(write)
-    if isinstance(result, JSONResponse):
-        return result
     if result is None:
         raise HTTPException(status_code=404, detail="Reply not found")
     return result
 
 
-@router.delete("/{project_id}/comments/{comment_id}/replies/{reply_id}", dependencies=[Depends(require_comment_writer)])
+@router.delete(
+    "/{project_id}/comments/{comment_id}/replies/{reply_id}",
+    dependencies=[Depends(require_comment_writer)],
+    response_model=CommentView,
+    response_model_exclude_unset=True,
+    summary="Delete a reply",
+)
 async def delete_reply(
     project_id: str,
     comment_id: str,
     reply_id: str,
-    expectedRevision: Optional[int] = None,
+    http: Request,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
+    expected_revision = _expected_revision(http, "reply", reply_id)
+
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
-        actor = _actor(user)
-        current = comments_store.get_reply(project.id, comment_id, reply_id)
-        if current is None:
-            return None
-        comment_permissions.authorize(CommentAction.DELETE, actor, target=_authored(current))
-        updated = comments_store.delete_reply(
-            project.id, project.path, comment_id, reply_id, _editor(actor),
-            expected_revision=expectedRevision, promotion_actor=_promotion_actor(actor),
+        return comments_store.delete_reply(
+            project.id, project.path, comment_id, reply_id, actor=_actor(user),
+            expected_revision=expected_revision,
         )
-        return _with_permissions(updated, actor) if updated else None
 
     result = await _run_mutation(write)
-    if isinstance(result, JSONResponse):
-        return result
     if result is None:
         raise HTTPException(status_code=404, detail="Reply not found")
     return result
 
 
-@router.delete("/{project_id}/comments/{comment_id}", dependencies=[Depends(require_comment_writer)])
+async def _set_reaction(
+    project_id: str, comment_id: str, reply_id: Optional[str], reaction: str,
+    user: AuthenticatedUser, *, present: bool,
+):
+    if reaction not in comment_social.REACTIONS:
+        raise HTTPException(status_code=422, detail="Unknown reaction")
+
+    def write():
+        project = get_project_for_role_or_404(project_id, user.role)
+        return comments_store.set_reaction(
+            project.id, project.path, comment_id, reply_id,
+            actor=_actor(user), reaction=reaction, present=present,
+        )
+
+    result = await _run_mutation(write)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    return result
+
+
+@router.put(
+    "/{project_id}/comments/{comment_id}/reactions/{reaction}",
+    dependencies=[Depends(require_comment_writer)],
+    response_model=CommentView,
+    response_model_exclude_unset=True,
+    summary="Add a reaction to a comment or reply",
+)
+async def add_comment_reaction(
+    project_id: str, comment_id: str, reaction: str, replyId: Optional[str] = None,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """React to a root, or to one of its replies with ``replyId``. Idempotent."""
+    return await _set_reaction(project_id, comment_id, replyId, reaction, user, present=True)
+
+
+@router.delete(
+    "/{project_id}/comments/{comment_id}/reactions/{reaction}",
+    dependencies=[Depends(require_comment_writer)],
+    response_model=CommentView,
+    response_model_exclude_unset=True,
+    summary="Remove a reaction from a comment or reply",
+)
+async def remove_comment_reaction(
+    project_id: str, comment_id: str, reaction: str, replyId: Optional[str] = None,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    return await _set_reaction(project_id, comment_id, replyId, reaction, user, present=False)
+
+
+@router.delete(
+    "/{project_id}/comments/{comment_id}",
+    dependencies=[Depends(require_comment_writer)],
+    response_model=DeletedCommentView,
+    response_model_exclude_unset=True,
+    summary="Delete a comment",
+)
 async def delete_comment(
     project_id: str,
     comment_id: str,
-    expectedRevision: Optional[int] = None,
+    http: Request,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """
     Delete a comment.
     """
+    expected_revision = _expected_revision(http, "comment", comment_id)
+
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
-        actor = _actor(user)
-        current = comments_store.get_comment(project.id, project.path, comment_id)
-        if current is None:
-            return False
-        comment_permissions.authorize(CommentAction.DELETE, actor, target=_authored(current))
         return comments_store.delete_comment(
             project_id=project.id,
             project_path=project.path,
             comment_id=comment_id,
-            editor=_editor(actor),
-            expected_revision=expectedRevision,
-            promotion_actor=_promotion_actor(actor),
+            expected_revision=expected_revision,
+            actor=_actor(user),
         )
 
     deleted = await _run_mutation(write)
-    if isinstance(deleted, JSONResponse):
-        return deleted
 
     if not deleted:
         raise HTTPException(status_code=404, detail="Comment not found")
@@ -878,7 +939,12 @@ async def delete_comment(
     return {"deleted": comment_id}
 
 
-@router.get("/{project_id}/comments/{comment_id}/history")
+@router.get(
+    "/{project_id}/comments/{comment_id}/history",
+    response_model=list[CommentHistoryEntry],
+    response_model_exclude_unset=True,
+    summary="List a comment's revisions",
+)
 async def get_comment_history(
     project_id: str,
     comment_id: str,
@@ -891,7 +957,12 @@ async def get_comment_history(
     return await asyncio.to_thread(read)
 
 
-@router.get("/{project_id}/comments/{comment_id}/replies/{reply_id}/history")
+@router.get(
+    "/{project_id}/comments/{comment_id}/replies/{reply_id}/history",
+    response_model=list[CommentHistoryEntry],
+    response_model_exclude_unset=True,
+    summary="List a reply's revisions",
+)
 async def get_reply_history(
     project_id: str,
     comment_id: str,
@@ -909,7 +980,13 @@ async def get_reply_history(
 # EXPORT ENDPOINT
 # ============================================================
 
-@router.post("/{project_id}/comments/push", dependencies=[Depends(require_designer)])
+@router.post(
+    "/{project_id}/comments/push",
+    dependencies=[Depends(require_designer)],
+    response_model=PushCommentsView,
+    response_model_exclude_unset=True,
+    summary="Export the comment snapshot to the project's comments.json",
+)
 async def push_comments(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     """
     Export DB snapshot to comments.json artifact only.
@@ -932,3 +1009,99 @@ async def push_comments(project_id: str, user: AuthenticatedUser = Depends(requi
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Failed to export comments") from exc
+
+
+# ============================================================
+# ATTACHMENTS
+# ============================================================
+
+@router.post(
+    "/{project_id}/comment-attachments",
+    dependencies=[Depends(require_comment_writer)],
+    response_model=CommentAttachmentUploadView,
+    response_model_exclude_unset=True,
+    summary="Upload a file for a comment that will reference it",
+)
+async def upload_comment_attachment(
+    project_id: str,
+    file: UploadFile = File(...),
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """Upload a pasted or dropped file ahead of the comment that will reference it.
+
+    The result is ``pending``; saving a root or reply whose Markdown contains
+    ``attachment:<id>`` claims it. Unclaimed uploads are swept after a day.
+    """
+    project = get_project_for_role_or_404(project_id, user.role)
+    actor = _actor(user)
+    comment_permissions.authorize(CommentAction.REPLY, actor)
+    # One byte past the cap so an oversized upload is refused without reading it all.
+    data = await file.read(comment_attachments.max_upload_bytes() + 1)
+    try:
+        prepared = await asyncio.to_thread(comment_attachments.prepare_upload, data, file.filename)
+    except comment_attachments.AttachmentError as exc:
+        status = 413 if exc.code == "attachment_too_large" else 415 if exc.code == "attachment_type_unsupported" else 400
+        return JSONResponse(status_code=status, content={"detail": exc.detail, "code": exc.code})
+    filename = comment_attachments.safe_filename(file.filename, prepared.extension)
+    try:
+        created = await asyncio.to_thread(
+            comments_store.create_attachment,
+            project.id, prepared, filename, actor.actor_id, actor.display_name,
+        )
+    except comment_attachments.AttachmentError as exc:
+        return JSONResponse(status_code=413, content={"detail": exc.detail, "code": exc.code})
+    created["url"] = f"/api/projects/{project.id}/comment-attachments/{created['id']}"
+    return created
+
+
+@router.get(
+    "/{project_id}/comment-attachments/{attachment_id}",
+    response_class=FileResponse,
+    responses={
+        200: {
+            "content": {
+                "image/png": {},
+                "image/jpeg": {},
+                "image/webp": {},
+                "application/pdf": {},
+                "application/zip": {},
+                "text/plain": {},
+                "text/csv": {},
+                "text/markdown": {},
+            },
+            "description": "The stored attachment, inline for images and a download otherwise",
+        }
+    },
+    summary="Download a comment attachment",
+)
+async def get_comment_attachment(
+    project_id: str,
+    attachment_id: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """Serve an attachment to anyone who can read the project's comments.
+
+    Images are re-encoded at upload and may render inline; every other type is
+    a download. The sandbox CSP and ``nosniff`` stop a browser from treating
+    any stored file as an active document.
+    """
+    project = get_project_for_role_or_404(project_id, user.role)
+    row = await asyncio.to_thread(comments_store.get_attachment, project.id, attachment_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    path = comment_attachments.blob_path(row["sha256"])
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    media_type = str(row["media_type"])
+    inline = media_type.startswith("image/")
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=row["filename"],
+        content_disposition_type="inline" if inline else "attachment",
+        headers={
+            "Cache-Control": "private, max-age=31536000, immutable",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+        },
+    )

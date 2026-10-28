@@ -1,0 +1,34 @@
+# cargo deny check licenses sources (WP-L; native/LICENSES.md, follow-up of WP-F0).
+[graph]
+all-features = true
+
+[licenses]
+# Permissive licences only. Everything in the dependency tree today is one of
+# MIT, Apache-2.0 (with or without the LLVM exception), Unicode-3.0, Zlib or
+# Unlicense; the rest are allowed for crates WP-B and the producers add.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "ISC",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.9
+
+[licenses.private]
+# The workspace's own crates (publish = false): MIT (imported) and Apache-2.0
+# (Prism's), see LICENSES.md.
+ignore = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+# No git dependencies: geometer-client is vendored under third_party/
+# (ADR amendment C3 §2 item 4).
+allow-git = []

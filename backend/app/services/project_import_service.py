@@ -6,19 +6,22 @@ Handles Type-1 (single project) and Type-2 (multiple projects) imports.
 import os
 import hashlib
 import mimetypes
-import subprocess
 import shutil
 import tempfile
 from pathlib import Path
-from typing import List, Optional, Sequence
+from functools import wraps
+from typing import Callable, List, Optional, Sequence
 from dataclasses import dataclass
-from git import Git, Repo, RemoteProgress
+from git import Repo, RemoteProgress
 from app.core.config import settings
-from app.services import derived_assets, project_service, path_config_service
+from app.services import derived_assets, event_log, git_remote_access, project_revision, project_service, path_config_service
+from app.services.design_bundle import jobs as design_bundle_jobs, repo_hydration
+from app.services.checkout_line_endings import GITPYTHON_CLONE_KWARGS
 from app.services.git_failures import GitAccessError, as_access_error
 from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
-from app.services.job_runtime import JobContext, JobResult
-from app.services.job_service import jobs as v3_jobs
+from app.services.job_runtime import JobContext, JobResult, PermanentJobError, RetryableJobError
+from app.services.job_kinds import JobKind, JobSubject, repository_lock, subject_lock
+from app.services.kicad_tools import kicad_cli
 from app.services.project_import_followups import (
     retry_import_follow_ups,
     schedule_import_follow_ups,
@@ -74,14 +77,6 @@ class DiscoveredProject:
         return make_project_key(self.relative_path, self.project_file)
 
 
-def remote_url_policy() -> RemoteUrlPolicy:
-    """Build the clone-URL policy for this deployment."""
-    return RemoteUrlPolicy.build(
-        allowed_hosts=settings.IMPORT_ALLOWED_HOSTS,
-        allow_insecure_http=settings.IMPORT_ALLOW_INSECURE_HTTP,
-    )
-
-
 def find_existing_repository(parsed: ParsedRemote) -> Optional[dict]:
     """Find an already-imported repository that resolves to the same remote.
 
@@ -96,7 +91,7 @@ def find_existing_repository(parsed: ParsedRemote) -> Optional[dict]:
     canonicalize, leaving deduplication to an exact string comparison that a
     trailing ``.git`` or a change of case defeats.
     """
-    policy = remote_url_policy()
+    policy = git_remote_access.remote_url_policy()
     target = parsed.dedup_key
     for repository in workspace.get_repositories():
         stored = str(repository.get("url") or "")
@@ -110,154 +105,6 @@ def find_existing_repository(parsed: ParsedRemote) -> Optional[dict]:
             if stored.strip() == parsed.url:
                 return repository
     return None
-
-
-def _describe_target(parsed: ParsedRemote) -> str:
-    """How a repository should be named in a message to the user."""
-    return f"{parsed.host}/{parsed.path.strip('/').removesuffix('.git')}"
-
-
-def _inject_github_token(env: dict) -> None:
-    """Supply GITHUB_TOKEN to one Git invocation, and leave nothing behind.
-
-    This used to be written into the container's ``~/.gitconfig`` at startup, so
-    the token sat in cleartext on the filesystem, in the writable layer of a
-    committed image, and in any support bundle that captured the home
-    directory -- and it applied to every process in the container, not only the
-    ones meant to reach GitHub. ``GIT_CONFIG_*`` expresses the same rewrite for
-    the duration of a single command.
-    """
-    token = settings.GITHUB_TOKEN.strip()
-    if not token:
-        return
-    # The parent environment may already carry GIT_CONFIG_* entries; append.
-    try:
-        index = int(env.get("GIT_CONFIG_COUNT", "0") or "0")
-    except ValueError:
-        index = 0
-    env[f"GIT_CONFIG_KEY_{index}"] = f"url.https://{token}@github.com/.insteadOf"
-    env[f"GIT_CONFIG_VALUE_{index}"] = "https://github.com/"
-    env["GIT_CONFIG_COUNT"] = str(index + 1)
-
-
-def git_env() -> dict:
-    env = os.environ.copy()
-    env["GIT_TERMINAL_PROMPT"] = "0"
-    # Host keys must already be pinned. This used to be `accept-new`, which
-    # trusts whatever key the first connection is offered -- a window in which a
-    # host on the path can present its own key and read every repository the
-    # workspace pulls. Trusting a new host is now a deliberate administrator
-    # action, taken after comparing the fingerprint against what the Git server's
-    # operator publishes.
-    env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=yes -o BatchMode=yes"
-    _inject_github_token(env)
-    return env
-
-
-def list_remote_branches(parsed: ParsedRemote) -> tuple[List[str], Optional[str]]:
-    """Return the remote's branch names and its default branch.
-
-    Uses ``ls-remote`` rather than a clone: enumerating refs costs one round
-    trip and no disk, so the dialog can offer a branch picker before the user
-    has committed to importing anything.
-    """
-    git = Git()
-    git.update_environment(**git_env())
-    try:
-        head_output = git.ls_remote("--symref", parsed.url, "HEAD")
-    except Exception as error:
-        # This is the first thing that touches the remote, so it is where a
-        # wrong URL or a missing permission shows up. Reporting it here gives a
-        # far better message than letting the clone fail later.
-        raise as_access_error(
-            error, target=_describe_target(parsed), host=parsed.host
-        ) from error
-
-    default_branch: Optional[str] = None
-    for line in head_output.splitlines():
-        if line.startswith("ref:"):
-            target = line.split()[1]
-            default_branch = target.removeprefix("refs/heads/")
-            break
-
-    try:
-        heads_output = git.ls_remote("--heads", parsed.url)
-    except Exception:
-        return ([default_branch] if default_branch else []), default_branch
-
-    branches = []
-    for line in heads_output.splitlines():
-        parts = line.split()
-        if len(parts) == 2 and parts[1].startswith("refs/heads/"):
-            branches.append(parts[1].removeprefix("refs/heads/"))
-    branches.sort(key=lambda name: (name != default_branch, name.casefold()))
-    return branches, default_branch
-
-
-def _github_ssh_equivalent(parsed: ParsedRemote) -> Optional[ParsedRemote]:
-    """Return the workspace-SSH spelling of one GitHub HTTPS remote.
-
-    GitHub's Clone menu presents HTTPS first, while Prism's deployment uses a
-    shared machine-user SSH key for private repositories.  Requiring every
-    designer to understand that deployment detail made imports appear tied to
-    the laptop or role of the person pasting the URL.  Keep HTTPS as the first
-    attempt (so public repositories and ``GITHUB_TOKEN`` continue to work), but
-    provide the equivalent SSH address when that attempt needs credentials.
-    """
-    if parsed.scheme != "https" or parsed.host.casefold() != "github.com":
-        return None
-    if parsed.port not in (None, 443):
-        return None
-    path = parsed.path.strip("/")
-    if not path:
-        return None
-    if not path.endswith(".git"):
-        path += ".git"
-    return parse_remote_url(f"git@github.com:{path}", remote_url_policy())
-
-
-def resolve_remote_access(
-    parsed: ParsedRemote,
-) -> tuple[ParsedRemote, List[str], Optional[str]]:
-    """Resolve a readable transport and return its branch information.
-
-    A private GitHub repository addressed by HTTPS normally responds with a
-    credentials error even when Prism's workspace SSH identity is authorized.
-    In that narrow case, retry the same canonical repository over SSH.  Other
-    failures retain their original meaning and SSH URLs remain untouched.
-    """
-    try:
-        branches, default_branch = list_remote_branches(parsed)
-        return parsed, branches, default_branch
-    except GitAccessError as https_error:
-        if https_error.reason not in {"credentials-required", "repository-not-found"}:
-            raise
-        ssh_remote = _github_ssh_equivalent(parsed)
-        if ssh_remote is None:
-            raise
-
-        print(
-            f"HTTPS access to {_describe_target(parsed)} needs credentials; "
-            "retrying with Prism's workspace SSH identity",
-            flush=True,
-        )
-        try:
-            branches, default_branch = list_remote_branches(ssh_remote)
-        except GitAccessError as ssh_error:
-            # SSH-specific diagnostics (missing/untrusted client or an
-            # unauthorized key) are more actionable than the original generic
-            # HTTPS credential prompt.  A not-found response after the SSH
-            # attempt also correctly covers a typo or a key lacking this one
-            # repository's permission.
-            if ssh_error.reason in {
-                "ssh-unavailable",
-                "host-key-unverified",
-                "ssh-key-not-authorized",
-                "repository-not-found",
-            }:
-                raise ssh_error from https_error
-            raise https_error from ssh_error
-        return ssh_remote, branches, default_branch
 
 
 def _validate_ref(ref: Optional[str]) -> Optional[str]:
@@ -627,27 +474,11 @@ def generate_thumbnail_for_project(
                 logs_list.append(f"No .kicad_pcb file found to generate thumbnail for {project_path}")
             return False
         
-        # Check standard paths for kicad-cli
-        cli_path = "kicad-cli"
-        # Check environment variable
-        for var in ("KICAD_CLI_PATH", "KICAD_CLI"):
-            val = os.environ.get(var, "").strip()
-            if val and os.path.exists(val):
-                cli_path = val
-                break
-        else:
-            # Check standard Mac path
-            mac_path = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
-            if os.path.exists(mac_path):
-                cli_path = mac_path
-            else:
-                # Check PATH
-                which_cli = shutil.which("kicad-cli")
-                if which_cli:
-                    cli_path = which_cli
-
+        cli = kicad_cli()
         if logs_list is not None:
-            logs_list.append(f"Generating thumbnail using {cli_path} for PCB: {pcb_file}")
+            logs_list.append(
+                f"Generating thumbnail using {cli.executable()} for PCB: {pcb_file}"
+            )
 
         # Render into a scratch directory outside the checkout. Nothing this
         # function does may leave a file inside the user's working tree.
@@ -663,7 +494,6 @@ def generate_thumbnail_for_project(
 
 
         cmd = [
-            cli_path,
             "pcb",
             "render",
             "--quality", "high",
@@ -676,14 +506,8 @@ def generate_thumbnail_for_project(
             pcb_file
         ]
         
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=False
-        )
-        
+        result = cli.run(cmd, timeout=120)
+
         if result.returncode != 0:
             if logs_list is not None:
                 logs_list.append(f"kicad-cli render failed (code {result.returncode}): {result.stderr[:400]}")
@@ -749,7 +573,7 @@ def start_import_job(repo_url: str, import_type: str,
     """
     if import_type not in {"type1", "type2"}:
         raise ValueError("Import type must be type1 or type2")
-    parsed = parse_remote_url(repo_url, remote_url_policy())
+    parsed = parse_remote_url(repo_url, git_remote_access.remote_url_policy())
     validated_ref = _validate_ref(ref)
     paths = sorted(selected_paths or [])
     active_key = hashlib.sha256(
@@ -757,20 +581,16 @@ def start_import_job(repo_url: str, import_type: str,
             [parsed.dedup_key, import_type, validated_ref or "", *paths]
         ).encode("utf-8")
     ).hexdigest()
-    queued = v3_jobs.enqueue(
-        "project_import",
+    queued = PROJECT_IMPORT.enqueue(
         {
             "repo_url": parsed.url,
             "import_type": import_type,
             "selected_paths": list(selected_paths or []),
             "ref": validated_ref,
         },
-        worker_pool="prism",
+        subject=JobSubject(lock_key=_repository_lock_key(parsed)),
         artifact_key=active_key,
         requested_by=requested_by,
-        max_attempts=1,
-        resources={"prism_worker": 1, "import": 1},
-        locks=[{"key": _repository_lock_key(parsed), "mode": "write"}],
     )
     return str(queued["job_id"])
 
@@ -785,20 +605,16 @@ def start_analyze_job(
     Start an asynchronous analysis job.
     Returns job ID.
     """
-    parsed = parse_remote_url(repo_url, remote_url_policy())
+    parsed = parse_remote_url(repo_url, git_remote_access.remote_url_policy())
     validated_ref = _validate_ref(ref)
     active_key = hashlib.sha256(
         "\x1f".join([parsed.dedup_key, validated_ref or ""]).encode("utf-8")
     ).hexdigest()
-    queued = v3_jobs.enqueue(
-        "project_analyze",
+    queued = PROJECT_ANALYZE.enqueue(
         {"repo_url": parsed.url, "ref": validated_ref},
-        worker_pool="prism",
+        subject=JobSubject(lock_key=_repository_lock_key(parsed)),
         artifact_key=active_key,
         requested_by=requested_by,
-        max_attempts=2,
-        resources={"prism_worker": 1, "import": 1},
-        locks=[{"key": _repository_lock_key(parsed), "mode": "read"}],
     )
     return str(queued["job_id"])
 
@@ -814,31 +630,9 @@ ACCESS_FAILURE_REASONS = frozenset(
 )
 
 
-def get_job_status(job_id: str) -> Optional[dict]:
-    """Get the current status of an import or workflow job."""
-    v3_job = v3_jobs.get(job_id)
-    if v3_job:
-        metadata = dict(v3_job.get("result_metadata") or {})
-        error_message = v3_job.get("error_message") or None
-        return {
-            **v3_job,
-            **metadata,
-            "type": v3_job.get("kind"),
-            "error": error_message,
-            # Lets the dialog offer the right fix without matching on prose.
-            "access_failure": _is_access_failure(error_message),
-            "logs": [],
-        }
-    return workspace.get_job(job_id)
-
-
 def _is_access_failure(error_message: Optional[str]) -> bool:
-    """Whether a failure is one the user can fix by granting Prism access.
-
-    The worker records only the exception's message, so the reason is recovered
-    by matching the phrases `git_failures` writes rather than by plumbing a new
-    column through the job table for a purely presentational hint.
-    """
+    """Whether a failure is one the user can fix by granting Prism access,
+    matched on the phrases `git_failures` writes into the message."""
     if not error_message:
         return False
     text = error_message.casefold()
@@ -853,14 +647,33 @@ def _is_access_failure(error_message: Optional[str]) -> bool:
     )
 
 
+#: Job error code for a failure the import dialog can offer a guided fix for.
+GIT_ACCESS_ERROR_CODE = "git_access"
+
+
+def _classify_access_failure(handler: Callable[[JobContext], JobResult]) -> Callable[[JobContext], JobResult]:
+    """Fail access failures with GIT_ACCESS_ERROR_CODE so status readers need not parse prose."""
+    @wraps(handler)
+    def run(context: JobContext) -> JobResult:
+        try:
+            return handler(context)
+        except Exception as error:
+            if isinstance(error, PermanentJobError) or not _is_access_failure(str(error)):
+                raise
+            raise PermanentJobError(str(error), code=GIT_ACCESS_ERROR_CODE) from error
+
+    return run
+
+
+@_classify_access_failure
 def run_project_analyze_job_v3(context: JobContext) -> JobResult:
-    parsed = parse_remote_url(str(context.payload["repo_url"]), remote_url_policy())
+    parsed = parse_remote_url(str(context.payload["repo_url"]), git_remote_access.remote_url_policy())
     requested_ref = _validate_ref(context.payload.get("ref"))
 
     context.progress(
         stage="list-branches", message="Listing remote branches", percent=0, force=True
     )
-    parsed, branches, default_branch = resolve_remote_access(parsed)
+    parsed, branches, default_branch = git_remote_access.resolve_remote_access(parsed)
     if requested_ref and branches and requested_ref not in branches:
         raise ValueError(f"Branch '{requested_ref}' does not exist on this remote")
     selected_ref = requested_ref or default_branch
@@ -972,15 +785,16 @@ def _discover_remote_projects(
                 single_branch=True,
                 no_checkout=True,
                 filter="blob:none",
+                **GITPYTHON_CLONE_KWARGS,
                 progress=V3CloneProgress(context, stage=stage),
-                env=git_env(),
+                env=git_remote_access.git_env(),
                 **clone_options,
             )
         except GitAccessError:
             raise
         except Exception as error:
             raise as_access_error(
-                error, target=_describe_target(parsed), host=parsed.host
+                error, target=git_remote_access.describe_target(parsed), host=parsed.host
             ) from error
         context.check_cancelled()
         context.progress(
@@ -1040,9 +854,10 @@ def _register_planned_projects(
     return imported_ids
 
 
+@_classify_access_failure
 def run_project_import_job_v3(context: JobContext) -> JobResult:
     payload = context.payload
-    parsed = parse_remote_url(str(payload["repo_url"]), remote_url_policy())
+    parsed = parse_remote_url(str(payload["repo_url"]), git_remote_access.remote_url_policy())
     requested_paths = [str(path) for path in payload.get("selected_paths") or []]
     ref = _validate_ref(payload.get("ref"))
     cloned_in_job = False
@@ -1053,8 +868,8 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
         percent=0,
         force=True,
     )
-    if _github_ssh_equivalent(parsed) is not None:
-        parsed, _branches, _default_branch = resolve_remote_access(parsed)
+    if git_remote_access._github_ssh_equivalent(parsed) is not None:
+        parsed, _branches, _default_branch = git_remote_access.resolve_remote_access(parsed)
     repo_url = parsed.url
     repo_name = parsed.repo_name
     existing_repo = find_existing_repository(parsed)
@@ -1110,7 +925,7 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
             # so on a workspace configured for a plaintext internal Git server
             # every remote here raised and was dropped, and the checkout Prism
             # had just cloned itself was reported as belonging to someone else.
-            policy = remote_url_policy()
+            policy = git_remote_access.remote_url_policy()
             remotes = set()
             for remote in existing_checkout.remotes:
                 try:
@@ -1140,17 +955,19 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 Repo.clone_from(
                     repo_url,
                     str(target_path),
+                    **GITPYTHON_CLONE_KWARGS,
                     progress=V3CloneProgress(context, stage="clone-repository"),
-                    env=git_env(),
+                    env=git_remote_access.git_env(),
                     **clone_options,
                 )
             except GitAccessError:
                 raise
             except Exception as error:
                 raise as_access_error(
-                    error, target=_describe_target(parsed), host=parsed.host
+                    error, target=git_remote_access.describe_target(parsed), host=parsed.host
                 ) from error
             cloned_in_job = True
+        repo_hydration.hydrate(target_path, env=git_remote_access.git_env())
 
         context.check_cancelled()
         context.progress(
@@ -1217,24 +1034,11 @@ def start_thumbnail_job(project_id: str, *, requested_by: str = "") -> Optional[
     row = workspace.get_project_by_id(project_id)
     if not row:
         return None
-    repository_id = str(row.get("repo_id") or "")
-    queued = v3_jobs.enqueue(
-        "project_thumbnail",
+    queued = PROJECT_THUMBNAIL.enqueue(
         {"project_id": project_id},
-        worker_pool="prism",
+        subject=JobSubject.of_project(row, project_id),
         artifact_key=hashlib.sha256(f"thumbnail:{project_id}".encode("utf-8")).hexdigest(),
-        project_id=project_id,
-        repository_id=repository_id or None,
         requested_by=requested_by,
-        max_attempts=2,
-        resources={"prism_worker": 1},
-        # A read lock on the repository, so a render cannot observe the checkout
-        # halfway through a sync fast-forward.
-        locks=(
-            [{"key": f"repository:{repository_id}", "mode": "read"}]
-            if repository_id
-            else []
-        ),
     )
     return str(queued["job_id"])
 
@@ -1250,24 +1054,11 @@ def start_project_metadata_job(project_id: str, *, requested_by: str = "") -> Op
     row = workspace.get_project_by_id(project_id)
     if not row:
         return None
-    repository_id = str(row.get("repo_id") or "")
-    queued = v3_jobs.enqueue(
-        "project_metadata",
+    queued = PROJECT_METADATA.enqueue(
         {"project_id": project_id},
-        worker_pool="prism",
+        subject=JobSubject.of_project(row, project_id),
         artifact_key=hashlib.sha256(f"metadata:{project_id}".encode("utf-8")).hexdigest(),
-        project_id=project_id,
-        repository_id=repository_id or None,
         requested_by=requested_by,
-        max_attempts=2,
-        resources={"prism_worker": 1},
-        # Same read lock as the render: kicad-cli must not read a checkout
-        # halfway through a sync fast-forward.
-        locks=(
-            [{"key": f"repository:{repository_id}", "mode": "read"}]
-            if repository_id
-            else []
-        ),
     )
     return str(queued["job_id"])
 
@@ -1292,22 +1083,29 @@ def run_project_metadata_job_v3(context: JobContext) -> JobResult:
     )
     schematic_path = project_service.find_schematic_file(project_path, anchor)
     pcb_path = project_service.find_pcb_file(project_path, anchor)
-    # The workspace row already resolves the checkout: parent_repo_path is the
-    # clone, relative_path is "." for a root project or the subproject path.
-    # Same split _repo_context makes on the API side.
-    repo_path = str(row.get("parent_repo_path") or project_path)
-    raw_relative = str(row.get("relative_path") or ".").strip()
-    relative_path = None if raw_relative in (".", "", "/") else raw_relative.strip("/")
+    try:
+        location = project_revision.locate(row)
+        repo_path, relative_path = str(location.repo_root), location.sub_path
+    except project_revision.ProjectNotInRepository:
+        repo_path, relative_path = project_path, None
     context.check_cancelled()
 
-    computed = project_metadata_service.refresh_project_metadata(
-        project_id,
-        project_path,
-        schematic_path,
-        pcb_path,
-        repo_path=repo_path,
-        relative_path=relative_path, anchor=anchor,
-    )
+    from app.services.design_bundle.errors import DesignDataFailed, DesignDataPending
+
+    try:
+        computed = project_metadata_service.refresh_project_metadata(
+            project_id,
+            project_path,
+            schematic_path,
+            pcb_path,
+            repo_path=repo_path,
+            relative_path=relative_path, anchor=anchor,
+        )
+    except DesignDataPending as error:
+        # The design bundle is building; it was queued by the read. Retry soon.
+        raise RetryableJobError(str(error), code="design-data-pending", retry_after_seconds=3) from error
+    except DesignDataFailed as error:
+        raise PermanentJobError(str(error), code="design-data-failed") from error
     pcb = computed.get("pcb") or {}
     return JobResult(
         message="Project metadata updated",
@@ -1418,25 +1216,16 @@ def start_sync_job(project_id: str, *, requested_by: str = "", fetch_only: bool 
     row = workspace.get_project_by_id(project_id)
     if not row:
         raise ValueError("Project not found")
-    repository_id = str(row.get("repo_id") or "")
     mode = "fetch" if fetch_only else "sync"
     active_key = hashlib.sha256(f"{mode}:{project_id}".encode("utf-8")).hexdigest()
-    queued = v3_jobs.enqueue(
-        "project_sync",
+    kind = PROJECT_FETCH if fetch_only else PROJECT_SYNC
+    queued = kind.enqueue(
         {"project_id": project_id, "fetch_only": fetch_only},
-        worker_pool="prism",
+        subject=JobSubject.of_project(row, project_id),
         artifact_key=active_key,
-        project_id=project_id,
-        repository_id=repository_id or None,
         requested_by=requested_by,
-        priority=200 if fetch_only else 100,
-        max_attempts=2,
-        resources={"prism_worker": 1, "import": 1},
-        locks=(
-            [{"key": f"repository:{repository_id}", "mode": "write"}]
-            if repository_id
-            else [{"key": f"project:{project_id}", "mode": "write"}]
-        ),
+        # A background fetch yields to work someone asked for.
+        priority=200 if fetch_only else None,
     )
     return str(queued["job_id"])
 
@@ -1453,7 +1242,12 @@ def run_project_sync_job_v3(context: JobContext) -> JobResult:
     result = sync_project(project_id, fetch_only=fetch_only)
     context.check_cancelled()
     if result.get("status") == "error":
-        raise RuntimeError(str(result.get("message") or "Project sync failed"))
+        message = str(result.get("message") or "Project sync failed")
+        if result.get("retryable"):
+            raise RetryableJobError(
+                message, code=str(result.get("code") or "transient_failure")
+            )
+        raise RuntimeError(message)
     from app.services import file_service
 
     file_service.invalidate_file_listing_cache()
@@ -1471,10 +1265,39 @@ def run_project_sync_job_v3(context: JobContext) -> JobResult:
         start_project_metadata_job(project_id, requested_by="project-sync")
     except Exception as error:
         print(f"Could not queue metadata refresh for {project_id}: {error}", flush=True)
+    from app.services import project_catalog_usage_service
+
+    project_catalog_usage_service.project_synced(project_id)  # which library revisions the new HEAD placed
+    try:
+        design_bundle_jobs.queue_for_head(project_id, requested_by="project-sync")
+    except Exception as error:
+        print(f"Could not queue the design bundle for {project_id}: {error}", flush=True)
     return JobResult(
         message=str(result.get("message") or "Sync completed"),
         details=dict(result),
     )
+
+
+# git's low-speed abort ends a transfer that has stalled. The environment is
+# only defaulted: an operator who set either value keeps it.
+_FETCH_LOW_SPEED_ENV = {
+    "GIT_HTTP_LOW_SPEED_LIMIT": "1000",
+    "GIT_HTTP_LOW_SPEED_TIME": "60",
+}
+
+
+def _fetch_timed_out(error: BaseException) -> bool:
+    """Whether GitPython's ``kill_after_timeout`` watchdog stopped the fetch.
+
+    GitPython replaces git's stderr with this marker when it kills the process.
+    git's own "operation timed out" from the low-speed abort means something
+    else, so it stays an ordinary fetch error.
+    """
+
+    stderr = getattr(error, "stderr", "") or ""
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", "replace")
+    return "did not complete in" in stderr
 
 
 def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
@@ -1502,14 +1325,34 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
         origin = repo.remote('origin')
 
         # Reuse the clone's pinned-host-key and noninteractive Git policy.
-        env = git_env()
+        env = git_remote_access.git_env()
+        for name, value in _FETCH_LOW_SPEED_ENV.items():
+            env.setdefault(name, value)
 
         if not fetch_only:
             derived_assets.purge_legacy_in_tree_thumbnails(sync_path, repo)
 
-        # Fetch all refs for branch viewing and prune deleted branches.
-        fetch_info = origin.fetch(env=env, prune=True)
+        # Fetch all refs for branch viewing and prune deleted branches. A host
+        # that went away mid-transfer must not hold the repository lock until
+        # the network notices.
+        timeout_seconds = settings.PRISM_GIT_FETCH_TIMEOUT_SECONDS
+        try:
+            fetch_info = origin.fetch(
+                env=env,
+                prune=True,
+                kill_after_timeout=timeout_seconds,
+            )
+        except Exception as error:
+            if not _fetch_timed_out(error):
+                raise
+            return {
+                "status": "error",
+                "message": f"git fetch timed out after {timeout_seconds} s",
+                "code": "git-fetch-timeout",
+                "retryable": True,
+            }
 
+        synced: dict[str, str] | None = None
         if fetch_only:
             message = f"Fetched {len(fetch_info)} ref(s)"
         elif repo.head.is_detached:
@@ -1524,22 +1367,94 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
             if tracking is None:
                 message = f"Fetched refs; '{branch.name}' has no upstream to fast-forward from"
             else:
+                advanced_from = repo.head.commit.hexsha
                 repo.git.merge("--ff-only", tracking.name)
+                advanced_to = repo.head.commit.hexsha
+                if advanced_to != advanced_from:
+                    synced = {
+                        "branch": branch.name,
+                        "commit": advanced_to,
+                        "previousCommit": advanced_from,
+                    }
                 message = f"Synced {len(fetch_info)} ref(s)"
 
+        hydration = None
         if not fetch_only:
+            # Design bundles read submodule files and LFS objects (ADR §11 G4).
+            hydration = repo_hydration.hydrate(Path(sync_path), env=env)
             path_config_service.clear_config_cache()
             project_path = row.get('path', '')
             if project_path and os.path.isdir(project_path):
                 refresh_project_assets(project_id)
 
         workspace.update_repository_synced(row.get('repo_id', ''))
+        if synced:
+            event_log.record_quietly("revision.synced", project_id=project_id, payload=synced)
 
         return {
             "status": "success",
             "message": message,
-            "path": sync_path
+            "path": sync_path,
+            **({"hydration": hydration} if hydration else {}),
         }
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+PROJECT_ANALYZE = JobKind(
+    "project_analyze",
+    run_project_analyze_job_v3,
+    resources={"prism_worker": 1, "import": 1},
+    lock=subject_lock("read"),
+    max_attempts=2,
+)
+PROJECT_IMPORT = JobKind(
+    "project_import",
+    run_project_import_job_v3,
+    resources={"prism_worker": 1, "import": 1},
+    lock=subject_lock("write"),
+    max_attempts=1,
+)
+PROJECT_SYNC = JobKind(
+    "project_sync",
+    run_project_sync_job_v3,
+    resources={"prism_worker": 1, "import": 1},
+    lock=repository_lock("write"),
+    max_attempts=2,
+)
+# A fetch only updates remote-tracking refs and objects, which readers already
+# tolerate, so it takes the repository read lock: a slow fetch must not block a
+# design-bundle build. This is a separate kind rather than a payload-dependent
+# lock because a JobKind's lock shape is fixed at declaration. PROJECT_SYNC
+# still runs a fetch-only payload queued before this kind existed.
+PROJECT_FETCH = JobKind(
+    "project_fetch",
+    run_project_sync_job_v3,
+    resources={"prism_worker": 1, "import": 1},
+    lock=repository_lock("read"),
+    max_attempts=2,
+    priority=200,
+)
+# Thumbnail and metadata read the checkout with kicad-cli; the read lock keeps
+# them from seeing it halfway through a sync fast-forward.
+PROJECT_THUMBNAIL = JobKind(
+    "project_thumbnail",
+    run_project_thumbnail_job_v3,
+    lock=repository_lock("read", project_fallback=False),
+    max_attempts=2,
+)
+PROJECT_METADATA = JobKind(
+    "project_metadata",
+    run_project_metadata_job_v3,
+    lock=repository_lock("read", project_fallback=False),
+    max_attempts=2,
+)
+JOB_KINDS = (
+    PROJECT_ANALYZE,
+    PROJECT_IMPORT,
+    PROJECT_SYNC,
+    PROJECT_FETCH,
+    PROJECT_THUMBNAIL,
+    PROJECT_METADATA,
+)

@@ -15,8 +15,9 @@ from pathlib import Path
 
 from . import interview, preflight, render, tui
 from .apply import apply, load_existing_env
+from .build_identity import compose_environment
 from .render import CADDY_IMAGE_TAG
-from .schemes import DNS_01, DNS_PROVIDERS, HTTP_01, PLAIN_HTTP, SCHEMES, TAILSCALE
+from .schemes import DNS_01, DNS_PROVIDERS, HTTP_01, PLAIN_HTTP, SCHEMES, SIZINGS, TAILSCALE
 
 # render_plan redacts these; the values are recovered from the generated .env.
 REDACTED_FROM_ENV = {
@@ -87,6 +88,26 @@ def rehydrate(plan: dict, env: dict) -> dict:
     return answers
 
 
+def previous_deployment(root: Path, *, fresh: bool) -> tuple[dict[str, str], dict[str, str] | None]:
+    """The earlier deployment's settings, and what its sizing preset wrote.
+
+    The second item comes from the plan beside a generated .env; it is None for
+    a hand-written .env or a plan from before the installer recorded it.
+    """
+    if fresh:
+        return {}, None
+    existing, source = interview.previous_settings(root)
+    plan_path = root / "generated" / "deploy-plan.json"
+    if source != "generated/.env" or not plan_path.is_file():
+        return existing, None
+    try:
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return existing, None
+    previous_sizing = plan.get("sizing_values") if isinstance(plan, dict) else None
+    return existing, previous_sizing if isinstance(previous_sizing, dict) else None
+
+
 def promote(root: Path, *, assume_yes: bool, dry_run: bool) -> int:
     """Move an existing deployment from the staging CA to production.
 
@@ -105,8 +126,11 @@ def promote(root: Path, *, assume_yes: bool, dry_run: bool) -> int:
         tui.ok("Already using the production CA. Nothing to do.")
         return 0
 
-    answers = render.normalise(dict(rehydrate(plan, load_existing_env(env_path)), acme_staging=False))
-    files = render.render_all((root / ".env.example").read_text(encoding="utf-8"), answers)
+    env = load_existing_env(env_path)
+    answers = render.normalise(dict(rehydrate(plan, env), acme_staging=False))
+    example = (root / ".env.example").read_text(encoding="utf-8")
+    carried = render.carried_values(example, answers, env, plan.get("sizing_values"))
+    files = render.render_all(example, answers, carried)
     compose = render.compose_command(answers)
     volume = f"{preflight.project_name(root)}_caddy_data"
 
@@ -144,7 +168,7 @@ def promote(root: Path, *, assume_yes: bool, dry_run: bool) -> int:
         tui.write()
         tui.note(label)
         tui.info("$ " + " ".join(command))
-        result = subprocess.run(command, cwd=root)
+        result = subprocess.run(command, cwd=root, env=compose_environment(root))
         if result.returncode != 0:
             tui.fail(f"{label} failed.", f"Inspect with: {' '.join(compose + ['logs', '--tail=100'])}")
             if "volume" in command:
@@ -240,8 +264,19 @@ def main(argv: list[str] | None = None) -> int:
         tui.warn("Cancelled. Nothing was written.")
         return 130
 
+    existing, previous_sizing = previous_deployment(root, fresh=args.fresh)
+    if args.answers:
+        # The interview carries these over itself. An answers file seldom
+        # holds them, and a new database password against the existing volume
+        # locks the backend out.
+        for key, variable in (("session_secret", "SESSION_SECRET"), ("postgres_password", "POSTGRES_PASSWORD")):
+            if not raw.get(key) and existing.get(variable):
+                raw[key] = existing[variable]
+
     answers = render.normalise(raw)
-    files = render.render_all(example.read_text(encoding="utf-8"), answers)
+    template = example.read_text(encoding="utf-8")
+    carried = render.carried_values(template, answers, existing, previous_sizing)
+    files = render.render_all(template, answers, carried)
 
     if not args.answers:
         interview.summarise(answers)
@@ -270,6 +305,9 @@ def main(argv: list[str] | None = None) -> int:
         tui.info(f"Previous files copied to {backup.relative_to(root)}")
     for warning in warnings:
         tui.warn(warning)
+    overridden = sorted(set(carried) & set(SIZINGS[answers["sizing"]].values))
+    if overridden:
+        tui.info(f"Kept your values over the capacity preset: {', '.join(overridden)}")
 
     if answers["scheme"] == DNS_01 and not build_caddy_image(answers, root):
         return 1
@@ -293,7 +331,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.start:
         tui.write()
         tui.note("Starting")
-        result = subprocess.run(compose + ["up", "-d", "--wait"], cwd=root)
+        result = subprocess.run(compose + ["up", "-d", "--wait"], cwd=root, env=compose_environment(root))
         if result.returncode != 0:
             tui.fail("Startup failed.", f"Inspect with: {' '.join(compose + ['logs', '--tail=100'])}")
             return result.returncode

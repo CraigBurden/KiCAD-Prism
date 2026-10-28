@@ -6,7 +6,7 @@
  * accidentally include secret keys are stripped before they reach callers.
  */
 
-import { ApiHttpError, fetchApi } from "@/lib/api";
+import { ApiHttpError, apiErrorFrom, fetchApi } from "@/lib/api";
 import type {
     CommentTrackerProjection,
     ConnectorHealth,
@@ -54,7 +54,7 @@ export class TrackerApiError extends ApiHttpError {
     providerClass?: string;
 
     constructor(status: number, payload: TrackerErrorPayload) {
-        super(status, payload.detail, payload.code);
+        super(status, payload.detail, payload.code, { ...payload });
         this.name = "TrackerApiError";
         this.requiredRole = payload.requiredRole;
         this.currentRevision = payload.currentRevision;
@@ -63,12 +63,8 @@ export class TrackerApiError extends ApiHttpError {
         this.providerClass = payload.class;
     }
 
-    get isConflict(): boolean {
-        return this.status === 409 || this.code === "revision_conflict";
-    }
-
     get isPermission(): boolean {
-        return this.status === 403 || this.code === "publication_required" || this.code === "admin_required";
+        return super.isPermission || this.code === "admin_required";
     }
 
     get isRevoked(): boolean {
@@ -123,38 +119,24 @@ function stripSecrets<T>(value: T): T {
     return value;
 }
 
+/** The shared transport's error, with the tracker fields typed. */
 async function parseError(response: Response, fallback: string): Promise<TrackerApiError> {
-    let payload: TrackerErrorPayload = { detail: fallback };
-    try {
-        let raw = (await response.json()) as Partial<TrackerErrorPayload> & { detail?: unknown };
-        // HTTPException(detail={...}) arrives as {"detail": {"detail", "code", ...}}.
-        if (raw.detail && typeof raw.detail === "object" && !Array.isArray(raw.detail)) {
-            raw = { ...raw, ...(raw.detail as Partial<TrackerErrorPayload>) };
-        }
-        const detail = raw.detail;
-        payload = {
-            detail:
-                typeof detail === "string" && detail.trim()
-                    ? detail
-                    : typeof (raw as { message?: unknown }).message === "string"
-                        ? String((raw as { message?: unknown }).message)
-                        : fallback,
-            code: typeof raw.code === "string" ? raw.code : undefined,
-            requiredRole: typeof raw.requiredRole === "string" ? raw.requiredRole : undefined,
-            currentRevision:
-                typeof raw.currentRevision === "number"
-                    ? raw.currentRevision
-                    : raw.currentRevision === null
-                        ? null
-                        : undefined,
-            class: typeof raw.class === "string" ? (raw.class as TrackerErrorPayload["class"]) : undefined,
-            retryable: typeof raw.retryable === "boolean" ? raw.retryable : undefined,
-            resumeAt: typeof raw.resumeAt === "string" ? raw.resumeAt : undefined,
-        };
-    } catch {
-        // Non-JSON bodies keep the fallback.
-    }
-    return new TrackerApiError(response.status, payload);
+    const error = await apiErrorFrom(response, fallback);
+    const raw = error.payload;
+    return new TrackerApiError(error.status, {
+        detail: error.message,
+        code: error.code as TrackerErrorPayload["code"],
+        requiredRole: typeof raw.requiredRole === "string" ? raw.requiredRole : undefined,
+        currentRevision:
+            typeof raw.currentRevision === "number"
+                ? raw.currentRevision
+                : raw.currentRevision === null
+                    ? null
+                    : undefined,
+        class: typeof raw.class === "string" ? (raw.class as TrackerErrorPayload["class"]) : undefined,
+        retryable: typeof raw.retryable === "boolean" ? raw.retryable : undefined,
+        resumeAt: typeof raw.resumeAt === "string" ? raw.resumeAt : undefined,
+    });
 }
 
 async function request<T>(input: string, init: RequestInit | undefined, fallback: string): Promise<T> {

@@ -66,10 +66,10 @@ export interface ConnectorSettingsProps {
 }
 
 /** Step-by-step GitHub App registration for deployers. */
-const DOCS = "https://github.com/krishna-swaroop/KiCAD-Prism/blob/dev/docs";
+const DOCS = "https://krishna-swaroop.github.io/KiCAD-Prism";
 const SETUP_GUIDE: Record<IssueHostProvider, string> = {
-    github: `${DOCS}/GITHUB_APP_SETUP.md`,
-    gitlab: `${DOCS}/GITLAB_SETUP.md`,
+    github: `${DOCS}/admin/github/`,
+    gitlab: `${DOCS}/admin/gitlab/`,
 };
 const DEFAULT_INSTANCE: Record<IssueHostProvider, string> = { github: "github.com", gitlab: "gitlab.com" };
 const PROVIDER_NAME: Record<IssueHostProvider, string> = { github: "GitHub", gitlab: "GitLab" };
@@ -121,10 +121,7 @@ function connectorPhase(
     if (loading) return "loading";
     if (offline) return "offline";
     if (!connector) return "empty";
-    if (connector.pausedReason === "auth" || connector.pausedReason === "revoked") return "revoked";
-    // A GitHub connection is its App; a GitLab one may exist for account linking alone.
-    if (connector.provider === "github" && !connector.credentialConfigured) return "revoked";
-    return "ready";
+    return connector.status === "revoked" ? "revoked" : "ready";
 }
 
 export function ConnectorSettings({

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+    isTruthyFlag,
     changeEvidenceMode,
     connectionEntries,
     formatValue,
@@ -8,7 +9,7 @@ import {
     routeMetricRows,
     terminalSummary,
 } from "./comparison-property-model";
-import type { ChangeItem, PcbDiff } from "./types";
+import type { ChangeItem, DesignCompareResult } from "./types";
 
 /**
  * Ported from the selected-change card's tests when its derivations moved here.
@@ -25,10 +26,10 @@ function change(overrides: Partial<ChangeItem> = {}): ChangeItem {
         category: "nets",
         classification: "primary",
         label: "USB",
-        object_kind: "net_class",
+        objectKind: "net-class",
         reasons: ["properties-changed"],
         fields: { "Track width": { old: 0.18, new: 0.2 } },
-        details: { reviewOnly: true, visualTargets: [] },
+        details: { reviewOnly: true },
         ...overrides,
     };
 }
@@ -46,23 +47,22 @@ describe("evidence mode", () => {
         // visualization failure. Calling it structured evidence would let a
         // paint bug pass as a legitimate non-geometric change.
         const track = change({
-            object_kind: "track",
+            objectKind: "track",
             net: "USB_DP",
-            source_id_compare: "t1",
-            details: { visualTargets: [] },
+            head: { sourceId: "t1", documentPath: "board.kicad_pcb", layers: [] },
+            details: {},
         });
         expect(changeEvidenceMode([track])).toBe("unresolved");
     });
 
     it("calls a resolved target visual", () => {
         const track = change({
-            object_kind: "track",
+            objectKind: "track",
             net: "USB_DP",
-            source_id_compare: "t1",
+            head: { sourceId: "t1", documentPath: "board.kicad_pcb", layers: [] },
             details: {
-                visualTargets: [{
-                    side: "comparison",
-                    status: "modified",
+                targets: [{
+                    side: "head",
                     sourceId: "t1",
                     role: "track",
                 }],
@@ -73,9 +73,9 @@ describe("evidence mode", () => {
 
     it("keeps an aggregate logical net free of a missing-target warning", () => {
         const net = change({
-            object_kind: "net",
+            objectKind: "net",
             net: "GND",
-            details: { reviewOnly: true, visualTargets: [] },
+            details: { reviewOnly: true },
         });
         expect(changeEvidenceMode([net])).toBe("structured");
     });
@@ -93,23 +93,23 @@ describe("property deltas", () => {
         const segment = (id: string, side: "old" | "new"): ChangeItem => change({
             id,
             label: "VCC",
-            object_kind: "segment",
+            objectKind: "track",
             net: "VCC",
             fields: {
                 Position: side === "old"
-                    ? { old: [1, 2], new: null }
-                    : { old: null, new: [7, 8] },
+                    ? { old: [1, 2] }
+                    : { new: [7, 8] },
                 Layer: side === "old"
-                    ? { old: "F.Cu", new: null }
-                    : { old: null, new: "F.Cu" },
+                    ? { old: "F.Cu" }
+                    : { new: "F.Cu" },
                 Net: side === "old"
-                    ? { old: "VCC", new: null }
-                    : { old: null, new: "VCC" },
+                    ? { old: "VCC" }
+                    : { new: "VCC" },
                 Width: side === "old"
-                    ? { old: 0.127, new: null }
-                    : { old: null, new: 0.127 },
+                    ? { old: 0.127 }
+                    : { new: 0.127 },
             },
-            details: { visualTargets: [] },
+            details: {},
         });
         const labels = labelsOf(propertyDeltas([
             segment("segment-1", "old"),
@@ -131,7 +131,7 @@ describe("property deltas", () => {
         const segment = (id: string) => change({
             id,
             label: "PHY_D+",
-            object_kind: "segment",
+            objectKind: "track",
             net: "Net-(U16-1D-)",
             reasons: ["net-changed"],
             fields: {
@@ -141,7 +141,7 @@ describe("property deltas", () => {
                     new: "Net-(U16-1D-)",
                 },
             },
-            details: { visualTargets: [] },
+            details: {},
         });
         const deltas = propertyDeltas([segment("s1"), segment("s2")]);
 
@@ -155,15 +155,15 @@ describe("property deltas", () => {
         const deltas = propertyDeltas([
             change({
                 id: "old-segment",
-                object_kind: "segment",
+                objectKind: "track",
                 net: "VCC",
-                fields: { Width: { old: 0.127, new: null } },
+                fields: { Width: { old: 0.127 } },
             }),
             change({
                 id: "new-segment",
-                object_kind: "segment",
+                objectKind: "track",
                 net: "VCC",
-                fields: { Width: { old: null, new: 0.2 } },
+                fields: { Width: { new: 0.2 } },
             }),
         ]);
         const width = deltas.find((delta) => delta.label === "Width")!;
@@ -175,20 +175,19 @@ describe("property deltas", () => {
     it("keeps schematic connectivity free of same-page field-anchor noise", () => {
         const selected = change({
             domain: "schematic",
-            object_kind: "symbol",
+            objectKind: "symbol",
             net: "GND",
             reasons: ["moved", "connectivity-changed"],
             fields: {
                 Position: { old: [10, 20], new: [12, 20] },
                 "Value attributes": {
-                    old: { at: [10, 22], effects: { hide: false } },
-                    new: { at: [12, 22], effects: { hide: false } },
+                    old: { at: "10, 22", hide: false },
+                    new: { at: "12, 22", hide: false },
                 },
                 Connections: { old: 240, new: 241 },
             },
             details: {
                 connectivity: { addedTerminals: ["R120.1"], removedTerminals: [] },
-                visualTargets: [],
             },
         });
         const labels = labelsOf(propertyDeltas([selected]));
@@ -233,7 +232,7 @@ describe("property deltas", () => {
 
     it("heads each delta with the verb that explains it", () => {
         const deltas = propertyDeltas([change({
-            object_kind: "symbol",
+            objectKind: "symbol",
             reasons: ["renamed"],
             fields: { Designator: { old: "D?", new: "D10" } },
         })]);
@@ -243,25 +242,21 @@ describe("property deltas", () => {
 });
 
 describe("route metrics", () => {
-    const metrics: PcbDiff["route_metrics"] = {
+    const metrics: DesignCompareResult["routeMetrics"] = {
         base: {
             "/Expansion/PMOD_A7": {
-                centerline_length_mm: 15.1491,
-                via_count: 1,
-                used_layers: ["B.Cu", "F.Cu"],
-                via_barrel_length_mm: 1.5384,
-                propagation_delay: null,
-                diagnostics: [],
+                routeLengthNm: 15_149_100,
+                viaCount: 1,
+                usedLayers: ["B.Cu", "F.Cu"],
+                viaBarrelLengthNm: 1_538_400,
             },
         },
-        compare: {
+        head: {
             "/Expansion/PMOD_A10": {
-                centerline_length_mm: 15.1491,
-                via_count: 1,
-                used_layers: ["B.Cu", "F.Cu"],
-                via_barrel_length_mm: 1.5384,
-                propagation_delay: null,
-                diagnostics: [],
+                routeLengthNm: 15_149_100,
+                viaCount: 1,
+                usedLayers: ["B.Cu", "F.Cu"],
+                viaBarrelLengthNm: 1_538_400,
             },
         },
     };
@@ -270,7 +265,7 @@ describe("route metrics", () => {
         // After a rename the two revisions file the same copper under
         // different names; looking both up under the new one finds nothing.
         const rows = routeMetricRows([change({
-            object_kind: "track",
+            objectKind: "track",
             net: "/Expansion/PMOD_A10",
             reasons: ["net-changed"],
             fields: {
@@ -284,7 +279,7 @@ describe("route metrics", () => {
     });
 
     it("reports nothing when neither side names a measured net", () => {
-        expect(routeMetricRows([change({ object_kind: "track", net: "NOPE" })], metrics))
+        expect(routeMetricRows([change({ objectKind: "track", net: "NOPE" })], metrics))
             .toEqual([]);
     });
 });
@@ -330,8 +325,14 @@ describe("component field ordering", () => {
             .toEqual(["Value", "Footprint", "Tolerance"]);
     });
 
-    it("hides the raw kicad flags surfaced as badges", () => {
-        const ordered = orderedFields({ Value: "10k", kicad_dnp: "true" });
+    it("hides the flags surfaced as badges", () => {
+        const ordered = orderedFields({ Value: "10k", DNP: "Yes", "In BOM": "Yes", kicad_dnp: "true" });
         expect(ordered.map(([name]) => name)).toEqual(["Value"]);
+    });
+
+    it("reads the project BOM's Yes/No flags", () => {
+        expect(isTruthyFlag("Yes")).toBe(true);
+        expect(isTruthyFlag("No")).toBe(false);
+        expect(isTruthyFlag("true")).toBe(true);
     });
 });

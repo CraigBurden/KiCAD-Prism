@@ -1,0 +1,41 @@
+{
+ "schema": "prism.route_metrics.a0",
+ "nets": [
+  {
+   "netName": "/C1",
+   "routeLengthNm": 2540000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/C3",
+   "routeLengthNm": 2540000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/E1",
+   "routeLengthNm": 2540000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  },
+  {
+   "netName": "/E3",
+   "routeLengthNm": 2540000,
+   "viaCount": 0,
+   "usedLayers": [
+    "F.Cu"
+   ],
+   "viaSpans": []
+  }
+ ]
+}

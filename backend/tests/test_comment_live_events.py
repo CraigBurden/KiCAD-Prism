@@ -1,47 +1,20 @@
 from __future__ import annotations
 
-import os
 import threading
 import unittest
-import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from app.services import comment_live_events
+from support.postgres import requires_scratch_postgres, scratch_schema
 
 
-TEST_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APP_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
-
-
-@unittest.skipUnless(TEST_URL and TEST_URL != APP_URL, "disposable TEST_POSTGRES_URL required")
+@requires_scratch_postgres("comment live event tests")
 class CommentLiveEventsPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        import psycopg
-        from psycopg import sql
-        from psycopg.rows import dict_row
+        self.scratch = scratch_schema(self, "comment_live_test", then=(comment_live_events.apply_schema,))
 
-        self.psycopg = psycopg
-        self.sql = sql
-        self.dict_row = dict_row
-        self.schema = f"comment_live_test_{uuid.uuid4().hex}"
-        with self._connect(select_schema=False) as conn:
-            conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(self.schema)))
-        with self._connect() as conn:
-            comment_live_events.apply_schema(conn)
-
-    def tearDown(self) -> None:
-        with self._connect(select_schema=False) as conn:
-            conn.execute(
-                self.sql.SQL("DROP SCHEMA {} CASCADE").format(self.sql.Identifier(self.schema))
-            )
-
-    def _connect(self, *, select_schema: bool = True):
-        conn = self.psycopg.connect(TEST_URL, autocommit=True, row_factory=self.dict_row)
-        if select_schema:
-            conn.execute(
-                self.sql.SQL("SET search_path TO {}, public").format(self.sql.Identifier(self.schema))
-            )
-        return conn
+    def _connect(self):
+        return self.scratch.connect(autocommit=True)
 
     def test_rollback_does_not_advance_replay_cursor(self) -> None:
         with self._connect() as conn:

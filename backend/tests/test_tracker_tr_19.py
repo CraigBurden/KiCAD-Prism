@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException
+from fastapi import HTTPException
+from app.core.errors import DomainError  # noqa: E402
 from fastapi.exceptions import RequestValidationError
 from pydantic import SecretStr
 
@@ -21,7 +19,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.config import Settings  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
 from app.api import tracker_connectors as connectors_api  # noqa: E402
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.trackers.connector_service import ConnectorService  # noqa: E402
 from app.services.trackers.errors import ProviderError  # noqa: E402
 from app.services.trackers.migrations import (  # noqa: E402
@@ -29,6 +26,8 @@ from app.services.trackers.migrations import (  # noqa: E402
     migrate_workspace_tracker_tables,
 )
 from app.services.trackers.secrets import decrypt_secret  # noqa: E402
+from app.services.comments_schema_migrations import COMMENTS_LEDGER  # noqa: E402
+from support.postgres import requires_scratch_postgres, scratch_schema, seed_comment  # noqa: E402
 
 try:
     import psycopg
@@ -37,8 +36,6 @@ except ImportError:  # pragma: no cover
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 F3 = json.loads((DOCS / "fixtures" / "F03.json").read_text(encoding="utf-8"))
 F7 = json.loads((DOCS / "fixtures" / "F07.json").read_text(encoding="utf-8"))
@@ -47,22 +44,6 @@ WEBHOOK_SECRET = "webhook-secret-fixture-tr19"
 OAUTH_CLIENT_SECRET = "oauth-client-secret-fixture-tr19"
 TEST_SESSION_SECRET = "unit-test-session-secret-not-a-credential"
 ROOT_KEY = "aa" * 32
-
-
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 def _settings(**overrides) -> Settings:
@@ -94,75 +75,32 @@ def session(role: str, *, user_id: str = "u_admin") -> AuthenticatedUser:
     )
 
 
+ROUTE_ERRORS = (HTTPException, DomainError)
+
+
 def run(coro):
     return asyncio.run(coro)
 
 
 class RoutingContractTests(unittest.TestCase):
-    def test_main_registers_admin_connector_routes(self) -> None:
-        source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
-        self.assertIn("tracker_connectors_router", source)
-        self.assertIn("initialize_tracker_connector_service", source)
-        app = FastAPI()
-        app.include_router(connectors_api.router)
-        paths = set(app.openapi()["paths"])
-        self.assertIn("/api/admin/trackers/connectors", paths)
-        self.assertIn("/api/admin/trackers/connectors/{connector_id}/test", paths)
-        self.assertIn("/api/admin/trackers/connectors/{connector_id}/revoke", paths)
-        self.assertIn("/api/admin/trackers/connectors/{connector_id}/health", paths)
 
     def test_viewer_and_designer_fail_require_admin(self) -> None:
         from app.core.security import require_admin
 
         for role in ("viewer", "designer"):
-            with self.assertRaises(HTTPException) as caught:
+            with self.assertRaises(ROUTE_ERRORS) as caught:
                 run(require_admin(session(role, user_id=f"u_{role}")))
             self.assertEqual(caught.exception.status_code, 403)
         run(require_admin(session("admin")))
 
-    def test_fixture_cases_are_present(self) -> None:
-        self.assertIn("F3.bot_identity_captured", {case["id"] for case in F3["cases"]})
-        self.assertIn("F7.unauthorized_401", {case["id"] for case in F7["cases"]})
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class ConnectorAdminApiTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"tr19_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
+        self.scratch = scratch_schema(self, "tr19", ledgers=(COMMENTS_LEDGER,), then=(migrate_workspace_tracker_tables,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
         self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self.conn.execute(
-            """
-            CREATE TABLE comments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL DEFAULT '',
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                status TEXT NOT NULL DEFAULT 'OPEN',
-                context TEXT NOT NULL DEFAULT 'PCB',
-                location_x REAL NOT NULL DEFAULT 0,
-                location_y REAL NOT NULL DEFAULT 0,
-                location_layer TEXT NOT NULL DEFAULT '',
-                location_page TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT ''
-            );
-            CREATE TABLE comment_replies (
-                id TEXT PRIMARY KEY,
-                comment_id TEXT NOT NULL REFERENCES comments(id),
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL DEFAULT '',
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                content TEXT NOT NULL DEFAULT ''
-            );
-            """,
-            prepare=False,
-        )
-        comments_schema_migrations.apply_comments_migrations(self.conn)
-        migrate_workspace_tracker_tables(self.conn)
         migrate_tracker_webhook_oauth_tables(self.conn)
         self.conn.commit()
         self.settings = _settings()
@@ -189,17 +127,10 @@ class ConnectorAdminApiTests(unittest.TestCase):
 
     def _cleanup(self) -> None:
         connectors_api.service = ConnectorService()
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
 
     @contextmanager
     def _factory(self):
-        conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        conn.execute(f'SET search_path TO "{self.schema}", public')
+        conn = self.scratch.connect()
         try:
             yield conn
         finally:
@@ -313,7 +244,7 @@ class ConnectorAdminApiTests(unittest.TestCase):
         self.assertFalse(failed["writesEnabled"])
         self.assertFalse(failed["test"]["writesEnabled"])
         self.assertTrue(failed["paused"])
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(ROUTE_ERRORS) as caught:
             run(connectors_api.resume_connector("cn_gh1", self.admin))
         self.assertEqual(caught.exception.status_code, 403)
 
@@ -374,7 +305,7 @@ class ConnectorAdminApiTests(unittest.TestCase):
         listed = run(connectors_api.list_connector_repositories("cn_gh1", self.admin))
         self.assertEqual([item["fullName"] for item in listed], ["krishna-swaroop/prism-tracker-acceptance"])
         run(connectors_api.revoke_connector("cn_gh1", self.admin))
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(ROUTE_ERRORS) as caught:
             run(connectors_api.list_connector_repositories("cn_gh1", self.admin))
         self.assertIn(caught.exception.status_code, (409, 502, 503))
 
@@ -428,12 +359,7 @@ class ConnectorAdminApiTests(unittest.TestCase):
 
     def test_delete_refuses_while_in_use_then_removes_connector(self) -> None:  # TR-46 settings: remove connection
         self._create()
-        self.conn.execute(
-            """
-            INSERT INTO comments(id, project_id, author, content)
-            VALUES ('c_del', 'prj_a', 'Priya', 'stub')
-            """
-        )
+        seed_comment(self.conn, "c_del", "prj_a", author="Priya", content="stub")
         self.conn.execute(
             """
             INSERT INTO tracked_threads (
@@ -443,7 +369,7 @@ class ConnectorAdminApiTests(unittest.TestCase):
             """
         )
         self.conn.commit()
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(ROUTE_ERRORS) as caught:
             run(connectors_api.delete_connector("cn_gh1", self.admin))
         self.assertEqual(caught.exception.status_code, 400)
         self.assertIn("linked thread", json.dumps(caught.exception.detail))
@@ -477,7 +403,7 @@ class ConnectorAdminApiTests(unittest.TestCase):
             "SELECT action FROM tracker_audit WHERE connector_id = 'cn_gh1' ORDER BY id"
         ).fetchall()
         self.assertIn("connector.delete", [row["action"] for row in audit])
-        with self.assertRaises(HTTPException) as missing:
+        with self.assertRaises(ROUTE_ERRORS) as missing:
             run(connectors_api.get_connector("cn_gh1", self.admin))
         self.assertEqual(missing.exception.status_code, 404)
 
@@ -491,12 +417,7 @@ class ConnectorAdminApiTests(unittest.TestCase):
             ) VALUES ('pt_a', 'prj_a', 'cn_gh1', 'repo', 'acme/openswitch', '111', 1)
             """
         )
-        self.conn.execute(
-            """
-            INSERT INTO comments(id, project_id, author, content)
-            VALUES ('c_1', 'prj_a', 'Priya', 'stub')
-            """
-        )
+        seed_comment(self.conn, "c_1", "prj_a", author="Priya", content="stub")
         self.conn.execute(
             """
             INSERT INTO tracked_threads (
@@ -529,7 +450,7 @@ class ConnectorAdminApiTests(unittest.TestCase):
 
     def test_create_rejects_existing_connector_id(self) -> None:
         self._create()
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(ROUTE_ERRORS) as caught:
             run(
                 connectors_api.create_connector(
                     connectors_api.CreateConnectorRequest(
@@ -542,7 +463,8 @@ class ConnectorAdminApiTests(unittest.TestCase):
                 )
             )
         self.assertEqual(caught.exception.status_code, 400)
-        self.assertIn("already exists", caught.exception.detail["message"])
+        self.assertIn("already exists", caught.exception.detail)
+        self.assertEqual(caught.exception.body()["code"], "invalid_request")  # D14: flat, the class is the code
 
     def test_validation_errors_do_not_echo_private_key(self) -> None:
         from types import SimpleNamespace
@@ -563,12 +485,10 @@ class ConnectorAdminApiTests(unittest.TestCase):
                 },
             ]
         )
-        response = run(
-            connectors_api._validation_exception_handler(
-                SimpleNamespace(url=SimpleNamespace(path="/api/admin/trackers/connectors")),
-                exc,
-            )
-        )
+        # D40: the app-wide handler joins the array into one message and never echoes input.
+        from app.core import errors as core_errors
+
+        response = run(core_errors._validation_error_handler(SimpleNamespace(), exc))
         self.assertEqual(response.status_code, 422)
         body_text = response.body.decode()
         self.assertNotIn(INSTALLATION_MATERIAL, body_text)

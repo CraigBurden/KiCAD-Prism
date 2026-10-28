@@ -6,7 +6,11 @@ import {
 import type { ComparisonPresentationMode } from "./comparison-url";
 import type { ChangeItem } from "./types";
 
-function reviewChange(overrides: Partial<ChangeItem> = {}): ChangeItem {
+type ChangeSpec = Partial<ChangeItem> & { layers?: string[] };
+
+function reviewChange(overrides: ChangeSpec = {}): ChangeItem {
+    const { layers, ...rest } = overrides;
+    const sideLayers = layers ?? [];
     return {
         id: "change-1",
         kind: "changed",
@@ -14,34 +18,38 @@ function reviewChange(overrides: Partial<ChangeItem> = {}): ChangeItem {
         category: "graphics",
         classification: "primary",
         label: "Change",
-        object_kind: "graphic",
+        objectKind: "graphic",
         reasons: ["content-changed"],
-        ...overrides,
+        fields: {},
+        details: {},
+        base: { sourceId: "base-1", documentPath: "root.kicad_sch", layers: sideLayers },
+        head: { sourceId: "head-1", documentPath: "root.kicad_sch", layers: sideLayers },
+        ...rest,
     };
 }
 
 type PolicyCase = {
     name: string;
-    change: Partial<ChangeItem>;
+    change: ChangeSpec;
     mode: ComparisonPresentationMode;
 };
 
 const schematicCases: PolicyCase[] = [
     {
         name: "added symbol",
-        change: { kind: "added", category: "components", object_kind: "symbol", reasons: ["object-added"] },
+        change: { kind: "added", category: "components", objectKind: "symbol", reasons: ["object-added"] },
         mode: "composite",
     },
     {
         name: "removed symbol",
-        change: { kind: "removed", category: "components", object_kind: "symbol", reasons: ["object-removed"] },
+        change: { kind: "removed", category: "components", objectKind: "symbol", reasons: ["object-removed"] },
         mode: "composite",
     },
     {
         name: "symbol field edit",
         change: {
             category: "components",
-            object_kind: "symbol",
+            objectKind: "symbol",
             reasons: ["symbol-fields-changed"],
             fields: { Value: { old: "10k", new: "4.7k" } },
         },
@@ -51,7 +59,7 @@ const schematicCases: PolicyCase[] = [
         name: "symbol field and placement edit",
         change: {
             category: "components",
-            object_kind: "symbol",
+            objectKind: "symbol",
             reasons: ["symbol-fields-changed", "moved"],
             fields: { Value: { old: "10k", new: "4.7k" } },
         },
@@ -59,24 +67,24 @@ const schematicCases: PolicyCase[] = [
     },
     {
         name: "symbol placement edit",
-        change: { category: "components", object_kind: "symbol", reasons: ["moved"] },
+        change: { category: "components", objectKind: "symbol", reasons: ["moved"] },
         mode: "side-by-side",
     },
     {
         name: "symbol library replacement",
-        change: { category: "components", object_kind: "symbol", reasons: ["lib-changed"] },
+        change: { category: "components", objectKind: "symbol", reasons: ["lib-changed"] },
         mode: "side-by-side",
     },
     {
         name: "pin edit",
-        change: { category: "nets", object_kind: "pin", reasons: ["content-changed"] },
+        change: { category: "nets", objectKind: "pin", reasons: ["content-changed"] },
         mode: "side-by-side",
     },
     {
         name: "power symbol edit",
         change: {
             category: "components",
-            object_kind: "symbol",
+            objectKind: "symbol",
             reference: "#PWR0118",
             label: "#PWR0118",
             reasons: ["properties-changed"],
@@ -86,47 +94,47 @@ const schematicCases: PolicyCase[] = [
     },
     {
         name: "no-connect marker",
-        change: { kind: "added", category: "nets", object_kind: "no_connect", reasons: ["object-added"] },
+        change: { kind: "added", category: "nets", objectKind: "no-connect", reasons: ["object-added"] },
         mode: "side-by-side",
     },
     {
         name: "bus entry",
-        change: { kind: "removed", category: "nets", object_kind: "bus_entry", reasons: ["object-removed"] },
+        change: { kind: "removed", category: "nets", objectKind: "bus-entry", reasons: ["object-removed"] },
         mode: "side-by-side",
     },
     {
         name: "hierarchical sheet",
-        change: { kind: "added", category: "sheets", object_kind: "sheet", reasons: ["object-added"] },
+        change: { kind: "added", category: "sheets", objectKind: "sheet", reasons: ["object-added"] },
         mode: "side-by-side",
     },
     {
         name: "instance replacement",
-        change: { category: "components", object_kind: "symbol", reasons: ["instance-replaced"] },
+        change: { category: "components", objectKind: "symbol", reasons: ["instance-replaced"] },
         mode: "side-by-side",
     },
     {
         name: "connectivity change",
-        change: { category: "nets", object_kind: "wire", reasons: ["connectivity-changed"] },
+        change: { category: "nets", objectKind: "wire", reasons: ["connectivity-changed"] },
         mode: "side-by-side",
     },
     {
         name: "bus membership",
-        change: { category: "nets", object_kind: "bus", reasons: ["bus-membership-changed"] },
+        change: { category: "nets", objectKind: "bus", reasons: ["bus-membership-changed"] },
         mode: "side-by-side",
     },
     {
         name: "net rename",
-        change: { category: "nets", object_kind: "label", reasons: ["net-renamed"] },
+        change: { category: "nets", objectKind: "label", reasons: ["net-renamed"] },
         mode: "side-by-side",
     },
     {
         name: "added wire",
-        change: { kind: "added", category: "nets", object_kind: "wire", reasons: ["object-added"] },
+        change: { kind: "added", category: "nets", objectKind: "wire", reasons: ["object-added"] },
         mode: "composite",
     },
     {
         name: "removed label",
-        change: { kind: "removed", category: "nets", object_kind: "label", reasons: ["object-removed"] },
+        change: { kind: "removed", category: "nets", objectKind: "label", reasons: ["object-removed"] },
         mode: "composite",
     },
     {
@@ -134,7 +142,7 @@ const schematicCases: PolicyCase[] = [
         change: {
             kind: "added",
             category: "nets",
-            object_kind: "net",
+            objectKind: "net",
             net: "VBUS",
             reasons: ["object-added"],
         },
@@ -142,14 +150,14 @@ const schematicCases: PolicyCase[] = [
     },
     {
         name: "added junction",
-        change: { kind: "added", category: "nets", object_kind: "junction", reasons: ["object-added"] },
+        change: { kind: "added", category: "nets", objectKind: "junction", reasons: ["object-added"] },
         mode: "composite",
     },
     {
         name: "modified label text",
         change: {
             category: "nets",
-            object_kind: "label",
+            objectKind: "label",
             reasons: ["renamed"],
             fields: { Text: { old: "SDA", new: "I2C_SDA" } },
         },
@@ -157,14 +165,14 @@ const schematicCases: PolicyCase[] = [
     },
     {
         name: "sheet pin",
-        change: { category: "sheets", object_kind: "sheet_pin", reasons: ["renamed"] },
+        change: { category: "sheets", objectKind: "sheet-pin", reasons: ["renamed"] },
         mode: "side-by-side",
     },
     {
         name: "hierarchy path change",
         change: {
             category: "components",
-            object_kind: "symbol",
+            objectKind: "symbol",
             reference: "R12",
             reasons: ["re-pathed"],
         },
@@ -172,40 +180,40 @@ const schematicCases: PolicyCase[] = [
     },
     {
         name: "modified junction",
-        change: { category: "nets", object_kind: "junction", reasons: ["moved"] },
+        change: { category: "nets", objectKind: "junction", reasons: ["moved"] },
         mode: "side-by-side",
     },
     {
         name: "moved drawing",
-        change: { category: "graphics", object_kind: "graphic", reasons: ["moved"] },
+        change: { category: "graphics", objectKind: "graphic", reasons: ["moved"] },
         mode: "side-by-side",
     },
     {
         name: "drawing content",
-        change: { category: "graphics", object_kind: "graphic", reasons: ["content-changed"] },
+        change: { category: "graphics", objectKind: "graphic", reasons: ["content-changed"] },
         mode: "old-new",
     },
     {
         name: "image content",
-        change: { category: "graphics", object_kind: "image", reasons: ["content-changed"] },
+        change: { category: "graphics", objectKind: "image", reasons: ["content-changed"] },
         mode: "old-new",
     },
     {
         name: "table content",
-        change: { category: "graphics", object_kind: "table", reasons: ["content-changed"] },
+        change: { category: "graphics", objectKind: "table", reasons: ["content-changed"] },
         mode: "old-new",
     },
 ];
 
 const pcbCases: PolicyCase[] = [
-    ...["footprint", "pad", "segment", "arc", "via", "zone"].map((object_kind) => ({
-        name: `${object_kind} fabrication change`,
+    ...["footprint", "pad", "track", "arc", "via", "zone"].map((kind): PolicyCase => ({
+        name: `${kind} fabrication change`,
         change: {
             domain: "pcb" as const,
-            category: object_kind === "footprint"
+            category: kind === "footprint"
                 ? "components"
-                : object_kind === "zone" ? "zones" : "nets",
-            object_kind,
+                : kind === "zone" ? "zones" : "nets",
+            objectKind: kind,
             reasons: ["content-changed" as const],
         },
         mode: "side-by-side" as const,
@@ -219,7 +227,7 @@ const pcbCases: PolicyCase[] = [
             domain: "pcb",
             kind: "added",
             category: "components",
-            object_kind: "footprint",
+            objectKind: "footprint",
             reasons: ["object-added"],
         },
         mode: "composite",
@@ -230,7 +238,7 @@ const pcbCases: PolicyCase[] = [
             domain: "pcb",
             kind: "added",
             category: "nets",
-            object_kind: "pad",
+            objectKind: "pad",
             reasons: ["object-added"],
         },
         mode: "composite",
@@ -241,7 +249,7 @@ const pcbCases: PolicyCase[] = [
             domain: "pcb",
             kind: "added",
             category: "graphics",
-            object_kind: "footprint_graphic",
+            objectKind: "footprint-graphic",
             layers: ["F.SilkS"],
             reasons: ["object-added"],
         },
@@ -253,7 +261,7 @@ const pcbCases: PolicyCase[] = [
             domain: "pcb",
             kind: "added",
             category: "graphics",
-            object_kind: "graphic",
+            objectKind: "graphic",
             layers: ["Dwgs.User"],
             reasons: ["object-added"],
         },
@@ -264,7 +272,7 @@ const pcbCases: PolicyCase[] = [
         change: {
             domain: "pcb",
             category: "components",
-            object_kind: "footprint",
+            objectKind: "footprint",
             reference: "R7",
             reasons: ["properties-changed"],
             fields: {
@@ -279,7 +287,7 @@ const pcbCases: PolicyCase[] = [
         change: {
             domain: "pcb",
             category: "graphics",
-            object_kind: "graphic",
+            objectKind: "graphic",
             layers: ["Edge.Cuts"],
             reasons: ["content-changed"],
         },
@@ -290,7 +298,7 @@ const pcbCases: PolicyCase[] = [
         change: {
             domain: "pcb",
             category: "graphics",
-            object_kind: "footprint_graphic",
+            objectKind: "footprint-graphic",
             layers: ["F.SilkS"],
             reasons: ["content-changed"],
         },
@@ -301,7 +309,7 @@ const pcbCases: PolicyCase[] = [
         change: {
             domain: "pcb",
             category: "graphics",
-            object_kind: "footprint_text",
+            objectKind: "footprint-text",
             layers: ["F.CrtYd"],
             reasons: ["content-changed"],
         },
@@ -312,7 +320,7 @@ const pcbCases: PolicyCase[] = [
         change: {
             domain: "pcb",
             category: "graphics",
-            object_kind: "graphic",
+            objectKind: "graphic",
             layers: ["Dwgs.User"],
             reasons: ["content-changed"],
         },
@@ -325,7 +333,7 @@ const pcbCases: PolicyCase[] = [
             kind: "added",
             category: "other",
             classification: "secondary",
-            object_kind: "group",
+            objectKind: "group",
             reasons: ["object-added"],
         },
         mode: "composite",
@@ -335,10 +343,10 @@ const pcbCases: PolicyCase[] = [
         change: {
             domain: "pcb",
             category: "rules",
-            object_kind: "net_class",
+            objectKind: "net-class",
             reasons: ["properties-changed"],
             fields: { "Track width": { old: 0.18, new: 0.2 } },
-            details: { reviewOnly: true, visualTargets: [] },
+            details: { reviewOnly: true },
         },
         mode: "old-new",
     },
@@ -347,10 +355,10 @@ const pcbCases: PolicyCase[] = [
         change: {
             domain: "pcb",
             category: "rules",
-            object_kind: "net_class_assignment",
+            objectKind: "net-class-assignment",
             reasons: ["properties-changed"],
             fields: { "Net class": { old: "Default", new: "USB" } },
-            details: { reviewOnly: true, visualTargets: [] },
+            details: { reviewOnly: true },
         },
         mode: "old-new",
     },
@@ -359,10 +367,10 @@ const pcbCases: PolicyCase[] = [
         change: {
             domain: "pcb",
             category: "rules",
-            object_kind: "board_constraint",
+            objectKind: "board-constraint",
             reasons: ["properties-changed"],
             fields: { "Minimum track width (mm)": { old: 0.127, new: 0.1 } },
-            details: { reviewOnly: true, visualTargets: [] },
+            details: { reviewOnly: true },
         },
         mode: "old-new",
     },
@@ -381,9 +389,9 @@ describe("review presentation policy", () => {
         const result = recommendPresentationForChange(reviewChange({
             domain: "pcb",
             category: "components",
-            object_kind: "footprint",
+            objectKind: "footprint",
             reasons: ["moved"],
-            details: { reviewOnly: true, visualTargets: [] },
+            details: { reviewOnly: true },
         }));
 
         expect(result).toMatchObject({
@@ -394,9 +402,9 @@ describe("review presentation policy", () => {
 
     it("uses the strongest evidence view for a mixed semantic group", () => {
         const result = recommendPresentationForChanges([
-            reviewChange({ kind: "added", object_kind: "wire", category: "nets", reasons: ["object-added"] }),
-            reviewChange({ object_kind: "no_connect", category: "nets", reasons: ["content-changed"] }),
-            reviewChange({ object_kind: "table", reasons: ["content-changed"] }),
+            reviewChange({ kind: "added", objectKind: "wire", category: "nets", reasons: ["object-added"] }),
+            reviewChange({ objectKind: "no-connect", category: "nets", reasons: ["content-changed"] }),
+            reviewChange({ objectKind: "table", reasons: ["content-changed"] }),
         ]);
 
         expect(result.mode).toBe("side-by-side");
@@ -409,7 +417,7 @@ describe("review presentation policy", () => {
                 id: "old-fl3",
                 kind: "removed",
                 category: "components",
-                object_kind: "symbol",
+                objectKind: "symbol",
                 reference: "FL3",
                 page: "usb_phy.kicad_sch",
                 reasons: ["object-removed"],
@@ -418,7 +426,7 @@ describe("review presentation policy", () => {
                 id: "new-fl3",
                 kind: "added",
                 category: "components",
-                object_kind: "symbol",
+                objectKind: "symbol",
                 reference: "FL3",
                 page: "control_port.kicad_sch",
                 reasons: ["object-added"],
@@ -445,12 +453,12 @@ describe("review presentation policy", () => {
         const kinds = ["added", "removed", "changed"] as const;
         const categories = [
             undefined, "components", "symbols", "nets", "graphics", "text",
-            "rules", "zones", "constraints",
-        ];
+            "rules", "zones", "board", "sheets", "other",
+        ] as const;
         const objectKinds = [
             undefined, "symbol", "pin", "sheet", "wire", "label", "junction",
-            "footprint", "pad", "track", "via", "zone", "group", "net_class",
-            "image", "text", "graphic", "drawing",
+            "footprint", "pad", "track", "via", "zone", "group", "net-class",
+            "image", "text", "graphic",
         ];
 
         for (const domain of domains) {
@@ -461,7 +469,7 @@ describe("review presentation policy", () => {
                             domain,
                             kind,
                             category,
-                            object_kind: objectKind,
+                            objectKind: objectKind,
                         }));
                         expect(result.rule).not.toBe("unmatched");
                         expect(result.mode).toBeTruthy();

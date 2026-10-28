@@ -1,6 +1,6 @@
 # Catalog decomposition: status and handoff
 
-Updated: 2026-09-16, Asia/Kolkata. Earlier versions of this file described the
+Updated: 2026-10-11, Asia/Kolkata (AC-19 facade shrink). Earlier versions of this file described the
 program while it was in flight; that text is kept below under
 [Historical program record](#historical-program-record-2026-08-31) and is not
 current instruction.
@@ -37,11 +37,11 @@ workspace evidence panels and edit sessions), #254 (permanent job-failure
 classification), and #269 (one workflow policy definition with a generated
 frontend contract).
 
-Current gate output on `dev` at the time of this update:
+Gate output after AC-19 (`fix/architecture-consolidation`):
 
 ```text
-Catalog architecture OK: 0 legacy-import violations, 15 private-use keys,
-219 production modules checked, 16 grandfathered ceilings
+Catalog architecture OK: 0 legacy-import violations, 0 private-use keys,
+463 production modules checked, 15 grandfathered ceilings
 ```
 
 `component_catalog_service.py` remains the stable composition root and
@@ -156,11 +156,13 @@ fragment, and query keys exactly `{rev, representation, exp, sig}`.
   factory returns, factory aliases, and `super()._private()` on catalog
   subclasses;
 - enforces a monotonic private-call baseline;
-- enforces a 1,200-line limit for new production modules;
-- enforces a 500-line limit for catalog facades/orchestrators;
-- grandfathered 16 existing oversized modules at their exact current lengths;
 - supports safe baseline reductions/removals;
 - compares the checked-in baseline with a trusted Git base ref.
+
+The line limits it used to enforce (1,200 lines for production modules, 500 for
+catalog facades/orchestrators, existing oversized modules grandfathered at their
+lengths) are now `scripts/check_module_size.py`, with the same baseline file
+and the same update and base-ref rules.
 
 Current resume-branch scan:
 
@@ -250,11 +252,18 @@ tooling, and finally mechanical migration-file separation.
 
 ## Approved compatibility-facade size exception
 
-The completed decomposition retains `component_catalog_domain.py` as a 2,014
-line compatibility facade for the alpha lifecycle. This is an explicit waiver
+The completed decomposition retains `component_catalog_domain.py` as a
+compatibility facade for the alpha lifecycle. This is an explicit waiver
 from the original 500-line facade/orchestrator target, not permission for a new
-god module. The stable historical surface has 183 forwarding signatures, and
-preserving them explicitly keeps runtime callers, tests, maintenance tooling,
+god module. It was 2,014 lines with 183 forwarding signatures; AC-19
+(2026-10-11) deleted every forwarder nothing in `backend/app`, `backend/tests`,
+`scripts` or `tools` called, moved the tests that pinned facade privates onto
+the collaborators (the private-use baseline is now empty), and moved the
+metadata-batch lifecycle into `catalog/metadata_batch_lifecycle.py`. The facade
+is now 1,222 lines: 96 public methods and properties, and four private seams
+(`_connect`, `_database_path`, `_ensure_storage_dirs`, `_runtime_for_compat`)
+that the PostgreSQL subclass overrides or uses. Preserving the remaining
+surface explicitly keeps runtime callers, tests, maintenance tooling,
 and third-party integrations inspectable without the prohibited alternatives
 of mixins or dynamic `__getattr__` delegation.
 
@@ -263,8 +272,8 @@ The exception has these hard bounds:
 - the facade contains transaction and connection scopes plus explicit
   delegation, but no domain implementation;
 - new catalog behavior must be implemented in `backend/app/services/catalog/`;
-- the checked-in 2,014-line architecture ceiling may only shrink and must never
-  increase;
+- the checked-in architecture ceiling (1,222 lines after AC-19) may only shrink
+  and must never increase;
 - collaborators must not import or retain a reference to the facade; and
 - after the alpha compatibility window, callers should migrate to supported
   narrow services so forwarding methods and their ceiling can be retired.

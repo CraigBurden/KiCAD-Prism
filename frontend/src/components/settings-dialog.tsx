@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { GitBranch, Copy, Shield, Plus, Trash2, KeyRound, Link2, MoreHorizontal, Server, type LucideIcon } from "lucide-react";
+import { GitBranch, Copy, Shield, Plus, Trash2, KeyRound, Cpu, Link2, MoreHorizontal, Server, Webhook, type LucideIcon } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -20,7 +20,12 @@ import { ConnectedAccounts } from "@/features/code-hosts/connected-accounts";
 import { User, UserRole } from "@/types/auth";
 import { fetchApi, readApiError } from "@/lib/api";
 import { changeOwnPassword, fetchAuthConfig } from "@/lib/auth";
-import { ROLE_OPTIONS, roleLabel } from "@/lib/roles";
+import { ROLE_OPTIONS, canAdministerWorkspace, roleLabel } from "@/lib/roles";
+import { AgentTokensForUser, useAgentTokens, type AgentToken } from "@/components/agent-tokens";
+import { PersonalAccessTokens } from "@/components/personal-access-tokens";
+import { ConnectedMcpClients } from "@/components/mcp-clients";
+import { McpGovernanceSettings } from "@/components/mcp-governance";
+import { WebhookSettings } from "@/components/webhook-settings";
 import type { SettingsTab } from "@/lib/settings-tabs";
 
 interface SettingsDialogProps {
@@ -51,6 +56,10 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
         items: [
             { tab: "accounts", label: "Connected accounts", icon: Link2 },
             { tab: "password", label: "Password", icon: KeyRound },
+            { tab: "tokens", label: "Personal access tokens", icon: KeyRound },
+            { tab: "mcp-clients", label: "Connected MCP clients", icon: Cpu },
+            { tab: "mcp", label: "MCP", icon: Cpu, adminOnly: true },
+            { tab: "webhooks", label: "Webhooks", icon: Webhook, adminOnly: true },
         ],
     },
     {
@@ -64,7 +73,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
 ];
 
 export function SettingsDialog({ open, onOpenChange, user, initialTab }: SettingsDialogProps) {
-    const isAdmin = user?.role === "admin";
+    const isAdmin = canAdministerWorkspace(user?.role);
     const allowed = (tab: SettingsTab | undefined): tab is SettingsTab =>
         Boolean(tab) && NAV_GROUPS.some((group) => group.items.some((item) => item.tab === tab && (!item.adminOnly || isAdmin)));
     const [activeTab, setActiveTab] = useState<SettingsTab>(allowed(initialTab) ? initialTab : "accounts");
@@ -81,7 +90,7 @@ export function SettingsDialog({ open, onOpenChange, user, initialTab }: Setting
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-4xl p-0 overflow-hidden flex h-[640px]">
+            <DialogContent className="max-w-5xl w-[90vw] p-0 overflow-hidden flex h-[85vh] max-h-[720px]">
                 <DialogTitle className="sr-only">Settings</DialogTitle>
                 <DialogDescription className="sr-only">
                     Manage your connected accounts and password, and the workspace's code hosts, Git access and roles.
@@ -113,7 +122,7 @@ export function SettingsDialog({ open, onOpenChange, user, initialTab }: Setting
                     })}
                 </nav>
 
-                <div className="flex-1 overflow-y-auto p-6">
+                <div className="flex-1 min-w-0 overflow-y-auto p-6">
                     {activeTab === "accounts" && signInEnabled !== null && (
                         <ConnectedAccounts
                             signInEnabled={signInEnabled}
@@ -122,11 +131,15 @@ export function SettingsDialog({ open, onOpenChange, user, initialTab }: Setting
                         />
                     )}
                     {activeTab === "password" && <PasswordSettings />}
+                    {activeTab === "tokens" && <PersonalAccessTokens />}
+                    {activeTab === "mcp-clients" && <ConnectedMcpClients />}
+                    {activeTab === "mcp" && isAdmin && <McpGovernanceSettings />}
+                    {activeTab === "webhooks" && isAdmin && <WebhookSettings />}
                     {activeTab === "code-hosts" && isAdmin && (
                         <CodeHostsSettings />
                     )}
                     {activeTab === "git" && isAdmin && <GitSettings user={user} />}
-                    {activeTab === "access" && isAdmin && <AccessControlSettings isAdmin={isAdmin} />}
+                    {activeTab === "access" && isAdmin && <AccessControlSettings isAdmin={isAdmin} currentUser={user} />}
                 </div>
             </DialogContent>
         </Dialog>
@@ -648,14 +661,24 @@ function GitSettings({ user }: { user: User | null }) {
     );
 }
 
-function AccessControlSettings({ isAdmin }: { isAdmin: boolean }) {
+function AccessControlSettings({
+    isAdmin,
+    currentUser,
+}: {
+    isAdmin: boolean;
+    currentUser: User | null;
+}) {
     const [loading, setLoading] = useState(false);
     const [assignments, setAssignments] = useState<RoleAssignment[]>([]);
     const [newEmail, setNewEmail] = useState("");
     const [newRole, setNewRole] = useState<UserRole>("viewer");
     const [passwordAuthEnabled, setPasswordAuthEnabled] = useState(false);
+    // Which user's agent tokens are expanded, by email. Only one at a time keeps
+    // the list short.
+    const [expandedTokens, setExpandedTokens] = useState<string | null>(null);
     // The dialog names the person, so it holds the email rather than a boolean.
     const removalTarget = useConfirmTarget<string>();
+    const agentTokens = useAgentTokens(isAdmin);
 
     const loadAssignments = useCallback(async () => {
         if (!isAdmin) {
@@ -670,14 +693,24 @@ function AccessControlSettings({ isAdmin }: { isAdmin: boolean }) {
                 throw new Error(await readApiError(response, "Failed to load role assignments"));
             }
             const data = (await response.json()) as RoleAssignment[];
-            setAssignments(data);
+            // The signed-in admin may hold their role from OIDC without a stored
+            // assignment or a bootstrap entry, so the listing would omit their own
+            // account. Merge it in, marked as the live session, so an admin always
+            // sees themselves, including their own agent tokens.
+            const merged = [...data];
+            const email = currentUser?.email?.trim().toLowerCase();
+            if (email && !merged.some((row) => row.email.trim().toLowerCase() === email)) {
+                merged.push({ email, role: currentUser!.role, source: "session" });
+                merged.sort((a, b) => a.email.localeCompare(b.email));
+            }
+            setAssignments(merged);
         } catch (error) {
             const message = error instanceof Error ? error.message : "Failed to load role assignments";
             toast.error(message);
         } finally {
             setLoading(false);
         }
-    }, [isAdmin]);
+    }, [isAdmin, currentUser]);
 
     useEffect(() => {
         void loadAssignments();
@@ -820,6 +853,11 @@ function AccessControlSettings({ isAdmin }: { isAdmin: boolean }) {
                 assignments={assignments}
                 loading={loading}
                 passwordAuthEnabled={passwordAuthEnabled}
+                agentTokens={agentTokens.byEmail}
+                agentTokensLoading={agentTokens.loading}
+                onRevokeAgentToken={agentTokens.revoke}
+                expandedTokensEmail={expandedTokens}
+                onToggleTokens={(email) => setExpandedTokens((current) => (current === email ? null : email))}
                 onChangeRole={(email, role) => void upsertRole(email, role)}
                 onSetPassword={(email) => { setPasswordEmail(email); setPasswordValue(""); }}
                 onRemovePassword={(email) => void removePassword(email)}
@@ -874,6 +912,13 @@ interface RoleAssignmentsTableProps {
     assignments: RoleAssignment[];
     loading: boolean;
     passwordAuthEnabled: boolean;
+    // The tokens a KiCad desktop agent holds to act as each user; see agent-tokens.tsx.
+    agentTokens: Record<string, AgentToken[]>;
+    agentTokensLoading: boolean;
+    onRevokeAgentToken: (jti: string) => void;
+    // Which row's token list is open, by email; null when none is.
+    expandedTokensEmail: string | null;
+    onToggleTokens: (email: string) => void;
     onChangeRole: (email: string, role: UserRole) => void;
     onSetPassword: (email: string) => void;
     onRemovePassword: (email: string) => void;
@@ -885,6 +930,11 @@ function RoleAssignmentsTable({
     assignments,
     loading,
     passwordAuthEnabled,
+    agentTokens,
+    agentTokensLoading,
+    onRevokeAgentToken,
+    expandedTokensEmail,
+    onToggleTokens,
     onChangeRole,
     onSetPassword,
     onRemovePassword,
@@ -915,66 +965,92 @@ function RoleAssignmentsTable({
                     ) : (
                         assignments.map((assignment) => {
                             const isBootstrap = assignment.source === "bootstrap";
+                            const emailKey = assignment.email.trim().toLowerCase();
+                            const tokens = agentTokens[emailKey] ?? [];
+                            const tokensExpanded = expandedTokensEmail === emailKey;
                             return (
-                                <tr key={assignment.email}>
-                                    <td className="px-4 py-2">
-                                        <div className="flex min-w-0 items-center gap-2">
-                                            <span className="truncate" title={assignment.email}>{assignment.email}</span>
-                                            {passwordAuthEnabled && assignment.has_password && (
-                                                <KeyRound className="size-3.5 shrink-0 text-muted-foreground" aria-label="Has a local password" />
-                                            )}
-                                        </div>
-                                    </td>
-                                    <td className="px-2 py-2">
-                                        <Select
-                                            value={assignment.role}
-                                            disabled={isBootstrap}
-                                            onValueChange={(value) => onChangeRole(assignment.email, value as UserRole)}
-                                        >
-                                            <SelectTrigger size="sm" className="w-full" aria-label={`Role for ${assignment.email}`}>
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {ROLE_OPTIONS.map((role) => <SelectItem key={role} value={role}>{roleLabel(role)}</SelectItem>)}
-                                            </SelectContent>
-                                        </Select>
-                                    </td>
-                                    <td className="px-2 py-2 text-muted-foreground" title={isBootstrap ? "Set by BOOTSTRAP_ADMIN_USERS_STR in the deployment" : undefined}>
-                                        {isBootstrap ? "Deployment" : "Assigned"}
-                                    </td>
-                                    <td className="py-2 pr-2 text-right">
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${assignment.email}`}>
-                                                    <MoreHorizontal aria-hidden="true" />
-                                                </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                                {passwordAuthEnabled && (
-                                                    <DropdownMenuItem onSelect={() => onSetPassword(assignment.email)}>
-                                                        <KeyRound aria-hidden="true" />
-                                                        {assignment.has_password ? "Reset password" : "Set password"}
-                                                    </DropdownMenuItem>
-                                                )}
+                                <>
+                                    <tr key={assignment.email}>
+                                        <td className="px-4 py-2">
+                                            <div className="flex min-w-0 items-center gap-2">
+                                                <span className="truncate" title={assignment.email}>{assignment.email}</span>
                                                 {passwordAuthEnabled && assignment.has_password && (
-                                                    <DropdownMenuItem onSelect={() => onRemovePassword(assignment.email)}>
-                                                        <KeyRound aria-hidden="true" />
-                                                        Remove password
-                                                    </DropdownMenuItem>
+                                                    <KeyRound className="size-3.5 shrink-0 text-muted-foreground" aria-label="Has a local password" />
                                                 )}
-                                                {passwordAuthEnabled && <DropdownMenuSeparator />}
-                                                <DropdownMenuItem
-                                                    variant="destructive"
-                                                    disabled={isBootstrap}
-                                                    onSelect={() => onRemove(assignment.email)}
-                                                >
-                                                    <Trash2 aria-hidden="true" />
-                                                    Remove access
-                                                </DropdownMenuItem>
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
-                                    </td>
-                                </tr>
+                                            </div>
+                                        </td>
+                                        <td className="px-2 py-2">
+                                            <Select
+                                                value={assignment.role}
+                                                disabled={isBootstrap}
+                                                onValueChange={(value) => onChangeRole(assignment.email, value as UserRole)}
+                                            >
+                                                <SelectTrigger size="sm" className="w-full" aria-label={`Role for ${assignment.email}`}>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {ROLE_OPTIONS.map((role) => <SelectItem key={role} value={role}>{roleLabel(role)}</SelectItem>)}
+                                                </SelectContent>
+                                            </Select>
+                                        </td>
+                                        <td className="px-2 py-2 text-muted-foreground" title={isBootstrap ? "Set by BOOTSTRAP_ADMIN_USERS_STR in the deployment" : undefined}>
+                                            {isBootstrap ? "Deployment" : "Assigned"}
+                                        </td>
+                                        <td className="py-2 pr-2 text-right">
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${assignment.email}`}>
+                                                        <MoreHorizontal aria-hidden="true" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuItem onSelect={() => onToggleTokens(emailKey)}>
+                                                        <Cpu aria-hidden="true" />
+                                                        {tokensExpanded ? "Hide agent tokens" : "Show agent tokens"}
+                                                        {tokens.length > 0 && (
+                                                            <span className="ml-auto tabular-nums text-xs text-muted-foreground">
+                                                                {tokens.length}
+                                                            </span>
+                                                        )}
+                                                    </DropdownMenuItem>
+                                                    {passwordAuthEnabled && <DropdownMenuSeparator />}
+                                                    {passwordAuthEnabled && (
+                                                        <DropdownMenuItem onSelect={() => onSetPassword(assignment.email)}>
+                                                            <KeyRound aria-hidden="true" />
+                                                            {assignment.has_password ? "Reset password" : "Set password"}
+                                                        </DropdownMenuItem>
+                                                    )}
+                                                    {passwordAuthEnabled && assignment.has_password && (
+                                                        <DropdownMenuItem onSelect={() => onRemovePassword(assignment.email)}>
+                                                            <KeyRound aria-hidden="true" />
+                                                            Remove password
+                                                        </DropdownMenuItem>
+                                                    )}
+                                                    <DropdownMenuSeparator />
+                                                    <DropdownMenuItem
+                                                        variant="destructive"
+                                                        disabled={isBootstrap}
+                                                        onSelect={() => onRemove(assignment.email)}
+                                                    >
+                                                        <Trash2 aria-hidden="true" />
+                                                        Remove access
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        </td>
+                                    </tr>
+                                    {tokensExpanded && (
+                                        <tr key={`${assignment.email}-tokens`}>
+                                            <td colSpan={4} className="bg-muted/20 px-4 py-3">
+                                                {agentTokensLoading ? (
+                                                    <p className="px-1 text-xs text-muted-foreground">Loading tokens…</p>
+                                                ) : (
+                                                    <AgentTokensForUser tokens={tokens} onRevoke={onRevokeAgentToken} />
+                                                )}
+                                            </td>
+                                        </tr>
+                                    )}
+                                </>
                             );
                         })
                     )}

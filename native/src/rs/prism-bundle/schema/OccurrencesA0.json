@@ -1,0 +1,458 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:prism:schema:prism.occurrences:a0",
+    "type": "object",
+    "properties": {
+        "schema": {
+            "type": "string",
+            "const": "prism.occurrences.a0",
+            "description": "Schema id of this document."
+        },
+        "sheets": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/OccurrencesSheet"
+            },
+            "description": "Every sheet instance of the schematic hierarchy, the root sheet first,\nin hierarchy order: depth-first pre-order from the root sheet, the child\nsheets of one sheet visited in the order their `(sheet …)` forms appear\nin that sheet's file. Empty when the project has no schematic."
+        },
+        "symbols": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/OccurrencesSymbol"
+            },
+            "description": "Every placed symbol (a `(symbol …)` form with a `lib_id`, outside\n`lib_symbols`) at every sheet instance it occurs at: one entry per\noccurrence, so a symbol in a sheet used twice appears twice. Only sheet\ninstances reached from the root count: a file no sheet reaches, or an\ninstance record whose path no sheet instance has, adds nothing. Power\nsymbols, virtual (`#`) and unannotated (`?`) references included;\nreaders filter. In hierarchy order: grouped by sheet instance in the\norder of `sheets`, then the `(symbol …)` forms of that sheet's file in\nfile order."
+        },
+        "footprints": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/OccurrencesFootprint"
+            },
+            "description": "Every footprint of the project's board, in file order (the order of the\n`(footprint …)` forms in the `.kicad_pcb`). Empty when the project has no\nboard."
+        },
+        "references": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/OccurrencesReference"
+            },
+            "description": "The join between symbol occurrences and footprints by reference\ndesignator: one entry per distinct reference that a symbol occurrence\nor a footprint carries. Sorted by `reference`, code point order."
+        },
+        "variantDeclarations": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/OccurrencesVariantDeclaration"
+            },
+            "description": "Variant names declared by the project's registries, unresolved: first\nthe `.kicad_pro` registry (`$.schematic.variants`) in file order, then\nthe board header `(variants …)` block in file order. Names that appear\nonly in variant records are not repeated here; they are the `name`s of\nthe `variants` arrays of `sheets`, `symbols` and `footprints`."
+        }
+    },
+    "required": [
+        "schema",
+        "sheets",
+        "symbols",
+        "footprints",
+        "references",
+        "variantDeclarations"
+    ],
+    "unevaluatedProperties": {
+        "not": {}
+    },
+    "description": "Occurrences of one design revision. Written once per bundle by stage\n`parse`; carries no provenance (bundle.json records it).",
+    "title": "Occurrences a0",
+    "$defs": {
+        "OccurrencesSheet": {
+            "type": "object",
+            "properties": {
+                "sheetPath": {
+                    "$ref": "#/$defs/KiidPath",
+                    "description": "KIID path of this sheet instance, schematic form: the root sheet's UUID\nfollowed by the UUID of every sheet symbol down to this one. The root\nsheet's own entry is `/<root uuid>`. Unique within the document; the join\nkey to `prism.semantic_index.a1` `sheetInstances[].sheetInstancePath`."
+                },
+                "dnp": {
+                    "type": "boolean",
+                    "description": "True when this sheet or any sheet above it on its path is marked do not\npopulate (`(dnp yes)` on the sheet symbol). False for the root sheet."
+                },
+                "excludeFromBom": {
+                    "type": "boolean",
+                    "description": "True when this sheet or any sheet above it on its path is excluded from\nthe BOM (`(in_bom no)` on the sheet symbol). False for the root sheet."
+                },
+                "excludeFromBoard": {
+                    "type": "boolean",
+                    "description": "True when this sheet or any sheet above it on its path is excluded from\nthe board (`(on_board no)` on the sheet symbol). False for the root sheet."
+                },
+                "excludeFromSim": {
+                    "type": "boolean",
+                    "description": "True when this sheet or any sheet above it on its path is excluded from\nsimulation (`(exclude_from_sim yes)` on the sheet symbol). False for the\nroot sheet."
+                },
+                "variants": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/OccurrencesVariantRecord"
+                    },
+                    "description": "The variant records of this sheet instance, unresolved: the `(variant …)`\nforms of the sheet symbol's `(instances (project … (path …)))` record\nwhose path is the parent sheet instance's `sheetPath`. In file order.\nEmpty for the root sheet and for a sheet with no records. The resolved\nper-variant state is `prism.semantic_index.a1` `assembly.variants`."
+                }
+            },
+            "required": [
+                "sheetPath",
+                "dnp",
+                "excludeFromBom",
+                "excludeFromBoard",
+                "excludeFromSim",
+                "variants"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One sheet instance and the DNP / BOM / board / sim state it passes on to\neverything placed in it."
+        },
+        "OccurrencesSymbol": {
+            "type": "object",
+            "properties": {
+                "kiidPath": {
+                    "$ref": "#/$defs/KiidPath",
+                    "description": "KIID path of this occurrence, schematic form: `sheetPath` followed by\n`/<symbolUuid>`. Unique within the document. Today's occurrence id\n(semantic index `assembly` keys) and System Builder `portKey`."
+                },
+                "sheetPath": {
+                    "$ref": "#/$defs/KiidPath",
+                    "description": "KIID path, schematic form, of the sheet instance this occurrence is\nplaced in: equal to one `sheets[].sheetPath`."
+                },
+                "symbolUuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "UUID of the `(symbol …)` form, as written."
+                },
+                "documentPath": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "The repository-relative path of the `.kicad_sch` file the `(symbol …)`\nform is written in. A reused sheet file holds one form for all its\noccurrences, so several occurrences share a `documentPath` and\n`symbolUuid`; `<documentPath>#<symbolUuid>` is the symbol's ObjectRef in\n`prism.board_objects.a0`."
+                },
+                "libId": {
+                    "$ref": "#/$defs/LibId",
+                    "description": "Library identifier of the symbol, the form's `lib_id` as written."
+                },
+                "reference": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "Reference designator of this occurrence: the `reference` of the matched\ninstance record when `instanceMatched` is true, otherwise the symbol's\n`Reference` property. Absent when neither supplies a non-empty value.\nNot annotation-checked: may start with `#` or end with `?`."
+                },
+                "instanceMatched": {
+                    "type": "boolean",
+                    "description": "True when the symbol's `(instances …)` block holds a `(path …)` record\nequal to `sheetPath`; `reference`, `unit` and `variants` then come from\nit. When several match, the record under the `(project …)` named after\nthe `.kicad_pro` stem wins, else the first in file order. False when\nnone matches: `reference` falls back to the `Reference` property, `unit`\nto the form's own `(unit …)`, and `variants` is empty."
+                },
+                "unit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647,
+                    "description": "Unit number of this occurrence (1 = unit A), from the matched instance record or the form's `(unit …)`."
+                },
+                "dnp": {
+                    "type": "boolean",
+                    "description": "Effective do-not-populate state in the default design: the symbol's own\n`(dnp yes)`, or `dnp` of its sheet (`sheets[]` where `sheetPath`\nmatches), which already folds every sheet above it."
+                },
+                "excludeFromBom": {
+                    "type": "boolean",
+                    "description": "Effective exclude-from-BOM state in the default design: the symbol's own\n`(in_bom no)`, or `excludeFromBom` of its sheet."
+                },
+                "excludeFromBoard": {
+                    "type": "boolean",
+                    "description": "Effective exclude-from-board state in the default design: the symbol's\nown `(on_board no)`, or `excludeFromBoard` of its sheet."
+                },
+                "excludeFromSim": {
+                    "type": "boolean",
+                    "description": "Effective exclude-from-simulation state in the default design: the\nsymbol's own `(exclude_from_sim yes)`, or `excludeFromSim` of its sheet."
+                },
+                "excludeFromPosFiles": {
+                    "type": "boolean",
+                    "description": "Effective exclude-from-position-files state in the default design: the\nsymbol's own `(in_pos_files no)`. Sheets never contribute to it."
+                },
+                "properties": {
+                    "$ref": "#/$defs/RecordString",
+                    "description": "Every `(property \"<name>\" \"<value>\")` written on the placed symbol, as\nwritten and unescaped, before any variant: keys are the property names\n(`Reference`, `Value`, `Footprint`, `Datasheet`, `Description`, custom\nfields), values their text, possibly empty. When a name repeats, the\nlast in file order wins. The `Reference` property is the form's text and\nmay differ from `reference` in a reused sheet. Keys in code point order."
+                },
+                "bomFields": {
+                    "$ref": "#/$defs/OccurrencesBomFields",
+                    "description": "The canonical BOM fields of this occurrence, resolved from `properties`."
+                },
+                "variants": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/OccurrencesVariantRecord"
+                    },
+                    "description": "The variant records of the matched instance record, unresolved, in file\norder. Empty when `instanceMatched` is false or the record has none. The\nresolved per-variant state is `prism.semantic_index.a1`\n`assembly.variants`."
+                }
+            },
+            "required": [
+                "kiidPath",
+                "sheetPath",
+                "symbolUuid",
+                "documentPath",
+                "libId",
+                "instanceMatched",
+                "unit",
+                "dnp",
+                "excludeFromBom",
+                "excludeFromBoard",
+                "excludeFromSim",
+                "excludeFromPosFiles",
+                "properties",
+                "bomFields",
+                "variants"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One placed symbol at one sheet instance: what KiCad's BOM, netlist and\nannotation see as one symbol occurrence."
+        },
+        "OccurrencesFootprint": {
+            "type": "object",
+            "properties": {
+                "uuid": {
+                    "$ref": "#/$defs/KiCadUuid",
+                    "description": "UUID of the `(footprint …)` form, as written: its `(uuid …)`. Unique\nwithin the document."
+                },
+                "documentPath": {
+                    "$ref": "#/$defs/RepoPath",
+                    "description": "The repository-relative path of the `.kicad_pcb` file the footprint is\nwritten in; `<documentPath>#<uuid>` is the footprint's ObjectRef in\n`prism.board_objects.a0`."
+                },
+                "reference": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "Reference designator: the footprint's `Reference` property. Absent when\nempty."
+                },
+                "dnp": {
+                    "type": "boolean",
+                    "description": "True when the footprint's `(attr …)` holds `dnp`."
+                },
+                "excludeFromBom": {
+                    "type": "boolean",
+                    "description": "True when the footprint's `(attr …)` holds `exclude_from_bom`."
+                },
+                "excludeFromPosFiles": {
+                    "type": "boolean",
+                    "description": "True when the footprint's `(attr …)` holds `exclude_from_pos_files`."
+                },
+                "variants": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/OccurrencesVariantRecord"
+                    },
+                    "description": "The footprint's `(variant …)` records, unresolved, in file order. Empty when it has none."
+                }
+            },
+            "required": [
+                "uuid",
+                "documentPath",
+                "dnp",
+                "excludeFromBom",
+                "excludeFromPosFiles",
+                "variants"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One footprint of the board: its identity, designator and assembly\nattributes as written. Placement, geometry and library link are in\n`prism.placements.a1` and `prism.board_objects.a0`."
+        },
+        "OccurrencesReference": {
+            "type": "object",
+            "properties": {
+                "reference": {
+                    "$ref": "#/$defs/Refdes",
+                    "description": "The reference designator, exactly as on the symbol occurrences and footprints."
+                },
+                "symbols": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiidPath"
+                    },
+                    "description": "`kiidPath` of every symbol occurrence whose `reference` this is, in the\norder of `symbols` (hierarchy order). Several for a multi-unit part, a\nreference collision or an unannotated reference; empty for a board-only\nreference."
+                },
+                "footprints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/KiCadUuid"
+                    },
+                    "description": "`uuid` of every footprint whose `reference` this is, in the order of\n`footprints` (board file order). Several for alternate footprints that\nshare a designator; empty for a schematic-only reference."
+                }
+            },
+            "required": [
+                "reference",
+                "symbols",
+                "footprints"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The symbol occurrences and footprints that share one reference designator."
+        },
+        "OccurrencesVariantDeclaration": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "$ref": "#/$defs/OccurrencesVariantSource",
+                    "description": "The registry that declares it."
+                },
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Variant name as written. The project registry contributes every entry\nthat is an object with a non-empty string `name`, KiCad's `< Default >`\nincluded."
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Description as written. Absent when the declaration has none or an empty\none: no `description` key, JSON null or `\"\"` in the project registry; no\n`(description …)` or `(description \"\")` in the board header."
+                }
+            },
+            "required": [
+                "source",
+                "name"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One variant name declared by a project registry."
+        },
+        "KiidPath": {
+            "type": "string",
+            "pattern": "^(?:/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})+$",
+            "description": "KiCad KIID path: one or more `/<uuid>` steps, no trailing `/`. Two forms\nexist and every field of this type states which one it holds: the\nschematic form, which starts at the root sheet's UUID (a symbol's\n`(instances (project … (path …)))` entry, plus the symbol UUID for an\noccurrence); and the board form, which omits the root sheet (a footprint's\n`(path …)`)."
+        },
+        "OccurrencesVariantRecord": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Variant name as written."
+                },
+                "dnp": {
+                    "type": "boolean",
+                    "description": "Do-not-populate override: `(dnp yes|no)`."
+                },
+                "excludeFromBom": {
+                    "type": "boolean",
+                    "description": "Exclude-from-BOM override. Footprints: `(exclude_from_bom yes|no)`.\nSheets and symbols: from `(in_bom …)`, read by the version of the\n`.kicad_sch` the record is written in: from `20260306` the token is\npositive (`in_bom yes` is false here); before it the token holds the\nexcluded flag (`in_bom yes` is true here)."
+                },
+                "excludeFromBoard": {
+                    "type": "boolean",
+                    "description": "Exclude-from-board override, from `(on_board yes|no)` (`on_board no` is true here). Sheets and symbols only."
+                },
+                "excludeFromSim": {
+                    "type": "boolean",
+                    "description": "Exclude-from-simulation override, from `(exclude_from_sim yes|no)`. Sheets and symbols only."
+                },
+                "excludeFromPosFiles": {
+                    "type": "boolean",
+                    "description": "Exclude-from-position-files override. Symbols: from `(in_pos_files …)`\n(`in_pos_files no` is true here). Footprints: from\n`(exclude_from_pos_files yes|no)`. Never on sheets."
+                },
+                "fields": {
+                    "$ref": "#/$defs/RecordString",
+                    "description": "Field overrides, `(field (name \"<name>\") (value \"<value>\"))`: keys are\nthe field names as written, values the override text as written; an\nempty value is an override to empty. When a name repeats, the last in\nfile order wins. Keys in code point order."
+                }
+            },
+            "required": [
+                "name",
+                "fields"
+            ],
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "One `(variant …)` record of a sheet instance, symbol instance or\nfootprint, unresolved: an override that applies only when that variant is\nselected. Every flag is absent when the record does not set it (the base\nvalue applies). A reader selecting a variant takes the first record whose\n`name` matches: exactly for sheets and symbols, ignoring case for\nfootprints. Resolving needs the holder's own attributes, which this\ndocument does not carry; the resolved state is `prism.semantic_index.a1`\n`assembly`."
+        },
+        "KiCadUuid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "KiCad object UUID in the canonical form KiCad writes (`KIID::AsString`):\nlowercase hexadecimal, 8-4-4-4-12. Copied from the file, never generated\nor re-cased."
+        },
+        "RepoPath": {
+            "type": "string",
+            "pattern": "^(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+)(?:/(?:[^/\\\\:.][^/\\\\:]*|\\.[^/\\\\:.][^/\\\\:]*|\\.\\.[^/\\\\:]+))*$",
+            "description": "Repository-relative POSIX path, exactly as `git ls-tree` names the entry:\n`/`-separated, case preserved, no leading `/`, no empty, `.` or `..`\nsegment, no backslash and no `:`. The same character rule as ArchivePath.\nIt is the only path type in bundle documents: a file has one spelling\nwhichever project in the repository refers to it, and a file outside the\nproject directory needs no `..`."
+        },
+        "LibId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "KiCad library identifier as written in the file: `<nickname>:<name>` for a\nsymbol (`Device:R`) or a footprint (`Resistor_SMD:R_0603_1608Metric`). The\nnickname may be absent when the file has none."
+        },
+        "Refdes": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Reference designator as KiCad resolves it for one symbol instance or\nfootprint, for example `R1`, `U3`, `#PWR01` or `R?`. Always a string. A\ncontract states whether it includes virtual (`#`) and unannotated (`?`)\nreferences."
+        },
+        "RecordString": {
+            "type": "object",
+            "properties": {},
+            "unevaluatedProperties": {
+                "type": "string"
+            }
+        },
+        "OccurrencesBomFields": {
+            "type": "object",
+            "properties": {
+                "value": {
+                    "type": "string",
+                    "description": "Column `Value`: the property named exactly `Value` if non-empty, else name `Value`."
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Column `Description`: name `Description`. Never the library symbol's description."
+                },
+                "datasheet": {
+                    "type": "string",
+                    "description": "Column `Datasheet`: names `Datasheet`, `Data Sheet`, `Datasheet URL`, `Datasheet Link`."
+                },
+                "manufacturer": {
+                    "type": "string",
+                    "description": "Column `Manufacturer`: names `Manufacturer`, `MFR`, `Mfr`."
+                },
+                "manufacturerPartNumber": {
+                    "type": "string",
+                    "description": "Column `Manufacturer Part Number`: names `Manufacturer Part Number`, `MPN`, `Mfr Part`, `Mfr Part Number`."
+                },
+                "vendor": {
+                    "type": "string",
+                    "description": "Column `Vendor`: names `Vendor`, `Supplier`."
+                },
+                "vendorPartNumber": {
+                    "type": "string",
+                    "description": "Column `Vendor Part Number`: names `Vendor Part Number`, `VPN`, `Supplier Part Number`, `Supplier PN`."
+                },
+                "footprint": {
+                    "type": "string",
+                    "description": "Column `Footprint`: the property named exactly `Footprint` if non-empty, else name `Footprint`."
+                },
+                "mass": {
+                    "type": "string",
+                    "description": "Column `Mass (g)`: names `Mass (g)`, `Mass`, `Weight (g)`. Text as written; no unit conversion."
+                },
+                "rqjc": {
+                    "type": "string",
+                    "description": "Column `RQjC (C/W)`: names `RQjC (C/W)`, `RθJC (C/W)`, `RthJC`. Text as written."
+                },
+                "rqjcTop": {
+                    "type": "string",
+                    "description": "Column `RQjC_top (C/W)`: names `RQjC_top (C/W)`, `RθJC_top (C/W)`, `RthJC Top`. Text as written."
+                },
+                "tempMax": {
+                    "type": "string",
+                    "description": "Column `Temp_max (C)`: names `Temp_max (C)`, `Max Temperature`, `Tj Max`. Text as written."
+                },
+                "tempMin": {
+                    "type": "string",
+                    "description": "Column `Temp_min (C)`: names `Temp_min (C)`, `Min Temperature`, `Tj Min`. Text as written."
+                },
+                "powerDissipation": {
+                    "type": "string",
+                    "description": "Column `Power Dissipation (W)`: names `Power Dissipation (W)`, `Power Dissipation`, `Pd (W)`. Text as written."
+                },
+                "rate": {
+                    "type": "string",
+                    "description": "Column `Rate`: names `Rate`, `Rating`."
+                }
+            },
+            "unevaluatedProperties": {
+                "not": {}
+            },
+            "description": "The canonical BOM fields of one symbol occurrence: Prism's fixed BOM\ncolumn set, each resolved from the occurrence's `properties` by name and\naliases. Matching normalizes a property name with Unicode full case\nfolding (Python `str.casefold`) and then deletes every character outside\n`a-z0-9`; when two properties normalize alike, the later in file order is\nused. A field is the first non-empty value among its name and aliases, in\nthe listed order; it is absent when none has a non-empty value. The `DNP`\nand `In BOM` columns are not fields here: they are the occurrence's `dnp`\nand `excludeFromBom` (`Yes` / `No`)."
+        },
+        "OccurrencesVariantSource": {
+            "type": "string",
+            "enum": [
+                "project",
+                "pcb"
+            ],
+            "description": "Where a variant declaration is written."
+        }
+    }
+}

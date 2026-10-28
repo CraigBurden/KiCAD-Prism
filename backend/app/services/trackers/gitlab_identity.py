@@ -15,7 +15,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, ClassVar, Mapping
 from urllib.parse import urlencode, urlsplit
 
 from app.services.trackers.contracts import ForgeUser, IdentityToken
@@ -33,6 +33,7 @@ AUTH_USER = "user"
 class GitLabOAuthApp:
     """Public OAuth App registration. Client secret never appears in repr."""
 
+    provider: ClassVar[str] = "gitlab"
     client_id: str
     client_secret: str
     instance_kind: str = "gitlab.com"

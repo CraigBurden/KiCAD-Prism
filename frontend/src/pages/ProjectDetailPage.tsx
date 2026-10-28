@@ -1,12 +1,14 @@
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { Suspense, lazy, useEffect, useMemo, useState, type ComponentType } from "react";
+import { useParams, useNavigate, useSearchParams, useLocation } from "react-router-dom";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { Button } from "@/components/ui/button";
 import { ReleaseStudioPanel } from "@/components/release-studio/ReleaseStudioPanel";
+import { useSimStudioAvailable } from "@/components/sim-studio/use-sim-studio-available";
 import { ErrorBoundary } from "@/components/error-boundary";
-import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck, Link2 } from "lucide-react";
+import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck, ExternalLink, Link2, FlaskConical } from "lucide-react";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
+import { invalidateServerState, useServerState } from "@/lib/server-state";
 import { cn } from "@/lib/utils";
 import { User } from "@/types/auth";
 import {
@@ -20,13 +22,22 @@ import {
 } from "./project-section-cache";
 
 import { VISUALIZER_DESIGN_SEARCH_SLOT_ID } from "@/lib/design-search";
+import { installPrismScriptApi } from "@/lib/prism-script-api";
+import { canAdministerWorkspace, canCommentOnProjects, canManageProjects } from "@/lib/roles";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { projectLastUpdated } from "@/lib/project-dates";
+import { HelpMenu } from "@/features/bug-report/help-menu";
+import { LibraryUsageButton } from "@/features/library-usage/library-usage-button";
 
 const AssetsPortal = lazy(() =>
     import("@/components/assets-portal").then((module) => ({ default: module.AssetsPortal }))
 );
 const PathConfigDialog = lazy(() =>
     import("@/components/path-config-dialog").then((module) => ({ default: module.PathConfigDialog }))
+);
+// Experimental, and its charts are heavy: loaded when the section first opens.
+const SimStudioPanel = lazy(() =>
+    import("@/components/sim-studio/SimStudioPanel").then((module) => ({ default: module.SimStudioPanel }))
 );
 const TrackerSettingsDialog = lazy(() =>
     import("@/features/tracker-integration/tracker-settings-dialog")
@@ -53,6 +64,7 @@ interface Project {
     path: string;
     folder_id?: string | null;
     last_modified: string;
+    last_synced_at?: string | null;
 }
 
 interface CommitDistanceResponse {
@@ -77,6 +89,9 @@ interface ProjectBranchesResponse {
     branches: ProjectBranch[];
 }
 
+const NO_BRANCHES: ProjectBranch[] = [];
+const projectBranchesKey = (projectId: string) => ["project", projectId, "branches"] as const;
+
 interface WorkflowJobResponse {
     job_id: string;
 }
@@ -90,6 +105,7 @@ function sectionFromSearchParams(searchParams: URLSearchParams): ProjectSection 
         || section === "documentation"
         || section === "workflows"
         || section === "release-studio"
+        || section === "simulation-studio"
     ) {
         return section;
     }
@@ -107,6 +123,10 @@ const NAV_ITEMS = [
     { id: "documentation" as ProjectSection, label: "Documentation", icon: FileText },
 ];
 
+// Shown only when the backend serves Simulation Studio (PRISM_SIM_STUDIO_ENABLED).
+const SIM_NAV_ITEM = { id: "simulation-studio" as ProjectSection, label: "Simulation Studio", icon: FlaskConical };
+const NAV_ITEMS_WITH_SIM = NAV_ITEMS.flatMap((item) => (item.id === "release-studio" ? [item, SIM_NAV_ITEM] : [item]));
+
 // Closes over nothing in the component.
 const getDisplayName = (project: Project) => {
     return project.display_name || project.name;
@@ -116,6 +136,7 @@ const getDisplayName = (project: Project) => {
 export function ProjectDetailPage({ user }: { user: User | null }) {
     const { projectId } = useParams<{ projectId: string }>();
     const navigate = useNavigate();
+    const location = useLocation();
     const [searchParams, setSearchParams] = useSearchParams();
     const [project, setProject] = useState<Project | null>(null);
     const [readme, setReadme] = useState<string>("");
@@ -130,16 +151,38 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const [refreshKey, setRefreshKey] = useState(0);
     const [pathConfigOpen, setPathConfigOpen] = useState(false);
     const [trackerSettingsOpen, setTrackerSettingsOpen] = useState(false);
-    const [branches, setBranches] = useState<ProjectBranch[]>([]);
-    const [branchesLoading, setBranchesLoading] = useState(false);
-    const [branchError, setBranchError] = useState<string | null>(null);
-    const canMutateProject = user?.role === "admin" || user?.role === "designer";
+    // One poller per project, kept fresh while the tab is visible. It does not
+    // restart when the section, branch or commit changes.
+    const branchesRead = useServerState(
+        projectId ? projectBranchesKey(projectId) : null,
+        (signal) => fetchJson<ProjectBranchesResponse>(
+            `/api/projects/${projectId}/branches`,
+            { signal },
+            "Failed to load branches"
+        ),
+        { pollMs: 30_000, whileVisible: true },
+    );
+    const branches = branchesRead.data?.branches ?? NO_BRANCHES;
+    const branchesLoading = branchesRead.loading;
+    const branchError = branchesRead.error?.message ?? null;
+    const canMutateProject = canManageProjects(user?.role);
+    const simStudioAvailable = useSimStudioAvailable();
+    const navItems = simStudioAvailable ? NAV_ITEMS_WITH_SIM : NAV_ITEMS;
+    const canComment = canCommentOnProjects(user?.role);
 
     // Helper function to get display name
     const selectedBranchRef = searchParams.get('branch');
     const currentCommit = searchParams.get('commit');
+    // Matched on ref first, then on name. Prism's clone never checks branches out, so
+    // a branch somebody pushed exists in it only as origin/<name> and its ref reads
+    // "origin/test" where the user (and anything linking here, like the KiCad plugin)
+    // calls it "test". Without the fallback that link selected nothing and the picker
+    // fell back to its first option, showing the wrong branch for the commit on screen.
     const selectedBranch = useMemo(
-        () => branches.find((branch) => branch.ref === selectedBranchRef) || null,
+        () =>
+            branches.find((branch) => branch.ref === selectedBranchRef) ||
+            branches.find((branch) => branch.name === selectedBranchRef) ||
+            null,
         [branches, selectedBranchRef]
     );
     // The empty-value option means "the branch the repo is checked out to".
@@ -155,6 +198,11 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const [viewerPin, setViewerPin] = useState<{ key: string; commit: string } | null>(null);
     const viewerCommit = currentCommit
         || (viewerPin?.key === viewerSelectionKey ? viewerPin.commit : activeCommit);
+    // On the visualizers without a pinned commit, the viewer holds the commit it
+    // opened on; a newer branch head is offered, not loaded.
+    if (activeSection === "visualizers" && !currentCommit && activeCommit && viewerPin?.key !== viewerSelectionKey) {
+        setViewerPin({ key: viewerSelectionKey, commit: activeCommit });
+    }
     const newerViewerRevisionAvailable = activeSection === "visualizers" && !currentCommit
         && !!activeCommit && !!viewerCommit && activeCommit !== viewerCommit;
     const comparisonUrl = useMemo(
@@ -167,6 +215,24 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     useEffect(() => {
         setActiveSection(sectionFromSearchParams(searchParams));
     }, [searchParams]);
+
+    // `window.prism` (MCP-21) lives for the project page, not one section:
+    // link/open work from anywhere on the page, and the viewer reports what it
+    // can read when it is mounted.
+    const latestSearch = useRef(searchParams);
+    const latestPath = useRef(location.pathname);
+    useEffect(() => {
+        latestSearch.current = searchParams;
+        latestPath.current = location.pathname;
+    }, [location.pathname, searchParams]);
+    useEffect(() => {
+        if (!projectId) return;
+        return installPrismScriptApi(projectId, {
+            search: () => latestSearch.current,
+            pathname: () => latestPath.current,
+            navigate: (url) => navigate(url),
+        });
+    }, [navigate, projectId]);
 
     const visitedSections = useVisitedProjectSections(projectId, activeSection);
 
@@ -250,6 +316,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
             toast.success(job.message || "Sync completed", { id: toastId });
             // Refresh project data and readme without full reload
             setRefreshKey((prev) => prev + 1);
+            void invalidateServerState(projectBranchesKey(projectId));
         } catch (err) {
             const message = err instanceof Error ? err.message : "Sync failed";
             toast.error(message, { id: toastId });
@@ -258,70 +325,6 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         }
     };
 
-    useEffect(() => {
-        if (!projectId) {
-            setBranches([]);
-            return;
-        }
-
-        const controller = new AbortController();
-        let cancelled = false;
-        let inFlight = false;
-        let firstLoad = true;
-        setBranchesLoading(true);
-        setBranchError(null);
-
-        const fetchBranches = async () => {
-            if (inFlight) return;
-            inFlight = true;
-            try {
-                const data = await fetchJson<ProjectBranchesResponse>(
-                    `/api/projects/${projectId}/branches`,
-                    { signal: controller.signal },
-                    "Failed to load branches"
-                );
-                if (!cancelled) {
-                    const received = data.branches || [];
-                    setBranches(received);
-                    if (activeSection === "visualizers" && !currentCommit) {
-                        const chosen = received.find((branch) => branch.ref === selectedBranchRef)
-                            || received.find((branch) => branch.is_current) || received[0];
-                        if (chosen?.commit) {
-                            const key = `${projectId}:${selectedBranchRef || chosen.ref}:`;
-                            setViewerPin((previous) => previous?.key === key
-                                ? previous : { key, commit: chosen.commit });
-                        }
-                    }
-                    setBranchError(null);
-                }
-            } catch (err) {
-                if (!cancelled) {
-                    setBranchError(err instanceof Error ? err.message : "Failed to load branches");
-                }
-            } finally {
-                if (!cancelled) {
-                    if (firstLoad) setBranchesLoading(false);
-                }
-                firstLoad = false;
-                inFlight = false;
-            }
-        };
-
-        void fetchBranches();
-        const timer = window.setInterval(() => {
-            if (document.visibilityState === "visible") void fetchBranches();
-        }, 30_000);
-        const onVisible = () => {
-            if (document.visibilityState === "visible") void fetchBranches();
-        };
-        document.addEventListener("visibilitychange", onVisible);
-        return () => {
-            cancelled = true;
-            controller.abort();
-            window.clearInterval(timer);
-            document.removeEventListener("visibilitychange", onVisible);
-        };
-    }, [projectId, refreshKey, activeSection, currentCommit, selectedBranchRef]);
 
     useEffect(() => {
         if (!projectId) {
@@ -448,7 +451,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         <div className="py-4">
                             <h2 className="px-4 text-lg font-semibold tracking-tight mb-2">Project Navigation</h2>
                             <nav className="space-y-1 p-2">
-                                {NAV_ITEMS.map((item) => {
+                                {navItems.map((item) => {
                                     const Icon = item.icon;
                                     return (
                                         <button
@@ -512,8 +515,8 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         // map it back to the default value to keep the select
                         // in sync rather than falling through to the first item.
                         value={
-                            selectedBranchRef && selectedBranchRef !== currentBranch?.ref
-                                ? selectedBranchRef
+                            selectedBranch && selectedBranch.ref !== currentBranch?.ref
+                                ? selectedBranch.ref
                                 : ""
                         }
                         onChange={(event) => handleBranchChange(event.target.value)}
@@ -554,6 +557,24 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     </Button>
                 )}
 
+                {/* Open in KiCad. Fires a prism:// link the local Prism agent
+                    handles: it finds the project by its marker, clones it if this
+                    machine doesn't have it, and opens it. Nothing happens if the
+                    agent isn't installed, the browser silently ignores an
+                    unregistered scheme, so we can't detect it and shouldn't pretend to. */}
+                {project && (
+                    <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => { window.location.href = `prism://open/${project.id}`; }}
+                        title="Open in KiCad (requires the Prism agent)"
+                    >
+                        <ExternalLink className="h-4 w-4" />
+                    </Button>
+                )}
+
+                {projectId && <LibraryUsageButton projectId={projectId} canScan={canMutateProject} />}
+
                 {/* Sync Button */}
                 {canMutateProject && (
                     <Button
@@ -592,6 +613,8 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     </Button>
                 )}
 
+                <HelpMenu />
+
                 {projectId && pathConfigOpen && (
                     <Suspense fallback={null}>
                         <PathConfigDialog
@@ -605,7 +628,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     <Suspense fallback={null}>
                         <TrackerSettingsDialog
                             projectId={projectId}
-                            isAdmin={user?.role === "admin"}
+                            isAdmin={canAdministerWorkspace(user?.role)}
                             open={trackerSettingsOpen}
                             onOpenChange={setTrackerSettingsOpen}
                         />
@@ -669,7 +692,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     </div>
 
                     <nav className="space-y-1 mt-8">
-                        {NAV_ITEMS.map((item) => {
+                        {navItems.map((item) => {
                             const Icon = item.icon;
                             const isExpanded = !sidebarCollapsed || sidebarHovered;
                             return (
@@ -704,7 +727,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                             <ErrorBoundary label="the project overview" resetKeys={[projectId, activeCommit, refreshKey]}>
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                        <span>Last Updated: {project.last_modified}</span>
+                                        <span>Last updated: {projectLastUpdated(project)}</span>
                                     </div>
                                     {readme ? (
                                         <Suspense fallback={<div className="text-sm text-muted-foreground">Loading README...</div>}>
@@ -771,7 +794,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                             onViewCommit={handleViewCommit}
                                             onOpenVisualizer={handleOpenCommitVisualizer}
                                             canCompareDiffs
-                                            canComment={canMutateProject}
+                                            canComment={canComment}
                                             active={activeSection === "history"}
                                         />
                                     </Suspense>
@@ -801,6 +824,20 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                     </Suspense>
                                 </ErrorBoundary>
                             )}
+                        </ProjectSectionPanel>
+                    )}
+
+                    {simStudioAvailable && visitedSections.has("simulation-studio") && (
+                        <ProjectSectionPanel
+                            key={`${projectId}:simulation-studio`}
+                            active={activeSection === "simulation-studio"}
+                            fill
+                        >
+                            <ErrorBoundary label="the simulation studio panel" resetKeys={[projectId]}>
+                                <Suspense fallback={null}>
+                                    <SimStudioPanel key={projectId} projectId={projectId!} canMutate={canMutateProject} active={activeSection === "simulation-studio"} />
+                                </Suspense>
+                            </ErrorBoundary>
                         </ProjectSectionPanel>
                     )}
 

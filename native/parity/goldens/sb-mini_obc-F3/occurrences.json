@@ -1,0 +1,298 @@
+{
+ "schema": "prism.occurrences.a0",
+ "sheets": [
+  {
+   "sheetPath": "/74f07384-d08c-505c-891f-7c1260a18a6b",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": []
+  },
+  {
+   "sheetPath": "/74f07384-d08c-505c-891f-7c1260a18a6b/0ba14ec3-823d-53e7-a501-824777f27fe6",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "variants": []
+  }
+ ],
+ "symbols": [
+  {
+   "kiidPath": "/74f07384-d08c-505c-891f-7c1260a18a6b/1eb93fd0-bb35-5448-9ca3-16d8a0cd0927",
+   "sheetPath": "/74f07384-d08c-505c-891f-7c1260a18a6b",
+   "symbolUuid": "1eb93fd0-bb35-5448-9ca3-16d8a0cd0927",
+   "documentPath": "mini_obc.kicad_sch",
+   "libId": "Connector_Generic:Conn_01x04",
+   "reference": "J2",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+    "Reference": "J2",
+    "Value": "Conn_01x04"
+   },
+   "bomFields": {
+    "value": "Conn_01x04",
+    "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/74f07384-d08c-505c-891f-7c1260a18a6b/66f8bffb-341f-5358-8478-5c58c23bbb38",
+   "sheetPath": "/74f07384-d08c-505c-891f-7c1260a18a6b",
+   "symbolUuid": "66f8bffb-341f-5358-8478-5c58c23bbb38",
+   "documentPath": "mini_obc.kicad_sch",
+   "libId": "Connector_Generic:Conn_01x04",
+   "reference": "J5",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+    "Reference": "J5",
+    "Value": "Conn_01x04"
+   },
+   "bomFields": {
+    "value": "Conn_01x04",
+    "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/74f07384-d08c-505c-891f-7c1260a18a6b/90429a25-a9c4-570d-98ef-d2329cc09d21",
+   "sheetPath": "/74f07384-d08c-505c-891f-7c1260a18a6b",
+   "symbolUuid": "90429a25-a9c4-570d-98ef-d2329cc09d21",
+   "documentPath": "mini_obc.kicad_sch",
+   "libId": "Connector_Generic:Conn_01x04",
+   "reference": "J6",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+    "Reference": "J6",
+    "Value": "Conn_01x04"
+   },
+   "bomFields": {
+    "value": "Conn_01x04",
+    "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/74f07384-d08c-505c-891f-7c1260a18a6b/cb00010f-1d54-5028-a62c-b0ea9e7ad574",
+   "sheetPath": "/74f07384-d08c-505c-891f-7c1260a18a6b",
+   "symbolUuid": "cb00010f-1d54-5028-a62c-b0ea9e7ad574",
+   "documentPath": "mini_obc.kicad_sch",
+   "libId": "Jumper:SolderJumper_2_Open",
+   "reference": "JP1",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Jumper:SolderJumper-2_P1.3mm_Open_Pad1.0x1.5mm",
+    "Reference": "JP1",
+    "Value": "SolderJumper_2_Open"
+   },
+   "bomFields": {
+    "value": "SolderJumper_2_Open",
+    "footprint": "Jumper:SolderJumper-2_P1.3mm_Open_Pad1.0x1.5mm"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/74f07384-d08c-505c-891f-7c1260a18a6b/0ba14ec3-823d-53e7-a501-824777f27fe6/966360aa-6291-5aea-b951-fbc63a915e63",
+   "sheetPath": "/74f07384-d08c-505c-891f-7c1260a18a6b/0ba14ec3-823d-53e7-a501-824777f27fe6",
+   "symbolUuid": "966360aa-6291-5aea-b951-fbc63a915e63",
+   "documentPath": "payload_if.kicad_sch",
+   "libId": "Device:R",
+   "reference": "R10",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "Reference": "R10",
+    "Value": "R"
+   },
+   "bomFields": {
+    "value": "R",
+    "footprint": "Resistor_SMD:R_0603_1608Metric"
+   },
+   "variants": []
+  },
+  {
+   "kiidPath": "/74f07384-d08c-505c-891f-7c1260a18a6b/0ba14ec3-823d-53e7-a501-824777f27fe6/f723f2ca-d911-5a48-8f1f-8082b9a8da23",
+   "sheetPath": "/74f07384-d08c-505c-891f-7c1260a18a6b/0ba14ec3-823d-53e7-a501-824777f27fe6",
+   "symbolUuid": "f723f2ca-d911-5a48-8f1f-8082b9a8da23",
+   "documentPath": "payload_if.kicad_sch",
+   "libId": "Connector_Generic:Conn_02x10_Odd_Even",
+   "reference": "J7",
+   "instanceMatched": true,
+   "unit": 1,
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromBoard": false,
+   "excludeFromSim": false,
+   "excludeFromPosFiles": false,
+   "properties": {
+    "Datasheet": "",
+    "Description": "",
+    "Footprint": "Connector_PinHeader_2.54mm:PinHeader_2x10_P2.54mm_Vertical",
+    "Reference": "J7",
+    "Value": "Conn_02x10"
+   },
+   "bomFields": {
+    "value": "Conn_02x10",
+    "footprint": "Connector_PinHeader_2.54mm:PinHeader_2x10_P2.54mm_Vertical"
+   },
+   "variants": []
+  }
+ ],
+ "footprints": [
+  {
+   "uuid": "3b68a2fc-48d3-5f32-9f14-2a1b21ad2477",
+   "documentPath": "mini_obc.kicad_pcb",
+   "reference": "J6",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "4ae3c5e4-b9f5-5461-97e0-da329a279776",
+   "documentPath": "mini_obc.kicad_pcb",
+   "reference": "J2",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "715ea630-49b8-52d4-b631-01b6d2521bcc",
+   "documentPath": "mini_obc.kicad_pcb",
+   "reference": "JP1",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "c432f8dc-2c51-5d8e-aae9-68b6a3381c80",
+   "documentPath": "mini_obc.kicad_pcb",
+   "reference": "J5",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "ea77627e-aee1-5fc4-aa70-b6e23d9702dd",
+   "documentPath": "mini_obc.kicad_pcb",
+   "reference": "R10",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  },
+  {
+   "uuid": "fa790f2e-84fa-54a2-bf0c-d4c87ff7e17d",
+   "documentPath": "mini_obc.kicad_pcb",
+   "reference": "J7",
+   "dnp": false,
+   "excludeFromBom": false,
+   "excludeFromPosFiles": false,
+   "variants": []
+  }
+ ],
+ "references": [
+  {
+   "reference": "J2",
+   "symbols": [
+    "/74f07384-d08c-505c-891f-7c1260a18a6b/1eb93fd0-bb35-5448-9ca3-16d8a0cd0927"
+   ],
+   "footprints": [
+    "4ae3c5e4-b9f5-5461-97e0-da329a279776"
+   ]
+  },
+  {
+   "reference": "J5",
+   "symbols": [
+    "/74f07384-d08c-505c-891f-7c1260a18a6b/66f8bffb-341f-5358-8478-5c58c23bbb38"
+   ],
+   "footprints": [
+    "c432f8dc-2c51-5d8e-aae9-68b6a3381c80"
+   ]
+  },
+  {
+   "reference": "J6",
+   "symbols": [
+    "/74f07384-d08c-505c-891f-7c1260a18a6b/90429a25-a9c4-570d-98ef-d2329cc09d21"
+   ],
+   "footprints": [
+    "3b68a2fc-48d3-5f32-9f14-2a1b21ad2477"
+   ]
+  },
+  {
+   "reference": "J7",
+   "symbols": [
+    "/74f07384-d08c-505c-891f-7c1260a18a6b/0ba14ec3-823d-53e7-a501-824777f27fe6/f723f2ca-d911-5a48-8f1f-8082b9a8da23"
+   ],
+   "footprints": [
+    "fa790f2e-84fa-54a2-bf0c-d4c87ff7e17d"
+   ]
+  },
+  {
+   "reference": "JP1",
+   "symbols": [
+    "/74f07384-d08c-505c-891f-7c1260a18a6b/cb00010f-1d54-5028-a62c-b0ea9e7ad574"
+   ],
+   "footprints": [
+    "715ea630-49b8-52d4-b631-01b6d2521bcc"
+   ]
+  },
+  {
+   "reference": "R10",
+   "symbols": [
+    "/74f07384-d08c-505c-891f-7c1260a18a6b/0ba14ec3-823d-53e7-a501-824777f27fe6/966360aa-6291-5aea-b951-fbc63a915e63"
+   ],
+   "footprints": [
+    "ea77627e-aee1-5fc4-aa70-b6e23d9702dd"
+   ]
+  }
+ ],
+ "variantDeclarations": []
+}

@@ -1,0 +1,1086 @@
+{
+ "schema": "prism.board_objects.a0",
+ "documents": [
+  {
+   "path": "mini_power.kicad_pcb",
+   "objects": [
+    {
+     "kind": "footprint",
+     "uuid": "024715cb-8914-5466-858a-3605bcc29b5c",
+     "contentDigest": "9315afcc06894a4c",
+     "libId": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+     "at": {
+      "xNm": 10000000,
+      "yNm": 10000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "footprintPath": "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/9fbb0e4e-6313-5ab5-88fd-43d9f13fc52f",
+     "refdes": "J1",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "J1",
+       "at": {
+        "xNm": 0,
+        "yNm": -3000000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "Conn_01x04",
+       "at": {
+        "xNm": 0,
+        "yNm": 3000000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Attributes": "{\"through_hole\":true}",
+      "Board only": false,
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "ee810e46-70e6-58f3-bcfb-bffdb195ea39",
+     "contentDigest": "136992d9e2094ee9",
+     "parentUuid": "024715cb-8914-5466-858a-3605bcc29b5c",
+     "number": "1",
+     "refdes": "J1",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "VOUT_28V",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "1",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "67425fb0-36f4-5c62-83f5-602a1cc06482",
+     "contentDigest": "338f31b7c94360a9",
+     "parentUuid": "024715cb-8914-5466-858a-3605bcc29b5c",
+     "number": "2",
+     "refdes": "J1",
+     "at": {
+      "xNm": 0,
+      "yNm": 2540000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "GND",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "2",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "c319ce39-8cbe-5452-aa59-d78a87bef1dc",
+     "contentDigest": "8dd9cc85b754416f",
+     "parentUuid": "024715cb-8914-5466-858a-3605bcc29b5c",
+     "number": "3",
+     "refdes": "J1",
+     "at": {
+      "xNm": 0,
+      "yNm": 5080000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/PG_OUT",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "3",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "9f34f0cf-5a03-54ee-b6c2-016730766ac8",
+     "contentDigest": "90bdc681c181bfe2",
+     "parentUuid": "024715cb-8914-5466-858a-3605bcc29b5c",
+     "number": "4",
+     "refdes": "J1",
+     "at": {
+      "xNm": 0,
+      "yNm": 7620000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/EN_IN",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "4",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "footprint",
+     "uuid": "a00b664a-6006-5b83-b4a6-28b2207123d6",
+     "contentDigest": "ad5e7b357db990ba",
+     "libId": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical",
+     "at": {
+      "xNm": 50000000,
+      "yNm": 10000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "footprintPath": "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/3c61606f-5968-5d63-a864-46e169956912",
+     "refdes": "J8",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "J8",
+       "at": {
+        "xNm": 0,
+        "yNm": -3000000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "Conn_01x02",
+       "at": {
+        "xNm": 0,
+        "yNm": 3000000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Attributes": "{\"through_hole\":true}",
+      "Board only": false,
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "ccfbbe8a-912c-5578-a69b-4213c9c09d6b",
+     "contentDigest": "1733c71739cd95fa",
+     "parentUuid": "a00b664a-6006-5b83-b4a6-28b2207123d6",
+     "number": "1",
+     "refdes": "J8",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/DEBUG_TX",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "1",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "fab25bd0-cf0a-5405-806b-ea70cba51d98",
+     "contentDigest": "338f31b7c94360a9",
+     "parentUuid": "a00b664a-6006-5b83-b4a6-28b2207123d6",
+     "number": "2",
+     "refdes": "J8",
+     "at": {
+      "xNm": 0,
+      "yNm": 2540000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "GND",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "2",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "footprint",
+     "uuid": "d1620b4a-ccfe-581c-954b-c154f6e337d4",
+     "contentDigest": "d2d3b1aa9ceef7b4",
+     "libId": "MiniSys:Conn_Split_2x2",
+     "at": {
+      "xNm": 30000000,
+      "yNm": 10000000
+     },
+     "rotationDeg": 0,
+     "layer": "F.Cu",
+     "footprintPath": "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/2d5d8653-9cc7-5154-98b5-b1ccdceb4207",
+     "refdes": "J3",
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "J3",
+       "at": {
+        "xNm": 0,
+        "yNm": -3000000
+       },
+       "hide": false
+      },
+      {
+       "name": "Value",
+       "value": "Conn_Split_2x2",
+       "at": {
+        "xNm": 0,
+        "yNm": 3000000
+       },
+       "hide": false
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 0,
+        "yNm": 0
+       },
+       "hide": true
+      }
+     ],
+     "reviewFields": {
+      "Attributes": "{\"through_hole\":true}",
+      "Board only": false,
+      "Exclude from BOM": false,
+      "Exclude from position files": false
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "5d526e52-879c-5dd7-96cc-bd89d42b08d3",
+     "contentDigest": "88841596ebddf1d6",
+     "parentUuid": "d1620b4a-ccfe-581c-954b-c154f6e337d4",
+     "number": "1",
+     "refdes": "J3",
+     "at": {
+      "xNm": 0,
+      "yNm": 0
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "1",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "72f7e89d-353c-5cf2-9f6c-5425fed49ae5",
+     "contentDigest": "c6a2b936476b1805",
+     "parentUuid": "d1620b4a-ccfe-581c-954b-c154f6e337d4",
+     "number": "2",
+     "refdes": "J3",
+     "at": {
+      "xNm": 0,
+      "yNm": 2540000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "2",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "97dd9a9b-dfaa-5b1f-9cf6-b0fd50ec6ba4",
+     "contentDigest": "36cc10e154a6c0cf",
+     "parentUuid": "d1620b4a-ccfe-581c-954b-c154f6e337d4",
+     "number": "3",
+     "refdes": "J3",
+     "at": {
+      "xNm": 0,
+      "yNm": 5080000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "/PAY_PWR",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "3",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    },
+    {
+     "kind": "pad",
+     "uuid": "4089ac9e-53fe-5cc1-a302-b9b7a4c828ac",
+     "contentDigest": "e1eab00971d17042",
+     "parentUuid": "d1620b4a-ccfe-581c-954b-c154f6e337d4",
+     "number": "4",
+     "refdes": "J3",
+     "at": {
+      "xNm": 0,
+      "yNm": 7620000
+     },
+     "rotationDeg": 0,
+     "layer": "*.Cu",
+     "net": "GND",
+     "reviewFields": {
+      "Drill": "{\"diameter\":1}",
+      "Layers": "*.Cu, *.Mask",
+      "Pad number": "4",
+      "Pad shape": "circle",
+      "Pad type": "thru_hole",
+      "Size": "1.7 × 1.7"
+     }
+    }
+   ],
+   "reviewOnlyObjects": [
+    {
+     "kind": "fabrication-output",
+     "id": "fabrication-output:fa0df659a79fed73",
+     "name": "Fabrication output settings",
+     "reviewFields": {
+      "Create Gerber job file": true,
+      "Drill marks": 1,
+      "Mirror output": false,
+      "Output directory": "",
+      "Output format": "Gerber",
+      "Plot drawing sheet": false,
+      "Plot layers": [],
+      "Plot on all layers": [],
+      "Sketch pads on fabrication layers": false,
+      "Solder mask expansion (mm)": 0,
+      "Subtract solder mask from silkscreen": false,
+      "Use Gerber X2 attributes": true,
+      "Use Gerber file extensions": false,
+      "Use Gerber net attributes": true,
+      "Use auxiliary origin": false
+     }
+    }
+   ]
+  },
+  {
+   "path": "mini_power.kicad_pro",
+   "objects": [],
+   "reviewOnlyObjects": [
+    {
+     "kind": "net-class",
+     "id": "net-class:5eef40ed135ba38d",
+     "name": "Default",
+     "reviewFields": {
+      "Clearance": 0.2,
+      "Track width": 0.2,
+      "Via diameter": 0.6,
+      "Via drill": 0.3
+     }
+    }
+   ]
+  },
+  {
+   "path": "mini_power.kicad_sch",
+   "objects": [
+    {
+     "kind": "label",
+     "uuid": "0227c75e-118c-5c99-a9f8-1d259c0db07d",
+     "contentDigest": "2c8d08b61dba2f19",
+     "text": "PG_OUT",
+     "net": "PG_OUT",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 45080000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "PG_OUT"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "2dc4f996-d17b-54e0-b5aa-ebf1fc0e7fa2",
+     "contentDigest": "1519be89d3daffc8",
+     "text": "EN_IN",
+     "net": "EN_IN",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 47620000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "EN_IN"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "e1190349-1bff-5925-8874-11066476d968",
+     "contentDigest": "da65f4dec9287dda",
+     "text": "DEBUG_TX",
+     "net": "DEBUG_TX",
+     "at": {
+      "xNm": 94920000,
+      "yNm": 40000000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "DEBUG_TX"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "eeb41ad8-3f28-5e45-b207-362e2e6c8738",
+     "contentDigest": "039566bf417e5449",
+     "text": "PAY_PWR",
+     "net": "PAY_PWR",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 110000000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "PAY_PWR"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "1d07d8c3-25ed-58fe-a472-3cd2cc4412fb",
+     "contentDigest": "134b99623bcd91af",
+     "text": "GND",
+     "net": "GND",
+     "at": {
+      "xNm": 94920000,
+      "yNm": 42540000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "GND"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "50ea6a11-2adc-57d7-9de1-da1098f27b4d",
+     "contentDigest": "0a679526d6295821",
+     "text": "GND",
+     "net": "GND",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 112540000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "GND"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "77674b36-e559-5d56-8e77-24d92ac9135e",
+     "contentDigest": "a6f88b01e4c6c1ec",
+     "text": "GND",
+     "net": "GND",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 42540000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "GND"
+     }
+    },
+    {
+     "kind": "label",
+     "uuid": "ba017809-44e7-541a-a575-dd3255b6e571",
+     "contentDigest": "72b0374cf7104464",
+     "text": "VOUT_28V",
+     "net": "VOUT_28V",
+     "at": {
+      "xNm": 34920000,
+      "yNm": 40000000
+     },
+     "rotationDeg": 180,
+     "reviewFields": {
+      "Text": "VOUT_28V"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "2d5d8653-9cc7-5154-98b5-b1ccdceb4207",
+     "contentDigest": "0b56c541b978cdb3",
+     "libId": "MiniSys:Conn_Split_2x2",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 110000000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "J3",
+     "kiidPaths": [
+      "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/2d5d8653-9cc7-5154-98b5-b1ccdceb4207"
+     ],
+     "instances": [
+      {
+       "reference": "J3",
+       "path": "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/2d5d8653-9cc7-5154-98b5-b1ccdceb4207"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "J3",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 110000000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "Conn_Split_2x2",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 111270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "MiniSys:Conn_Split_2x2",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 112540000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 113810000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 115080000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 2
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "497c6b62-a0b9-532f-8bcd-48784e7d06ab",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "2d5d8653-9cc7-5154-98b5-b1ccdceb4207",
+     "number": "1",
+     "refdes": "J3",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 110000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "69aa7616-b005-5fe4-95a3-2fbeced02689",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "2d5d8653-9cc7-5154-98b5-b1ccdceb4207",
+     "number": "2",
+     "refdes": "J3",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 110000000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "07719c9d-91f5-50e5-8ba1-5a375921d02f",
+     "contentDigest": "f115308b48b2b923",
+     "parentUuid": "2d5d8653-9cc7-5154-98b5-b1ccdceb4207",
+     "number": "3",
+     "refdes": "J3",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 110000000
+     },
+     "reviewFields": {
+      "Pin number": "3"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "63f2c127-91ae-5c85-aad9-6659f732e6bb",
+     "contentDigest": "5e9f7a2776776754",
+     "parentUuid": "2d5d8653-9cc7-5154-98b5-b1ccdceb4207",
+     "number": "4",
+     "refdes": "J3",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 110000000
+     },
+     "reviewFields": {
+      "Pin number": "4"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "3c61606f-5968-5d63-a864-46e169956912",
+     "contentDigest": "0ffd893e4ca92073",
+     "libId": "Connector_Generic:Conn_01x02",
+     "at": {
+      "xNm": 100000000,
+      "yNm": 40000000
+     },
+     "rotationDeg": 0,
+     "dnp": true,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "J8",
+     "kiidPaths": [
+      "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/3c61606f-5968-5d63-a864-46e169956912"
+     ],
+     "instances": [
+      {
+       "reference": "J8",
+       "path": "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/3c61606f-5968-5d63-a864-46e169956912"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "J8",
+       "at": {
+        "xNm": 103810000,
+        "yNm": 40000000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "Conn_01x02",
+       "at": {
+        "xNm": 103810000,
+        "yNm": 41270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical",
+       "at": {
+        "xNm": 103810000,
+        "yNm": 42540000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 103810000,
+        "yNm": 43810000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 103810000,
+        "yNm": 45080000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "3e437cb8-bcb6-56c6-a3ab-b8c5e9be40a8",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "3c61606f-5968-5d63-a864-46e169956912",
+     "number": "1",
+     "refdes": "J8",
+     "at": {
+      "xNm": 100000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "3711930e-d882-5853-a1ff-ced942235aa6",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "3c61606f-5968-5d63-a864-46e169956912",
+     "number": "2",
+     "refdes": "J8",
+     "at": {
+      "xNm": 100000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    },
+    {
+     "kind": "symbol",
+     "uuid": "9fbb0e4e-6313-5ab5-88fd-43d9f13fc52f",
+     "contentDigest": "3de3440142e64987",
+     "libId": "Connector_Generic:Conn_01x04",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "rotationDeg": 0,
+     "dnp": false,
+     "inBom": true,
+     "onBoard": true,
+     "refdes": "J1",
+     "kiidPaths": [
+      "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/9fbb0e4e-6313-5ab5-88fd-43d9f13fc52f"
+     ],
+     "instances": [
+      {
+       "reference": "J1",
+       "path": "/bf4216d1-fbe3-5c54-8514-d58b47dc3ddc/9fbb0e4e-6313-5ab5-88fd-43d9f13fc52f"
+      }
+     ],
+     "properties": [
+      {
+       "name": "Reference",
+       "value": "J1",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 40000000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Value",
+       "value": "Conn_01x04",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 41270000
+       },
+       "rotationDeg": 0,
+       "hide": false,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Footprint",
+       "value": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 42540000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Datasheet",
+       "value": "",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 43810000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      },
+      {
+       "name": "Description",
+       "value": "",
+       "at": {
+        "xNm": 43810000,
+        "yNm": 45080000
+       },
+       "rotationDeg": 0,
+       "hide": true,
+       "effects": {
+        "font": {
+         "size": {
+          "heightNm": 1270000,
+          "widthNm": 1270000
+         }
+        }
+       }
+      }
+     ],
+     "reviewFields": {
+      "Unit": 1
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "3c1183f5-4621-5ffa-be89-5fc902031530",
+     "contentDigest": "13fe8f8a6def8b7a",
+     "parentUuid": "9fbb0e4e-6313-5ab5-88fd-43d9f13fc52f",
+     "number": "1",
+     "refdes": "J1",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "1"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "ec1e85ac-ea4c-568c-85ed-6a2c918bbded",
+     "contentDigest": "19f666d2c9bdfb78",
+     "parentUuid": "9fbb0e4e-6313-5ab5-88fd-43d9f13fc52f",
+     "number": "2",
+     "refdes": "J1",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "2"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "ddd4b704-a17d-5b31-aebf-489a45944739",
+     "contentDigest": "f115308b48b2b923",
+     "parentUuid": "9fbb0e4e-6313-5ab5-88fd-43d9f13fc52f",
+     "number": "3",
+     "refdes": "J1",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "3"
+     }
+    },
+    {
+     "kind": "pin",
+     "uuid": "7610b0a5-4b46-5fab-a87c-8dab2c58bf7e",
+     "contentDigest": "5e9f7a2776776754",
+     "parentUuid": "9fbb0e4e-6313-5ab5-88fd-43d9f13fc52f",
+     "number": "4",
+     "refdes": "J1",
+     "at": {
+      "xNm": 40000000,
+      "yNm": 40000000
+     },
+     "reviewFields": {
+      "Pin number": "4"
+     }
+    }
+   ],
+   "reviewOnlyObjects": []
+  }
+ ]
+}

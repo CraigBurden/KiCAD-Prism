@@ -6,6 +6,10 @@ Prism. Degrades in three steps rather than breaking:
 1. full colour and arrow-key menus on a TTY;
 2. colour with numeric menus where raw key reads are unavailable;
 3. plain text with no escape sequences when NO_COLOR is set or stdout is a pipe.
+
+Independently, a console that cannot encode the box-drawing glyphs (cp1252 on
+Windows without ``PYTHONUTF8=1``) gets ASCII stand-ins instead of a
+UnicodeEncodeError.
 """
 
 from __future__ import annotations
@@ -50,6 +54,36 @@ def _supports_colour() -> bool:
 
 COLOUR = _supports_colour()
 
+_GLYPHS = "╭╮╰╯─│✓✗❯•↳↑↓·…"
+_ASCII = str.maketrans({
+    "╭": "+", "╮": "+", "╰": "+", "╯": "+", "─": "-", "│": "|",
+    "✓": "+", "✗": "x", "❯": ">", "•": "*", "↳": ">", "↑": "^", "↓": "v",
+    "·": "-", "…": "...",
+})
+
+
+def _stdout_encodes(sample: str) -> bool:
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        sample.encode(encoding)
+    except (UnicodeEncodeError, LookupError):
+        return False
+    return True
+
+
+UNICODE = _stdout_encodes(_GLYPHS)
+if not UNICODE:
+    # Anything not in the table above (a hostname, a path) still prints.
+    try:
+        sys.stdout.reconfigure(errors="replace")  # type: ignore[attr-defined]
+    except (AttributeError, ValueError):
+        pass
+
+
+def plain(text: str) -> str:
+    """``text`` as this console can show it."""
+    return text if UNICODE else text.translate(_ASCII)
+
 
 def _c(code: str) -> str:
     return code if COLOUR else ""
@@ -80,10 +114,10 @@ YELLOW = _rgb(0xCA, 0x8A, 0x04, 179)
 BLUE = ACCENT_SOFT
 RESET = _c("\x1b[0m")
 
-TICK = "✓"
-CROSS = "✗"
-ARROW = "❯"
-BULLET = "•"
+TICK = plain("✓")
+CROSS = plain("✗")
+ARROW = plain("❯")
+BULLET = plain("•")
 
 
 def visible_len(text: str) -> int:
@@ -95,7 +129,7 @@ def width() -> int:
 
 
 def write(text: str = "") -> None:
-    sys.stdout.write(text + "\n")
+    sys.stdout.write(plain(text) + "\n")
     sys.stdout.flush()
 
 
@@ -204,7 +238,7 @@ def _fit(text: str, limit: int) -> str:
     """Shorten to `limit` columns, ellipsising rather than wrapping."""
     if limit <= 1:
         return ""
-    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + plain("…")
 
 
 def _short_url(url: str) -> str:

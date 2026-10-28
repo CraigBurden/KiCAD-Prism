@@ -1,0 +1,503 @@
+{
+ "schema": "prism.semantic_index.a1",
+ "sourceRevisionKey": "19a408146a772219c6d4a05ed7d1370ee985cf5f3b8e70f8b60f0b43ccb7a008",
+ "components": [
+  {
+   "componentUid": "cmp:86b4e333a5d57aa66862",
+   "reference": "R1",
+   "value": "1k",
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "libraryRef": "Device:R",
+   "fields": {
+    "Value": "1k",
+    "DNP": "No",
+    "In BOM": "Yes",
+    "Description": "Resistor",
+    "Datasheet": "~",
+    "Manufacturer": "",
+    "Manufacturer Part Number": "",
+    "Vendor": "",
+    "Vendor Part Number": "",
+    "Footprint": "Resistor_SMD:R_0603_1608Metric",
+    "Mass (g)": "",
+    "RQjC (C/W)": "",
+    "RQjC_top (C/W)": "",
+    "Temp_max (C)": "",
+    "Temp_min (C)": "",
+    "Power Dissipation (W)": "",
+    "Rate": "",
+    "Sheetfile": "synthetic.kicad_sch",
+    "Sheetname": "synthetic",
+    "_source_cad": "kicad",
+    "ki_fp_filters": "R_*",
+    "ki_keywords": "R res resistor",
+    "kicad_dnp": "false",
+    "kicad_in_bom": "true",
+    "kicad_instance_uuid": "55555555-5555-4555-8555-555555555555",
+    "kicad_libsource_lib": "Device",
+    "kicad_libsource_part": "R",
+    "kicad_on_board": "true",
+    "kicad_sheet_path_names": "/",
+    "kicad_sheet_path_uuids": "/",
+    "Reference": "R1"
+   },
+   "schematicRefs": [
+    {
+     "sheetInstancePath": "/",
+     "page": "/",
+     "symbolUuid": "55555555-5555-4555-8555-555555555555",
+     "occurrenceId": "/44444444-4444-4444-8444-444444444444/55555555-5555-4555-8555-555555555555"
+    }
+   ],
+   "pcbRefs": [
+    {
+     "footprintUuid": "11111111-1111-4111-8111-111111111111"
+    }
+   ],
+   "webgpuRefs": []
+  },
+  {
+   "componentUid": "cmp:35a2e28176276495e7fe",
+   "reference": "D1",
+   "value": "STATUS",
+   "footprint": "LED_SMD:LED_0603_1608Metric",
+   "libraryRef": "Device:LED",
+   "fields": {
+    "Value": "STATUS",
+    "DNP": "No",
+    "In BOM": "Yes",
+    "Description": "Light emitting diode",
+    "Datasheet": "~",
+    "Manufacturer": "",
+    "Manufacturer Part Number": "",
+    "Vendor": "",
+    "Vendor Part Number": "",
+    "Footprint": "LED_SMD:LED_0603_1608Metric",
+    "Mass (g)": "",
+    "RQjC (C/W)": "",
+    "RQjC_top (C/W)": "",
+    "Temp_max (C)": "",
+    "Temp_min (C)": "",
+    "Power Dissipation (W)": "",
+    "Rate": "",
+    "Sheetfile": "synthetic.kicad_sch",
+    "Sheetname": "synthetic",
+    "_source_cad": "kicad",
+    "ki_fp_filters": "LED* LED_SMD:* LED_THT:*",
+    "ki_keywords": "LED diode",
+    "kicad_dnp": "false",
+    "kicad_in_bom": "true",
+    "kicad_instance_uuid": "77777777-7777-4777-8777-777777777777",
+    "kicad_libsource_lib": "Device",
+    "kicad_libsource_part": "LED",
+    "kicad_on_board": "true",
+    "kicad_sheet_path_names": "/",
+    "kicad_sheet_path_uuids": "/",
+    "Reference": "D1"
+   },
+   "schematicRefs": [
+    {
+     "sheetInstancePath": "/",
+     "page": "/",
+     "symbolUuid": "77777777-7777-4777-8777-777777777777",
+     "occurrenceId": "/44444444-4444-4444-8444-444444444444/77777777-7777-4777-8777-777777777777"
+    }
+   ],
+   "pcbRefs": [
+    {
+     "footprintUuid": "22222222-2222-4222-8222-222222222222"
+    }
+   ],
+   "webgpuRefs": []
+  }
+ ],
+ "nets": [
+  {
+   "netUid": "net:436512e5babfbe83cb49",
+   "name": "+5V",
+   "netCode": null,
+   "netClass": "Default",
+   "schematicRefs": [
+    {
+     "wireUuids": [],
+     "labelUuids": [],
+     "junctionUuids": [],
+     "pinUuids": [
+      "66666666-6666-4666-8666-666666666661"
+     ],
+     "labelInstanceCount": 0
+    }
+   ],
+   "pcbRefs": [
+    {
+     "trackUuids": [
+      "de6004d3-60d6-4fe1-9fe8-531736288d01"
+     ],
+     "arcUuids": [],
+     "viaUuids": [],
+     "zoneUuids": [],
+     "padUuids": [
+      "273c016c-e4d1-4e9c-854d-0ca38b3d19d9",
+      "0538944e-01c3-4cb4-8fda-110dd227182a"
+     ]
+    }
+   ],
+   "webgpuRefs": [],
+   "aliases": [
+    "unconnected-(R1-~-Pad1)"
+   ],
+   "sourceSheets": [
+    "/"
+   ]
+  },
+  {
+   "netUid": "net:8c2e4a035f5f3d218f87",
+   "name": "STATUS",
+   "netCode": null,
+   "netClass": "Default",
+   "schematicRefs": [
+    {
+     "wireUuids": [],
+     "labelUuids": [],
+     "junctionUuids": [],
+     "pinUuids": [
+      "66666666-6666-4666-8666-666666666662"
+     ],
+     "labelInstanceCount": 0
+    },
+    {
+     "wireUuids": [],
+     "labelUuids": [],
+     "junctionUuids": [],
+     "pinUuids": [
+      "88888888-8888-4888-8888-888888888881"
+     ],
+     "labelInstanceCount": 0
+    }
+   ],
+   "pcbRefs": [
+    {
+     "trackUuids": [
+      "3ab564ce-25e2-42b3-9cb0-c076806dc0de"
+     ],
+     "arcUuids": [],
+     "viaUuids": [],
+     "zoneUuids": [],
+     "padUuids": [
+      "b51d7448-4f0f-46a4-bf35-9a1dde63805e",
+      "10343e6f-9968-43e4-b459-b90254c477d6"
+     ]
+    }
+   ],
+   "webgpuRefs": [],
+   "aliases": [
+    "unconnected-(R1-~-Pad2)",
+    "unconnected-(D1-K-Pad1)"
+   ],
+   "sourceSheets": [
+    "/"
+   ]
+  },
+  {
+   "netUid": "net:ccdd8d41edbac58e6d53",
+   "name": "GND",
+   "netCode": null,
+   "netClass": "Default",
+   "schematicRefs": [
+    {
+     "wireUuids": [],
+     "labelUuids": [],
+     "junctionUuids": [],
+     "pinUuids": [
+      "88888888-8888-4888-8888-888888888882"
+     ],
+     "labelInstanceCount": 0
+    }
+   ],
+   "pcbRefs": [
+    {
+     "trackUuids": [
+      "8ac5e4e1-dc2b-4d24-a9fc-def2dd1c0b9f",
+      "5c22b6e2-b891-4d80-ac89-110e2fd0dd45"
+     ],
+     "arcUuids": [],
+     "viaUuids": [],
+     "zoneUuids": [],
+     "padUuids": [
+      "d628ef2c-b1a5-4092-85f2-ccd7df2ecbaa",
+      "d6fa4594-546c-4557-84f7-de68f6a3b1e0"
+     ]
+    }
+   ],
+   "webgpuRefs": [],
+   "aliases": [
+    "unconnected-(D1-A-Pad2)"
+   ],
+   "sourceSheets": [
+    "/"
+   ]
+  }
+ ],
+ "terminals": [
+  {
+   "terminalUid": "term:485f96fb2a6526769955",
+   "componentUid": "cmp:35a2e28176276495e7fe",
+   "reference": "D1",
+   "pin": "1",
+   "pinName": "K",
+   "pinType": "PASSIVE",
+   "netUid": "net:8c2e4a035f5f3d218f87",
+   "netName": "STATUS",
+   "schematicNetName": "unconnected-(D1-K-Pad1)",
+   "schematicPinUuid": "88888888-8888-4888-8888-888888888881",
+   "pcbPadUuid": "10343e6f-9968-43e4-b459-b90254c477d6"
+  },
+  {
+   "terminalUid": "term:d453425e18a94b240cfe",
+   "componentUid": "cmp:35a2e28176276495e7fe",
+   "reference": "D1",
+   "pin": "2",
+   "pinName": "A",
+   "pinType": "PASSIVE",
+   "netUid": "net:ccdd8d41edbac58e6d53",
+   "netName": "GND",
+   "schematicNetName": "unconnected-(D1-A-Pad2)",
+   "schematicPinUuid": "88888888-8888-4888-8888-888888888882",
+   "pcbPadUuid": "d628ef2c-b1a5-4092-85f2-ccd7df2ecbaa"
+  },
+  {
+   "terminalUid": "term:4d5a485dae985153f80a",
+   "componentUid": "cmp:86b4e333a5d57aa66862",
+   "reference": "R1",
+   "pin": "1",
+   "pinName": "~",
+   "pinType": "PASSIVE",
+   "netUid": "net:436512e5babfbe83cb49",
+   "netName": "+5V",
+   "schematicNetName": "unconnected-(R1-~-Pad1)",
+   "schematicPinUuid": "66666666-6666-4666-8666-666666666661",
+   "pcbPadUuid": "273c016c-e4d1-4e9c-854d-0ca38b3d19d9"
+  },
+  {
+   "terminalUid": "term:8ad42e823b2c7710edb6",
+   "componentUid": "cmp:86b4e333a5d57aa66862",
+   "reference": "R1",
+   "pin": "2",
+   "pinName": "~",
+   "pinType": "PASSIVE",
+   "netUid": "net:8c2e4a035f5f3d218f87",
+   "netName": "STATUS",
+   "schematicNetName": "unconnected-(R1-~-Pad2)",
+   "schematicPinUuid": "66666666-6666-4666-8666-666666666662",
+   "pcbPadUuid": "b51d7448-4f0f-46a4-bf35-9a1dde63805e"
+  },
+  {
+   "terminalUid": "term:19207ed30fcc3cfc44fe",
+   "componentUid": "cmp:493d650d8d15e01b0a25",
+   "reference": "J1",
+   "pin": "1",
+   "netUid": "net:436512e5babfbe83cb49",
+   "netName": "+5V",
+   "pcbPadUuid": "0538944e-01c3-4cb4-8fda-110dd227182a"
+  },
+  {
+   "terminalUid": "term:5d8a39ba6cac45ae722e",
+   "componentUid": "cmp:493d650d8d15e01b0a25",
+   "reference": "J1",
+   "pin": "2",
+   "netUid": "net:ccdd8d41edbac58e6d53",
+   "netName": "GND",
+   "pcbPadUuid": "d6fa4594-546c-4557-84f7-de68f6a3b1e0"
+  }
+ ],
+ "sheetInstances": [
+  {
+   "sheetInstanceUid": "sheet-instance:198a3e3f23c2fa20c9af",
+   "sheetInstancePath": "/44444444-4444-4444-8444-444444444444",
+   "sheetPath": "/",
+   "page": "synthetic.kicad_sch",
+   "parentSheetInstancePath": null,
+   "sheetSymbolUuid": null,
+   "sheetName": "synthetic",
+   "isTopLevel": true,
+   "parentPage": null
+  }
+ ],
+ "buses": [],
+ "indexes": {
+  "componentByReference": {
+   "R1": 0,
+   "D1": 1
+  },
+  "componentBySchematicUuid": {
+   "55555555-5555-4555-8555-555555555555": 0,
+   "77777777-7777-4777-8777-777777777777": 1
+  },
+  "componentByPcbFootprintUuid": {
+   "11111111-1111-4111-8111-111111111111": 0,
+   "22222222-2222-4222-8222-222222222222": 1
+  },
+  "terminalBySchematicPinUuid": {
+   "88888888-8888-4888-8888-888888888881": 0,
+   "88888888-8888-4888-8888-888888888882": 1,
+   "66666666-6666-4666-8666-666666666661": 2,
+   "66666666-6666-4666-8666-666666666662": 3
+  },
+  "terminalByPcbPadUuid": {
+   "273c016c-e4d1-4e9c-854d-0ca38b3d19d9": 2,
+   "b51d7448-4f0f-46a4-bf35-9a1dde63805e": 3,
+   "10343e6f-9968-43e4-b459-b90254c477d6": 0,
+   "d628ef2c-b1a5-4092-85f2-ccd7df2ecbaa": 1,
+   "0538944e-01c3-4cb4-8fda-110dd227182a": 4,
+   "d6fa4594-546c-4557-84f7-de68f6a3b1e0": 5
+  },
+  "terminalByReferencePin": {
+   "D1:1": 0,
+   "D1:2": 1,
+   "R1:1": 2,
+   "R1:2": 3,
+   "J1:1": 4,
+   "J1:2": 5
+  },
+  "netByName": {
+   "unconnected-(D1-K-Pad1)": 1,
+   "unconnected-(D1-A-Pad2)": 2,
+   "+5V": 0,
+   "STATUS": 1,
+   "GND": 2,
+   "unconnected-(R1-~-Pad1)": 0,
+   "unconnected-(R1-~-Pad2)": 1
+  },
+  "netByNetCode": {},
+  "netBySchematicUuid": {
+   "88888888-8888-4888-8888-888888888881": 1,
+   "88888888-8888-4888-8888-888888888882": 2,
+   "66666666-6666-4666-8666-666666666661": 0,
+   "66666666-6666-4666-8666-666666666662": 1
+  },
+  "netByPcbUuid": {
+   "273c016c-e4d1-4e9c-854d-0ca38b3d19d9": 0,
+   "b51d7448-4f0f-46a4-bf35-9a1dde63805e": 1,
+   "10343e6f-9968-43e4-b459-b90254c477d6": 1,
+   "d628ef2c-b1a5-4092-85f2-ccd7df2ecbaa": 2,
+   "0538944e-01c3-4cb4-8fda-110dd227182a": 0,
+   "d6fa4594-546c-4557-84f7-de68f6a3b1e0": 2,
+   "8ac5e4e1-dc2b-4d24-a9fc-def2dd1c0b9f": 2,
+   "5c22b6e2-b891-4d80-ac89-110e2fd0dd45": 2,
+   "de6004d3-60d6-4fe1-9fe8-531736288d01": 0,
+   "3ab564ce-25e2-42b3-9cb0-c076806dc0de": 1
+  },
+  "sheetInstanceByPath": {
+   "/44444444-4444-4444-8444-444444444444": 0
+  },
+  "busByUid": {}
+ },
+ "assembly": {
+  "schema": "prism.assembly_state_a0",
+  "catalog": [
+   {
+    "name": "default",
+    "description": "Populated reference assembly.",
+    "sources": [
+     "project",
+     "pcb",
+     "schematic",
+     "footprint"
+    ]
+   },
+   {
+    "name": "dnp-led",
+    "description": "Status LED omitted from the assembly.",
+    "sources": [
+     "project",
+     "pcb",
+     "schematic",
+     "footprint"
+    ]
+   },
+   {
+    "name": "assembly-reduced",
+    "description": "Status indication omitted for a reduced assembly.",
+    "sources": [
+     "project",
+     "pcb",
+     "schematic",
+     "footprint"
+    ]
+   }
+  ],
+  "footprintInventory": [
+   {
+    "uuid": "11111111-1111-4111-8111-111111111111",
+    "reference": "R1"
+   },
+   {
+    "uuid": "22222222-2222-4222-8222-222222222222",
+    "reference": "D1"
+   },
+   {
+    "uuid": "33333333-3333-4333-8333-333333333333",
+    "reference": "J1"
+   }
+  ],
+  "default": {
+   "occurrences": {},
+   "components": {},
+   "footprints": {}
+  },
+  "variants": [
+   {
+    "name": "default",
+    "occurrences": {},
+    "components": {},
+    "footprints": {}
+   },
+   {
+    "name": "dnp-led",
+    "occurrences": {
+     "/44444444-4444-4444-8444-444444444444/77777777-7777-4777-8777-777777777777": {
+      "dnp": true
+     }
+    },
+    "components": {
+     "cmp:35a2e28176276495e7fe": {
+      "dnp": true
+     }
+    },
+    "footprints": {
+     "22222222-2222-4222-8222-222222222222": {
+      "dnp": true
+     }
+    }
+   },
+   {
+    "name": "assembly-reduced",
+    "occurrences": {
+     "/44444444-4444-4444-8444-444444444444/55555555-5555-4555-8555-555555555555": {
+      "dnp": true
+     },
+     "/44444444-4444-4444-8444-444444444444/77777777-7777-4777-8777-777777777777": {
+      "dnp": true
+     }
+    },
+    "components": {
+     "cmp:86b4e333a5d57aa66862": {
+      "dnp": true
+     },
+     "cmp:35a2e28176276495e7fe": {
+      "dnp": true
+     }
+    },
+    "footprints": {
+     "11111111-1111-4111-8111-111111111111": {
+      "dnp": true
+     },
+     "22222222-2222-4222-8222-222222222222": {
+      "dnp": true
+     }
+    }
+   }
+  ],
+  "diagnostics": []
+ }
+}

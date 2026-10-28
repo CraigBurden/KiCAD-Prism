@@ -1,0 +1,18 @@
+{
+  "_comment": "SB2-20 golden, written by hand from the fixture's WH-001 link rows (system.json): PWR J3 pin 3 (/PAY_PWR) feeds PAY J11 pin 1 (/CH_A/CH_PWR) and PAY J12 pin 1 (/CH_B/CH_PWR). As a harness, End 1 pin 3 carries two wires: a splice.",
+  "harness": "WH-001",
+  "net": {
+    "name": "CH_PWR",
+    "aliases": ["CH_PWR", "PAY_PWR"],
+    "pinCount": 3,
+    "members": [
+      ["PAY", "/CH_A/CH_PWR"],
+      ["PAY", "/CH_B/CH_PWR"],
+      ["PWR", "/PAY_PWR"]
+    ],
+    "hops": [
+      {"from": ["End 1", "3", "PWR", "J3", "3"], "to": ["End 2", "1", "PAY", "J11", "1"]},
+      {"from": ["End 1", "3", "PWR", "J3", "3"], "to": ["End 3", "1", "PAY", "J12", "1"]}
+    ]
+  }
+}
